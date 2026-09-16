@@ -51,3 +51,7 @@ Do **not** put STELLE on a public DEX before three cantos are playable. Devnet v
 | Community / testers / leftover | rest | Closed alpha, first-clears, buffer |
 
 Builder mints the SPL token, deploys the vault program, and owns the PDAs personally.
+
+## License
+
+MIT — see [`LICENSE`](./LICENSE).
