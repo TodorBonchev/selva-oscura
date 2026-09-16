@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://selva-oscura.local/schemas/canto.schema.json",
+  "title": "Canto",
+  "type": "object",
+  "required": ["id", "canticle", "number", "title", "role", "geo", "style_kit"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^(inferno|purgatorio|paradiso)_[0-9]{2}$",
+      "description": "e.g. inferno_01, inferno_05"
+    },
+    "canticle": { "type": "string", "enum": ["inferno", "purgatorio", "paradiso"] },
+    "number": { "type": "integer", "minimum": 1, "maximum": 34 },
+    "title": { "type": "string", "minLength": 1 },
+    "subtitle_it": { "type": "string", "description": "Original Italian or PD phrasing only" },
+    "role": {
+      "type": "string",
+      "enum": ["hub", "combat", "terrace", "trial", "arena"],
+      "description": "inferno_01 is hub, not circle-0 combat"
+    },
+    "circle": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12,
+      "description": "Style kit index among 12 circle kits; omit for hub if using hub kit"
+    },
+    "geo": {
+      "type": "object",
+      "required": ["bounds", "spawn", "exits"],
+      "properties": {
+        "bounds": {
+          "type": "object",
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "number", "exclusiveMinimum": 0 },
+            "height": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "spawn": {
+          "type": "object",
+          "required": ["x", "y"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
+        "exits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["to_canto", "x", "y"],
+            "properties": {
+              "to_canto": { "type": "string" },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "label": { "type": "string" }
+            }
+          }
+        },
+        "pois": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "x", "y"],
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "type": "string", "enum": ["npc", "portal", "stash", "ah", "quest", "craft"] },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "label": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "packs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "drop_table", "count", "elite"],
+        "properties": {
+          "id": { "type": "string" },
+          "archetype": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1 },
+          "elite": { "type": "boolean" },
+          "champion": { "type": "boolean", "default": false },
+          "drop_table": { "type": "string", "description": "Id under content/drops/tables/" },
+          "anchor": {
+            "type": "object",
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+          }
+        }
+      }
+    },
+    "bosses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "drop_table"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "drop_table": { "type": "string" },
+          "anchor": {
+            "type": "object",
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+          },
+          "first_clear_emit": { "type": "boolean", "default": true }
+        }
+      }
+    },
+    "first_clear": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "event": { "type": "string", "const": "FirstClear" },
+        "requires": { "type": "string", "description": "boss id or objective id" }
+      }
+    },
+    "daily_quests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "objective"],
+        "properties": {
+          "id": { "type": "string" },
+          "objective": { "type": "string" },
+          "emit_event": { "type": "string", "const": "DailyQuest" }
+        }
+      }
+    },
+    "style_kit": {
+      "type": "object",
+      "required": ["palette", "kit_id"],
+      "properties": {
+        "palette": { "type": "string", "enum": ["inferno_red_black", "purgatorio_marble_dawn", "paradiso_white_gold", "hub_bone_gold"] },
+        "kit_id": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "loot_density": {
+      "type": "string",
+      "enum": ["none", "low", "raw_d2", "craft_focus", "trial_only"],
+      "description": "Inferno = raw_d2; hub often low/none"
+    },
+    "legal": {
+      "type": "object",
+      "properties": {
+        "text_source": { "type": "string", "enum": ["italian_original", "public_domain_translation", "original_game_copy"] },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

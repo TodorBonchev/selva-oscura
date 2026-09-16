@@ -1,0 +1,17 @@
+{
+  "name": "selva-oscura-client",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Selva Oscura browser client — Phaser lean isometric 2D; DOM UI for AH/inventory",
+  "scripts": {
+    "dev": "echo \"Phaser client stub — implement in Slice 1\"",
+    "build": "echo \"No build yet\"",
+    "typecheck": "echo \"No tsconfig wired yet\""
+  },
+  "dependencies": {
+    "phaser": "^3.80.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

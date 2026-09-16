@@ -1,0 +1,24 @@
+{
+  "$comment": "Locked starting emit rates — payout = remaining * p[event]; tune via sim; on-chain via timelock only",
+  "vault_start_stelle": 300000000,
+  "hard_cap_stelle": 1000000000,
+  "ash_per_stelle": 1000,
+  "formula": "payout = R * p[event_type]; R -= payout",
+  "eligible_events_only": ["DailyQuest", "ChampionPack", "Boss", "FirstClear"],
+  "never_emit_on": ["trash_kill"],
+  "p_by_event": {
+    "DailyQuest": 1e-7,
+    "ChampionPack": 3e-7,
+    "Boss": 5e-7,
+    "FirstClear": 2e-6
+  },
+  "p_champion_pack_range": { "min": 1e-7, "max": 5e-7, "starting": 3e-7 },
+  "caps": {
+    "daily_quest_per_player_per_utc_day": 1,
+    "boss_per_player_hourly": 3,
+    "boss_global_hourly": 500,
+    "first_clear_once_per_canto_per_account": true,
+    "optional_max_remaining_fraction_per_utc_day": 0.0001
+  },
+  "notes": "Optional global daily cap ~0.01% of remaining vault. Exact p table after sim is Open, not locked."
+}

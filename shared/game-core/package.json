@@ -1,0 +1,14 @@
+{
+  "name": "@selva-oscura/game-core",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared Ash/EventType/ItemRarity types for Selva Oscura",
+  "main": "src/types.ts",
+  "types": "src/types.ts",
+  "scripts": {
+    "typecheck": "echo \"Wire tsc when monorepo toolchain lands\""
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

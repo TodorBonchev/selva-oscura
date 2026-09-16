@@ -1,0 +1,19 @@
+{
+  "name": "selva-oscura-sim",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Headless season/economy simulator for STELLE vault emit + burn sinks",
+  "bin": {
+    "sim": "./bin/sim.js"
+  },
+  "scripts": {
+    "season": "node ./bin/sim.js season",
+    "dry-run": "node ./bin/sim.js dry-run"
+  },
+  "dependencies": {
+    "@selva-oscura/game-core": "workspace:*"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

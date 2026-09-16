@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://selva-oscura.local/schemas/drop_table.schema.json",
+  "title": "DropTable",
+  "type": "object",
+  "required": ["id", "rolls", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "rolls": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Independent weighted picks per kill/clear"
+    },
+    "no_drop_weight": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Weight added for empty result"
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["weight", "rarity"],
+        "properties": {
+          "weight": { "type": "number", "exclusiveMinimum": 0 },
+          "rarity": {
+            "type": "string",
+            "enum": ["normal", "magic", "rare", "set", "unique", "canto_unique"]
+          },
+          "item_pool": { "type": "string", "description": "Affix/base pool id" },
+          "qty_min": { "type": "integer", "minimum": 1, "default": 1 },
+          "qty_max": { "type": "integer", "minimum": 1, "default": 1 },
+          "soulbound": { "type": "boolean", "default": false },
+          "season_only": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "champion_bonus_rolls": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Extra rolls when pack flagged champion (may also gate ChampionPack emit)"
+    },
+    "boss_guaranteed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rarity"],
+        "properties": {
+          "rarity": {
+            "type": "string",
+            "enum": ["normal", "magic", "rare", "set", "unique", "canto_unique"]
+          },
+          "item_pool": { "type": "string" },
+          "soulbound": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}
