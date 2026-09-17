@@ -12,8 +12,8 @@ export const RECONCILE_IDLE = 8;
 /** Remote / mob exponential smooth rate (per second). */
 export const REMOTE_SMOOTH = 12;
 /** Soft camera follow (mobile). Desktop snaps harder. */
-export const CAM_LERP_MOBILE = 0.14;
-export const CAM_LERP_DESKTOP = 0.35;
+export const CAM_LERP_MOBILE = 0.09;
+export const CAM_LERP_DESKTOP = 0.18;
 
 export function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.y - b.y);

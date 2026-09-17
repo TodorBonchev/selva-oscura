@@ -35,8 +35,10 @@ import {
   tickParticles,
   drawParticles,
   preloadDoreKit,
+  preloadItemIcons,
   hasTexture,
   entityDoreKey,
+  lootTextureKey,
   DORE_KEYS,
   DORE_CROP,
   DORE_BLEND,
@@ -75,10 +77,15 @@ const AUTO_PICKUP_RETRY_MS = 900;
 const MOBILE_ZOOM = 0.65;
 const MOBILE_ZOOM_TABLET = 0.72;
 const DESKTOP_ZOOM = 1;
-const ATTACK_HOLD_MS = 280;
+const ATTACK_HOLD_MS = 720;
 /** Local predicted move speed (world units / sec) — matches server feel. */
-const PREDICT_SPEED = 7.2;
+const PREDICT_SPEED = 7.0;
+const MOVE_ACCEL = 28;
+const MOVE_FRICTION = 18;
 const TAP_ARRIVE = 0.35;
+const ATTACK_WINDUP_MS = 140;
+const ATTACK_RECOVERY_MS = 380;
+const ATTACK_SWIPE_MS = 220;
 
 type HitFx = {
   start: number;
@@ -134,6 +141,13 @@ export class WorldScene extends Phaser.Scene {
   autoPickupSent = new Map<string, number>();
   lastAutoPickupScan = 0;
   lastCompact: boolean | null = null;
+  /** Damped local velocity (world units / sec). */
+  velX = 0;
+  velY = 0;
+  facingLeft = false;
+  attackBusyUntil = 0;
+  swipeFx: { until: number; dir: number; start: number } | null = null;
+  lastYouSnapshot: any = null;
 
   constructor() {
     super("world");
@@ -146,6 +160,7 @@ export class WorldScene extends Phaser.Scene {
   preload() {
     this.doreLoadAttempted = true;
     preloadDoreKit(this);
+    preloadItemIcons(this);
     this.load.on("loaderror", (file: Phaser.Loader.File) => {
       if (file?.key && String(file.key).startsWith("dore_")) {
         this.doreFailed.add(file.key);
@@ -266,6 +281,22 @@ export class WorldScene extends Phaser.Scene {
       attackNearest: () => this.attackNearest(),
       onAttackHoldStart: () => this.startAttackHold(),
       onAttackHoldEnd: () => this.stopAttackHold(),
+      equipSelected: () => {
+        const id = getSelectedItemId();
+        if (!id) {
+          showToast("Select an item to equip", "warn");
+          return;
+        }
+        this.socket.equip(id);
+      },
+      unequipSelected: () => {
+        const id = getSelectedItemId();
+        if (!id) {
+          showToast("Select equipped gear to unequip", "warn");
+          return;
+        }
+        this.socket.unequip({ itemId: id });
+      },
     });
   }
 
@@ -373,10 +404,34 @@ export class WorldScene extends Phaser.Scene {
     this.sendAttack(best.id);
   }
 
-  /** Send attack + local swing punch on the player sprite. */
+  /** Send attack with brief wind-up, swipe arc, and recovery (less spammy). */
   sendAttack(targetId: string) {
-    this.socket.attack(targetId);
-    this.punch("you", { dur: 140, punch: 0.12, tint: null, ox: 0, oy: -3 });
+    const now = Date.now();
+    if (now < this.attackBusyUntil) return;
+    this.attackBusyUntil = now + ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
+    this.swipeFx = {
+      start: this.animT,
+      until: this.animT + ATTACK_SWIPE_MS,
+      dir: this.facingLeft ? -1 : 1,
+    };
+    this.punch("you", { dur: ATTACK_WINDUP_MS + 40, punch: 0.16, tint: 0xffe8a0, ox: this.facingLeft ? -6 : 6, oy: -4 });
+    this.time.delayedCall(ATTACK_WINDUP_MS, () => {
+      this.socket.attack(targetId);
+      this.punch("you", { dur: 120, punch: 0.1, tint: null, ox: this.facingLeft ? -4 : 4, oy: -2 });
+    });
+  }
+
+  refreshInventoryUi() {
+    const you = this.lastYouSnapshot;
+    if (!you) return;
+    renderInventory(you.inventory || [], () => {}, {
+      equipped: you.equipped || {},
+      gearStats: you.gearStats || {},
+      onEquipSlotClick: (slot) => {
+        const worn = you.equipped?.[slot];
+        if (worn) this.socket.unequip({ slot });
+      },
+    });
   }
 
   punch(
@@ -404,7 +459,8 @@ export class WorldScene extends Phaser.Scene {
         this.room = msg.room;
         this.lastSnapAt = Date.now();
         updateStats(msg.room.you, msg.room.title);
-        renderInventory(msg.room.you.inventory || [], () => {});
+        this.lastYouSnapshot = msg.room.you;
+        this.refreshInventoryUi();
 
         const sx = msg.room.you.x as number;
         const sy = msg.room.you.y as number;
@@ -632,7 +688,7 @@ export class WorldScene extends Phaser.Scene {
     sx: number,
     sy: number,
     depth: number,
-    opts?: { tint?: number; bob?: number }
+    opts?: { tint?: number; bob?: number; flipX?: boolean }
   ): boolean {
     if (!this.doreOk(texKey)) {
       this.hideSprite(id);
@@ -675,6 +731,7 @@ export class WorldScene extends Phaser.Scene {
       }
     }
     img.setScale(base.sx * scaleMul, base.sy * scaleMul);
+    if (opts?.flipX != null) img.setFlipX(opts.flipX);
     img.setPosition(sx + ox, sy - 4 + bob + oy);
     img.setDepth(depth);
     img.setVisible(true);
@@ -869,12 +926,17 @@ export class WorldScene extends Phaser.Scene {
         const strong = rarity !== "normal" && rarity !== "magic";
         drawLootGlow(g, p.sx, p.sy, tint, this.animT, compact, strong);
         const bob = Math.sin(this.animT * 0.004 + p.sx * 0.01) * (compact ? 3 : 2);
-        if (
+        const lootKey = lootTextureKey(e.item);
+        const placedLoot =
+          this.placeSprite(sid, lootKey, p.sx, p.sy, depth, {
+            tint: rarity === "normal" ? undefined : tint,
+            bob,
+          }) ||
           this.placeSprite(sid, DORE_KEYS.loot_gem, p.sx, p.sy, depth, {
             tint: rarity === "normal" ? 0xe8dcc0 : tint,
             bob,
-          })
-        ) {
+          });
+        if (placedLoot) {
           seenSprites.add(sid);
         } else {
           drawLoot(g, p.sx, p.sy, e.item?.rarity, compact, this.animT);
@@ -912,12 +974,28 @@ export class WorldScene extends Phaser.Scene {
       const sid = "you";
       drawEntityPad(g, p.sx, p.sy, compact ? 1.6 : 1.2);
       let topY = p.sy - 42;
-      if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth)) {
+      if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth, { flipX: this.facingLeft })) {
         seenSprites.add(sid);
         const b = this.spriteBase.get(sid);
         if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
       } else {
         drawPlayer(g, p.sx, p.sy, true);
+      }
+      // Attack swipe arc feedback
+      if (this.swipeFx && this.animT <= this.swipeFx.until) {
+        const prog = (this.animT - this.swipeFx.start) / Math.max(1, this.swipeFx.until - this.swipeFx.start);
+        const ang = (this.swipeFx.dir > 0 ? -0.9 : Math.PI + 0.9) + prog * this.swipeFx.dir * 1.6;
+        const reach = compact ? 42 : 32;
+        g.lineStyle(3, 0xffe08a, 0.75 * (1 - prog));
+        g.beginPath();
+        g.arc(p.sx, p.sy - 18, reach, ang - 0.35, ang + 0.35, false);
+        g.strokePath();
+        g.lineStyle(1.5, 0xffffff, 0.35 * (1 - prog));
+        g.beginPath();
+        g.arc(p.sx, p.sy - 18, reach * 0.85, ang - 0.2, ang + 0.2, false);
+        g.strokePath();
+      } else if (this.swipeFx && this.animT > this.swipeFx.until) {
+        this.swipeFx = null;
       }
       this.addLabel("you", p.sx, topY - (compact ? 14 : 10), "You", labelSize, seenLabels);
       const you = this.room.you;
@@ -985,20 +1063,30 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * Apply continuous intent immediately to renderYou, throttle server move.
-   * dx/dy are iso world axes (same basis as WASD).
+   * Accelerate toward intent (iso axes), integrate velocity, throttle server move.
    */
   private applyContinuousMove(dx: number, dy: number, dtSec: number) {
     if (!this.room) return;
-    if (dx === 0 && dy === 0) return;
-    const len = Math.hypot(dx, dy) || 1;
-    const step = PREDICT_SPEED * dtSec;
-    const nx = this.renderYou.x + (dx / len) * step;
-    const ny = this.renderYou.y + (dy / len) * step;
-    this.renderYou = this.clampToBounds(nx, ny);
-    this.moveTarget = null;
-    this.predicting = true;
-    this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
+    const len = Math.hypot(dx, dy);
+    if (len > 0.001) {
+      const nx = dx / len;
+      const ny = dy / len;
+      this.velX += nx * MOVE_ACCEL * dtSec;
+      this.velY += ny * MOVE_ACCEL * dtSec;
+      // Cap speed (scale by stick magnitude when provided via length>1 clamp)
+      const mag = Math.min(1, len);
+      const maxSp = PREDICT_SPEED * Math.max(0.35, mag);
+      const sp = Math.hypot(this.velX, this.velY);
+      if (sp > maxSp) {
+        this.velX = (this.velX / sp) * maxSp;
+        this.velY = (this.velY / sp) * maxSp;
+      }
+      // Facing from screen-ish: iso x+y grows down-right; prefer dx screen = dy_iso+dx_iso roughly
+      const screenDx = nx - ny; // rough: D/A horizontal feel
+      if (Math.abs(screenDx) > 0.15) this.facingLeft = screenDx < 0;
+      this.moveTarget = null;
+    }
+    this.integrateVelocity(dtSec, true);
   }
 
   private advanceTapMove(dtSec: number) {
@@ -1008,15 +1096,46 @@ export class WorldScene extends Phaser.Scene {
     const d = Math.hypot(dx, dy);
     if (d < TAP_ARRIVE) {
       this.moveTarget = null;
+      this.velX = 0;
+      this.velY = 0;
       this.predicting = false;
       return;
     }
-    const step = Math.min(d, PREDICT_SPEED * dtSec);
-    const nx = this.renderYou.x + (dx / d) * step;
-    const ny = this.renderYou.y + (dy / d) * step;
+    // Accelerate toward target rather than teleport-step
+    this.velX += (dx / d) * MOVE_ACCEL * dtSec;
+    this.velY += (dy / d) * MOVE_ACCEL * dtSec;
+    const sp = Math.hypot(this.velX, this.velY);
+    if (sp > PREDICT_SPEED) {
+      this.velX = (this.velX / sp) * PREDICT_SPEED;
+      this.velY = (this.velY / sp) * PREDICT_SPEED;
+    }
+    if (Math.abs(dx - dy) > 0.01) this.facingLeft = dx - dy < 0;
+    this.integrateVelocity(dtSec, true);
+    this.sendMoveThrottled(this.moveTarget.x, this.moveTarget.y);
+  }
+
+  private integrateVelocity(dtSec: number, driven: boolean) {
+    if (!driven) {
+      // Friction / deceleration when no input
+      const sp = Math.hypot(this.velX, this.velY);
+      if (sp < 0.05) {
+        this.velX = 0;
+        this.velY = 0;
+      } else {
+        const cut = Math.max(0, sp - MOVE_FRICTION * dtSec);
+        this.velX = (this.velX / sp) * cut;
+        this.velY = (this.velY / sp) * cut;
+      }
+    }
+    if (this.velX === 0 && this.velY === 0) {
+      if (!driven) this.predicting = false;
+      return;
+    }
+    const nx = this.renderYou.x + this.velX * dtSec;
+    const ny = this.renderYou.y + this.velY * dtSec;
     this.renderYou = this.clampToBounds(nx, ny);
     this.predicting = true;
-    this.sendMoveThrottled(this.moveTarget.x, this.moveTarget.y);
+    this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
   }
 
   /** Auto-loot: request pickup for loot near the player (server range-checks). */
@@ -1079,6 +1198,8 @@ export class WorldScene extends Phaser.Scene {
       this.applyContinuousMove(dx, dy, dtSec);
     } else if (this.moveTarget) {
       this.advanceTapMove(dtSec);
+    } else {
+      this.integrateVelocity(dtSec, false);
     }
 
     // Reconcile local render toward last server snapshot

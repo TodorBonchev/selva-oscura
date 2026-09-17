@@ -7,6 +7,10 @@ import {
   players,
   grantInventoryItem,
   persistPlayerFlags,
+  computeGearStats,
+  equipItem,
+  unequipItem,
+  unequipSlot,
 } from "./ledger.mjs";
 import * as ah from "./ah.mjs";
 
@@ -17,7 +21,8 @@ const INTERACT_RANGE = 5.2;
 const INTERACT_RANGE_PORTAL = 6.2;
 const MOVE_SPEED = 8; // units per intent clamp
 const PLAYER_MAX_HP = 100;
-const PLAYER_DMG = 28;
+const PLAYER_BASE_DMG = 22;
+const PLAYER_ATK_CD = 0.72;
 
 const MOB_HP = {
   whirl_shade: 40,
@@ -137,13 +142,15 @@ class CantoRoom {
   join(ws, playerId, name) {
     const ledger = getOrCreatePlayer(playerId, name);
     const spawn = this.canto.geo.spawn;
+    const gear = computeGearStats(ledger);
+    const maxHp = PLAYER_MAX_HP + gear.maxHp;
     const sess = {
       ws,
       playerId,
       x: spawn.x,
       y: spawn.y,
-      hp: PLAYER_MAX_HP,
-      maxHp: PLAYER_MAX_HP,
+      hp: maxHp,
+      maxHp,
       atkCd: 0,
       cantoId: this.cantoId,
     };
@@ -273,8 +280,9 @@ class CantoRoom {
       this.toast(s.ws, "warn", "Out of range.");
       return;
     }
-    s.atkCd = 0.45;
-    const dmg = PLAYER_DMG + Math.floor(Math.random() * 8);
+    s.atkCd = PLAYER_ATK_CD;
+    const gear = computeGearStats(players.get(playerId) || { inventory: [] });
+    const dmg = PLAYER_BASE_DMG + gear.dmg + Math.floor(Math.random() * 6);
     target.hp = Math.max(0, target.hp - dmg);
     this.broadcast({
       type: "combat",
@@ -361,7 +369,8 @@ class CantoRoom {
       this.toast(s.ws, "warn", "Too far to pick up.");
       return;
     }
-    if (ledger.inventory.length >= 40) {
+    const bagCount = ledger.inventory.filter((i) => !i.equipSlot).length;
+    if (bagCount >= 40) {
       this.toast(s.ws, "warn", "Inventory full.");
       return;
     }
@@ -437,6 +446,40 @@ class CantoRoom {
     this.pushSnapshot(playerId);
   }
 
+  async handleEquip(playerId, itemId) {
+    const s = this.sessions.get(playerId);
+    if (!s) return;
+    const r = await equipItem(playerId, itemId);
+    if (!r.ok) {
+      this.toast(s.ws, "warn", `Cannot equip: ${r.reason}`);
+      return;
+    }
+    const gear = r.gearStats || computeGearStats(players.get(playerId));
+    const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
+    s.maxHp = PLAYER_MAX_HP + gear.maxHp;
+    s.hp = Math.max(1, Math.min(s.maxHp, Math.round(s.maxHp * ratio)));
+    this.toast(s.ws, "info", `Equipped ${r.item.name} → ${r.slot}`);
+    this.pushSnapshot(playerId);
+  }
+
+  async handleUnequip(playerId, itemId, slot) {
+    const s = this.sessions.get(playerId);
+    if (!s) return;
+    const r = itemId
+      ? await unequipItem(playerId, itemId)
+      : await unequipSlot(playerId, slot);
+    if (!r.ok) {
+      this.toast(s.ws, "warn", `Cannot unequip: ${r.reason}`);
+      return;
+    }
+    const gear = r.gearStats || computeGearStats(players.get(playerId));
+    const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
+    s.maxHp = PLAYER_MAX_HP + gear.maxHp;
+    s.hp = Math.max(1, Math.min(s.maxHp, Math.round(s.maxHp * ratio)));
+    this.toast(s.ws, "info", `Unequipped ${r.item.name}`);
+    this.pushSnapshot(playerId);
+  }
+
   markDirty() {
     this.dirty = true;
   }
@@ -473,13 +516,16 @@ class CantoRoom {
       if (nearestD <= 2.2 && e.atkCd <= 0) {
         const arch = e.archetype || (e.kind === "boss" ? "boss" : "whirl_shade");
         const dmg = e.champion ? MOB_DMG.gale_champion : MOB_DMG[arch] || MOB_DMG.whirl_shade;
-        nearest.hp = Math.max(0, nearest.hp - dmg);
+        const led = players.get(nearest.playerId);
+        const armor = led ? computeGearStats(led).armor : 0;
+        const taken = Math.max(1, dmg - Math.floor(armor * 0.5));
+        nearest.hp = Math.max(0, nearest.hp - taken);
         e.atkCd = e.kind === "boss" ? 1.2 : 0.9;
         this.broadcast({
           type: "combat",
           attackerId: e.id,
           targetId: nearest.playerId,
-          damage: dmg,
+          damage: taken,
           targetHp: nearest.hp,
         });
         this.markDirty();

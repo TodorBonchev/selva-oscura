@@ -99,6 +99,14 @@ export interface Vec2 {
   y: number;
 }
 
+export type EquipSlot =
+  | "Head"
+  | "Chest"
+  | "Hands"
+  | "Feet"
+  | "MainHand"
+  | "OffHand";
+
 export interface GameItem {
   id: string;
   name: string;
@@ -108,6 +116,15 @@ export interface GameItem {
   affixes: string[];
   soulbound: boolean;
   qty: number;
+  baseId?: string | null;
+  slot?: string | null;
+  equipSlot?: EquipSlot | null;
+}
+
+export interface GearStats {
+  dmg: number;
+  maxHp: number;
+  armor: number;
 }
 
 export interface AhListing {
@@ -149,6 +166,8 @@ export interface PlayerSnapshot {
   ash: number;
   pendingAsh: number;
   inventory: GameItem[];
+  equipped?: Partial<Record<EquipSlot, GameItem>>;
+  gearStats?: GearStats;
   firstClears: string[];
   dailyQuestDoneUtc: string | null;
   visitedInferno: boolean;

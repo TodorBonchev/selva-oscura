@@ -6,6 +6,7 @@ import {
 } from "../vendor/constants.mjs";
 import { loadEmitRates } from "./content.mjs";
 import { dbEnabled, query, withTransaction } from "./db.mjs";
+import { contentSlotToEquip, itemStatBonus } from "./loot.mjs";
 
 const rates = loadEmitRates();
 const pByEvent = rates.p_by_event || STARTING_EMIT_P;
@@ -63,6 +64,9 @@ function itemFromRow(row) {
     affixes: Array.isArray(row.affixes) ? row.affixes : row.affixes || [],
     soulbound: Boolean(row.soulbound),
     qty: Number(row.qty) || 1,
+    baseId: row.base_id || null,
+    slot: row.slot || null,
+    equipSlot: row.equipped_slot || null,
   };
 }
 
@@ -93,7 +97,7 @@ export async function hydrateFromDb() {
 
   const playerRows = await query("SELECT * FROM players");
   const invRows = await query(
-    `SELECT * FROM inventory_items WHERE location IN ('inventory', 'stash')`
+    `SELECT * FROM inventory_items WHERE location IN ('inventory', 'stash', 'equipped')`
   );
   const fcRows = await query("SELECT * FROM first_clears");
   const emitRows = await query(
@@ -107,7 +111,10 @@ export async function hydrateFromDb() {
     const list = invByOwner.get(row.owner_id) || { inventory: [], stash: [] };
     const item = itemFromRow(row);
     if (row.location === "stash") list.stash.push(item);
-    else list.inventory.push(item);
+    else {
+      // equipped items stay in the inventory array with equipSlot set
+      list.inventory.push(item);
+    }
     invByOwner.set(row.owner_id, list);
   }
 
@@ -212,10 +219,12 @@ async function persistGlobalBossCap() {
 
 export async function persistItem(ownerId, item, location = "inventory") {
   if (!dbEnabled()) return;
+  const loc = item.equipSlot ? "equipped" : location;
   await query(
     `INSERT INTO inventory_items (
-       id, owner_id, location, name, rarity, item_pool, seed, affixes, soulbound, qty
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+       id, owner_id, location, name, rarity, item_pool, seed, affixes, soulbound, qty,
+       equipped_slot, base_id, slot
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13)
      ON CONFLICT (id) DO UPDATE SET
        owner_id = EXCLUDED.owner_id,
        location = EXCLUDED.location,
@@ -226,11 +235,14 @@ export async function persistItem(ownerId, item, location = "inventory") {
        affixes = EXCLUDED.affixes,
        soulbound = EXCLUDED.soulbound,
        qty = EXCLUDED.qty,
+       equipped_slot = EXCLUDED.equipped_slot,
+       base_id = EXCLUDED.base_id,
+       slot = EXCLUDED.slot,
        updated_at = NOW()`,
     [
       item.id,
       ownerId,
-      location,
+      loc,
       item.name,
       item.rarity,
       item.itemPool ?? null,
@@ -238,6 +250,9 @@ export async function persistItem(ownerId, item, location = "inventory") {
       JSON.stringify(item.affixes || []),
       Boolean(item.soulbound),
       item.qty ?? 1,
+      item.equipSlot ?? null,
+      item.baseId ?? null,
+      item.slot ?? null,
     ]
   );
 }
@@ -326,6 +341,11 @@ export function getOrCreatePlayer(id, name) {
 }
 
 export function snapshotPlayer(p, pos) {
+  const equipped = {};
+  for (const it of p.inventory || []) {
+    if (it.equipSlot) equipped[it.equipSlot] = it;
+  }
+  const bag = (p.inventory || []).filter((it) => !it.equipSlot);
   return {
     id: p.id,
     name: p.name,
@@ -336,7 +356,9 @@ export function snapshotPlayer(p, pos) {
     cantoId: pos.cantoId,
     ash: p.ash,
     pendingAsh: p.pendingAsh,
-    inventory: p.inventory,
+    inventory: bag,
+    equipped,
+    gearStats: computeGearStats(p),
     firstClears: [...p.firstClears],
     dailyQuestDoneUtc: p.dailyQuestDoneUtc,
     visitedInferno: p.visitedInferno,
@@ -542,3 +564,64 @@ export async function persistAshNow(playerId) {
 }
 
 export { players, playersByName, persistPlayerRow, persistVault, persistGlobalBossCap };
+
+
+export function computeGearStats(p) {
+  const stats = { dmg: 0, maxHp: 0, armor: 0 };
+  for (const it of p.inventory || []) {
+    if (!it.equipSlot) continue;
+    const b = itemStatBonus(it);
+    stats.dmg += b.dmg;
+    stats.maxHp += b.maxHp;
+    stats.armor += b.armor;
+  }
+  return stats;
+}
+
+export async function equipItem(playerId, itemId) {
+  const p = players.get(playerId);
+  if (!p) return { ok: false, reason: "no_player" };
+  const item = p.inventory.find((i) => i.id === itemId);
+  if (!item) return { ok: false, reason: "not_found" };
+  const slot = contentSlotToEquip(item.slot) || contentSlotToEquip(
+    // infer from baseId for older rows
+    item.baseId === "ashen_club" ? "weapon"
+      : item.baseId === "torn_cape" ? "armor"
+      : item.baseId === "ash_helm" ? "helm"
+      : item.baseId === "pilgrim_boots" ? "boots"
+      : item.baseId === "grave_gloves" ? "gloves"
+      : item.baseId === "rusty_buckler" ? "offhand"
+      : null
+  );
+  if (!slot) return { ok: false, reason: "not_equippable" };
+  // Unequip existing in that slot
+  for (const other of p.inventory) {
+    if (other.equipSlot === slot && other.id !== item.id) {
+      other.equipSlot = null;
+      await persistItem(playerId, other, "inventory");
+    }
+  }
+  item.equipSlot = slot;
+  await persistItem(playerId, item, "equipped");
+  return { ok: true, item, slot, gearStats: computeGearStats(p) };
+}
+
+export async function unequipItem(playerId, itemId) {
+  const p = players.get(playerId);
+  if (!p) return { ok: false, reason: "no_player" };
+  const item = p.inventory.find((i) => i.id === itemId);
+  if (!item) return { ok: false, reason: "not_found" };
+  if (!item.equipSlot) return { ok: false, reason: "not_equipped" };
+  item.equipSlot = null;
+  await persistItem(playerId, item, "inventory");
+  return { ok: true, item, gearStats: computeGearStats(p) };
+}
+
+export async function unequipSlot(playerId, slot) {
+  const p = players.get(playerId);
+  if (!p) return { ok: false, reason: "no_player" };
+  const item = p.inventory.find((i) => i.equipSlot === slot);
+  if (!item) return { ok: false, reason: "empty_slot" };
+  return unequipItem(playerId, item.id);
+}
+

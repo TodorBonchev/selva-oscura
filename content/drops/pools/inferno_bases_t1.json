@@ -1,10 +1,12 @@
 {
   "id": "inferno_bases_t1",
   "items": [
-    { "name": "Bone Shard", "slot": "misc" },
-    { "name": "Ashen Club", "slot": "weapon" },
-    { "name": "Torn Cape", "slot": "armor" },
-    { "name": "Rusty Buckler", "slot": "offhand" },
-    { "name": "Pilgrim Boots", "slot": "boots" }
+    { "name": "Bone Shard", "slot": "misc", "baseId": "bone_shard" },
+    { "name": "Ashen Club", "slot": "weapon", "baseId": "ashen_club" },
+    { "name": "Torn Cape", "slot": "armor", "baseId": "torn_cape" },
+    { "name": "Rusty Buckler", "slot": "offhand", "baseId": "rusty_buckler" },
+    { "name": "Pilgrim Boots", "slot": "boots", "baseId": "pilgrim_boots" },
+    { "name": "Ash Helm", "slot": "helm", "baseId": "ash_helm" },
+    { "name": "Grave Gloves", "slot": "gloves", "baseId": "grave_gloves" }
   ]
 }
