@@ -24,24 +24,26 @@ http://localhost:5173/?server=http://localhost:8080&name=Virgil
 
 | Input | Action |
 |---|---|
-| Click / tap ground · WASD | Move (server-authoritative) |
+| Click / tap ground · WASD · **virtual stick** | Move (server-authoritative) |
 | Click / tap mob / boss | Attack |
 | Click / tap loot | Pick up |
 | Click / tap POI · **E** · **Interact** button | Interact (Guide, Stash, AH, Daily, exits) |
 | **I** · **Inv** button | Toggle inventory |
 | **H** · **AH** button | Toggle auction house (+ browse refresh) |
-| **Attack** button | Attack nearest foe in range |
+| **Attack** button (tap or hold) | Attack nearest foe in range |
 
 ### Mobile / narrow screens
 
-- Bottom **action bar** (Inv · AH · Interact · Attack) is always available; keyboard chords are optional.
-- HUD help switches to tap-oriented hints under ~640px / coarse pointer.
+- **Virtual joystick** (bottom-left): shown on touch, coarse pointer, or ≤640px width. Drag to move; release to stop. Uses the same rate-limited `socket.move` path as WASD.
+- Stick captures its own pointer events so world picking ignores stick drags. Tap-to-move still works on empty ground **outside** the stick zone; while the stick is active, continuous move wins over destination taps.
+- Bottom **action bar** sits to the **right of the stick** (Inv · AH · Interact · Attack) so thumbs don’t collide. Attack is slightly larger; hold Attack to keep swinging at the nearest foe.
+- HUD help switches to stick-oriented hints under ~640px / coarse pointer.
 - Inventory & AH panels become full-width bottom sheets with larger tap targets (~44px) and close buttons.
-- Camera zooms out slightly (`0.7`) so hub POIs stay visible with the player; follow-player is unchanged.
+- Camera zooms out on compact UI (`0.65` phones / `0.72` wider tablets) with soft follow so hub POIs stay readable while stick-driving.
 - Entity tap hit-radius is larger on compact UI; Phaser `pointerdown` works for touch (no hover-only controls).
-- Safe-area insets are respected for notched phones (`viewport-fit=cover`).
+- Safe-area insets are respected for notched phones (`viewport-fit=cover`). Game root uses `touch-action: none` to block browser scroll/zoom over the canvas.
 
-Desktop still supports WASD / I / H / E. Nothing in the server protocol changes for mobile.
+Desktop still supports WASD / I / H / E; the stick stays hidden on fine-pointer wide viewports. Nothing in the server protocol changes for mobile.
 
 ## Build (Vercel)
 

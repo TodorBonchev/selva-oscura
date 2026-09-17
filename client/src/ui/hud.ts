@@ -97,6 +97,14 @@ export function isCompactUi(): boolean {
   );
 }
 
+function hapticLight() {
+  try {
+    (navigator as Navigator & { vibrate?: (n: number) => void }).vibrate?.(10);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function wireHud(api: {
   listSelected: (price: number) => void;
   refreshAh: () => void;
@@ -104,6 +112,8 @@ export function wireHud(api: {
   toggleAh: () => void;
   interactNearest: () => void;
   attackNearest: () => void;
+  onAttackHoldStart?: () => void;
+  onAttackHoldEnd?: () => void;
 }) {
   document.getElementById("btn-list")?.addEventListener("click", () => {
     const price = Number((document.getElementById("list-price") as HTMLInputElement)?.value);
@@ -113,20 +123,44 @@ export function wireHud(api: {
 
   document.getElementById("btn-inv")?.addEventListener("click", (e) => {
     e.preventDefault();
+    hapticLight();
     api.toggleInventory();
   });
   document.getElementById("btn-ah")?.addEventListener("click", (e) => {
     e.preventDefault();
+    hapticLight();
     api.toggleAh();
   });
   document.getElementById("btn-interact")?.addEventListener("click", (e) => {
     e.preventDefault();
+    hapticLight();
     api.interactNearest();
   });
-  document.getElementById("btn-attack")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    api.attackNearest();
-  });
+
+  const attackBtn = document.getElementById("btn-attack");
+  if (attackBtn) {
+    let holdArmed = false;
+    const endHold = (e: Event) => {
+      if (!holdArmed) return;
+      holdArmed = false;
+      e.preventDefault();
+      attackBtn.classList.remove("pressed");
+      api.onAttackHoldEnd?.();
+    };
+    attackBtn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      holdArmed = true;
+      attackBtn.classList.add("pressed");
+      hapticLight();
+      if (api.onAttackHoldStart) api.onAttackHoldStart();
+      else api.attackNearest();
+    });
+    attackBtn.addEventListener("pointerup", endHold);
+    attackBtn.addEventListener("pointerleave", endHold);
+    attackBtn.addEventListener("pointercancel", endHold);
+    // Avoid duplicate click after pointerup
+    attackBtn.addEventListener("click", (e) => e.preventDefault());
+  }
 
   document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((btn) => {
     btn.addEventListener("click", (e) => {

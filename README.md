@@ -39,7 +39,7 @@ Production client default: `VITE_GAME_SERVER_URL` → Railway URL above (overrid
 
 ### Controls
 
-Click ground / WASD move · click foes attack · click loot pickup · E / click POIs · **I** inventory · **H** auction house.
+Click / stick / WASD move · click foes or Attack · loot pickup · E / Interact · **I**/Inv · **H**/AH. Mobile: left virtual stick + right action bar.
 
 ### Legal
 
