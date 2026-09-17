@@ -51,6 +51,13 @@ export const DORE_DISPLAY: Record<string, { h: number }> = {
   [DORE_KEYS.mob_champion]: { h: 70 },
   [DORE_KEYS.boss_judge]: { h: 112 },
   [DORE_KEYS.loot_gem]: { h: 36 },
+  item_ashen_club: { h: 34 },
+  item_torn_cape: { h: 34 },
+  item_ash_helm: { h: 34 },
+  item_pilgrim_boots: { h: 34 },
+  item_grave_gloves: { h: 34 },
+  item_rusty_buckler: { h: 32 },
+  item_bone_shard: { h: 32 },
 };
 
 /**
@@ -153,6 +160,51 @@ export function preloadDoreKit(scene: Phaser.Scene): string[] {
   }
   return keys;
 }
+
+/** Slice-1 item icons under public/assets/items/ */
+export const ITEM_ICON_KEYS: Record<string, string> = {
+  ashen_club: "item_ashen_club",
+  torn_cape: "item_torn_cape",
+  ash_helm: "item_ash_helm",
+  pilgrim_boots: "item_pilgrim_boots",
+  grave_gloves: "item_grave_gloves",
+  rusty_buckler: "item_rusty_buckler",
+  bone_shard: "item_bone_shard",
+};
+
+const ITEM_ICON_FILES: Record<string, string> = {
+  ashen_club: "item_sword.png",
+  torn_cape: "item_chest.png",
+  ash_helm: "item_helm.png",
+  pilgrim_boots: "item_boots.png",
+  grave_gloves: "item_gloves.png",
+  rusty_buckler: "item_gem.png",
+  bone_shard: "item_gem.png",
+};
+
+export function preloadItemIcons(scene: Phaser.Scene): string[] {
+  const keys: string[] = [];
+  for (const [base, key] of Object.entries(ITEM_ICON_KEYS)) {
+    const file = ITEM_ICON_FILES[base];
+    if (!file) continue;
+    scene.load.image(key, `assets/items/${file}`);
+    keys.push(key);
+  }
+  return keys;
+}
+
+export function lootTextureKey(item: { baseId?: string | null; name?: string } | undefined): string {
+  const n = String(item?.baseId || item?.name || "").toLowerCase();
+  if (n.includes("club") || n.includes("sword") || n.includes("ashen_club")) return ITEM_ICON_KEYS.ashen_club;
+  if (n.includes("cape") || n.includes("torn_cape") || n.includes("armor")) return ITEM_ICON_KEYS.torn_cape;
+  if (n.includes("helm") || n.includes("ash_helm")) return ITEM_ICON_KEYS.ash_helm;
+  if (n.includes("boot") || n.includes("pilgrim")) return ITEM_ICON_KEYS.pilgrim_boots;
+  if (n.includes("glove") || n.includes("grave")) return ITEM_ICON_KEYS.grave_gloves;
+  if (n.includes("buckler") || n.includes("shield")) return ITEM_ICON_KEYS.rusty_buckler;
+  if (ITEM_ICON_KEYS[item?.baseId || ""]) return ITEM_ICON_KEYS[item!.baseId!];
+  return ITEM_ICON_KEYS.bone_shard;
+}
+
 
 
 export const RARITY_COLOR: Record<string, number> = {

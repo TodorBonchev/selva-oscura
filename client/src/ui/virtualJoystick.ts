@@ -5,7 +5,7 @@
 
 export type StickVector = { x: number; y: number };
 
-const DEADZONE = 0.18;
+const DEADZONE = 0.22;
 const MAX_TRAVEL = 42; // px knob travel from center
 
 export class VirtualJoystick {
@@ -16,6 +16,7 @@ export class VirtualJoystick {
   private originX = 0;
   private originY = 0;
   private vector: StickVector = { x: 0, y: 0 };
+  private eased: StickVector = { x: 0, y: 0 };
   private visible = false;
 
   constructor() {
@@ -78,9 +79,15 @@ export class VirtualJoystick {
     return this.visible;
   }
 
-  /** Normalized direction after deadzone, magnitude 0..1. Zero when released. */
+  /** Normalized direction after deadzone + easing, magnitude 0..1. */
   getVector(): StickVector {
-    return this.vector;
+    const k = 0.28;
+    this.eased = {
+      x: this.eased.x + (this.vector.x - this.eased.x) * k,
+      y: this.eased.y + (this.vector.y - this.eased.y) * k,
+    };
+    if (Math.hypot(this.eased.x, this.eased.y) < 0.02) this.eased = { x: 0, y: 0 };
+    return this.eased;
   }
 
   isActive(): boolean {

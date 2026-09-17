@@ -101,4 +101,10 @@ export class GameSocket {
   claimDaily() {
     this.send({ type: "claim_daily" });
   }
+  equip(itemId: string) {
+    this.send({ type: "equip", itemId });
+  }
+  unequip(opts: { itemId?: string; slot?: string }) {
+    this.send({ type: "unequip", itemId: opts.itemId, slot: opts.slot });
+  }
 }

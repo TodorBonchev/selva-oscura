@@ -1,4 +1,10 @@
 import { ashToStelleDisplay } from "../util/ash";
+import {
+  EQUIP_SLOTS,
+  itemIconUrl,
+  resolveEquipSlot,
+  type EquipSlot,
+} from "../items/icons";
 
 let selectedItemId: string | null = null;
 let toastTimer: number | null = null;
@@ -94,20 +100,29 @@ function slotGlyph(name: string): string {
   return String(name || "?").slice(0, 2).toUpperCase();
 }
 
-export function renderInventory(items: any[], onSelect: (id: string) => void) {
+export function renderInventory(
+  items: any[],
+  onSelect: (id: string) => void,
+  opts?: {
+    equipped?: Record<string, any>;
+    gearStats?: { dmg?: number; maxHp?: number; armor?: number };
+    onEquipSlotClick?: (slot: string) => void;
+  }
+) {
   const grid = document.getElementById("inv-grid");
   if (!grid) return;
   grid.innerHTML = "";
   grid.style.setProperty("--inv-cols", String(INV_COLS));
 
+  const equipped = opts?.equipped || {};
   const count = items.length;
   const slots = Math.min(
     INV_MAX_SLOTS,
     Math.max(INV_MIN_SLOTS, Math.ceil(count / INV_COLS) * INV_COLS)
   );
 
-  // Drop stale selection
-  if (selectedItemId && !items.some((it) => it.id === selectedItemId)) {
+  if (selectedItemId && !items.some((it) => it.id === selectedItemId) &&
+      !Object.values(equipped).some((it: any) => it?.id === selectedItemId)) {
     selectedItemId = null;
   }
 
@@ -126,34 +141,66 @@ export function renderInventory(items: any[], onSelect: (id: string) => void) {
     slot.classList.add(rarityClass(it.rarity));
     slot.title = `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name}`;
     slot.setAttribute("aria-label", slot.title);
-    slot.innerHTML = `<span class="inv-glyph">${slotGlyph(it.name)}</span><span class="inv-tier" aria-hidden="true"></span>`;
+    const icon = itemIconUrl(it);
+    slot.innerHTML = `<img class="inv-icon" src="${icon}" alt="" draggable="false" /><span class="inv-tier" aria-hidden="true"></span>`;
     if (it.id === selectedItemId) slot.classList.add("selected");
     slot.onclick = (e) => {
       e.preventDefault();
       selectedItemId = it.id;
       onSelect(it.id);
-      renderInventory(items, onSelect);
+      renderInventory(items, onSelect, opts);
     };
     grid.appendChild(slot);
   }
 
+  // Paper-doll
+  for (const es of EQUIP_SLOTS) {
+    const btn = document.querySelector<HTMLButtonElement>(`.equip-slot[data-slot="${es}"]`);
+    if (!btn) continue;
+    const body = btn.querySelector(".equip-slot-body");
+    const worn = equipped[es];
+    btn.classList.toggle("filled", Boolean(worn));
+    btn.classList.toggle("selected", Boolean(worn && worn.id === selectedItemId));
+    if (body) {
+      if (worn) {
+        body.innerHTML = `<img class="inv-icon" src="${itemIconUrl(worn)}" alt="" draggable="false" />`;
+        btn.title = `${es}: ${worn.name}`;
+      } else {
+        body.innerHTML = "";
+        btn.title = es;
+      }
+    }
+    btn.onclick = (e) => {
+      e.preventDefault();
+      if (worn) {
+        selectedItemId = worn.id;
+        onSelect(worn.id);
+      }
+      opts?.onEquipSlotClick?.(es);
+      renderInventory(items, onSelect, opts);
+    };
+  }
+
+  const statsEl = document.getElementById("equip-stats");
+  if (statsEl) {
+    const g = opts?.gearStats || {};
+    statsEl.textContent = `Gear  +${g.dmg || 0} dmg · +${g.maxHp || 0} HP · +${g.armor || 0} arm`;
+  }
+
   const detail = document.getElementById("inv-detail");
   if (detail) {
-    const sel = items.find((it) => it.id === selectedItemId);
+    const sel =
+      items.find((it) => it.id === selectedItemId) ||
+      Object.values(equipped).find((it: any) => it?.id === selectedItemId);
     if (sel) {
+      const wear = resolveEquipSlot(sel);
       detail.className = `inv-detail ${rarityClass(sel.rarity)}`;
-      detail.innerHTML = `<span class="inv-detail-name">${escapeHtml(sel.name)}</span><span class="inv-detail-rarity">${RARITY_LABEL[sel.rarity] || escapeHtml(sel.rarity)}</span>`;
+      detail.innerHTML = `<span class="inv-detail-name">${escapeHtml(sel.name)}</span><span class="inv-detail-rarity">${RARITY_LABEL[sel.rarity] || escapeHtml(sel.rarity)}${wear ? " · " + wear : " · junk"}</span>`;
     } else {
       detail.className = "inv-detail";
-      detail.innerHTML = `<span class="inv-detail-name muted">${count ? "Select an item to list it on the Auction House." : "Your satchel is empty — foes in Lust drop loot."}</span>`;
+      detail.innerHTML = `<span class="inv-detail-name muted">${count ? "Select an item — Equip wears it; List AH sells it." : "Your satchel is empty — foes in Lust drop loot."}</span>`;
     }
   }
-}
-
-function escapeHtml(s: unknown): string {
-  return String(s ?? "").replace(/[&<>"']/g, (c) =>
-    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;"
-  );
 }
 
 export function getSelectedItemId() {
@@ -272,10 +319,18 @@ export function wireHud(api: {
   attackNearest: () => void;
   onAttackHoldStart?: () => void;
   onAttackHoldEnd?: () => void;
+  equipSelected?: () => void;
+  unequipSelected?: () => void;
 }) {
   document.getElementById("btn-list")?.addEventListener("click", () => {
     const price = Number((document.getElementById("list-price") as HTMLInputElement)?.value);
     api.listSelected(price);
+  });
+  document.getElementById("btn-equip")?.addEventListener("click", () => {
+    api.equipSelected?.();
+  });
+  document.getElementById("btn-unequip")?.addEventListener("click", () => {
+    api.unequipSelected?.();
   });
   document.getElementById("btn-ah-refresh")?.addEventListener("click", () => api.refreshAh());
 

@@ -14,6 +14,8 @@ export type ClientMessage =
   | { type: "ah_bid"; listingId: string; bidAsh: number }
   | { type: "ah_browse" }
   | { type: "claim_daily" }
+  | { type: "equip"; itemId: string }
+  | { type: "unequip"; itemId?: string; slot?: string }
   | { type: "ping" };
 
 export type ServerMessage =

@@ -213,6 +213,22 @@ async function handleMessage(ws, meta, msg) {
       room?.tryDaily(playerId);
       break;
     }
+    case "equip": {
+      const room = world.getRoom(playerId);
+      if (!room) return;
+      await room.handleEquip(playerId, String(msg.itemId));
+      break;
+    }
+    case "unequip": {
+      const room = world.getRoom(playerId);
+      if (!room) return;
+      await room.handleUnequip(
+        playerId,
+        msg.itemId ? String(msg.itemId) : null,
+        msg.slot ? String(msg.slot) : null
+      );
+      break;
+    }
     default:
       send(ws, { type: "error", code: "unknown_type", message: `Unknown: ${msg.type}` });
   }

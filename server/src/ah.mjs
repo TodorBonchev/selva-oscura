@@ -75,6 +75,7 @@ export async function listItem(sellerId, itemId, priceAsh) {
   const idx = seller.inventory.findIndex((i) => i.id === itemId);
   if (idx < 0) return { ok: false, reason: "item_not_found" };
   const item = seller.inventory[idx];
+  if (item.equipSlot) return { ok: false, reason: "equipped" };
   if (item.soulbound) return { ok: false, reason: "soulbound" };
 
   seller.inventory.splice(idx, 1);
