@@ -23,6 +23,7 @@ import {
 import {
   ensureArtTextures,
   drawGround,
+  drawHatchOverlay,
   drawPoi,
   drawExit,
   drawMob,
@@ -32,6 +33,12 @@ import {
   spawnParticles,
   tickParticles,
   drawParticles,
+  preloadDoreKit,
+  hasTexture,
+  entityDoreKey,
+  DORE_KEYS,
+  DORE_DISPLAY,
+  RARITY_COLOR,
   type Particle,
 } from "../render/art";
 
@@ -77,6 +84,12 @@ export class WorldScene extends Phaser.Scene {
   lastCantoId: string | null = null;
   needsFullRedraw = true;
   animT = 0;
+  /** Doré texture keys that failed to load — procedural fallback. */
+  doreFailed = new Set<string>();
+  doreLoadAttempted = false;
+  groundImage: Phaser.GameObjects.Image | null = null;
+  entitySprites = new Map<string, Phaser.GameObjects.Image>();
+  shadowSprites = new Map<string, Phaser.GameObjects.Image>();
 
   constructor() {
     super("world");
@@ -86,9 +99,24 @@ export class WorldScene extends Phaser.Scene {
     this.socket = data.socket;
   }
 
+  preload() {
+    this.doreLoadAttempted = true;
+    preloadDoreKit(this);
+    this.load.on("loaderror", (file: Phaser.Loader.File) => {
+      if (file?.key && String(file.key).startsWith("dore_")) {
+        this.doreFailed.add(file.key);
+        console.warn("[Doré] failed to load", file.key, file.url);
+      }
+    });
+  }
+
   create() {
     this.cameras.main.setBackgroundColor("#0b0f0c");
     ensureArtTextures(this);
+    // Mark any missing Doré textures as failed (e.g. 404 still registered oddly)
+    for (const key of Object.values(DORE_KEYS)) {
+      if (!hasTexture(this, key)) this.doreFailed.add(key);
+    }
     this.groundGraphics = this.add.graphics();
     this.graphics = this.add.graphics();
     this.labelGroup = this.add.group();
@@ -309,6 +337,7 @@ export class WorldScene extends Phaser.Scene {
           this.particles = [];
           this.moveTarget = null;
           this.groundCantoId = null;
+          this.pruneSprites(new Set());
           this.centerOnYou(true);
         }
 
@@ -387,22 +416,134 @@ export class WorldScene extends Phaser.Scene {
     cam.centerOn(nx, ny);
   }
 
+  doreOk(key: string | null | undefined): key is string {
+    return !!key && !this.doreFailed.has(key) && hasTexture(this, key);
+  }
+
+  /** Stamp hub/lust Doré ground; fall back to full procedural ground. */
+  refreshGround() {
+    if (!this.room) return;
+    const isHub =
+      this.room.role === "hub" || this.room.cantoId === "inferno_01";
+    const groundKey = isHub ? DORE_KEYS.hub_ground : DORE_KEYS.lust_ground;
+    this.groundGraphics.clear();
+    this.groundGraphics.setDepth(1);
+
+    if (this.groundImage) {
+      this.groundImage.destroy();
+      this.groundImage = null;
+    }
+
+    if (this.doreOk(groundKey)) {
+      const b = this.room.bounds;
+      const cx = b.width / 2;
+      const cy = b.height / 2;
+      const center = worldToScreen(cx, cy);
+      // Iso diamond footprint of the room
+      const isoW = (b.width + b.height) * 18; // TILE_W/2 * 2 equiv via (w+h)*(TILE_W/2)
+      const isoH = (b.width + b.height) * 9;
+      const img = this.add.image(center.sx, center.sy, groundKey);
+      img.setDisplaySize(isoW * 1.05, isoH * 1.15);
+      img.setAlpha(isHub ? 0.92 : 0.88);
+      img.setDepth(0);
+      this.groundImage = img;
+      drawHatchOverlay(this.groundGraphics, b, isHub);
+    } else {
+      drawGround(this.groundGraphics, this.room.bounds, isHub);
+    }
+
+    this.groundCantoId = this.room.cantoId;
+    const bg = isHub ? "#0b0f0c" : "#0a0606";
+    this.cameras.main.setBackgroundColor(bg);
+  }
+
+  placeSprite(
+    id: string,
+    texKey: string,
+    sx: number,
+    sy: number,
+    depth: number,
+    opts?: { tint?: number; bob?: number }
+  ): boolean {
+    if (!this.doreOk(texKey)) {
+      this.hideSprite(id);
+      return false;
+    }
+    let img = this.entitySprites.get(id);
+    if (!img) {
+      img = this.add.image(sx, sy, texKey);
+      img.setOrigin(0.5, 0.85);
+      const sz = DORE_DISPLAY[texKey] || { w: 36, h: 36 };
+      img.setDisplaySize(sz.w, sz.h);
+      this.entitySprites.set(id, img);
+    } else if (img.texture.key !== texKey) {
+      img.setTexture(texKey);
+      const sz = DORE_DISPLAY[texKey] || { w: 36, h: 36 };
+      img.setDisplaySize(sz.w, sz.h);
+    }
+    const bob = opts?.bob ?? 0;
+    img.setPosition(sx, sy - 4 + bob);
+    img.setDepth(depth);
+    img.setVisible(true);
+    if (opts?.tint != null) img.setTint(opts.tint);
+    else img.clearTint();
+
+    // Soft shadow under sprite
+    let sh = this.shadowSprites.get(id);
+    if (!sh) {
+      if (hasTexture(this, "tex_shadow")) {
+        sh = this.add.image(sx, sy + 2, "tex_shadow");
+        sh.setAlpha(0.45);
+        this.shadowSprites.set(id, sh);
+      }
+    }
+    if (sh) {
+      const sz = DORE_DISPLAY[texKey] || { w: 36, h: 36 };
+      sh.setPosition(sx, sy + 2);
+      sh.setDisplaySize(Math.max(18, sz.w * 0.55), 10);
+      sh.setDepth(depth - 0.1);
+      sh.setVisible(true);
+    }
+    return true;
+  }
+
+  hideSprite(id: string) {
+    const img = this.entitySprites.get(id);
+    if (img) img.setVisible(false);
+    const sh = this.shadowSprites.get(id);
+    if (sh) sh.setVisible(false);
+  }
+
+  pruneSprites(seen: Set<string>) {
+    for (const [id, img] of this.entitySprites) {
+      if (!seen.has(id)) {
+        img.destroy();
+        this.entitySprites.delete(id);
+      }
+    }
+    for (const [id, sh] of this.shadowSprites) {
+      if (!seen.has(id)) {
+        sh.destroy();
+        this.shadowSprites.delete(id);
+      }
+    }
+  }
+
   redraw() {
     if (!this.room) return;
     const g = this.graphics;
     g.clear();
+    g.setDepth(8000);
 
-    const isHub = this.room.role === "hub";
+    const isHub =
+      this.room.role === "hub" || this.room.cantoId === "inferno_01";
     const compact = isCompactUi();
     const labelSize = compact ? "13px" : "11px";
     const seenLabels = new Set<string>();
+    const seenSprites = new Set<string>();
 
     if (this.groundCantoId !== this.room.cantoId) {
-      this.groundGraphics.clear();
-      drawGround(this.groundGraphics, this.room.bounds, isHub);
-      this.groundCantoId = this.room.cantoId;
-      const bg = isHub ? "#0b0f0c" : "#0a0606";
-      this.cameras.main.setBackgroundColor(bg);
+      this.refreshGround();
     }
     drawParticles(g, this.particles);
 
@@ -415,21 +556,53 @@ export class WorldScene extends Phaser.Scene {
     for (const e of ents) {
       const pos = this.entityRenderPos(e);
       const p = worldToScreen(pos.x, pos.y);
+      const depth = 100 + pos.x + pos.y;
+      const tex = entityDoreKey(e);
+      const sid = `${e.kind}:${e.id}`;
+
       if (e.kind === "poi") {
-        drawPoi(g, p.sx, p.sy, e.poiKind, compact);
-        this.addLabel(`poi:${e.id}`, p.sx, p.sy - 28, e.label || e.name, labelSize, seenLabels);
+        if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
+          seenSprites.add(sid);
+        } else {
+          drawPoi(g, p.sx, p.sy, e.poiKind, compact);
+        }
+        this.addLabel(`poi:${e.id}`, p.sx, p.sy - 34, e.label || e.name, labelSize, seenLabels);
       } else if (e.kind === "exit") {
-        drawExit(g, p.sx, p.sy);
-        this.addLabel(`exit:${e.id}`, p.sx, p.sy - 30, e.label || "Exit", labelSize, seenLabels);
+        if (this.placeSprite(sid, DORE_KEYS.exit_portal, p.sx, p.sy, depth)) {
+          seenSprites.add(sid);
+        } else {
+          drawExit(g, p.sx, p.sy);
+        }
+        this.addLabel(`exit:${e.id}`, p.sx, p.sy - 36, e.label || "Exit", labelSize, seenLabels);
       } else if (e.kind === "mob") {
-        drawMob(g, p.sx, p.sy, Boolean(e.champion));
-        this.drawHp(g, p.sx, p.sy - 22, e.hp, e.maxHp, 24);
+        if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
+          seenSprites.add(sid);
+        } else {
+          drawMob(g, p.sx, p.sy, Boolean(e.champion));
+        }
+        this.drawHp(g, p.sx, p.sy - 26, e.hp, e.maxHp, 24);
       } else if (e.kind === "boss") {
-        drawBoss(g, p.sx, p.sy);
-        this.addLabel(`boss:${e.id}`, p.sx, p.sy - 42, e.name, labelSize, seenLabels);
-        this.drawHp(g, p.sx, p.sy - 50, e.hp, e.maxHp, 40);
+        if (this.placeSprite(sid, DORE_KEYS.boss_judge, p.sx, p.sy, depth)) {
+          seenSprites.add(sid);
+        } else {
+          drawBoss(g, p.sx, p.sy);
+        }
+        this.addLabel(`boss:${e.id}`, p.sx, p.sy - 52, e.name, labelSize, seenLabels);
+        this.drawHp(g, p.sx, p.sy - 60, e.hp, e.maxHp, 40);
       } else if (e.kind === "loot") {
-        drawLoot(g, p.sx, p.sy, e.item?.rarity, compact, this.animT);
+        const bob = Math.sin(this.animT * 0.004 + p.sx * 0.01) * 2;
+        const rarity = e.item?.rarity || "normal";
+        const tint = RARITY_COLOR[rarity] || 0xffffff;
+        if (
+          this.placeSprite(sid, DORE_KEYS.loot_gem, p.sx, p.sy, depth, {
+            tint,
+            bob,
+          })
+        ) {
+          seenSprites.add(sid);
+        } else {
+          drawLoot(g, p.sx, p.sy, e.item?.rarity, compact, this.animT);
+        }
       }
     }
 
@@ -438,19 +611,35 @@ export class WorldScene extends Phaser.Scene {
     for (const pl of others) {
       const pos = this.remoteSmooth.pos(`pl:${pl.id}`, { x: pl.x, y: pl.y });
       const p = worldToScreen(pos.x, pos.y);
-      drawPlayer(g, p.sx, p.sy, false);
-      this.addLabel(`pl:${pl.id}`, p.sx, p.sy - 28, pl.name, labelSize, seenLabels);
-      this.drawHp(g, p.sx, p.sy - 36, pl.hp, pl.maxHp, 28);
+      const depth = 100 + pos.x + pos.y;
+      const sid = `pl:${pl.id}`;
+      if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth)) {
+        seenSprites.add(sid);
+        // Mute remote players slightly
+        this.entitySprites.get(sid)?.setTint(0x9ab0a0);
+      } else {
+        drawPlayer(g, p.sx, p.sy, false);
+      }
+      this.addLabel(`pl:${pl.id}`, p.sx, p.sy - 34, pl.name, labelSize, seenLabels);
+      this.drawHp(g, p.sx, p.sy - 42, pl.hp, pl.maxHp, 28);
     }
 
     {
       const p = worldToScreen(this.renderYou.x, this.renderYou.y);
-      drawPlayer(g, p.sx, p.sy, true);
-      this.addLabel("you", p.sx, p.sy - 28, "You", labelSize, seenLabels);
-      this.pruneLabels(seenLabels);
+      const depth = 100 + this.renderYou.x + this.renderYou.y;
+      const sid = "you";
+      if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth)) {
+        seenSprites.add(sid);
+      } else {
+        drawPlayer(g, p.sx, p.sy, true);
+      }
+      this.addLabel("you", p.sx, p.sy - 34, "You", labelSize, seenLabels);
       const you = this.room.you;
-      this.drawHp(g, p.sx, p.sy - 36, you.hp, you.maxHp, 28);
+      this.drawHp(g, p.sx, p.sy - 42, you.hp, you.maxHp, 28);
     }
+
+    this.pruneLabels(seenLabels);
+    this.pruneSprites(seenSprites);
   }
 
   drawHp(
@@ -490,7 +679,8 @@ export class WorldScene extends Phaser.Scene {
           stroke: "#0b0f0c",
           strokeThickness: 3,
         })
-        .setOrigin(0.5);
+        .setOrigin(0.5)
+        .setDepth(9000);
       this.labels.set(key, t);
       this.labelGroup.add(t);
     } else {

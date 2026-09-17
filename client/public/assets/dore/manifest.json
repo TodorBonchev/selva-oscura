@@ -1,0 +1,19 @@
+{
+  "kit": "slice1_dore",
+  "style": "Gustave Doré engraving / bone-gold",
+  "assets": {
+    "hub_ground": "hub_ground.png",
+    "lust_ground": "lust_ground.png",
+    "player": "player.png",
+    "poi_guide": "poi_guide.png",
+    "poi_stash": "poi_stash.png",
+    "poi_ah": "poi_ah.png",
+    "poi_quest": "poi_quest.png",
+    "exit_portal": "exit_portal.png",
+    "mob_whirl": "mob_whirl.png",
+    "mob_champion": "mob_champion.png",
+    "boss_judge": "boss_judge.png",
+    "loot_gem": "loot_gem.png"
+  },
+  "legal": "Original generated assets inspired by Doré mood; not plate scans; no third-party Dante game assets."
+}
