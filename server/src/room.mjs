@@ -373,7 +373,8 @@ class CantoRoom {
     if (!s || !ledger) return;
     const e = this.entities.get(targetId);
     if (!e) return;
-    if (dist(s, e) > 3.2) {
+    const maxDist = e.kind === "exit" || e.poiKind === "portal" ? 4.8 : 3.8;
+    if (dist(s, e) > maxDist) {
       this.toast(s.ws, "warn", "Move closer.");
       return;
     }
@@ -539,6 +540,13 @@ export class World {
     const room = this.ensureJoin(ws, playerId, name, toCanto);
     room.pushSnapshot(playerId);
     room.toast(ws, "info", `Entered ${room.canto.title}.`);
+    if (room.canto.role === "hub" || room.cantoId === "inferno_01") {
+      room.toast(
+        ws,
+        "info",
+        "No foes in the Dark Wood — take the eastern portal Toward Lust."
+      );
+    }
     return { ok: true, room };
   }
 
