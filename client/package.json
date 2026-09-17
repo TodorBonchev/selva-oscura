@@ -5,7 +5,7 @@
   "description": "Selva Oscura browser client — Phaser lean isometric 2D; DOM UI for AH/inventory",
   "scripts": {
     "dev": "echo \"Phaser client stub — implement in Slice 1\"",
-    "build": "echo \"No build yet\"",
+    "build": "mkdir -p dist && cp index.html dist/index.html",
     "typecheck": "echo \"No tsconfig wired yet\""
   },
   "dependencies": {

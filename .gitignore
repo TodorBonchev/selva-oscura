@@ -9,3 +9,5 @@ build/
 target/
 .anchor/
 test-ledger/
+.vercel
+.env*
