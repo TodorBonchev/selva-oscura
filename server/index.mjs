@@ -218,14 +218,14 @@ async function handleMessage(ws, meta, msg) {
   }
 }
 
-// Tick loop ~10 Hz for aggro / cooldowns
+// Tick loop ~15 Hz for aggro / cooldowns; snapshots gated at ~12.5 Hz when dirty
 let last = Date.now();
 setInterval(() => {
   const now = Date.now();
   const dt = Math.min(0.2, (now - last) / 1000);
   last = now;
   world.tick(dt);
-}, 100);
+}, 66);
 
 async function boot() {
   await initDb();

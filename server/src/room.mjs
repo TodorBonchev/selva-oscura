@@ -488,7 +488,7 @@ class CantoRoom {
     }
     if (moved) this.markDirty();
     this._snapAcc += dt;
-    if (this.dirty && this._snapAcc >= 0.12) {
+    if (this.dirty && this._snapAcc >= 0.08) {
       this._snapAcc = 0;
       this.dirty = false;
       this.pushAllSnapshots();
