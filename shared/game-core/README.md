@@ -1,11 +1,9 @@
 # @selva-oscura/game-core
 
-Shared types and constants for client, server, and sim.
+Shared Ash / EventType / ItemRarity types and Slice 1 WebSocket protocol.
 
-## Locked conventions
+- `src/types.ts` — locked token constants + item/player snapshots
+- `src/protocol.ts` — client/server message unions
+- `src/constants.mjs` — ESM constants for the Node server (mirrored under `server/vendor/`)
 
-- **Ash** is always an **integer** (never float). `1 STELLE = 1000 Ash`.
-- **EventType** drives vault emits: DailyQuest, ChampionPack, Boss, FirstClear only.
-- **ItemRarity** follows D2-style tiers including seasonal Canto-Unique.
-
-Import from here instead of duplicating enums in client or vault IDL mappings.
+Do not reopen STELLE / Ash / vault % math.

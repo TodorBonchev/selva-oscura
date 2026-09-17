@@ -1,0 +1,17 @@
+{
+  "magic_prefixes": ["Gale-Touched", "Whispering", "Soot-Stained", "Thorned"],
+  "magic_suffixes": ["of the Wood", "of Ash", "of Woe", "of the Gale"],
+  "rare_affixes": [
+    "+Strength",
+    "+Dexterity",
+    "+Life",
+    "+Resist Fire",
+    "+Faster Hit Recovery",
+    "+Damage to Undead",
+    "+Mana",
+    "+Light Radius"
+  ],
+  "set_names": ["Pilgrim's Burden", "Judge's Toll"],
+  "unique_names": ["Minos' Coil", "Francesca's Sigh", "Dark Wood Twig"],
+  "canto_unique_names": ["Season: Gate Writ"]
+}

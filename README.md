@@ -10,7 +10,38 @@ Browser persistent multiplayer ARPG set across the hundred cantos of Dante’s *
 | **World** | Exactly 100 cantos — Inferno 34 + Purgatorio 33 + Paradiso 33 |
 | **Hub** | Inferno I (Dark Wood) — hub, not circle-0 combat |
 
-## Legal
+## Slice 1 — playable vertical
+
+Dark Wood hub → Lust (Inferno V) packs + champion + boss `minos_gate` → server-side D2 loot → off-chain AH in integer Ash → pending Ash emits (`DailyQuest` | `ChampionPack` | `Boss` | `FirstClear`).
+
+**Devnet vault PDA is spec-only in Slice 1** — emits credit `pendingAsh` on the server ledger (`GET /emits`). No mainnet mint / DEX.
+
+### Play
+
+| | |
+|---|---|
+| **Client (Vercel)** | Builds from `client/` → `dist` |
+| **Game server (Railway)** | `https://game-server-production-b9f9.up.railway.app` |
+
+Local client against local server:
+
+```bash
+# terminal 1
+cd server && npm install && npm start   # :8080
+
+# terminal 2
+cd client && npm install
+VITE_GAME_SERVER_URL=http://localhost:8080 npm run dev
+# or open http://localhost:5173/?server=http://localhost:8080
+```
+
+Production client default: `VITE_GAME_SERVER_URL` → Railway URL above (override in Vercel env or `?server=`).
+
+### Controls
+
+Click ground / WASD move · click foes attack · click loot pickup · E / click POIs · **I** inventory · **H** auction house.
+
+### Legal
 
 - Dante’s poem is public domain. Use **original Italian** or a **public-domain translation only**.
 - Do **not** name the game *La Divina Commedia* or *Dante’s Inferno*.
@@ -21,12 +52,18 @@ Browser persistent multiplayer ARPG set across the hundred cantos of Dante’s *
 ```
 selva-oscura/
   docs/                 Phased plan, vault spec, architecture
-  client/               Browser client (Phaser lean, isometric 2D)
-  server/               Authoritative game server
+  client/               Phaser lean isometric 2D (Vite → dist)
+  server/               Authoritative game server (ws rooms)
   shared/game-core/     Shared types (Ash, EventType, rarity, …)
   content/              AI-readable cantos, drops, economy, style bible
   programs/stelle-vault/ Solana vault program (spec for builder)
   sim/                  Headless economy / season simulator
+```
+
+After editing `content/`, refresh the Railway-bundled copy:
+
+```bash
+server/scripts/sync-content.sh
 ```
 
 ## Start here
@@ -39,18 +76,6 @@ selva-oscura/
 ## Launch rule (locked)
 
 Do **not** put STELLE on a public DEX before three cantos are playable. Devnet vault first, then mainnet mint → fill vault PDA → lock vest → seed + lock LP → public dashboard.
-
-## Token buckets (locked, summary)
-
-| Bucket | % | Notes |
-|---|---|---|
-| Play vault | 30% (300M) | PDA, emit-only, no owner withdraw |
-| Founder | 20% (200M) | Vesting: 0% TGE, 12-mo cliff, 36–48 mo linear |
-| Liquidity + market | ~15–20% | Builder-seeded DEX; LP locked/burned |
-| Treasury / ops | ~15% | Multisig |
-| Community / testers / leftover | rest | Closed alpha, first-clears, buffer |
-
-Builder mints the SPL token, deploys the vault program, and owns the PDAs personally.
 
 ## License
 

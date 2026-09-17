@@ -1,0 +1,78 @@
+{
+  "id": "inferno_05",
+  "canticle": "inferno",
+  "number": 5,
+  "title": "Lust",
+  "subtitle_it": "La bufera infernal",
+  "role": "combat",
+  "circle": 2,
+  "geo": {
+    "bounds": { "width": 160, "height": 120 },
+    "spawn": { "x": 20, "y": 60 },
+    "exits": [
+      {
+        "to_canto": "inferno_01",
+        "x": 12,
+        "y": 60,
+        "label": "Return to Dark Wood"
+      }
+    ],
+    "pois": [
+      { "id": "lust_portal_home", "kind": "portal", "x": 14, "y": 58, "label": "Hub portal" }
+    ]
+  },
+  "packs": [
+    {
+      "id": "lust_winds_a",
+      "archetype": "whirl_shade",
+      "count": 8,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 48, "y": 40 }
+    },
+    {
+      "id": "lust_winds_b",
+      "archetype": "whirl_shade",
+      "count": 10,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 72, "y": 70 }
+    },
+    {
+      "id": "lust_champion_pair",
+      "archetype": "gale_champion",
+      "count": 6,
+      "elite": true,
+      "champion": true,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 100, "y": 50 }
+    }
+  ],
+  "bosses": [
+    {
+      "id": "minos_gate",
+      "name": "Judge of the Gate",
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 140, "y": 60 },
+      "first_clear_emit": true
+    }
+  ],
+  "first_clear": {
+    "enabled": true,
+    "event": "FirstClear",
+    "requires": "minos_gate"
+  },
+  "daily_quests": [],
+  "style_kit": {
+    "palette": "inferno_red_black",
+    "kit_id": "circle_02_lust",
+    "notes": "Circle kit 2 of 12; red-black gale; Doré line weight"
+  },
+  "loot_density": "raw_d2",
+  "legal": {
+    "text_source": "italian_original",
+    "notes": "Names and short Italian tags only; original encounter design; no assets from other Dante games"
+  }
+}

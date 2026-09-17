@@ -1,0 +1,48 @@
+{
+  "id": "inferno_01",
+  "canticle": "inferno",
+  "number": 1,
+  "title": "Dark Wood",
+  "subtitle_it": "Nel mezzo del cammin di nostra vita",
+  "role": "hub",
+  "geo": {
+    "bounds": { "width": 128, "height": 128 },
+    "spawn": { "x": 64, "y": 72 },
+    "exits": [
+      {
+        "to_canto": "inferno_05",
+        "x": 96,
+        "y": 40,
+        "label": "Toward the circle of Lust"
+      }
+    ],
+    "pois": [
+      { "id": "virgil_guide", "kind": "npc", "x": 60, "y": 70, "label": "Guide" },
+      { "id": "hub_stash", "kind": "stash", "x": 52, "y": 78, "label": "Stash" },
+      { "id": "hub_ah", "kind": "ah", "x": 76, "y": 78, "label": "Auction House" },
+      { "id": "daily_board", "kind": "quest", "x": 64, "y": 60, "label": "Daily writs" }
+    ]
+  },
+  "packs": [],
+  "bosses": [],
+  "first_clear": {
+    "enabled": false
+  },
+  "daily_quests": [
+    {
+      "id": "dw_daily_scout",
+      "objective": "Speak with the Guide and return from any Inferno instance once",
+      "emit_event": "DailyQuest"
+    }
+  ],
+  "style_kit": {
+    "palette": "hub_bone_gold",
+    "kit_id": "hub_dark_wood",
+    "notes": "Bone/gold Doré etching; misted trees; not combat circle art"
+  },
+  "loot_density": "none",
+  "legal": {
+    "text_source": "italian_original",
+    "notes": "Short Italian epigraph only; no modern translation prose; no third-party Dante game assets"
+  }
+}

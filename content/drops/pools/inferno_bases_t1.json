@@ -1,0 +1,10 @@
+{
+  "id": "inferno_bases_t1",
+  "items": [
+    { "name": "Bone Shard", "slot": "misc" },
+    { "name": "Ashen Club", "slot": "weapon" },
+    { "name": "Torn Cape", "slot": "armor" },
+    { "name": "Rusty Buckler", "slot": "offhand" },
+    { "name": "Pilgrim Boots", "slot": "boots" }
+  ]
+}
