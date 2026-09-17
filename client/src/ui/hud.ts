@@ -1,4 +1,4 @@
-import { ashToStelleDisplay } from "@game-core/types";
+import { ashToStelleDisplay } from "../util/ash";
 
 let selectedItemId: string | null = null;
 

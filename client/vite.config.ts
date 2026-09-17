@@ -1,14 +1,8 @@
 import { defineConfig } from "vite";
-import path from "node:path";
 
 export default defineConfig({
   root: ".",
   publicDir: "public",
-  resolve: {
-    alias: {
-      "@game-core": path.resolve(__dirname, "../shared/game-core/src"),
-    },
-  },
   server: {
     port: 5173,
     host: true,
@@ -17,6 +11,7 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
+    chunkSizeWarningLimit: 2000,
   },
   define: {
     __DEFAULT_GAME_SERVER__: JSON.stringify(
