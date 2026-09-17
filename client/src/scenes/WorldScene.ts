@@ -8,6 +8,7 @@ import {
   renderAh,
   getSelectedItemId,
   togglePanel,
+  setPanelOpen,
   wireHud,
   isCompactUi,
 } from "../ui/hud";
@@ -37,14 +38,22 @@ import {
   hasTexture,
   entityDoreKey,
   DORE_KEYS,
-  DORE_DISPLAY,
+  DORE_CROP,
+  DORE_BLEND,
   RARITY_COLOR,
   doreDisplaySize,
   drawEntityPad,
   drawHubDecor,
   drawExitSpotlight,
+  drawFoeHpBar,
+  drawFoeGlow,
+  drawLootGlow,
   spawnHitBurst,
+  spawnKillBurst,
   spawnLootSparkle,
+  buildGroundTiles,
+  destroyGroundTiles,
+  type GroundTiles,
   type Particle,
 } from "../render/art";
 
@@ -52,10 +61,17 @@ type RoomSnap = any;
 
 const DESKTOP_HIT_RADIUS = 28;
 const MOBILE_HIT_RADIUS = 48;
-const INTERACT_RANGE = 4.2;
+/** Loot gets a fatter tap target — it is small and the thing players want most. */
+const LOOT_HIT_BONUS = 1.6;
+const INTERACT_RANGE = 5.0;
 const EXIT_HINT_RANGE = 7;
-const EXIT_TRAVEL_RANGE = 4.8;
+const EXIT_TRAVEL_RANGE = 6.0;
 const ATTACK_RANGE = 5.5;
+/** Client auto-loot: send pickup once loot is within this many world units. */
+const AUTO_PICKUP_RANGE = 4.0;
+/** Loot visually drifts toward the player inside this radius (render only). */
+const MAGNET_RANGE = 5.5;
+const AUTO_PICKUP_RETRY_MS = 900;
 const MOBILE_ZOOM = 0.65;
 const MOBILE_ZOOM_TABLET = 0.72;
 const DESKTOP_ZOOM = 1;
@@ -63,6 +79,15 @@ const ATTACK_HOLD_MS = 280;
 /** Local predicted move speed (world units / sec) — matches server feel. */
 const PREDICT_SPEED = 7.2;
 const TAP_ARRIVE = 0.35;
+
+type HitFx = {
+  start: number;
+  until: number;
+  ox: number;
+  oy: number;
+  tint: number | null;
+  punch: number;
+};
 
 export class WorldScene extends Phaser.Scene {
   socket!: GameSocket;
@@ -95,15 +120,20 @@ export class WorldScene extends Phaser.Scene {
   /** Doré texture keys that failed to load — procedural fallback. */
   doreFailed = new Set<string>();
   doreLoadAttempted = false;
-  groundImage: Phaser.GameObjects.Image | null = null;
+  groundTiles: GroundTiles | null = null;
   entitySprites = new Map<string, Phaser.GameObjects.Image>();
   shadowSprites = new Map<string, Phaser.GameObjects.Image>();
+  /** Base (un-punched) scale per sprite so combat punch never accumulates. */
+  spriteBase = new Map<string, { sx: number; sy: number; w: number; h: number }>();
   /** Brief combat punch / flash keyed by entity sprite id. */
-  hitFx = new Map<string, { until: number; ox: number; oy: number }>();
+  hitFx = new Map<string, HitFx>();
   hubTipShown = false;
   nearExitToastAt = 0;
   seenLootIds = new Set<string>();
-  decorDrawnFor: string | null = null;
+  /** lootId -> last auto-pickup send time (ms) so we don't spam the server. */
+  autoPickupSent = new Map<string, number>();
+  lastAutoPickupScan = 0;
+  lastCompact: boolean | null = null;
 
   constructor() {
     super("world");
@@ -135,6 +165,8 @@ export class WorldScene extends Phaser.Scene {
     this.graphics = this.add.graphics();
     this.labelGroup = this.add.group();
     this.joystick = new VirtualJoystick();
+    // ?debug exposes the scene for console poking / headless smoke tests
+    if (new URLSearchParams(location.search).has("debug")) (window as any).__scene = this;
     this.applyViewportZoom();
 
     const kb = this.input.keyboard;
@@ -161,7 +193,7 @@ export class WorldScene extends Phaser.Scene {
       const target = pointer.event?.target as HTMLElement | null;
       if (
         target?.closest?.(
-          "#action-bar, #panels, #hud button, #virtual-joystick, .vj-base, .vj-knob"
+          "#action-bar, #panels, #hud button, #virtual-joystick, .vj-base, .vj-knob, #modal-backdrop"
         )
       ) {
         return;
@@ -184,7 +216,7 @@ export class WorldScene extends Phaser.Scene {
       const hit = this.pickEntity(sx, sy);
       if (hit) {
         if (hit.kind === "mob" || hit.kind === "boss") {
-          this.socket.attack(hit.id);
+          this.sendAttack(hit.id);
           return;
         }
         if (hit.kind === "loot") {
@@ -212,6 +244,8 @@ export class WorldScene extends Phaser.Scene {
     });
 
     this.socket.on((msg) => this.onNet(msg));
+    // The first snapshot often lands while textures are still loading — replay it.
+    if (this.socket.lastSnapshot) this.onNet(this.socket.lastSnapshot);
 
     wireHud({
       listSelected: (price) => {
@@ -272,7 +306,7 @@ export class WorldScene extends Phaser.Scene {
       this.time.delayedCall(50, () => this.socket.travel(hit.toCanto));
     }
     if (hit.poiKind === "ah") {
-      document.getElementById("ah")?.classList.remove("hidden");
+      setPanelOpen("ah", true);
       this.socket.ahBrowse();
     }
   }
@@ -336,7 +370,27 @@ export class WorldScene extends Phaser.Scene {
       if (!opts?.silent) showToast("No foe in range", "warn");
       return;
     }
-    this.socket.attack(best.id);
+    this.sendAttack(best.id);
+  }
+
+  /** Send attack + local swing punch on the player sprite. */
+  sendAttack(targetId: string) {
+    this.socket.attack(targetId);
+    this.punch("you", { dur: 140, punch: 0.12, tint: null, ox: 0, oy: -3 });
+  }
+
+  punch(
+    sid: string,
+    o: { dur: number; punch: number; tint: number | null; ox: number; oy: number }
+  ) {
+    this.hitFx.set(sid, {
+      start: this.animT,
+      until: this.animT + o.dur,
+      ox: o.ox,
+      oy: o.oy,
+      tint: o.tint,
+      punch: o.punch,
+    });
   }
 
   entityRenderPos(e: { id: string; x: number; y: number }): Vec2 {
@@ -365,8 +419,10 @@ export class WorldScene extends Phaser.Scene {
           this.particles = [];
           this.moveTarget = null;
           this.groundCantoId = null;
+          this.autoPickupSent.clear();
           this.pruneSprites(new Set());
           this.centerOnYou(true);
+          if (cantoChanged) this.cameras.main.fadeIn(420, 0, 0, 0);
         }
 
         // Seed / refresh remote targets from snapshot (smoothed in update)
@@ -403,7 +459,9 @@ export class WorldScene extends Phaser.Scene {
           }
         }
         this.seenLootIds = lootIds;
-        if (cantoChanged) this.seenLootIds = lootIds;
+        for (const id of [...this.autoPickupSent.keys()]) {
+          if (!lootIds.has(id)) this.autoPickupSent.delete(id);
+        }
 
         break;
       }
@@ -420,51 +478,96 @@ export class WorldScene extends Phaser.Scene {
             this.socket.ahBid(id, bid);
           }
         );
-        document.getElementById("ah")?.classList.remove("hidden");
+        setPanelOpen("ah", true);
         break;
       case "error":
         showToast(msg.message, "warn");
         break;
       case "combat": {
         const tid = msg.targetId as string;
+        if (this.room && tid === this.room.you.id) {
+          // We got hit: crimson flash + short shake + recoil on our sprite
+          this.punch("you", { dur: 200, punch: -0.06, tint: 0xff7a6a, ox: (Math.random() - 0.5) * 8, oy: 2 });
+          this.cameras.main.shake(110, isCompactUi() ? 0.006 : 0.004);
+          this.cameras.main.flash(120, 120, 10, 10, false);
+          if (msg.targetHp != null && msg.targetHp <= 0) {
+            this.cameras.main.shake(260, 0.012);
+          }
+          break;
+        }
         const ent = this.room?.entities?.find((e: any) => e.id === tid);
         if (ent) {
           const sid = `${ent.kind}:${ent.id}`;
-          this.hitFx.set(sid, {
-            until: this.animT + 180,
+          this.punch(sid, {
+            dur: 190,
+            punch: ent.kind === "boss" ? 0.1 : 0.2,
+            tint: 0xfff0c0,
             ox: (Math.random() - 0.5) * 10,
             oy: -4 - Math.random() * 6,
           });
           spawnHitBurst(this.particles, ent.x, ent.y);
-          const img = this.entitySprites.get(sid);
-          if (img) {
-            img.setTint(0xffeeaa);
-            this.tweens.add({
-              targets: img,
-              scaleX: img.scaleX * 1.18,
-              scaleY: img.scaleY * 1.18,
-              duration: 70,
-              yoyo: true,
-              ease: "Quad.easeOut",
-            });
-          }
+          this.showDamageNumber(ent, msg.damage);
+        }
+        break;
+      }
+      case "entity_removed": {
+        const rid = msg.id as string;
+        const ent = this.room?.entities?.find((e: any) => e.id === rid);
+        if (ent && (ent.kind === "mob" || ent.kind === "boss")) {
+          const boss = ent.kind === "boss";
+          spawnKillBurst(this.particles, ent.x, ent.y, boss);
+          this.cameras.main.shake(boss ? 320 : 120, boss ? 0.012 : 0.004);
+          if (boss) this.cameras.main.flash(260, 201, 162, 39, false);
         }
         break;
       }
     }
   }
 
+  /** Floating damage number (gold, rises + fades) — cheap Text tween. */
+  showDamageNumber(ent: { x: number; y: number; kind: string }, dmg: number) {
+    if (dmg == null) return;
+    const pos = this.entityRenderPos(ent as any);
+    const p = worldToScreen(pos.x, pos.y);
+    const compact = isCompactUi();
+    const t = this.add
+      .text(p.sx + (Math.random() - 0.5) * 16, p.sy - (ent.kind === "boss" ? 90 : 56), String(dmg), {
+        fontFamily: "Georgia, serif",
+        fontSize: compact ? "20px" : "15px",
+        color: "#f2d777",
+        stroke: "#1a0a06",
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(9500);
+    this.tweens.add({
+      targets: t,
+      y: t.y - 30,
+      alpha: 0,
+      duration: 620,
+      ease: "Cubic.easeOut",
+      onComplete: () => t.destroy(),
+    });
+  }
+
   pickEntity(sx: number, sy: number): any | null {
     if (!this.room) return null;
     let best: any = null;
-    let bestD = this.hitRadius();
+    let bestScore = Infinity;
+    const base = this.hitRadius();
     const consider = (e: any, wx: number, wy: number) => {
       const p = worldToScreen(wx, wy);
-      const cy = p.sy - (e.kind === "boss" ? 12 : e.kind === "poi" ? 10 : 6);
+      const cy = p.sy - (e.kind === "boss" ? 20 : e.kind === "poi" ? 14 : 8);
+      const radius = e.kind === "loot" ? base * LOOT_HIT_BONUS : e.kind === "boss" ? base * 1.4 : base;
       const d = Phaser.Math.Distance.Between(sx, sy, p.sx, cy);
-      if (d < bestD) {
-        bestD = d;
-        best = e;
+      if (d < radius) {
+        // Normalise so a loot near the edge of its bigger circle still loses
+        // to a mob under the finger, but wins over empty ground.
+        const score = d / radius;
+        if (score < bestScore) {
+          bestScore = score;
+          best = e;
+        }
       }
     };
     for (const e of this.room.entities) {
@@ -493,7 +596,7 @@ export class WorldScene extends Phaser.Scene {
     return !!key && !this.doreFailed.has(key) && hasTexture(this, key);
   }
 
-  /** Stamp hub/lust Doré ground; fall back to full procedural ground. */
+  /** Tile the hub/lust Doré ground plate across the room; procedural fallback. */
   refreshGround() {
     if (!this.room) return;
     const isHub =
@@ -502,26 +605,13 @@ export class WorldScene extends Phaser.Scene {
     this.groundGraphics.clear();
     this.groundGraphics.setDepth(1);
 
-    if (this.groundImage) {
-      this.groundImage.destroy();
-      this.groundImage = null;
-    }
+    destroyGroundTiles(this.groundTiles);
+    this.groundTiles = null;
 
     if (this.doreOk(groundKey)) {
       const b = this.room.bounds;
-      const cx = b.width / 2;
-      const cy = b.height / 2;
-      const center = worldToScreen(cx, cy);
-      // Iso diamond footprint of the room
-      const isoW = (b.width + b.height) * 18; // TILE_W/2 * 2 equiv via (w+h)*(TILE_W/2)
-      const isoH = (b.width + b.height) * 9;
-      const img = this.add.image(center.sx, center.sy, groundKey);
-      img.setDisplaySize(isoW * 1.05, isoH * 1.15);
-      img.setAlpha(isHub ? 0.92 : 0.88);
-      img.setDepth(0);
-      this.groundImage = img;
-      // Soften busy hatch so sprites read on mobile
-      img.setTint(isHub ? 0xb8c4b8 : 0xc4a8a8);
+      this.groundTiles = buildGroundTiles(this, groundKey, b, isHub);
+      // Soft hatch overlay + border so sprites read on top of busy etching
       drawHatchOverlay(this.groundGraphics, b, isHub);
       if (isHub) {
         drawHubDecor(this.groundGraphics, b, this.animT);
@@ -548,42 +638,50 @@ export class WorldScene extends Phaser.Scene {
       this.hideSprite(id);
       return false;
     }
+    const compact = isCompactUi();
     let img = this.entitySprites.get(id);
+    let base = this.spriteBase.get(id);
     if (!img) {
       img = this.add.image(sx, sy, texKey);
-      img.setOrigin(0.5, 0.85);
-      const sz = doreDisplaySize(texKey, isCompactUi());
-      img.setDisplaySize(sz.w, sz.h);
+      img.setOrigin(0.5, 0.88);
+      this.applySpriteTexture(id, img, texKey, compact);
+      base = this.spriteBase.get(id);
       // Ensure no debug / bounds stroke leftover from textures
       img.clearTint();
       img.setAlpha(1);
       this.entitySprites.set(id, img);
-    } else if (img.texture.key !== texKey) {
-      img.setTexture(texKey);
-      const sz = doreDisplaySize(texKey, isCompactUi());
-      img.setDisplaySize(sz.w, sz.h);
-    } else {
-      // Keep mobile/desktop size in sync on resize
-      const sz = doreDisplaySize(texKey, isCompactUi());
-      if (Math.abs(img.displayWidth - sz.w) > 1) img.setDisplaySize(sz.w, sz.h);
+    } else if (img.texture.key !== texKey || !base || this.lastCompact !== compact) {
+      this.applySpriteTexture(id, img, texKey, compact);
+      base = this.spriteBase.get(id);
     }
+    if (!base) return false;
+
     const bob = opts?.bob ?? 0;
     const fx = this.hitFx.get(id);
     let ox = 0;
     let oy = 0;
+    let scaleMul = 1;
+    let fxActive = false;
     if (fx) {
       if (this.animT > fx.until) this.hitFx.delete(id);
       else {
-        ox = fx.ox;
-        oy = fx.oy;
-        img.setTint(0xffe0a0);
+        fxActive = true;
+        const prog = (this.animT - fx.start) / Math.max(1, fx.until - fx.start);
+        const env = Math.sin(Math.min(1, prog) * Math.PI); // 0 → 1 → 0
+        ox = fx.ox * env;
+        oy = fx.oy * env;
+        scaleMul = 1 + fx.punch * env;
+        if (fx.tint != null) img.setTint(fx.tint);
       }
     }
+    img.setScale(base.sx * scaleMul, base.sy * scaleMul);
     img.setPosition(sx + ox, sy - 4 + bob + oy);
     img.setDepth(depth);
     img.setVisible(true);
-    if (opts?.tint != null && !(fx && this.animT <= fx.until)) img.setTint(opts.tint);
-    else if (!(fx && this.animT <= fx.until)) img.clearTint();
+    if (!fxActive) {
+      if (opts?.tint != null) img.setTint(opts.tint);
+      else img.clearTint();
+    }
 
     // Soft shadow under sprite
     let sh = this.shadowSprites.get(id);
@@ -595,13 +693,41 @@ export class WorldScene extends Phaser.Scene {
       }
     }
     if (sh) {
-      const sz = doreDisplaySize(texKey, isCompactUi());
       sh.setPosition(sx, sy + 2);
-      sh.setDisplaySize(Math.max(22, sz.w * 0.55), 12);
+      sh.setDisplaySize(Math.max(22, base.w * 0.55), compact ? 16 : 12);
       sh.setDepth(depth - 0.1);
       sh.setVisible(true);
     }
     return true;
+  }
+
+  /** Set texture, crop, blend and record the base scale for punch math. */
+  private applySpriteTexture(
+    id: string,
+    img: Phaser.GameObjects.Image,
+    texKey: string,
+    compact: boolean
+  ) {
+    if (img.texture.key !== texKey) img.setTexture(texKey);
+    const crop = DORE_CROP[texKey];
+    if (crop) img.setCrop(crop.x, crop.y, crop.w, crop.h);
+    else if (img.isCropped) img.setCrop();
+    img.setBlendMode(DORE_BLEND[texKey] ?? Phaser.BlendModes.NORMAL);
+    const sz = doreDisplaySize(this, texKey, compact);
+    const frameW = crop ? crop.w : img.width;
+    const frameH = crop ? crop.h : img.height;
+    const sx = sz.w / Math.max(1, frameW);
+    const sy = sz.h / Math.max(1, frameH);
+    img.setScale(sx, sy);
+    if (crop) {
+      // Crop keeps the full-frame origin; shift so the visible frame is centred on the feet.
+      const fullW = img.width;
+      const fullH = img.height;
+      img.setOrigin((crop.x + crop.w / 2) / fullW, (crop.y + crop.h * 0.88) / fullH);
+    } else {
+      img.setOrigin(0.5, 0.88);
+    }
+    this.spriteBase.set(id, { sx, sy, w: sz.w, h: sz.h });
   }
 
   hideSprite(id: string) {
@@ -616,6 +742,7 @@ export class WorldScene extends Phaser.Scene {
       if (!seen.has(id)) {
         img.destroy();
         this.entitySprites.delete(id);
+        this.spriteBase.delete(id);
       }
     }
     for (const [id, sh] of this.shadowSprites) {
@@ -624,6 +751,18 @@ export class WorldScene extends Phaser.Scene {
         this.shadowSprites.delete(id);
       }
     }
+  }
+
+  /** Render-only magnet: loot within MAGNET_RANGE drifts toward the player. */
+  lootRenderPos(e: any): Vec2 {
+    const pos = this.entityRenderPos(e);
+    const you = this.renderYou;
+    const dx = you.x - pos.x;
+    const dy = you.y - pos.y;
+    const d = Math.hypot(dx, dy);
+    if (d >= MAGNET_RANGE || d < 0.01) return pos;
+    const pull = (1 - d / MAGNET_RANGE) * 0.45; // up to 45% of the way
+    return { x: pos.x + dx * pull, y: pos.y + dy * pull };
   }
 
   redraw() {
@@ -635,7 +774,7 @@ export class WorldScene extends Phaser.Scene {
     const isHub =
       this.room.role === "hub" || this.room.cantoId === "inferno_01";
     const compact = isCompactUi();
-    const labelSize = compact ? "13px" : "11px";
+    const labelSize = compact ? "14px" : "11px";
     const seenLabels = new Set<string>();
     const seenSprites = new Set<string>();
 
@@ -660,22 +799,22 @@ export class WorldScene extends Phaser.Scene {
     });
 
     for (const e of ents) {
-      const pos = this.entityRenderPos(e);
+      const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       const p = worldToScreen(pos.x, pos.y);
       const depth = 100 + pos.x + pos.y;
       const tex = entityDoreKey(e);
       const sid = `${e.kind}:${e.id}`;
 
       if (e.kind === "poi") {
-        drawEntityPad(g, p.sx, p.sy, compact ? 1.25 : 1.05);
+        drawEntityPad(g, p.sx, p.sy, compact ? 1.5 : 1.1);
         if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
         } else {
           drawPoi(g, p.sx, p.sy, e.poiKind, compact);
         }
-        this.addLabel(`poi:${e.id}`, p.sx, p.sy - 34, e.label || e.name, labelSize, seenLabels);
+        this.addLabel(`poi:${e.id}`, p.sx, p.sy - (compact ? 40 : 30), e.label || e.name, labelSize, seenLabels);
       } else if (e.kind === "exit") {
-        drawEntityPad(g, p.sx, p.sy, compact ? 1.6 : 1.35);
+        drawEntityPad(g, p.sx, p.sy, compact ? 1.9 : 1.4);
         drawExitSpotlight(g, p.sx, p.sy, this.animT, compact);
         if (this.placeSprite(sid, DORE_KEYS.exit_portal, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
@@ -689,45 +828,61 @@ export class WorldScene extends Phaser.Scene {
         this.addLabel(
           `exit:${e.id}`,
           p.sx,
-          p.sy - (compact ? 72 : 58),
+          p.sy - (compact ? 84 : 62),
           exitLabel,
-          compact ? "15px" : "13px",
+          compact ? "16px" : "13px",
           seenLabels
         );
         // Gold-ish label for Lust exit
         const lab = this.labels.get(`exit:${e.id}`);
         if (lab && e.toCanto === "inferno_05") lab.setColor("#e8c86a");
       } else if (e.kind === "mob") {
-        drawEntityPad(g, p.sx, p.sy, e.champion ? 1.3 : 1.1);
+        drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.6 : 1.3) : compact ? 1.35 : 1.1);
+        drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, champion: Boolean(e.champion) });
+        let topY = p.sy - (e.champion ? 34 : 28);
         if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
+          const b = this.spriteBase.get(sid);
+          if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
         } else {
           drawMob(g, p.sx, p.sy, Boolean(e.champion));
         }
-        this.drawHp(g, p.sx, p.sy - 26, e.hp, e.maxHp, 24);
+        drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, e.champion ? 34 : 26, { compact });
       } else if (e.kind === "boss") {
-        drawEntityPad(g, p.sx, p.sy, 1.8);
+        drawEntityPad(g, p.sx, p.sy, compact ? 2.4 : 1.9);
+        drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, boss: true });
+        let topY = p.sy - 60;
         if (this.placeSprite(sid, DORE_KEYS.boss_judge, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
+          const b = this.spriteBase.get(sid);
+          if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 14 : 8);
         } else {
           drawBoss(g, p.sx, p.sy);
         }
-        this.addLabel(`boss:${e.id}`, p.sx, p.sy - 52, e.name, labelSize, seenLabels);
-        this.drawHp(g, p.sx, p.sy - 60, e.hp, e.maxHp, 40);
+        this.addLabel(`boss:${e.id}`, p.sx, topY - (compact ? 16 : 12), e.name, compact ? "15px" : "12px", seenLabels);
+        const bl = this.labels.get(`boss:${e.id}`);
+        if (bl) bl.setColor("#e8c86a");
+        drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, 56, { compact, boss: true });
       } else if (e.kind === "loot") {
-        drawEntityPad(g, p.sx, p.sy, 0.7);
-        const bob = Math.sin(this.animT * 0.004 + p.sx * 0.01) * 2;
         const rarity = e.item?.rarity || "normal";
         const tint = RARITY_COLOR[rarity] || 0xffffff;
+        const strong = rarity !== "normal" && rarity !== "magic";
+        drawLootGlow(g, p.sx, p.sy, tint, this.animT, compact, strong);
+        const bob = Math.sin(this.animT * 0.004 + p.sx * 0.01) * (compact ? 3 : 2);
         if (
           this.placeSprite(sid, DORE_KEYS.loot_gem, p.sx, p.sy, depth, {
-            tint,
+            tint: rarity === "normal" ? 0xe8dcc0 : tint,
             bob,
           })
         ) {
           seenSprites.add(sid);
         } else {
           drawLoot(g, p.sx, p.sy, e.item?.rarity, compact, this.animT);
+        }
+        if (strong) {
+          this.addLabel(`loot:${e.id}`, p.sx, p.sy - (compact ? 46 : 34), e.item?.name || "", compact ? "12px" : "10px", seenLabels);
+          const ll = this.labels.get(`loot:${e.id}`);
+          if (ll) ll.setColor("#" + tint.toString(16).padStart(6, "0"));
         }
       }
     }
@@ -739,57 +894,39 @@ export class WorldScene extends Phaser.Scene {
       const p = worldToScreen(pos.x, pos.y);
       const depth = 100 + pos.x + pos.y;
       const sid = `pl:${pl.id}`;
-      if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth)) {
+      let topY = p.sy - 42;
+      if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth, { tint: 0x9ab0a0 })) {
         seenSprites.add(sid);
-        // Mute remote players slightly
-        this.entitySprites.get(sid)?.setTint(0x9ab0a0);
+        const b = this.spriteBase.get(sid);
+        if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
       } else {
         drawPlayer(g, p.sx, p.sy, false);
       }
-      this.addLabel(`pl:${pl.id}`, p.sx, p.sy - 34, pl.name, labelSize, seenLabels);
-      this.drawHp(g, p.sx, p.sy - 42, pl.hp, pl.maxHp, 28);
+      this.addLabel(`pl:${pl.id}`, p.sx, topY - (compact ? 14 : 10), pl.name, labelSize, seenLabels);
+      drawFoeHpBar(g, p.sx, topY, pl.hp, pl.maxHp, 28, { compact, ally: true });
     }
 
     {
       const p = worldToScreen(this.renderYou.x, this.renderYou.y);
       const depth = 100 + this.renderYou.x + this.renderYou.y;
       const sid = "you";
-      drawEntityPad(g, p.sx, p.sy, compact ? 1.35 : 1.15);
+      drawEntityPad(g, p.sx, p.sy, compact ? 1.6 : 1.2);
+      let topY = p.sy - 42;
       if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth)) {
         seenSprites.add(sid);
+        const b = this.spriteBase.get(sid);
+        if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
       } else {
         drawPlayer(g, p.sx, p.sy, true);
       }
-      this.addLabel("you", p.sx, p.sy - 34, "You", labelSize, seenLabels);
+      this.addLabel("you", p.sx, topY - (compact ? 14 : 10), "You", labelSize, seenLabels);
       const you = this.room.you;
-      this.drawHp(g, p.sx, p.sy - 42, you.hp, you.maxHp, 28);
+      drawFoeHpBar(g, p.sx, topY, you.hp, you.maxHp, 30, { compact, ally: true });
     }
 
+    this.lastCompact = compact;
     this.pruneLabels(seenLabels);
     this.pruneSprites(seenSprites);
-  }
-
-  drawHp(
-    g: Phaser.GameObjects.Graphics,
-    x: number,
-    y: number,
-    hp: number,
-    maxHp: number,
-    w: number
-  ) {
-    if (maxHp == null) return;
-    const ratio = Math.max(0, Math.min(1, hp / maxHp));
-    const compact = isCompactUi();
-    const barW = compact ? w * 1.25 : w;
-    const barH = compact ? 6 : 5;
-    g.fillStyle(0x000000, 0.55);
-    g.fillRect(x - barW / 2 - 1, y - 1, barW + 2, barH + 2);
-    g.fillStyle(0x1a1a1a, 0.95);
-    g.fillRect(x - barW / 2, y, barW, barH);
-    g.lineStyle(1, 0xc9a227, 0.55);
-    g.strokeRect(x - barW / 2, y, barW, barH);
-    g.fillStyle(ratio > 0.35 ? 0x3cc88a : 0xcc3333, 1);
-    g.fillRect(x - barW / 2, y, Math.max(0, barW * ratio), barH);
   }
 
   addLabel(
@@ -807,7 +944,7 @@ export class WorldScene extends Phaser.Scene {
         .text(x, y, text, {
           fontFamily: "Georgia, serif",
           fontSize,
-          color: "#c8d4c4",
+          color: "#d9cfae",
           stroke: "#0b0f0c",
           strokeThickness: 3,
         })
@@ -882,6 +1019,24 @@ export class WorldScene extends Phaser.Scene {
     this.sendMoveThrottled(this.moveTarget.x, this.moveTarget.y);
   }
 
+  /** Auto-loot: request pickup for loot near the player (server range-checks). */
+  private autoPickupScan() {
+    if (!this.room) return;
+    const now = Date.now();
+    if (now - this.lastAutoPickupScan < 220) return;
+    this.lastAutoPickupScan = now;
+    const you = this.serverYou; // authoritative pos — avoids "Too far" from prediction lead
+    for (const e of this.room.entities) {
+      if (e.kind !== "loot") continue;
+      const d = Math.hypot(e.x - you.x, e.y - you.y);
+      if (d > AUTO_PICKUP_RANGE) continue;
+      const last = this.autoPickupSent.get(e.id) || 0;
+      if (now - last < AUTO_PICKUP_RETRY_MS) continue;
+      this.autoPickupSent.set(e.id, now);
+      this.socket.pickup(e.id);
+    }
+  }
+
   update(_t: number, dtMs: number) {
     if (!this.room) return;
     const dtSec = Math.min(0.05, dtMs / 1000);
@@ -953,6 +1108,8 @@ export class WorldScene extends Phaser.Scene {
       spawnParticles(this.particles, isHub, this.room.bounds, isHub ? 2 : 3);
     }
     tickParticles(this.particles, dtSec);
+
+    this.autoPickupScan();
 
     // Lust exit proximity hint + reliable travel nudge
     if (this.room) {

@@ -12,6 +12,8 @@ function toWsUrl(httpBase: string): string {
 export class GameSocket {
   ws: WebSocket | null = null;
   playerId: string | null = null;
+  /** Last room snapshot — replayed to handlers that attach after it arrived (scene boot race). */
+  lastSnapshot: any = null;
   private handlers = new Set<Handler>();
   private url: string;
   private name: string;
@@ -39,6 +41,7 @@ export class GameSocket {
         return;
       }
       if (msg.type === "welcome") this.playerId = msg.playerId;
+      if (msg.type === "snapshot") this.lastSnapshot = msg;
       for (const h of this.handlers) h(msg);
     };
     ws.onclose = () => {

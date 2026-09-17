@@ -25,11 +25,26 @@ export class VirtualJoystick {
     this.root.setAttribute("role", "application");
     this.root.classList.add("vj-hidden");
 
+    // Etched bone ring: outer ring, tick marks, four gold cardinal finials, knob
     this.base = document.createElement("div");
     this.base.className = "vj-base";
+    const ticks = document.createElement("div");
+    ticks.className = "vj-ticks";
+    const finials = document.createElement("div");
+    finials.className = "vj-finials";
+    for (const dir of ["n", "e", "s", "w"]) {
+      const f = document.createElement("span");
+      f.className = `vj-finial vj-finial-${dir}`;
+      finials.appendChild(f);
+    }
+    const inner = document.createElement("div");
+    inner.className = "vj-inner";
     this.knob = document.createElement("div");
     this.knob.className = "vj-knob";
-    this.base.appendChild(this.knob);
+    const gem = document.createElement("span");
+    gem.className = "vj-gem";
+    this.knob.appendChild(gem);
+    this.base.append(ticks, finials, inner, this.knob);
     this.root.appendChild(this.base);
 
     document.body.appendChild(this.root);
@@ -161,6 +176,8 @@ export class VirtualJoystick {
     // Rescale so deadzone → 0 and edge → 1
     const scale = (mag - DEADZONE) / (1 - DEADZONE);
     this.vector = { x: (vx / mag) * scale, y: (vy / mag) * scale };
+    this.root.style.setProperty("--vj-angle", `${Math.atan2(vy, vx)}rad`);
+    this.root.style.setProperty("--vj-mag", scale.toFixed(2));
   }
 
   private reset() {
@@ -168,5 +185,6 @@ export class VirtualJoystick {
     this.vector = { x: 0, y: 0 };
     this.knob.style.transform = "translate(0px, 0px)";
     this.root.classList.remove("vj-active");
+    this.root.style.setProperty("--vj-mag", "0");
   }
 }

@@ -11,6 +11,10 @@ import {
 import * as ah from "./ah.mjs";
 
 const ATTACK_RANGE = 3.5;
+/** Generous loot / POI reach so mobile players rarely see "Too far". */
+const PICKUP_RANGE = 6.5;
+const INTERACT_RANGE = 5.2;
+const INTERACT_RANGE_PORTAL = 6.2;
 const MOVE_SPEED = 8; // units per intent clamp
 const PLAYER_MAX_HP = 100;
 const PLAYER_DMG = 28;
@@ -353,7 +357,7 @@ class CantoRoom {
     if (!s || !ledger) return;
     const loot = this.entities.get(lootId);
     if (!loot || loot.kind !== "loot") return;
-    if (dist(s, loot) > 3.5) {
+    if (dist(s, loot) > PICKUP_RANGE) {
       this.toast(s.ws, "warn", "Too far to pick up.");
       return;
     }
@@ -373,7 +377,8 @@ class CantoRoom {
     if (!s || !ledger) return;
     const e = this.entities.get(targetId);
     if (!e) return;
-    const maxDist = e.kind === "exit" || e.poiKind === "portal" ? 4.8 : 3.8;
+    const maxDist =
+      e.kind === "exit" || e.poiKind === "portal" ? INTERACT_RANGE_PORTAL : INTERACT_RANGE;
     if (dist(s, e) > maxDist) {
       this.toast(s.ws, "warn", "Move closer.");
       return;

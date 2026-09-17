@@ -10,16 +10,33 @@
 </head>
 <body>
   <div id="hud">
-    <header>
-      <h1>Selva Oscura</h1>
-      <div id="canto-title">Connecting…</div>
+    <header id="hud-top">
+      <!-- Zone plate (D4-style canto name) -->
+      <div id="zone-plate" class="plate plate-zone">
+        <span class="finial finial-l" aria-hidden="true"></span>
+        <h1>Selva Oscura</h1>
+        <div id="canto-title">Connecting…</div>
+        <span class="finial finial-r" aria-hidden="true"></span>
+      </div>
+
+      <div id="stats">
+        <!-- Vitals: bone frame, crimson fill, gold ticks -->
+        <div id="hp-plate" class="plate plate-hp" role="meter" aria-label="Health">
+          <div id="hp-bar">
+            <div id="hp-fill"></div>
+            <div class="hp-ticks" aria-hidden="true"></div>
+            <span id="hp">HP —</span>
+          </div>
+        </div>
+        <!-- Ash / STELLE plate -->
+        <div id="ash-plate" class="plate plate-ash">
+          <span class="ash-sigil" aria-hidden="true">✦</span>
+          <span id="ash">Ash —</span>
+          <span id="pending">Pending —</span>
+        </div>
+      </div>
     </header>
-    <div id="stats">
-      <span id="hp">HP —</span>
-      <span id="ash">Ash —</span>
-      <span id="pending">Pending —</span>
-    </div>
-    <div id="toast"></div>
+    <div id="toast" aria-live="polite"></div>
     <div id="help" class="help-desktop">
       Click ground to move · Click foe to attack · E / click POI to interact · I inventory · H AH
     </div>
@@ -27,28 +44,35 @@
       Left stick to move · Tap foe or hold Attack · Tap POI or Interact · Inv / AH
     </div>
   </div>
+
+  <div id="modal-backdrop" class="hidden"></div>
   <div id="panels">
-    <aside id="inventory" class="panel hidden">
+    <aside id="inventory" class="panel modal hidden" aria-label="Inventory">
       <div class="panel-head">
         <h2>Inventory</h2>
         <button type="button" class="btn-close" data-close="inventory" aria-label="Close inventory">✕</button>
       </div>
-      <ul id="inv-list"></ul>
-      <p class="hint">Select an item, set Ash price, List on AH.</p>
+      <div id="inv-grid" class="inv-grid"></div>
+      <div id="inv-detail" class="inv-detail">
+        <span class="inv-detail-name">Select an item to list it on the Auction House.</span>
+      </div>
       <div class="row">
-        <input id="list-price" type="number" min="1" step="1" inputmode="numeric" placeholder="Price Ash" />
-        <button id="btn-list" type="button">List</button>
+        <input id="list-price" type="number" min="1" step="1" inputmode="numeric" placeholder="Price (Ash)" />
+        <button id="btn-list" type="button" class="btn-gold">List on AH</button>
       </div>
     </aside>
-    <aside id="ah" class="panel hidden">
+    <aside id="ah" class="panel modal hidden" aria-label="Auction House">
       <div class="panel-head">
         <h2>Auction House</h2>
         <button type="button" class="btn-close" data-close="ah" aria-label="Close auction house">✕</button>
       </div>
-      <ul id="ah-list"></ul>
-      <button id="btn-ah-refresh" type="button">Refresh</button>
+      <ul id="ah-list" class="ah-list"></ul>
+      <div class="row row-end">
+        <button id="btn-ah-refresh" type="button">Refresh</button>
+      </div>
     </aside>
   </div>
+
   <nav id="action-bar" aria-label="Game actions">
     <button type="button" id="btn-inv" class="action-btn">
       <span class="action-label">Inv</span>
@@ -59,10 +83,10 @@
       <span class="action-hint" aria-hidden="true">H</span>
     </button>
     <button type="button" id="btn-interact" class="action-btn action-primary">
-      <span class="action-label">Interact</span>
+      <span class="action-label" data-short="Use">Interact</span>
       <span class="action-hint" aria-hidden="true">E</span>
     </button>
-    <button type="button" id="btn-attack" class="action-btn">
+    <button type="button" id="btn-attack" class="action-btn action-attack">
       <span class="action-label">Attack</span>
       <span class="action-hint" aria-hidden="true">•</span>
     </button>
