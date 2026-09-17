@@ -51,7 +51,19 @@ Local player uses **client-side prediction** (joystick / WASD / tap updates a re
 
 ## Slice 1 visuals
 
-Procedural isometric ground (bone/fog hub vs Inferno red-black Lust), soft entity shadows, distinct POI / exit / mob / boss / loot silhouettes, sparse mist or ember particles, and light bone/gold HUD chrome. Tiny PNGs under `public/assets/` are optional fillers — primary look is Graphics-drawn.
+**Doré art kit** (`public/assets/dore/`): Gustave Doré–inspired engraving sprites stamped into the Phaser world.
+
+| Entity | Asset |
+|---|---|
+| Player | `player.png` |
+| POI guide / stash / AH / quest | `poi_guide.png`, `poi_stash.png`, `poi_ah.png`, `poi_quest.png` |
+| Exit / portal | `exit_portal.png` |
+| Mob / champion | `mob_whirl.png` / `mob_champion.png` |
+| Boss | `boss_judge.png` |
+| Loot | `loot_gem.png` (tinted by rarity) |
+| Ground | `hub_ground.png` (`inferno_01`) · `lust_ground.png` (`inferno_05`) |
+
+Sprites preload in `WorldScene`; display sizes are contained (`setDisplaySize`) for iso readability. Soft shadows, HP bars, labels, particles, and movement prediction stay. If a Doré texture fails to load, the client falls back to the previous procedural Graphics silhouettes. A light hatch overlay still sits on the ground stamp. See `manifest.json` in that folder for the kit inventory.
 
 
 ## Build (Vercel)
