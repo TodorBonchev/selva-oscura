@@ -12,7 +12,7 @@ export function steleToAsh(stelle: number): Ash {
   return Math.trunc(stelle * ASH_PER_STELLE) as Ash;
 }
 
-export function ashToStelleDisplay(ash: Ash): string {
+export function ashToStelleDisplay(ash: number): string {
   const whole = Math.trunc(ash / ASH_PER_STELLE);
   const frac = Math.abs(ash % ASH_PER_STELLE);
   return `${whole}.${String(frac).padStart(3, "0")}`;
@@ -40,6 +40,8 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   [EventType.FirstClear]: "FirstClear",
 };
 
+export type EventTypeName = "DailyQuest" | "ChampionPack" | "Boss" | "FirstClear";
+
 /** D2-style rarity ladder + seasonal canto unique. */
 export enum ItemRarity {
   Normal = "normal",
@@ -56,17 +58,13 @@ export enum Canticle {
   Paradiso = "paradiso",
 }
 
-export type CantoId = string; // e.g. "inferno_01", "inferno_05"
+export type CantoId = string;
 
 export interface EmitCapPolicy {
-  /** Max daily-quest emits per player per UTC day */
   dailyQuestPerPlayerPerDay: 1;
-  /** First-clear once per canto per account */
   firstClearOncePerCanto: true;
-  /** Boss emits gated by per-player and global hourly caps (values tuned in sim) */
   bossPerPlayerHourly: number;
   bossGlobalHourly: number;
-  /** Optional: max fraction of remaining vault per UTC day (~0.0001 = 0.01%) */
   maxRemainingFractionPerUtcDay?: number;
 }
 
@@ -78,7 +76,6 @@ export const DEFAULT_EMIT_CAPS: EmitCapPolicy = {
   maxRemainingFractionPerUtcDay: 0.0001,
 };
 
-/** Starting p targets from locked brief (tune via sim; on-chain via timelock). */
 export const STARTING_EMIT_P: Record<EventType, number> = {
   [EventType.DailyQuest]: 1e-7,
   [EventType.ChampionPack]: 3e-7,
@@ -88,3 +85,82 @@ export const STARTING_EMIT_P: Record<EventType, number> = {
 
 export const PLAY_VAULT_STELLE = 300_000_000 as const;
 export const HARD_CAP_STELLE = 1_000_000_000 as const;
+
+export type ItemRarityName =
+  | "normal"
+  | "magic"
+  | "rare"
+  | "set"
+  | "unique"
+  | "canto_unique";
+
+export interface Vec2 {
+  x: number;
+  y: number;
+}
+
+export interface GameItem {
+  id: string;
+  name: string;
+  rarity: ItemRarityName;
+  itemPool: string;
+  seed: number;
+  affixes: string[];
+  soulbound: boolean;
+  qty: number;
+}
+
+export interface AhListing {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  item: GameItem;
+  priceAsh: number;
+  highestBidAsh: number;
+  highestBidderId: string | null;
+  createdAt: number;
+}
+
+export interface EntitySnapshot {
+  id: string;
+  kind: "mob" | "boss" | "player" | "poi" | "exit" | "loot";
+  name: string;
+  x: number;
+  y: number;
+  hp?: number;
+  maxHp?: number;
+  packId?: string;
+  champion?: boolean;
+  elite?: boolean;
+  poiKind?: string;
+  label?: string;
+  toCanto?: string;
+  item?: GameItem;
+}
+
+export interface PlayerSnapshot {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  cantoId: CantoId;
+  ash: number;
+  pendingAsh: number;
+  inventory: GameItem[];
+  firstClears: string[];
+  dailyQuestDoneUtc: string | null;
+  visitedInferno: boolean;
+  spokeToGuide: boolean;
+}
+
+export interface RoomSnapshot {
+  cantoId: CantoId;
+  title: string;
+  role: string;
+  bounds: { width: number; height: number };
+  entities: EntitySnapshot[];
+  players: PlayerSnapshot[];
+  you: PlayerSnapshot;
+}

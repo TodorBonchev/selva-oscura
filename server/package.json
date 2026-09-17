@@ -1,13 +1,13 @@
 {
   "name": "selva-oscura-server",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
-  "description": "Authoritative Selva Oscura game server — Colyseus-class rooms, Ash ledger, vault emit relay",
+  "description": "Authoritative Selva Oscura game server — rooms, Ash ledger, D2 loot, off-chain AH",
   "type": "module",
   "scripts": {
     "dev": "node index.mjs",
     "start": "node index.mjs",
-    "typecheck": "echo \"No tsconfig wired yet\""
+    "typecheck": "echo \"JS ESM server — no tsc\""
   },
   "dependencies": {
     "ws": "^8.18.3"

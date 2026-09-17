@@ -1,0 +1,36 @@
+{
+  "$comment": "Locked burn sinks from PROJECT_BRIEF — do not reopen token math",
+  "ah_tax": {
+    "rate": 0.06,
+    "split": { "burn": 0.5, "treasury": 0.5 },
+    "notes": "Unbound rares trade on global AH for STELLE; tax on sale proceeds"
+  },
+  "identify": {
+    "sink": "ash",
+    "notes": "Identify / reroll costs burn Ash on server ledger; settle burns per ops policy"
+  },
+  "reroll": {
+    "sink": "ash",
+    "notes": "Affix reroll sink; paired with identify"
+  },
+  "unique_repair": {
+    "slice": "unique_repair_slice",
+    "notes": "Unique repair takes a burn slice of repair cost"
+  },
+  "withdraw": {
+    "rate_min": 0.01,
+    "rate_max": 0.02,
+    "notes": "1–2% on withdraw from Phase 1 custody to wallet"
+  },
+  "tournament_entry": {
+    "prize": 0.5,
+    "burn": 0.35,
+    "treasury": 0.15,
+    "notes": "Solo + 3v3 cup buy-in split"
+  },
+  "forbidden": {
+    "fiat_loot_boxes": true,
+    "ash_amm": true,
+    "second_token_for_ash": true
+  }
+}

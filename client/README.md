@@ -1,21 +1,41 @@
 # selva-oscura-client
 
-Browser client for Selva Oscura.
+Phaser isometric 2D client for Selva Oscura Slice 1.
 
-## Stack lean
+## Connect
 
-- **Phaser** (isometric 2D lean — preferred over low-poly 3D for Slice 1)
-- DOM overlays for auction house, inventory, and STELLE/Ash HUD
-- Talks only to the authoritative game server; never trusted for combat or drops
+Default production game server:
 
-## Scope by slice
+```
+https://game-server-production-b9f9.up.railway.app
+```
 
-| Slice | Client bar |
+Override locally:
+
+```bash
+# env
+VITE_GAME_SERVER_URL=http://localhost:8080 npm run dev
+
+# or query string
+http://localhost:5173/?server=http://localhost:8080&name=Virgil
+```
+
+## Controls
+
+| Input | Action |
 |---|---|
-| 0 | Not required |
-| 1 | Dark Wood hub + Lust navigation, packs, one boss, loot UI, off-chain AH shell, Devnet claim button |
-| 2+ | Full Inferno map graph, bots visible as entities, withdraw UX |
+| Click ground / WASD | Move (server-authoritative) |
+| Click mob / boss | Attack |
+| Click loot | Pick up |
+| Click POI / E | Interact (Guide, Stash, AH, Daily, exits) |
+| I | Toggle inventory |
+| H | Toggle auction house |
 
-## Package
+## Build (Vercel)
 
-See `package.json`. No playable game loop in this bootstrap — stubs only until Slice 1 implementation.
+```bash
+cd client && npm install && npm run build
+# outputs static assets to client/dist
+```
+
+`vercel.json` sets `outputDirectory: dist`. Set `VITE_GAME_SERVER_URL` in the Vercel project if the Railway URL changes.
