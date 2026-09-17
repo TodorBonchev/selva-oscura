@@ -39,6 +39,12 @@ import {
   DORE_KEYS,
   DORE_DISPLAY,
   RARITY_COLOR,
+  doreDisplaySize,
+  drawEntityPad,
+  drawHubDecor,
+  drawExitSpotlight,
+  spawnHitBurst,
+  spawnLootSparkle,
   type Particle,
 } from "../render/art";
 
@@ -46,7 +52,9 @@ type RoomSnap = any;
 
 const DESKTOP_HIT_RADIUS = 28;
 const MOBILE_HIT_RADIUS = 48;
-const INTERACT_RANGE = 3.5;
+const INTERACT_RANGE = 4.2;
+const EXIT_HINT_RANGE = 7;
+const EXIT_TRAVEL_RANGE = 4.8;
 const ATTACK_RANGE = 5.5;
 const MOBILE_ZOOM = 0.65;
 const MOBILE_ZOOM_TABLET = 0.72;
@@ -90,6 +98,12 @@ export class WorldScene extends Phaser.Scene {
   groundImage: Phaser.GameObjects.Image | null = null;
   entitySprites = new Map<string, Phaser.GameObjects.Image>();
   shadowSprites = new Map<string, Phaser.GameObjects.Image>();
+  /** Brief combat punch / flash keyed by entity sprite id. */
+  hitFx = new Map<string, { until: number; ox: number; oy: number }>();
+  hubTipShown = false;
+  nearExitToastAt = 0;
+  seenLootIds = new Set<string>();
+  decorDrawnFor: string | null = null;
 
   constructor() {
     super("world");
@@ -273,13 +287,27 @@ export class WorldScene extends Phaser.Scene {
     const you = this.youPos();
     let best: any = null;
     let bestD = INTERACT_RANGE;
+
+    // Prefer exits/portals in a slightly larger travel radius
     for (const e of this.room.entities) {
-      if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+      if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
-      if (d < bestD) {
+      if (d < EXIT_TRAVEL_RANGE && d < bestD) {
         bestD = d;
         best = e;
+      }
+    }
+    if (!best) {
+      bestD = INTERACT_RANGE;
+      for (const e of this.room.entities) {
+        if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+        const pos = this.entityRenderPos(e);
+        const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+        if (d < bestD) {
+          bestD = d;
+          best = e;
+        }
       }
     }
     if (!best) {
@@ -356,6 +384,27 @@ export class WorldScene extends Phaser.Scene {
         }
 
         this.needsFullRedraw = true;
+
+        // First-time Dark Wood tip
+        const isHub =
+          msg.room.role === "hub" || msg.room.cantoId === "inferno_01";
+        if (isHub && !this.hubTipShown) {
+          this.hubTipShown = true;
+          showToast("No foes here — take the portal Toward Lust.", "info");
+        }
+
+        // Loot sparkle when new drops appear
+        const lootIds = new Set<string>();
+        for (const e of msg.room.entities) {
+          if (e.kind !== "loot") continue;
+          lootIds.add(e.id);
+          if (!this.seenLootIds.has(e.id)) {
+            spawnLootSparkle(this.particles, e.x, e.y);
+          }
+        }
+        this.seenLootIds = lootIds;
+        if (cantoChanged) this.seenLootIds = lootIds;
+
         break;
       }
       case "toast":
@@ -376,8 +425,32 @@ export class WorldScene extends Phaser.Scene {
       case "error":
         showToast(msg.message, "warn");
         break;
-      case "combat":
+      case "combat": {
+        const tid = msg.targetId as string;
+        const ent = this.room?.entities?.find((e: any) => e.id === tid);
+        if (ent) {
+          const sid = `${ent.kind}:${ent.id}`;
+          this.hitFx.set(sid, {
+            until: this.animT + 180,
+            ox: (Math.random() - 0.5) * 10,
+            oy: -4 - Math.random() * 6,
+          });
+          spawnHitBurst(this.particles, ent.x, ent.y);
+          const img = this.entitySprites.get(sid);
+          if (img) {
+            img.setTint(0xffeeaa);
+            this.tweens.add({
+              targets: img,
+              scaleX: img.scaleX * 1.18,
+              scaleY: img.scaleY * 1.18,
+              duration: 70,
+              yoyo: true,
+              ease: "Quad.easeOut",
+            });
+          }
+        }
         break;
+      }
     }
   }
 
@@ -447,9 +520,15 @@ export class WorldScene extends Phaser.Scene {
       img.setAlpha(isHub ? 0.92 : 0.88);
       img.setDepth(0);
       this.groundImage = img;
+      // Soften busy hatch so sprites read on mobile
+      img.setTint(isHub ? 0xb8c4b8 : 0xc4a8a8);
       drawHatchOverlay(this.groundGraphics, b, isHub);
+      if (isHub) {
+        drawHubDecor(this.groundGraphics, b, this.animT);
+      }
     } else {
       drawGround(this.groundGraphics, this.room.bounds, isHub);
+      if (isHub) drawHubDecor(this.groundGraphics, this.room.bounds, this.animT);
     }
 
     this.groundCantoId = this.room.cantoId;
@@ -473,20 +552,38 @@ export class WorldScene extends Phaser.Scene {
     if (!img) {
       img = this.add.image(sx, sy, texKey);
       img.setOrigin(0.5, 0.85);
-      const sz = DORE_DISPLAY[texKey] || { w: 36, h: 36 };
+      const sz = doreDisplaySize(texKey, isCompactUi());
       img.setDisplaySize(sz.w, sz.h);
+      // Ensure no debug / bounds stroke leftover from textures
+      img.clearTint();
+      img.setAlpha(1);
       this.entitySprites.set(id, img);
     } else if (img.texture.key !== texKey) {
       img.setTexture(texKey);
-      const sz = DORE_DISPLAY[texKey] || { w: 36, h: 36 };
+      const sz = doreDisplaySize(texKey, isCompactUi());
       img.setDisplaySize(sz.w, sz.h);
+    } else {
+      // Keep mobile/desktop size in sync on resize
+      const sz = doreDisplaySize(texKey, isCompactUi());
+      if (Math.abs(img.displayWidth - sz.w) > 1) img.setDisplaySize(sz.w, sz.h);
     }
     const bob = opts?.bob ?? 0;
-    img.setPosition(sx, sy - 4 + bob);
+    const fx = this.hitFx.get(id);
+    let ox = 0;
+    let oy = 0;
+    if (fx) {
+      if (this.animT > fx.until) this.hitFx.delete(id);
+      else {
+        ox = fx.ox;
+        oy = fx.oy;
+        img.setTint(0xffe0a0);
+      }
+    }
+    img.setPosition(sx + ox, sy - 4 + bob + oy);
     img.setDepth(depth);
     img.setVisible(true);
-    if (opts?.tint != null) img.setTint(opts.tint);
-    else img.clearTint();
+    if (opts?.tint != null && !(fx && this.animT <= fx.until)) img.setTint(opts.tint);
+    else if (!(fx && this.animT <= fx.until)) img.clearTint();
 
     // Soft shadow under sprite
     let sh = this.shadowSprites.get(id);
@@ -498,9 +595,9 @@ export class WorldScene extends Phaser.Scene {
       }
     }
     if (sh) {
-      const sz = DORE_DISPLAY[texKey] || { w: 36, h: 36 };
+      const sz = doreDisplaySize(texKey, isCompactUi());
       sh.setPosition(sx, sy + 2);
-      sh.setDisplaySize(Math.max(18, sz.w * 0.55), 10);
+      sh.setDisplaySize(Math.max(22, sz.w * 0.55), 12);
       sh.setDepth(depth - 0.1);
       sh.setVisible(true);
     }
@@ -547,6 +644,15 @@ export class WorldScene extends Phaser.Scene {
     }
     drawParticles(g, this.particles);
 
+    // Live hub decor pulse (lightweight vignette trees already stamped on ground)
+    if (isHub) {
+      // Soft center darkening under playable clearing each frame for sprite pop
+      const b = this.room.bounds;
+      const c = worldToScreen(b.width * 0.5, b.height * 0.55);
+      g.fillStyle(0x000000, 0.08);
+      g.fillEllipse(c.sx, c.sy, 180, 80);
+    }
+
     const ents = [...this.room.entities].sort((a, b) => {
       const pa = this.entityRenderPos(a);
       const pb = this.entityRenderPos(b);
@@ -561,6 +667,7 @@ export class WorldScene extends Phaser.Scene {
       const sid = `${e.kind}:${e.id}`;
 
       if (e.kind === "poi") {
+        drawEntityPad(g, p.sx, p.sy, compact ? 1.25 : 1.05);
         if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
         } else {
@@ -568,13 +675,30 @@ export class WorldScene extends Phaser.Scene {
         }
         this.addLabel(`poi:${e.id}`, p.sx, p.sy - 34, e.label || e.name, labelSize, seenLabels);
       } else if (e.kind === "exit") {
+        drawEntityPad(g, p.sx, p.sy, compact ? 1.6 : 1.35);
+        drawExitSpotlight(g, p.sx, p.sy, this.animT, compact);
         if (this.placeSprite(sid, DORE_KEYS.exit_portal, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
         } else {
           drawExit(g, p.sx, p.sy);
         }
-        this.addLabel(`exit:${e.id}`, p.sx, p.sy - 36, e.label || "Exit", labelSize, seenLabels);
+        const exitLabel =
+          e.toCanto === "inferno_05"
+            ? "Toward Lust →"
+            : e.label || "Exit";
+        this.addLabel(
+          `exit:${e.id}`,
+          p.sx,
+          p.sy - (compact ? 72 : 58),
+          exitLabel,
+          compact ? "15px" : "13px",
+          seenLabels
+        );
+        // Gold-ish label for Lust exit
+        const lab = this.labels.get(`exit:${e.id}`);
+        if (lab && e.toCanto === "inferno_05") lab.setColor("#e8c86a");
       } else if (e.kind === "mob") {
+        drawEntityPad(g, p.sx, p.sy, e.champion ? 1.3 : 1.1);
         if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
         } else {
@@ -582,6 +706,7 @@ export class WorldScene extends Phaser.Scene {
         }
         this.drawHp(g, p.sx, p.sy - 26, e.hp, e.maxHp, 24);
       } else if (e.kind === "boss") {
+        drawEntityPad(g, p.sx, p.sy, 1.8);
         if (this.placeSprite(sid, DORE_KEYS.boss_judge, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
         } else {
@@ -590,6 +715,7 @@ export class WorldScene extends Phaser.Scene {
         this.addLabel(`boss:${e.id}`, p.sx, p.sy - 52, e.name, labelSize, seenLabels);
         this.drawHp(g, p.sx, p.sy - 60, e.hp, e.maxHp, 40);
       } else if (e.kind === "loot") {
+        drawEntityPad(g, p.sx, p.sy, 0.7);
         const bob = Math.sin(this.animT * 0.004 + p.sx * 0.01) * 2;
         const rarity = e.item?.rarity || "normal";
         const tint = RARITY_COLOR[rarity] || 0xffffff;
@@ -628,6 +754,7 @@ export class WorldScene extends Phaser.Scene {
       const p = worldToScreen(this.renderYou.x, this.renderYou.y);
       const depth = 100 + this.renderYou.x + this.renderYou.y;
       const sid = "you";
+      drawEntityPad(g, p.sx, p.sy, compact ? 1.35 : 1.15);
       if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth)) {
         seenSprites.add(sid);
       } else {
@@ -651,13 +778,18 @@ export class WorldScene extends Phaser.Scene {
     w: number
   ) {
     if (maxHp == null) return;
-    const ratio = Math.max(0, hp / maxHp);
-    g.fillStyle(0x222222, 0.85);
-    g.fillRect(x - w / 2, y, w, 4);
-    g.lineStyle(1, 0xc9a227, 0.35);
-    g.strokeRect(x - w / 2, y, w, 4);
-    g.fillStyle(ratio > 0.35 ? 0x3cc88a : 0xaa3333, 1);
-    g.fillRect(x - w / 2, y, w * ratio, 4);
+    const ratio = Math.max(0, Math.min(1, hp / maxHp));
+    const compact = isCompactUi();
+    const barW = compact ? w * 1.25 : w;
+    const barH = compact ? 6 : 5;
+    g.fillStyle(0x000000, 0.55);
+    g.fillRect(x - barW / 2 - 1, y - 1, barW + 2, barH + 2);
+    g.fillStyle(0x1a1a1a, 0.95);
+    g.fillRect(x - barW / 2, y, barW, barH);
+    g.lineStyle(1, 0xc9a227, 0.55);
+    g.strokeRect(x - barW / 2, y, barW, barH);
+    g.fillStyle(ratio > 0.35 ? 0x3cc88a : 0xcc3333, 1);
+    g.fillRect(x - barW / 2, y, Math.max(0, barW * ratio), barH);
   }
 
   addLabel(
@@ -821,6 +953,33 @@ export class WorldScene extends Phaser.Scene {
       spawnParticles(this.particles, isHub, this.room.bounds, isHub ? 2 : 3);
     }
     tickParticles(this.particles, dtSec);
+
+    // Lust exit proximity hint + reliable travel nudge
+    if (this.room) {
+      const isHub =
+        this.room.role === "hub" || this.room.cantoId === "inferno_01";
+      if (isHub) {
+        let nearExit: any = null;
+        let nearD = EXIT_HINT_RANGE;
+        for (const e of this.room.entities) {
+          if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal"))
+            continue;
+          const pos = this.entityRenderPos(e);
+          const d = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+          if (d < nearD) {
+            nearD = d;
+            nearExit = e;
+          }
+        }
+        if (nearExit && nearD < EXIT_HINT_RANGE) {
+          const now = Date.now();
+          if (now - this.nearExitToastAt > 8000) {
+            this.nearExitToastAt = now;
+            showToast("Portal near — press Interact to enter Lust", "info");
+          }
+        }
+      }
+    }
 
     this.redraw();
     this.centerOnYou(false);

@@ -37,17 +37,30 @@ export const DORE_FILES: Record<keyof typeof DORE_KEYS, string> = {
 
 /** On-screen display sizes (contain) — gens are detailed full-frame. */
 export const DORE_DISPLAY: Record<string, { w: number; h: number }> = {
-  [DORE_KEYS.player]: { w: 40, h: 44 },
-  [DORE_KEYS.poi_guide]: { w: 42, h: 48 },
-  [DORE_KEYS.poi_stash]: { w: 40, h: 36 },
-  [DORE_KEYS.poi_ah]: { w: 40, h: 40 },
-  [DORE_KEYS.poi_quest]: { w: 38, h: 42 },
-  [DORE_KEYS.exit_portal]: { w: 52, h: 56 },
-  [DORE_KEYS.mob_whirl]: { w: 34, h: 34 },
-  [DORE_KEYS.mob_champion]: { w: 42, h: 42 },
-  [DORE_KEYS.boss_judge]: { w: 78, h: 72 },
-  [DORE_KEYS.loot_gem]: { w: 22, h: 24 },
+  [DORE_KEYS.player]: { w: 58, h: 66 },
+  [DORE_KEYS.poi_guide]: { w: 56, h: 62 },
+  [DORE_KEYS.poi_stash]: { w: 54, h: 48 },
+  [DORE_KEYS.poi_ah]: { w: 54, h: 54 },
+  [DORE_KEYS.poi_quest]: { w: 52, h: 56 },
+  [DORE_KEYS.exit_portal]: { w: 86, h: 92 },
+  [DORE_KEYS.mob_whirl]: { w: 50, h: 50 },
+  [DORE_KEYS.mob_champion]: { w: 60, h: 60 },
+  [DORE_KEYS.boss_judge]: { w: 110, h: 100 },
+  [DORE_KEYS.loot_gem]: { w: 32, h: 34 },
 };
+
+/** Extra scale on compact / phone UI for mobile readability. */
+export const DORE_COMPACT_SCALE = 1.3;
+
+export function doreDisplaySize(
+  texKey: string,
+  compact: boolean
+): { w: number; h: number } {
+  const base = DORE_DISPLAY[texKey] || { w: 48, h: 48 };
+  if (!compact) return { w: base.w, h: base.h };
+  const s = DORE_COMPACT_SCALE;
+  return { w: Math.round(base.w * s), h: Math.round(base.h * s) };
+}
 
 export function poiDoreKey(poiKind: string | undefined): string {
   switch (poiKind) {
@@ -216,12 +229,12 @@ export function drawGround(
       );
       // Sparse hatch ticks (Doré-ish engraving)
       if (((x + y) / step) % 3 === 0) {
-        g.lineStyle(1, hatch, 0.22);
+        g.lineStyle(1, hatch, 0.12);
         g.lineBetween(p.sx - 6, p.sy, p.sx + 6, p.sy);
         g.lineBetween(p.sx, p.sy - 3, p.sx, p.sy + 3);
       }
       if (((x * 3 + y) / step) % 5 === 0) {
-        g.lineStyle(1, fog, 0.12);
+        g.lineStyle(1, fog, 0.07);
         g.lineBetween(p.sx - 4, p.sy - 2, p.sx + 4, p.sy + 2);
       }
     }
@@ -259,15 +272,15 @@ export function drawHatchOverlay(
     for (let y = 0; y <= bounds.height; y += step) {
       const p = worldToScreen(x, y);
       if (((x + y) / step) % 2 === 0) {
-        g.lineStyle(1, hatch, 0.14);
+        g.lineStyle(1, hatch, 0.08);
         g.lineBetween(p.sx - 5, p.sy, p.sx + 5, p.sy);
       }
       if (((x * 3 + y) / step) % 4 === 0) {
-        g.lineStyle(1, fog, 0.08);
+        g.lineStyle(1, fog, 0.05);
         g.lineBetween(p.sx - 3, p.sy - 2, p.sx + 3, p.sy + 2);
       }
       if (((x + y * 2) / step) % 5 === 0) {
-        g.fillStyle(hatch, 0.06);
+        g.fillStyle(hatch, 0.035);
         g.fillTriangle(
           p.sx,
           p.sy - hh * 0.35,
@@ -548,5 +561,162 @@ export function drawParticles(g: Phaser.GameObjects.Graphics, particles: Particl
       g.fillStyle(p.color, 0.2 + a * 0.35);
       g.fillCircle(scr.sx, scr.sy - 6, p.size);
     }
+  }
+}
+
+
+/** Dark soft pad under entities so Doré sprites pop off busy hatch. */
+export function drawEntityPad(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  scale = 1
+) {
+  g.fillStyle(0x000000, 0.4);
+  g.fillEllipse(sx, sy + 3, 30 * scale, 13 * scale);
+  g.fillStyle(0x0a100c, 0.22);
+  g.fillEllipse(sx, sy + 3, 44 * scale, 20 * scale);
+}
+
+/** Hub framing: tree silhouettes + soft vignette so the clearing reads as a place. */
+export function drawHubDecor(
+  g: Phaser.GameObjects.Graphics,
+  bounds: { width: number; height: number },
+  t: number
+) {
+  const bw = bounds.width;
+  const bh = bounds.height;
+  const ring = [
+    worldToScreen(2, 2),
+    worldToScreen(bw - 2, 2),
+    worldToScreen(bw - 2, bh - 2),
+    worldToScreen(2, bh - 2),
+  ];
+  g.lineStyle(18, 0x050805, 0.35);
+  g.beginPath();
+  g.moveTo(ring[0].sx, ring[0].sy);
+  for (let i = 1; i < ring.length; i++) g.lineTo(ring[i].sx, ring[i].sy);
+  g.closePath();
+  g.strokePath();
+  g.lineStyle(40, 0x030503, 0.18);
+  g.beginPath();
+  g.moveTo(ring[0].sx, ring[0].sy);
+  for (let i = 1; i < ring.length; i++) g.lineTo(ring[i].sx, ring[i].sy);
+  g.closePath();
+  g.strokePath();
+
+  const trees: Array<[number, number, number]> = [
+    [10, 18, 1.1],
+    [22, 8, 0.9],
+    [40, 6, 1.2],
+    [70, 10, 1.0],
+    [100, 16, 1.15],
+    [118, 30, 0.95],
+    [120, 55, 1.1],
+    [112, 90, 1.0],
+    [90, 118, 1.2],
+    [50, 122, 0.9],
+    [18, 110, 1.05],
+    [6, 70, 1.15],
+    [8, 45, 0.85],
+    [30, 100, 0.8],
+    [105, 70, 0.9],
+  ];
+  for (const [tx, ty, sc] of trees) {
+    if (tx >= bw - 2 || ty >= bh - 2) continue;
+    const p = worldToScreen(tx, ty);
+    const sway = Math.sin(t * 0.0012 + tx * 0.2) * 1.5;
+    drawTreeSilhouette(g, p.sx + sway, p.sy, sc);
+  }
+
+  const center = worldToScreen(bw * 0.5, bh * 0.55);
+  g.fillStyle(0x0c1410, 0.28);
+  g.fillEllipse(center.sx, center.sy, 160, 70);
+  g.fillStyle(0x101a14, 0.18);
+  g.fillEllipse(center.sx, center.sy, 100, 42);
+}
+
+function drawTreeSilhouette(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  scale: number
+) {
+  const h = 38 * scale;
+  const w = 16 * scale;
+  g.fillStyle(0x060a08, 0.72);
+  g.fillRect(sx - 2 * scale, sy - h * 0.35, 4 * scale, h * 0.45);
+  g.fillStyle(0x0a120e, 0.78);
+  g.fillTriangle(sx, sy - h, sx + w, sy - h * 0.35, sx - w, sy - h * 0.35);
+  g.fillStyle(0x0e1812, 0.65);
+  g.fillTriangle(
+    sx,
+    sy - h * 0.85,
+    sx + w * 0.85,
+    sy - h * 0.2,
+    sx - w * 0.85,
+    sy - h * 0.2
+  );
+  g.lineStyle(1, 0x2a3a2e, 0.25);
+  g.lineBetween(sx - w * 0.5, sy - h * 0.5, sx + w * 0.4, sy - h * 0.55);
+}
+
+/** Pulsing gold/red ring under Lust exit portal. */
+export function drawExitSpotlight(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  t: number,
+  compact: boolean
+) {
+  const pulse = 0.55 + 0.45 * Math.sin(t * 0.005);
+  const r0 = (compact ? 46 : 36) * (0.92 + pulse * 0.12);
+  g.fillStyle(0x4a1018, 0.22 + pulse * 0.12);
+  g.fillEllipse(sx, sy + 6, r0 * 2.2, r0 * 0.9);
+  g.lineStyle(3.5, 0xc9a227, 0.35 + pulse * 0.45);
+  g.strokeEllipse(sx, sy + 6, r0 * 2.1, r0 * 0.85);
+  g.lineStyle(2, 0xaa3333, 0.4 + pulse * 0.35);
+  g.strokeEllipse(sx, sy + 6, r0 * 1.55, r0 * 0.62);
+  g.lineStyle(1.5, 0xffcc66, 0.25 + pulse * 0.35);
+  g.strokeEllipse(sx, sy + 6, r0 * 1.1, r0 * 0.42);
+  const ay = sy - (compact ? 62 : 52) - Math.sin(t * 0.006) * 3;
+  g.fillStyle(0xc9a227, 0.75 + pulse * 0.2);
+  g.fillTriangle(sx, ay - 8, sx + 8, ay + 4, sx - 8, ay + 4);
+  g.fillStyle(0xaa3333, 0.7);
+  g.fillTriangle(sx, ay - 2, sx + 5, ay + 6, sx - 5, ay + 6);
+}
+
+export function spawnHitBurst(particles: Particle[], wx: number, wy: number) {
+  for (let i = 0; i < 8; i++) {
+    if (particles.length > 64) break;
+    const ang = (Math.PI * 2 * i) / 8 + Math.random() * 0.4;
+    particles.push({
+      x: wx,
+      y: wy,
+      vx: Math.cos(ang) * (1.5 + Math.random()),
+      vy: Math.sin(ang) * (1.5 + Math.random()),
+      life: 0.35 + Math.random() * 0.25,
+      maxLife: 0.6,
+      size: 1.5 + Math.random() * 2,
+      color: Math.random() > 0.4 ? 0xffcc66 : 0xff6644,
+      kind: "ember",
+    });
+  }
+}
+
+export function spawnLootSparkle(particles: Particle[], wx: number, wy: number) {
+  for (let i = 0; i < 10; i++) {
+    if (particles.length > 64) break;
+    particles.push({
+      x: wx + (Math.random() - 0.5) * 0.6,
+      y: wy + (Math.random() - 0.5) * 0.6,
+      vx: (Math.random() - 0.5) * 1.2,
+      vy: -0.8 - Math.random() * 1.2,
+      life: 0.5 + Math.random() * 0.4,
+      maxLife: 0.9,
+      size: 1.2 + Math.random() * 2,
+      color: 0xffe08a,
+      kind: "ember",
+    });
   }
 }
