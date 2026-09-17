@@ -82,13 +82,57 @@ export function togglePanel(id: string) {
   el.classList.toggle("hidden");
 }
 
+export function setPanelOpen(id: string, open: boolean) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle("hidden", !open);
+}
+
+/** Narrow / touch-first UI (phones and compact tablets). */
+export function isCompactUi(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia("(max-width: 640px)").matches ||
+    (window.matchMedia("(pointer: coarse)").matches && window.innerWidth < 900)
+  );
+}
+
 export function wireHud(api: {
   listSelected: (price: number) => void;
   refreshAh: () => void;
+  toggleInventory: () => void;
+  toggleAh: () => void;
+  interactNearest: () => void;
+  attackNearest: () => void;
 }) {
   document.getElementById("btn-list")?.addEventListener("click", () => {
     const price = Number((document.getElementById("list-price") as HTMLInputElement)?.value);
     api.listSelected(price);
   });
   document.getElementById("btn-ah-refresh")?.addEventListener("click", () => api.refreshAh());
+
+  document.getElementById("btn-inv")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    api.toggleInventory();
+  });
+  document.getElementById("btn-ah")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    api.toggleAh();
+  });
+  document.getElementById("btn-interact")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    api.interactNearest();
+  });
+  document.getElementById("btn-attack")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    api.attackNearest();
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const id = btn.getAttribute("data-close");
+      if (id) setPanelOpen(id, false);
+    });
+  });
 }
