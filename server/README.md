@@ -5,7 +5,7 @@ Authoritative multiplayer game server (Slice 1).
 ## Responsibilities
 
 - Combat resolution, pack/boss AI, drop rolls, quest completion
-- Integer **Ash** ledger (Phase 1 custody, **in-memory** for Slice 1)
+- Integer **Ash** ledger (Phase 1 custody — **Postgres** when `DATABASE_URL` is set, else in-memory)
 - Off-chain auction house (list / buy / bid)
 - Cap tracking (daily quest, boss hourly, first-clear per canto)
 - Pending Ash grants from `event_type` via `remaining * p[event]` — never an arbitrary amount
@@ -17,21 +17,71 @@ WebSocket path: `/ws` (JSON). See `shared/game-core/src/protocol.ts`.
 
 Rooms: `inferno_01` (Dark Wood hub), `inferno_05` (Lust).
 
+Reconnect: clients send `hello` with a display `name`. The server restores the existing
+character row (ash, pendingAsh, inventory, first-clears, quest flags) when that name
+already exists (case-insensitive). A second `welcome` may be sent with the stable
+`playerId` so the client updates.
+
+## Persistence (Postgres / Neon)
+
+Set `DATABASE_URL` (Neon requires SSL; connection strings with `sslmode=require` work).
+
+On boot the server:
+
+1. Connects with `pg` (node-postgres)
+2. Runs idempotent SQL migrations from `migrations/`
+3. Hydrates vault, players, inventory, AH listings, emit log, and caps into memory
+
+Meaningful writes are persisted: ash changes, loot grants, inventory location, AH
+list/buy/bid (buy/bid use a DB transaction), emit grants, first-clear / daily caps,
+vault remaining.
+
+If `DATABASE_URL` is missing, the server logs a clear warning and runs fully in-memory
+(local dev). State then resets on process restart.
+
+### Schema (`migrations/001_init.sql`)
+
+| Table | Purpose |
+|---|---|
+| `players` | id, name/display, ash, pending_ash, quest/cap fields |
+| `inventory_items` | server-owned items (seed, rarity, affixes JSON, owner, location, soulbound) |
+| `ah_listings` | item, seller, price_ash, bids JSON, highest bid, status |
+| `first_clears` | per-player per-canto first clear |
+| `emit_log` | public emit history |
+| `emit_caps_global` | global boss hourly counter |
+| `vault_state` | remaining ash/stelle mirror for the emit formula |
+| `schema_migrations` | applied migration ids |
+
+### Migrate
+
+Migrations also run automatically on server boot when `DATABASE_URL` is set.
+
+One-shot against Neon (never echo the URL):
+
+```bash
+cd server
+# Prefer --env-file so URL special chars are not expanded by the shell:
+node scripts/migrate.mjs --env-file /path/to/selva-oscura-neon.env
+```
+
+Or: `DATABASE_URL=… npm run migrate`
+
 ## Run locally
 
 ```bash
 cd server && npm install && npm start
 # PORT default 8080; content from ./content (bundled) or CONTENT_ROOT
+# optional: export DATABASE_URL=… for durable state
 ```
 
-- `GET /health`
+- `GET /health` — includes `persistence: "postgres" | "memory"`
 - `GET /ah`
 - `GET /emits`
 - `WS /ws`
 
 ## Docker / Railway
 
-Dockerfile assumes build context = `server/` (bundled `content/` + `vendor/`).
+Dockerfile assumes build context = `server/` (bundled `content/` + `vendor/` + `migrations/`).
 
 ```bash
 # from server/
@@ -42,7 +92,12 @@ After editing monorepo `content/`, run `scripts/sync-content.sh` from repo root 
 
 Port from `PORT` env (8080). Keep `/health`.
 
-## Slice 1 notes
+Railway: set `DATABASE_URL` to the Neon connection string (already configured for
+project `weathered-resonance-13759058` / database `selva`). Deploy watches `server/**`.
 
-- No Postgres yet — state resets on restart.
-- Custom authoritative rooms over `ws` (Colyseus-class trust model without the dependency).
+## Verify restart-safe state
+
+1. Connect with `?name=TestHero`, earn ash / pick up loot / list on AH
+2. Restart the server process
+3. Reconnect with the same `name` — ash, inventory, pendingAsh, and active AH listings
+   should match; `/health` should report `persistence: "postgres"`

@@ -10,3 +10,8 @@ target/
 .anchor/
 test-ledger/
 .vercel
+
+# local secrets
+secrets/
+*.env
+!.env.example
