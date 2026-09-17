@@ -35,31 +35,66 @@ export const DORE_FILES: Record<keyof typeof DORE_KEYS, string> = {
   loot_gem: "loot_gem.png",
 };
 
-/** On-screen display sizes (contain) — gens are detailed full-frame. */
-export const DORE_DISPLAY: Record<string, { w: number; h: number }> = {
-  [DORE_KEYS.player]: { w: 58, h: 66 },
-  [DORE_KEYS.poi_guide]: { w: 56, h: 62 },
-  [DORE_KEYS.poi_stash]: { w: 54, h: 48 },
-  [DORE_KEYS.poi_ah]: { w: 54, h: 54 },
-  [DORE_KEYS.poi_quest]: { w: 52, h: 56 },
-  [DORE_KEYS.exit_portal]: { w: 86, h: 92 },
-  [DORE_KEYS.mob_whirl]: { w: 50, h: 50 },
-  [DORE_KEYS.mob_champion]: { w: 60, h: 60 },
-  [DORE_KEYS.boss_judge]: { w: 110, h: 100 },
-  [DORE_KEYS.loot_gem]: { w: 32, h: 34 },
+/**
+ * On-screen display target heights (desktop, css px before camera zoom).
+ * Width is derived from the real texture aspect so nothing is squished.
+ * Textures are 2× nearest-upscaled; heights here are ~1.1× the old kit.
+ */
+export const DORE_DISPLAY: Record<string, { h: number }> = {
+  [DORE_KEYS.player]: { h: 74 },
+  [DORE_KEYS.poi_guide]: { h: 66 },
+  [DORE_KEYS.poi_stash]: { h: 54 },
+  [DORE_KEYS.poi_ah]: { h: 60 },
+  [DORE_KEYS.poi_quest]: { h: 60 },
+  [DORE_KEYS.exit_portal]: { h: 100 },
+  [DORE_KEYS.mob_whirl]: { h: 60 },
+  [DORE_KEYS.mob_champion]: { h: 70 },
+  [DORE_KEYS.boss_judge]: { h: 112 },
+  [DORE_KEYS.loot_gem]: { h: 36 },
 };
 
-/** Extra scale on compact / phone UI for mobile readability. */
-export const DORE_COMPACT_SCALE = 1.3;
+/**
+ * Sub-rect of the texture to show (texture px). poi_guide ships as a 5-figure
+ * strip — show the centre hooded figure only.
+ */
+export const DORE_CROP: Record<string, { x: number; y: number; w: number; h: number }> = {
+  [DORE_KEYS.poi_guide]: { x: 68, y: 0, w: 40, h: 100 },
+};
 
+/**
+ * Sprites whose matte is baked in as near-black: SCREEN blend drops the black
+ * so no dark quad shows on the ground.
+ */
+export const DORE_BLEND: Record<string, number> = {
+  [DORE_KEYS.poi_guide]: Phaser.BlendModes.SCREEN,
+  [DORE_KEYS.poi_quest]: Phaser.BlendModes.SCREEN,
+  [DORE_KEYS.poi_stash]: Phaser.BlendModes.SCREEN,
+};
+
+/** Extra scale on compact / phone UI for mobile readability (≈1.5× old). */
+export const DORE_COMPACT_SCALE = 1.7;
+
+/** Native pixel size of the visible part of a Doré texture (crop-aware). */
+export function doreFrameSize(scene: Phaser.Scene, texKey: string): { w: number; h: number } {
+  const crop = DORE_CROP[texKey];
+  if (crop) return { w: crop.w, h: crop.h };
+  const tex = scene.textures.get(texKey);
+  const src = tex?.source?.[0];
+  if (src && src.width > 0 && src.height > 0) return { w: src.width, h: src.height };
+  return { w: 48, h: 48 };
+}
+
+/** Display size (css px) of the visible frame for this device class. */
 export function doreDisplaySize(
+  scene: Phaser.Scene,
   texKey: string,
   compact: boolean
 ): { w: number; h: number } {
-  const base = DORE_DISPLAY[texKey] || { w: 48, h: 48 };
-  if (!compact) return { w: base.w, h: base.h };
-  const s = DORE_COMPACT_SCALE;
-  return { w: Math.round(base.w * s), h: Math.round(base.h * s) };
+  const base = DORE_DISPLAY[texKey] || { h: 48 };
+  const frame = doreFrameSize(scene, texKey);
+  const h = compact ? base.h * DORE_COMPACT_SCALE : base.h;
+  const w = h * (frame.w / frame.h);
+  return { w: Math.round(w), h: Math.round(h) };
 }
 
 export function poiDoreKey(poiKind: string | undefined): string {
@@ -717,6 +752,204 @@ export function spawnLootSparkle(particles: Particle[], wx: number, wy: number) 
       size: 1.2 + Math.random() * 2,
       color: 0xffe08a,
       kind: "ember",
+    });
+  }
+}
+
+/* ————————————————————————————————————————————————————————————————————————
+ *  Tiled Doré ground
+ * ———————————————————————————————————————————————————————————————————————— */
+
+export type GroundTiles = {
+  /** One container holds every tile so the diamond clip is a single stencil pass. */
+  root: Phaser.GameObjects.Container;
+  images: Phaser.GameObjects.Image[];
+  maskGfx: Phaser.GameObjects.Graphics;
+  mask: Phaser.Display.Masks.GeometryMask;
+};
+
+/** Tile scale applied to the 1280×720 ground plate (1 = texel-per-css-px at desktop zoom). */
+export const GROUND_TILE_SCALE = 1;
+
+/**
+ * Stamp the 1280×720 ground plate across the iso room diamond as a grid of
+ * mirror-tiled images (flipX/flipY alternate so seams vanish), clipped to the
+ * diamond with one geometry mask on the parent container. Same texture → one
+ * batch; texels stay ~1:1 so mobile sees crisp etching instead of a stretch.
+ */
+export function buildGroundTiles(
+  scene: Phaser.Scene,
+  texKey: string,
+  bounds: { width: number; height: number },
+  isHub: boolean
+): GroundTiles {
+  const src = scene.textures.get(texKey).source[0];
+  const tw = Math.max(64, src.width * GROUND_TILE_SCALE);
+  const th = Math.max(64, src.height * GROUND_TILE_SCALE);
+
+  const corners = [
+    worldToScreen(0, 0),
+    worldToScreen(bounds.width, 0),
+    worldToScreen(bounds.width, bounds.height),
+    worldToScreen(0, bounds.height),
+  ];
+  const pad = 40;
+  const minX = Math.min(...corners.map((c) => c.sx)) - pad;
+  const maxX = Math.max(...corners.map((c) => c.sx)) + pad;
+  const minY = Math.min(...corners.map((c) => c.sy)) - pad;
+  const maxY = Math.max(...corners.map((c) => c.sy)) + pad;
+
+  // Diamond clip (slightly inflated so the border stroke sits on texture)
+  const maskGfx = scene.make.graphics({ x: 0, y: 0 }, false);
+  maskGfx.fillStyle(0xffffff, 1);
+  maskGfx.beginPath();
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const inflate = 1.02;
+  maskGfx.moveTo(cx + (corners[0].sx - cx) * inflate, cy + (corners[0].sy - cy) * inflate);
+  for (let i = 1; i < corners.length; i++) {
+    maskGfx.lineTo(cx + (corners[i].sx - cx) * inflate, cy + (corners[i].sy - cy) * inflate);
+  }
+  maskGfx.closePath();
+  maskGfx.fillPath();
+  const mask = maskGfx.createGeometryMask();
+
+  const tint = isHub ? 0xc6d0c4 : 0xd4b4b0;
+  const alpha = isHub ? 0.95 : 0.92;
+  const root = scene.add.container(0, 0);
+  root.setDepth(0);
+  root.setMask(mask);
+  const images: Phaser.GameObjects.Image[] = [];
+  const cols = Math.ceil((maxX - minX) / tw) + 1;
+  const rows = Math.ceil((maxY - minY) / th) + 1;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = minX + c * tw;
+      const y = minY + r * th;
+      if (x > maxX || y > maxY) continue;
+      const img = scene.make.image({ x, y, key: texKey }, false);
+      img.setOrigin(0, 0);
+      img.setDisplaySize(tw, th);
+      img.setFlip(c % 2 === 1, r % 2 === 1);
+      img.setTint(tint);
+      img.setAlpha(alpha);
+      root.add(img);
+      images.push(img);
+    }
+  }
+  return { root, images, maskGfx, mask };
+}
+
+export function destroyGroundTiles(t: GroundTiles | null) {
+  if (!t) return;
+  t.root.destroy(true);
+  t.mask.destroy();
+  t.maskGfx.destroy();
+}
+
+/* ————————————————————————————————————————————————————————————————————————
+ *  Foe HP bar (bone frame · crimson fill · gold ticks)
+ * ———————————————————————————————————————————————————————————————————————— */
+
+export function drawFoeHpBar(
+  g: Phaser.GameObjects.Graphics,
+  x: number,
+  y: number,
+  hp: number,
+  maxHp: number,
+  w: number,
+  opts: { compact: boolean; boss?: boolean; ally?: boolean }
+) {
+  if (maxHp == null || maxHp <= 0) return;
+  const ratio = Math.max(0, Math.min(1, hp / maxHp));
+  const barW = opts.compact ? w * 1.3 : w;
+  const barH = opts.boss ? (opts.compact ? 9 : 7) : opts.compact ? 7 : 5;
+  const left = x - barW / 2;
+  // Shadow + bone frame
+  g.fillStyle(0x000000, 0.6);
+  g.fillRect(left - 2, y - 2, barW + 4, barH + 4);
+  g.fillStyle(0x1a1610, 1);
+  g.fillRect(left, y, barW, barH);
+  // Fill: crimson for foes, bone-green for allies
+  const fill = opts.ally ? (ratio > 0.35 ? 0x9fbf8a : 0xcc3333) : ratio > 0.3 ? 0xa8241f : 0xd63a2a;
+  g.fillStyle(fill, 1);
+  g.fillRect(left, y, Math.max(0, barW * ratio), barH);
+  // Gloss line
+  g.fillStyle(0xffffff, 0.12);
+  g.fillRect(left, y, Math.max(0, barW * ratio), Math.max(1, barH * 0.35));
+  // Gold ticks at quarters
+  g.lineStyle(1, 0xc9a227, 0.5);
+  for (let i = 1; i < 4; i++) {
+    const tx = Math.round(left + (barW * i) / 4) + 0.5;
+    g.lineBetween(tx, y, tx, y + barH);
+  }
+  // Bone outline + gold finials
+  g.lineStyle(1, 0xd9cfae, 0.8);
+  g.strokeRect(left, y, barW, barH);
+  g.fillStyle(0xc9a227, 0.95);
+  g.fillRect(left - 2, y - 1, 2, barH + 2);
+  g.fillRect(left + barW, y - 1, 2, barH + 2);
+}
+
+/* ————————————————————————————————————————————————————————————————————————
+ *  Loot glow / pulse
+ * ———————————————————————————————————————————————————————————————————————— */
+
+export function drawLootGlow(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  color: number,
+  t: number,
+  compact: boolean,
+  strong = false
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(t * 0.006 + sx * 0.02);
+  const s = (compact ? 1.5 : 1) * (strong ? 1.25 : 1);
+  g.fillStyle(color, 0.10 + pulse * 0.12);
+  g.fillEllipse(sx, sy + 2, 40 * s * (0.9 + pulse * 0.15), 18 * s * (0.9 + pulse * 0.15));
+  g.fillStyle(color, 0.16 + pulse * 0.18);
+  g.fillEllipse(sx, sy + 2, 22 * s, 10 * s);
+  g.lineStyle(1, color, 0.35 + pulse * 0.4);
+  g.strokeEllipse(sx, sy + 2, 30 * s * (0.95 + pulse * 0.1), 13 * s * (0.95 + pulse * 0.1));
+  // Vertical light shaft
+  g.fillStyle(color, 0.05 + pulse * 0.07);
+  g.fillTriangle(sx - 5 * s, sy + 1, sx + 5 * s, sy + 1, sx, sy - 34 * s);
+}
+
+/** Faint ember rim under foes so smoky shades read on red-black ground. */
+export function drawFoeGlow(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  t: number,
+  opts: { compact: boolean; champion?: boolean; boss?: boolean }
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(t * 0.004 + sx * 0.03);
+  const s = (opts.compact ? 1.5 : 1) * (opts.boss ? 2.1 : opts.champion ? 1.35 : 1);
+  const col = opts.boss ? 0xd63a2a : opts.champion ? 0xff7a3a : 0xc0402a;
+  g.fillStyle(col, 0.06 + pulse * 0.06);
+  g.fillEllipse(sx, sy + 3, 46 * s, 20 * s);
+  g.lineStyle(1.5, col, 0.18 + pulse * 0.24);
+  g.strokeEllipse(sx, sy + 3, 34 * s, 14 * s);
+}
+
+export function spawnKillBurst(particles: Particle[], wx: number, wy: number, boss = false) {
+  const n = boss ? 22 : 12;
+  for (let i = 0; i < n; i++) {
+    if (particles.length > 96) break;
+    const ang = (Math.PI * 2 * i) / n + Math.random() * 0.5;
+    const sp = 2 + Math.random() * (boss ? 3 : 2);
+    particles.push({
+      x: wx,
+      y: wy,
+      vx: Math.cos(ang) * sp,
+      vy: Math.sin(ang) * sp - 0.6,
+      life: 0.5 + Math.random() * 0.4,
+      maxLife: 0.9,
+      size: 1.5 + Math.random() * (boss ? 3 : 2),
+      color: i % 3 === 0 ? 0xc9a227 : i % 3 === 1 ? 0xff5533 : 0xd9cfae,
+      kind: i % 4 === 0 ? "ash" : "ember",
     });
   }
 }
