@@ -17,9 +17,40 @@ function resolveServer(): string {
 }
 
 const serverUrl = resolveServer();
-const name =
-  new URLSearchParams(location.search).get("name") ||
-  `Wanderer-${Math.random().toString(36).slice(2, 6)}`;
+
+function resolveDisplayName(): string {
+  const params = new URLSearchParams(location.search);
+  const fromUrl = params.get("name")?.trim();
+  if (fromUrl) {
+    try {
+      localStorage.setItem("selva_display_name", fromUrl.slice(0, 24));
+    } catch {
+      /* ignore */
+    }
+    return fromUrl.slice(0, 24);
+  }
+  let stored = "";
+  try {
+    stored = localStorage.getItem("selva_display_name") || "";
+  } catch {
+    /* ignore */
+  }
+  if (stored.trim()) return stored.trim().slice(0, 24);
+  const fallback = `Wanderer-${Math.random().toString(36).slice(2, 6)}`;
+  const entered =
+    typeof window !== "undefined" && typeof window.prompt === "function"
+      ? window.prompt("Display name (saved for reconnect; cancel = random)", fallback)
+      : null;
+  const name = (entered && entered.trim() ? entered.trim() : fallback).slice(0, 24);
+  try {
+    localStorage.setItem("selva_display_name", name);
+  } catch {
+    /* ignore */
+  }
+  return name;
+}
+
+const name = resolveDisplayName();
 
 showToast(`Connecting to ${serverUrl}…`, "info");
 

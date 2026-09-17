@@ -7,8 +7,14 @@
   "role": "combat",
   "circle": 2,
   "geo": {
-    "bounds": { "width": 160, "height": 120 },
-    "spawn": { "x": 20, "y": 60 },
+    "bounds": {
+      "width": 160,
+      "height": 120
+    },
+    "spawn": {
+      "x": 20,
+      "y": 60
+    },
     "exits": [
       {
         "to_canto": "inferno_01",
@@ -18,36 +24,51 @@
       }
     ],
     "pois": [
-      { "id": "lust_portal_home", "kind": "portal", "x": 14, "y": 58, "label": "Hub portal" }
+      {
+        "id": "lust_portal_home",
+        "kind": "portal",
+        "x": 14,
+        "y": 58,
+        "label": "Hub portal"
+      }
     ]
   },
   "packs": [
     {
       "id": "lust_winds_a",
       "archetype": "whirl_shade",
-      "count": 8,
+      "count": 3,
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 48, "y": 40 }
+      "anchor": {
+        "x": 48,
+        "y": 40
+      }
     },
     {
       "id": "lust_winds_b",
       "archetype": "whirl_shade",
-      "count": 10,
+      "count": 3,
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 72, "y": 70 }
+      "anchor": {
+        "x": 72,
+        "y": 70
+      }
     },
     {
       "id": "lust_champion_pair",
       "archetype": "gale_champion",
-      "count": 6,
+      "count": 2,
       "elite": true,
       "champion": true,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 100, "y": 50 }
+      "anchor": {
+        "x": 100,
+        "y": 50
+      }
     }
   ],
   "bosses": [
@@ -55,7 +76,10 @@
       "id": "minos_gate",
       "name": "Judge of the Gate",
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 140, "y": 60 },
+      "anchor": {
+        "x": 140,
+        "y": 60
+      },
       "first_clear_emit": true
     }
   ],
@@ -68,7 +92,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_02_lust",
-    "notes": "Circle kit 2 of 12; red-black gale; Doré line weight"
+    "notes": "Circle kit 2 of 12; red-black gale; Dor\u00e9 line weight"
   },
   "loot_density": "raw_d2",
   "legal": {

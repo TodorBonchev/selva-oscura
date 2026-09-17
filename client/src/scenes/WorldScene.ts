@@ -540,24 +540,23 @@ export class WorldScene extends Phaser.Scene {
         showToast(msg.message, "warn");
         break;
       case "combat": {
-        const tid = msg.targetId as string;
-        if (this.room && tid === this.room.you.id) {
+        const tid = String(msg.targetId ?? "");
+        const youId = this.room?.you?.id != null ? String(this.room.you.id) : "";
+        const sockId = this.socket.playerId != null ? String(this.socket.playerId) : "";
+        const hitSelf = Boolean(tid) && (tid === youId || tid === sockId);
+        if (hitSelf) {
           // We got hit: crimson flash + short shake + recoil on our sprite
           this.punch("you", { dur: 200, punch: -0.06, tint: 0xff7a6a, ox: (Math.random() - 0.5) * 8, oy: 2 });
           this.cameras.main.shake(110, isCompactUi() ? 0.006 : 0.004);
-          this.cameras.main.flash(120, 120, 10, 10, false);
-          // Crimson number on ourselves so it's clear who took the hit
-          this.showDamageNumber(
-            { x: this.renderYou.x, y: this.renderYou.y, kind: "player" },
-            msg.damage,
-            { color: "#ff8a7a", screen: worldToScreen(this.renderYou.x, this.renderYou.y) }
-          );
+          this.cameras.main.flash(80, 140, 20, 20, false);
+          // HUD-locked crimson float (scrollFactor 0) — pass2 missed world-space floats
+          this.showPlayerDamageNumber(msg.damage);
           if (msg.targetHp != null && msg.targetHp <= 0) {
             this.cameras.main.shake(260, 0.012);
           }
           break;
         }
-        const ent = this.room?.entities?.find((e: any) => e.id === tid);
+        const ent = this.room?.entities?.find((e: any) => String(e.id) === tid);
         if (ent) {
           const sid = `${ent.kind}:${ent.id}`;
           this.punch(sid, {
@@ -584,6 +583,35 @@ export class WorldScene extends Phaser.Scene {
         break;
       }
     }
+  }
+
+  /** Crimson float above local player — camera-locked so flash/shake cannot hide it. */
+  showPlayerDamageNumber(dmg: number) {
+    if (dmg == null) return;
+    const cam = this.cameras.main;
+    const world = worldToScreen(this.renderYou.x, this.renderYou.y);
+    const sx = world.sx - cam.scrollX + (Math.random() - 0.5) * 14;
+    const sy = world.sy - cam.scrollY - 72;
+    const compact = isCompactUi();
+    const t = this.add
+      .text(sx, sy, String(dmg), {
+        fontFamily: "Georgia, serif",
+        fontSize: compact ? "26px" : "20px",
+        color: "#ff6b5a",
+        stroke: "#1a0a06",
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(12000)
+      .setScrollFactor(0);
+    this.tweens.add({
+      targets: t,
+      y: sy - 42,
+      alpha: 0,
+      duration: 780,
+      ease: "Cubic.easeOut",
+      onComplete: () => t.destroy(),
+    });
   }
 
   /** Floating damage number (gold by default, rises + fades) — cheap Text tween. */

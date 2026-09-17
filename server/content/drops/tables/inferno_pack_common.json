@@ -1,15 +1,45 @@
 {
   "id": "inferno_pack_common",
-  "description": "Slice 1 Inferno pack/boss shared table — D2-style weights; server rolls seed+affixes",
+  "description": "Slice 1 Inferno pack/boss shared table \u2014 D2-style weights; server rolls seed+affixes",
   "rolls": 1,
-  "no_drop_weight": 40,
+  "no_drop_weight": 22,
   "champion_bonus_rolls": 1,
   "entries": [
-    { "weight": 45, "rarity": "normal", "item_pool": "inferno_bases_t1", "qty_min": 1, "qty_max": 1 },
-    { "weight": 28, "rarity": "magic", "item_pool": "inferno_affix_magic_t1", "qty_min": 1, "qty_max": 1 },
-    { "weight": 14, "rarity": "rare", "item_pool": "inferno_affix_rare_t1", "qty_min": 1, "qty_max": 1 },
-    { "weight": 6, "rarity": "set", "item_pool": "inferno_set_t1", "qty_min": 1, "qty_max": 1 },
-    { "weight": 3, "rarity": "unique", "item_pool": "inferno_unique_t1", "qty_min": 1, "qty_max": 1 },
+    {
+      "weight": 45,
+      "rarity": "normal",
+      "item_pool": "inferno_bases_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 28,
+      "rarity": "magic",
+      "item_pool": "inferno_affix_magic_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 14,
+      "rarity": "rare",
+      "item_pool": "inferno_affix_rare_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 6,
+      "rarity": "set",
+      "item_pool": "inferno_set_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 3,
+      "rarity": "unique",
+      "item_pool": "inferno_unique_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
     {
       "weight": 1,
       "rarity": "canto_unique",
@@ -21,7 +51,14 @@
     }
   ],
   "boss_guaranteed": [
-    { "rarity": "rare", "item_pool": "inferno_affix_rare_t1" },
-    { "rarity": "unique", "item_pool": "inferno_unique_t1", "soulbound": false }
+    {
+      "rarity": "rare",
+      "item_pool": "inferno_affix_rare_t1"
+    },
+    {
+      "rarity": "unique",
+      "item_pool": "inferno_unique_t1",
+      "soulbound": false
+    }
   ]
 }
