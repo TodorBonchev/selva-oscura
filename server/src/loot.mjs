@@ -205,6 +205,28 @@ function rollOnce(table, rng, { champion = false, boss = false } = {}) {
   return items;
 }
 
+
+/** Fixed normal starter gear for empty bags (Slice 1 equip path). */
+export function makeStarterKitItems() {
+  const mk = (name, baseId, slot) => {
+    itemSeq += 1;
+    return {
+      id: `item_${Date.now().toString(36)}_${itemSeq}`,
+      name,
+      rarity: "normal",
+      itemPool: "inferno_bases_t1",
+      seed: newSeed(),
+      affixes: [],
+      soulbound: true,
+      qty: 1,
+      baseId,
+      slot,
+      equipSlot: null,
+    };
+  };
+  return [mk("Ashen Club", "ashen_club", "weapon"), mk("Torn Cape", "torn_cape", "armor")];
+}
+
 export function rollDrops(dropTableId, opts = {}) {
   const table = loadDropTable(dropTableId);
   const rng = mulberry32(newSeed());

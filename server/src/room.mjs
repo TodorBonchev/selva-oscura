@@ -1,5 +1,5 @@
 import { CANTOS } from "./content.mjs";
-import { rollDrops } from "./loot.mjs";
+import { rollDrops, makeStarterKitItems } from "./loot.mjs";
 import {
   getOrCreatePlayer,
   snapshotPlayer,
@@ -26,15 +26,15 @@ const PLAYER_BASE_DMG = 22;
 const PLAYER_ATK_CD = 0.72;
 
 const MOB_HP = {
-  whirl_shade: 40,
-  gale_champion: 90,
-  boss: 220,
+  whirl_shade: 36,
+  gale_champion: 80,
+  boss: 200,
 };
 
 const MOB_DMG = {
-  whirl_shade: 4,
-  gale_champion: 9,
-  boss: 14,
+  whirl_shade: 3,
+  gale_champion: 7,
+  boss: 12,
 };
 
 let entitySeq = 0;
@@ -142,6 +142,16 @@ class CantoRoom {
 
   join(ws, playerId, name) {
     const ledger = getOrCreatePlayer(playerId, name);
+    // Empty bag → grant weapon + armor so Equip is testable without a kill
+    if (!ledger.inventory || ledger.inventory.length === 0) {
+      const kit = makeStarterKitItems();
+      for (const item of kit) {
+        void grantInventoryItem(playerId, item).catch((err) =>
+          console.error("[starter] grant failed", err.message)
+        );
+      }
+      this.toast(ws, "loot", "Starter kit: Ashen Club + Torn Cape (open INV → Equip).");
+    }
     const spawn = this.canto.geo.spawn;
     const gear = computeGearStats(ledger);
     const maxHp = PLAYER_MAX_HP + gear.maxHp;
@@ -528,6 +538,7 @@ class CantoRoom {
           type: "combat",
           attackerId: e.id,
           targetId: nearest.playerId,
+          targetIsPlayer: true,
           damage: taken,
           targetHp: nearest.hp,
         });
