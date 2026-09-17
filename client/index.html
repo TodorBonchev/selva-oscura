@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>Selva Oscura</title>
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
@@ -18,26 +20,53 @@
       <span id="pending">Pending —</span>
     </div>
     <div id="toast"></div>
-    <div id="help">
-      Click ground to move · Click foe to attack · E / click POI to interact · I inventory · A AH
+    <div id="help" class="help-desktop">
+      Click ground to move · Click foe to attack · E / click POI to interact · I inventory · H AH
+    </div>
+    <div id="help-mobile" class="help-mobile">
+      Tap ground to move · Tap foe / Attack · Tap POI or Interact · Inv / AH buttons
     </div>
   </div>
   <div id="panels">
     <aside id="inventory" class="panel hidden">
-      <h2>Inventory</h2>
+      <div class="panel-head">
+        <h2>Inventory</h2>
+        <button type="button" class="btn-close" data-close="inventory" aria-label="Close inventory">✕</button>
+      </div>
       <ul id="inv-list"></ul>
       <p class="hint">Select an item, set Ash price, List on AH.</p>
       <div class="row">
-        <input id="list-price" type="number" min="1" step="1" placeholder="Price Ash" />
+        <input id="list-price" type="number" min="1" step="1" inputmode="numeric" placeholder="Price Ash" />
         <button id="btn-list" type="button">List</button>
       </div>
     </aside>
     <aside id="ah" class="panel hidden">
-      <h2>Auction House</h2>
+      <div class="panel-head">
+        <h2>Auction House</h2>
+        <button type="button" class="btn-close" data-close="ah" aria-label="Close auction house">✕</button>
+      </div>
       <ul id="ah-list"></ul>
       <button id="btn-ah-refresh" type="button">Refresh</button>
     </aside>
   </div>
+  <nav id="action-bar" aria-label="Game actions">
+    <button type="button" id="btn-inv" class="action-btn">
+      <span class="action-label">Inv</span>
+      <span class="action-hint" aria-hidden="true">I</span>
+    </button>
+    <button type="button" id="btn-ah" class="action-btn">
+      <span class="action-label">AH</span>
+      <span class="action-hint" aria-hidden="true">H</span>
+    </button>
+    <button type="button" id="btn-interact" class="action-btn action-primary">
+      <span class="action-label">Interact</span>
+      <span class="action-hint" aria-hidden="true">E</span>
+    </button>
+    <button type="button" id="btn-attack" class="action-btn">
+      <span class="action-label">Attack</span>
+      <span class="action-hint" aria-hidden="true">•</span>
+    </button>
+  </nav>
   <div id="game-root"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>

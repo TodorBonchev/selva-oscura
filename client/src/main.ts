@@ -43,6 +43,9 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
+  input: {
+    activePointers: 3,
+  },
 };
 
 const game = new Phaser.Game(config);
@@ -51,5 +54,16 @@ game.scene.start("world", { socket });
 window.addEventListener("resize", () => {
   game.scale.resize(window.innerWidth, window.innerHeight);
 });
+
+// Prevent pull-to-refresh / page scroll stealing touches over the canvas
+document.body.addEventListener(
+  "touchmove",
+  (e) => {
+    const t = e.target as HTMLElement | null;
+    if (t?.closest?.("#panels, .panel, input")) return;
+    e.preventDefault();
+  },
+  { passive: false }
+);
 
 console.info("[Selva Oscura] Slice 1 client", { serverUrl, name });
