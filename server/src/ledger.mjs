@@ -6,7 +6,7 @@ import {
 } from "../vendor/constants.mjs";
 import { loadEmitRates } from "./content.mjs";
 import { dbEnabled, query, withTransaction } from "./db.mjs";
-import { contentSlotToEquip, itemStatBonus } from "./loot.mjs";
+import { contentSlotToEquip, inferContentSlot, itemStatBonus } from "./loot.mjs";
 
 const rates = loadEmitRates();
 const pByEvent = rates.p_by_event || STARTING_EMIT_P;
@@ -581,18 +581,10 @@ export function computeGearStats(p) {
 export async function equipItem(playerId, itemId) {
   const p = players.get(playerId);
   if (!p) return { ok: false, reason: "no_player" };
-  const item = p.inventory.find((i) => i.id === itemId);
+  const item = p.inventory.find((i) => String(i.id) === String(itemId));
   if (!item) return { ok: false, reason: "not_found" };
-  const slot = contentSlotToEquip(item.slot) || contentSlotToEquip(
-    // infer from baseId for older rows
-    item.baseId === "ashen_club" ? "weapon"
-      : item.baseId === "torn_cape" ? "armor"
-      : item.baseId === "ash_helm" ? "helm"
-      : item.baseId === "pilgrim_boots" ? "boots"
-      : item.baseId === "grave_gloves" ? "gloves"
-      : item.baseId === "rusty_buckler" ? "offhand"
-      : null
-  );
+  // Older rows may lack `slot`; infer from baseId / name.
+  const slot = contentSlotToEquip(inferContentSlot(item));
   if (!slot) return { ok: false, reason: "not_equippable" };
   // Unequip existing in that slot
   for (const other of p.inventory) {
@@ -609,7 +601,7 @@ export async function equipItem(playerId, itemId) {
 export async function unequipItem(playerId, itemId) {
   const p = players.get(playerId);
   if (!p) return { ok: false, reason: "no_player" };
-  const item = p.inventory.find((i) => i.id === itemId);
+  const item = p.inventory.find((i) => String(i.id) === String(itemId));
   if (!item) return { ok: false, reason: "not_found" };
   if (!item.equipSlot) return { ok: false, reason: "not_equipped" };
   item.equipSlot = null;
