@@ -3,13 +3,14 @@
   "version": "0.0.1",
   "private": true,
   "description": "Authoritative Selva Oscura game server — Colyseus-class rooms, Ash ledger, vault emit relay",
+  "type": "module",
   "scripts": {
-    "dev": "echo \"Server stub — implement rooms in Slice 1\"",
-    "start": "echo \"No entrypoint yet\"",
+    "dev": "node index.mjs",
+    "start": "node index.mjs",
     "typecheck": "echo \"No tsconfig wired yet\""
   },
   "dependencies": {
-    "@selva-oscura/game-core": "workspace:*"
+    "ws": "^8.18.3"
   },
   "engines": {
     "node": ">=20"

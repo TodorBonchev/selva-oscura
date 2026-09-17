@@ -20,3 +20,13 @@ Authoritative multiplayer game server.
 
 - `inferno_01` — Dark Wood hub
 - `inferno_05` — Lust (packs + one boss)
+
+## Fly.io (stub)
+
+Deployable health stub (`index.mjs`) listens on port 8080:
+
+- `GET /health` — JSON health check
+- `WS /ws` — echo placeholder
+
+Config: `fly.toml` (`app = selva-oscura`, `primary_region = fra`).
+Set `DATABASE_URL` via `fly secrets set` (never commit it).
