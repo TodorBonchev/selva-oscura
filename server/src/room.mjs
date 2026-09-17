@@ -20,7 +20,8 @@ const PICKUP_RANGE = 6.5;
 const INTERACT_RANGE = 5.2;
 const INTERACT_RANGE_PORTAL = 6.2;
 const MOVE_SPEED = 8; // units per intent clamp
-const PLAYER_MAX_HP = 100;
+const PLAYER_MAX_HP = 130;
+const RESPAWN_IFRAMES = 2.0; // seconds of invulnerability after waking at the entrance
 const PLAYER_BASE_DMG = 22;
 const PLAYER_ATK_CD = 0.72;
 
@@ -31,9 +32,9 @@ const MOB_HP = {
 };
 
 const MOB_DMG = {
-  whirl_shade: 6,
-  gale_champion: 12,
-  boss: 18,
+  whirl_shade: 4,
+  gale_champion: 9,
+  boss: 14,
 };
 
 let entitySeq = 0;
@@ -152,6 +153,7 @@ class CantoRoom {
       hp: maxHp,
       maxHp,
       atkCd: 0,
+      iframes: 0,
       cantoId: this.cantoId,
     };
     this.sessions.set(playerId, sess);
@@ -262,8 +264,8 @@ class CantoRoom {
       x = s.x + dx * scale;
       y = s.y + dy * scale;
     }
-    s.x = clamp(x, 1, b.width - 1);
-    s.y = clamp(y, 1, b.height - 1);
+    s.x = clamp(x, 0.5, b.width - 0.5);
+    s.y = clamp(y, 0.5, b.height - 0.5);
     this.markDirty();
   }
 
@@ -488,6 +490,7 @@ class CantoRoom {
     if (this.sessions.size === 0) return;
     for (const s of this.sessions.values()) {
       if (s.atkCd > 0) s.atkCd = Math.max(0, s.atkCd - dt);
+      if (s.iframes > 0) s.iframes = Math.max(0, s.iframes - dt);
     }
     let moved = false;
     for (const e of this.entities.values()) {
@@ -513,7 +516,7 @@ class CantoRoom {
         e.y += (dy / len) * speed * dt;
         moved = true;
       }
-      if (nearestD <= 2.2 && e.atkCd <= 0) {
+      if (nearestD <= 2.2 && e.atkCd <= 0 && !(nearest.iframes > 0)) {
         const arch = e.archetype || (e.kind === "boss" ? "boss" : "whirl_shade");
         const dmg = e.champion ? MOB_DMG.gale_champion : MOB_DMG[arch] || MOB_DMG.whirl_shade;
         const led = players.get(nearest.playerId);
@@ -534,7 +537,8 @@ class CantoRoom {
           nearest.x = sp.x;
           nearest.y = sp.y;
           nearest.hp = nearest.maxHp;
-          this.toast(nearest.ws, "warn", "You fall… and wake at the canto entrance.");
+          nearest.iframes = RESPAWN_IFRAMES;
+          this.toast(nearest.ws, "warn", "You are slain… and wake at the canto entrance.");
         }
       }
     }

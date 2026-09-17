@@ -38,6 +38,34 @@ export function contentSlotToEquip(slot) {
   }
 }
 
+const BASE_CONTENT_SLOT = {
+  ashen_club: "weapon",
+  torn_cape: "armor",
+  ash_helm: "helm",
+  pilgrim_boots: "boots",
+  grave_gloves: "gloves",
+  rusty_buckler: "offhand",
+  bone_shard: "misc",
+};
+
+/**
+ * Content slot for an item, tolerating pre-migration rows with no `slot`:
+ * falls back to baseId, then to name keywords (mirrors client resolveBaseId).
+ */
+export function inferContentSlot(item) {
+  if (!item) return null;
+  if (item.slot) return String(item.slot).toLowerCase();
+  if (item.baseId && BASE_CONTENT_SLOT[item.baseId]) return BASE_CONTENT_SLOT[item.baseId];
+  const n = String(item.name || "").toLowerCase();
+  if (n.includes("club") || n.includes("sword") || n.includes("blade")) return "weapon";
+  if (n.includes("cape") || n.includes("mail") || n.includes("armor")) return "armor";
+  if (n.includes("helm") || n.includes("hood") || n.includes("crown")) return "helm";
+  if (n.includes("boot") || n.includes("greave")) return "boots";
+  if (n.includes("glove") || n.includes("gauntlet")) return "gloves";
+  if (n.includes("buckler") || n.includes("shield")) return "offhand";
+  return null;
+}
+
 function slugBase(name) {
   return String(name || "item")
     .toLowerCase()
@@ -108,7 +136,7 @@ export function itemStatBonus(item) {
             : item.rarity === "magic"
               ? 1.35
               : 1;
-  const slot = item.slot || "";
+  const slot = inferContentSlot(item) || "";
   const out = { dmg: 0, maxHp: 0, armor: 0 };
   if (slot === "weapon") out.dmg += Math.round(6 * rarityMul);
   else if (slot === "offhand") out.armor += Math.round(3 * rarityMul);

@@ -24,6 +24,15 @@ const RARITY_LABEL: Record<string, string> = {
   canto_unique: "Canto Unique",
 };
 
+function escapeHtml(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function rarityClass(r: string | undefined): string {
   const k = String(r || "normal");
   return `r-${k in RARITY_LABEL ? k : "normal"}`;

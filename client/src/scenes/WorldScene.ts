@@ -287,7 +287,7 @@ export class WorldScene extends Phaser.Scene {
           showToast("Select an item to equip", "warn");
           return;
         }
-        this.socket.equip(id);
+        this.socket.equip(String(id));
       },
       unequipSelected: () => {
         const id = getSelectedItemId();
@@ -295,7 +295,7 @@ export class WorldScene extends Phaser.Scene {
           showToast("Select equipped gear to unequip", "warn");
           return;
         }
-        this.socket.unequip({ itemId: id });
+        this.socket.unequip({ itemId: String(id) });
       },
     });
   }
@@ -546,6 +546,12 @@ export class WorldScene extends Phaser.Scene {
           this.punch("you", { dur: 200, punch: -0.06, tint: 0xff7a6a, ox: (Math.random() - 0.5) * 8, oy: 2 });
           this.cameras.main.shake(110, isCompactUi() ? 0.006 : 0.004);
           this.cameras.main.flash(120, 120, 10, 10, false);
+          // Crimson number on ourselves so it's clear who took the hit
+          this.showDamageNumber(
+            { x: this.renderYou.x, y: this.renderYou.y, kind: "player" },
+            msg.damage,
+            { color: "#ff8a7a", screen: worldToScreen(this.renderYou.x, this.renderYou.y) }
+          );
           if (msg.targetHp != null && msg.targetHp <= 0) {
             this.cameras.main.shake(260, 0.012);
           }
@@ -580,17 +586,24 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  /** Floating damage number (gold, rises + fades) — cheap Text tween. */
-  showDamageNumber(ent: { x: number; y: number; kind: string }, dmg: number) {
+  /** Floating damage number (gold by default, rises + fades) — cheap Text tween. */
+  showDamageNumber(
+    ent: { x: number; y: number; kind: string },
+    dmg: number,
+    o?: { color?: string; screen?: { sx: number; sy: number } }
+  ) {
     if (dmg == null) return;
-    const pos = this.entityRenderPos(ent as any);
-    const p = worldToScreen(pos.x, pos.y);
+    let p = o?.screen;
+    if (!p) {
+      const pos = this.entityRenderPos(ent as any);
+      p = worldToScreen(pos.x, pos.y);
+    }
     const compact = isCompactUi();
     const t = this.add
       .text(p.sx + (Math.random() - 0.5) * 16, p.sy - (ent.kind === "boss" ? 90 : 56), String(dmg), {
         fontFamily: "Georgia, serif",
         fontSize: compact ? "20px" : "15px",
-        color: "#f2d777",
+        color: o?.color || "#f2d777",
         stroke: "#1a0a06",
         strokeThickness: 4,
       })
