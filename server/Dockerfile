@@ -4,6 +4,8 @@ COPY package.json ./
 RUN npm install --omit=dev
 COPY index.mjs ./
 COPY src ./src
+COPY migrations ./migrations
+COPY scripts ./scripts
 COPY content ./content
 COPY vendor ./vendor
 ENV PORT=8080

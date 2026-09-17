@@ -4,7 +4,9 @@ import crypto from "node:crypto";
 import { World } from "./src/room.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
-import { getEmitLog, vault, players } from "./src/ledger.mjs";
+import { getEmitLog, vault, resolvePlayerForSession } from "./src/ledger.mjs";
+import { initDb, runMigrations, dbEnabled, closeDb } from "./src/db.mjs";
+import { hydrateFromDb } from "./src/ledger.mjs";
 
 const PORT = Number(process.env.PORT || process.env.FLY_PORT || 8080);
 const startedAt = new Date().toISOString();
@@ -35,6 +37,7 @@ const server = http.createServer((req, res) => {
       startedAt,
       rooms: ["inferno_01", "inferno_05"],
       vaultRemainingAsh: vault.remainingAsh,
+      persistence: dbEnabled() ? "postgres" : "memory",
       note: "Devnet vault PDA is spec-only; emits credit pendingAsh on server ledger",
     });
     res.writeHead(200, {
@@ -84,7 +87,10 @@ wss.on("connection", (ws) => {
       return;
     }
     const meta = sockets.get(ws);
-    handleMessage(ws, meta, msg);
+    void handleMessage(ws, meta, msg).catch((err) => {
+      console.error("[ws] handler error", err.message);
+      send(ws, { type: "error", code: "internal", message: "Server error" });
+    });
   });
 
   ws.on("close", () => {
@@ -93,15 +99,33 @@ wss.on("connection", (ws) => {
   });
 });
 
-function handleMessage(ws, meta, msg) {
+async function handleMessage(ws, meta, msg) {
   const { playerId } = meta;
 
   switch (msg.type) {
     case "hello": {
       meta.name = (msg.name || `Wanderer-${playerId.slice(0, 4)}`).slice(0, 24);
-      const room = world.ensureJoin(ws, playerId, meta.name, "inferno_01");
-      room.pushSnapshot(playerId);
-      room.toast(ws, "info", "Dark Wood. WASD/click to move. Click foes to strike. E near POIs.");
+      const { player, restored } = await resolvePlayerForSession(
+        playerId,
+        meta.name
+      );
+      if (player.id !== meta.playerId) {
+        // Drop any transient room join under the ephemeral session id
+        world.leave(meta.playerId);
+        meta.playerId = player.id;
+        send(ws, {
+          type: "welcome",
+          playerId: player.id,
+          protocol: PROTOCOL_VERSION,
+          server: "selva-oscura-server",
+        });
+      }
+      const room = world.ensureJoin(ws, meta.playerId, meta.name, "inferno_01");
+      room.pushSnapshot(meta.playerId);
+      const greet = restored
+        ? `Welcome back, ${meta.name}. Ash and inventory restored.`
+        : "Dark Wood. WASD/click to move. Click foes to strike. E near POIs.";
+      room.toast(ws, "info", greet);
       break;
     }
     case "ping": {
@@ -136,7 +160,7 @@ function handleMessage(ws, meta, msg) {
     case "pickup": {
       const room = world.getRoom(playerId);
       if (!room) return;
-      room.handlePickup(playerId, String(msg.lootId));
+      await room.handlePickup(playerId, String(msg.lootId));
       break;
     }
     case "ah_browse": {
@@ -144,18 +168,22 @@ function handleMessage(ws, meta, msg) {
       break;
     }
     case "ah_list": {
-      const r = ah.listItem(playerId, String(msg.itemId), Number(msg.priceAsh));
+      const r = await ah.listItem(playerId, String(msg.itemId), Number(msg.priceAsh));
       if (!r.ok) {
         send(ws, { type: "error", code: r.reason, message: `AH list failed: ${r.reason}` });
       } else {
-        send(ws, { type: "toast", level: "info", text: `Listed ${r.listing.item.name} for ${r.listing.priceAsh} Ash` });
+        send(ws, {
+          type: "toast",
+          level: "info",
+          text: `Listed ${r.listing.item.name} for ${r.listing.priceAsh} Ash`,
+        });
         send(ws, { type: "ah_listings", listings: ah.getListings() });
         world.getRoom(playerId)?.pushSnapshot(playerId);
       }
       break;
     }
     case "ah_buy": {
-      const r = ah.buy(playerId, String(msg.listingId));
+      const r = await ah.buy(playerId, String(msg.listingId));
       if (!r.ok) {
         send(ws, { type: "error", code: r.reason, message: `AH buy failed: ${r.reason}` });
       } else {
@@ -170,7 +198,7 @@ function handleMessage(ws, meta, msg) {
       break;
     }
     case "ah_bid": {
-      const r = ah.bid(playerId, String(msg.listingId), Number(msg.bidAsh));
+      const r = await ah.bid(playerId, String(msg.listingId), Number(msg.bidAsh));
       if (!r.ok) {
         send(ws, { type: "error", code: r.reason, message: `AH bid failed: ${r.reason}` });
       } else {
@@ -199,7 +227,35 @@ setInterval(() => {
   world.tick(dt);
 }, 100);
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`selva-oscura slice1 listening on ${PORT}`);
-  console.log(`content rooms: inferno_01 (hub), inferno_05 (Lust)`);
+async function boot() {
+  await initDb();
+  if (dbEnabled()) {
+    await runMigrations();
+    await hydrateFromDb();
+    await ah.hydrateListings();
+  }
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`selva-oscura slice1 listening on ${PORT}`);
+    console.log(`content rooms: inferno_01 (hub), inferno_05 (Lust)`);
+    console.log(
+      `persistence: ${dbEnabled() ? "postgres" : "memory (set DATABASE_URL for durable state)"}`
+    );
+  });
+}
+
+boot().catch((err) => {
+  console.error("[boot] failed", err.message);
+  process.exit(1);
 });
+
+async function shutdown() {
+  try {
+    await closeDb();
+  } catch {
+    /* ignore */
+  }
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

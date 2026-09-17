@@ -1,6 +1,13 @@
 import { CANTOS } from "./content.mjs";
 import { rollDrops } from "./loot.mjs";
-import { getOrCreatePlayer, snapshotPlayer, tryEmit, players } from "./ledger.mjs";
+import {
+  getOrCreatePlayer,
+  snapshotPlayer,
+  tryEmit,
+  players,
+  grantInventoryItem,
+  persistPlayerFlags,
+} from "./ledger.mjs";
 import * as ah from "./ah.mjs";
 
 const ATTACK_RANGE = 3.5;
@@ -139,6 +146,9 @@ class CantoRoom {
     this.sessions.set(playerId, sess);
     if (this.cantoId !== "inferno_01") {
       ledger.visitedInferno = true;
+      void persistPlayerFlags(playerId).catch((err) =>
+        console.error("[db] persist visitedInferno failed", err.message)
+      );
     }
     return sess;
   }
@@ -337,7 +347,7 @@ class CantoRoom {
     this.pushAllSnapshots();
   }
 
-  handlePickup(playerId, lootId) {
+  async handlePickup(playerId, lootId) {
     const s = this.sessions.get(playerId);
     const ledger = players.get(playerId);
     if (!s || !ledger) return;
@@ -351,8 +361,8 @@ class CantoRoom {
       this.toast(s.ws, "warn", "Inventory full.");
       return;
     }
-    ledger.inventory.push(loot.item);
     this.entities.delete(lootId);
+    await grantInventoryItem(playerId, loot.item);
     this.toast(s.ws, "loot", `Picked up ${loot.item.rarity} ${loot.item.name}`);
     this.pushAllSnapshots();
   }
@@ -377,6 +387,9 @@ class CantoRoom {
     if (e.kind === "poi") {
       if (e.poiKind === "npc") {
         ledger.spokeToGuide = true;
+        void persistPlayerFlags(playerId).catch((err) =>
+          console.error("[db] persist spokeToGuide failed", err.message)
+        );
         this.toast(
           s.ws,
           "info",
