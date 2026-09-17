@@ -45,6 +45,15 @@ http://localhost:5173/?server=http://localhost:8080&name=Virgil
 
 Desktop still supports WASD / I / H / E; the stick stays hidden on fine-pointer wide viewports. Nothing in the server protocol changes for mobile.
 
+## Movement smoothing
+
+Local player uses **client-side prediction** (joystick / WASD / tap updates a render position immediately) with soft **reconciliation** toward server snapshots. Remote players and mobs are **exponentially smoothed** between snapshots. Entities are drawn from render positions, not raw snapshot coords. Server tick ~15 Hz; dirty snapshots ~12.5 Hz. Client move sends stay throttled (~40 ms).
+
+## Slice 1 visuals
+
+Procedural isometric ground (bone/fog hub vs Inferno red-black Lust), soft entity shadows, distinct POI / exit / mob / boss / loot silhouettes, sparse mist or ember particles, and light bone/gold HUD chrome. Tiny PNGs under `public/assets/` are optional fillers — primary look is Graphics-drawn.
+
+
 ## Build (Vercel)
 
 ```bash

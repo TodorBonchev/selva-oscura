@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { GameSocket } from "../net/GameSocket";
-import { worldToScreen, screenToWorld, TILE_W, TILE_H } from "../util/iso";
+import { worldToScreen, screenToWorld } from "../util/iso";
 import {
   showToast,
   updateStats,
@@ -12,34 +12,51 @@ import {
   isCompactUi,
 } from "../ui/hud";
 import { VirtualJoystick } from "../ui/virtualJoystick";
+import {
+  SmoothStore,
+  MOVE_SEND_MS,
+  CAM_LERP_MOBILE,
+  CAM_LERP_DESKTOP,
+  reconcileLocal,
+  type Vec2,
+} from "../render/smoothing";
+import {
+  ensureArtTextures,
+  drawGround,
+  drawPoi,
+  drawExit,
+  drawMob,
+  drawBoss,
+  drawLoot,
+  drawPlayer,
+  spawnParticles,
+  tickParticles,
+  drawParticles,
+  type Particle,
+} from "../render/art";
 
 type RoomSnap = any;
-
-const RARITY_COLOR: Record<string, number> = {
-  normal: 0xb0b0b0,
-  magic: 0x4a7fd4,
-  rare: 0xd4b84a,
-  set: 0x33cc88,
-  unique: 0xcc8800,
-  canto_unique: 0xee66cc,
-};
 
 const DESKTOP_HIT_RADIUS = 28;
 const MOBILE_HIT_RADIUS = 48;
 const INTERACT_RANGE = 3.5;
 const ATTACK_RANGE = 5.5;
-/** Slightly wider view so hub POIs stay readable while stick-driving. */
 const MOBILE_ZOOM = 0.65;
 const MOBILE_ZOOM_TABLET = 0.72;
 const DESKTOP_ZOOM = 1;
-const MOVE_SEND_MS = 50;
 const ATTACK_HOLD_MS = 280;
+/** Local predicted move speed (world units / sec) — matches server feel. */
+const PREDICT_SPEED = 7.2;
+const TAP_ARRIVE = 0.35;
 
 export class WorldScene extends Phaser.Scene {
   socket!: GameSocket;
   room: RoomSnap | null = null;
   graphics!: Phaser.GameObjects.Graphics;
+  groundGraphics!: Phaser.GameObjects.Graphics;
   labelGroup!: Phaser.GameObjects.Group;
+  labels = new Map<string, Phaser.GameObjects.Text>();
+  groundCantoId: string | null = null;
   keys: Record<string, Phaser.Input.Keyboard.Key> | null = null;
   moveTarget: { x: number; y: number } | null = null;
   lastMoveSend = 0;
@@ -47,6 +64,19 @@ export class WorldScene extends Phaser.Scene {
   joystick: VirtualJoystick | null = null;
   attackHoldTimer: number | null = null;
   camFollowLerp = 1;
+
+  /** Authoritative last-known local position from server. */
+  serverYou: Vec2 = { x: 0, y: 0 };
+  /** Render / predicted local position. */
+  renderYou: Vec2 = { x: 0, y: 0 };
+  /** True while joystick/WASD/tap is driving prediction. */
+  predicting = false;
+  remoteSmooth = new SmoothStore();
+  particles: Particle[] = [];
+  particleAcc = 0;
+  lastCantoId: string | null = null;
+  needsFullRedraw = true;
+  animT = 0;
 
   constructor() {
     super("world");
@@ -58,6 +88,8 @@ export class WorldScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor("#0b0f0c");
+    ensureArtTextures(this);
+    this.groundGraphics = this.add.graphics();
     this.graphics = this.add.graphics();
     this.labelGroup = this.add.group();
     this.joystick = new VirtualJoystick();
@@ -85,7 +117,6 @@ export class WorldScene extends Phaser.Scene {
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (!this.room) return;
       const target = pointer.event?.target as HTMLElement | null;
-      // Ignore taps on DOM chrome (stick, action bar, panels).
       if (
         target?.closest?.(
           "#action-bar, #panels, #hud button, #virtual-joystick, .vj-base, .vj-knob"
@@ -93,7 +124,6 @@ export class WorldScene extends Phaser.Scene {
       ) {
         return;
       }
-      // Prefer stick zone: don't start tap-to-move under / near the joystick.
       if (this.joystick?.isVisible()) {
         const ev = pointer.event as MouseEvent | TouchEvent | PointerEvent | undefined;
         let cx = pointer.x;
@@ -107,7 +137,6 @@ export class WorldScene extends Phaser.Scene {
         }
         if (this.joystick.containsClientPoint(cx, cy)) return;
       }
-      // While stick is driving continuous move, ignore empty-ground taps (entity taps still OK).
       const sx = pointer.worldX;
       const sy = pointer.worldY;
       const hit = this.pickEntity(sx, sy);
@@ -131,6 +160,7 @@ export class WorldScene extends Phaser.Scene {
       const w = screenToWorld(sx, sy);
       this.moveTarget = { x: w.x, y: w.y };
       this.socket.move(w.x, w.y);
+      this.lastMoveSend = Date.now();
     });
 
     this.scale.on("resize", () => {
@@ -181,11 +211,10 @@ export class WorldScene extends Phaser.Scene {
   applyViewportZoom() {
     let zoom = DESKTOP_ZOOM;
     if (isCompactUi()) {
-      // Narrow phones: pull back a bit more so hub POIs stay in frame with stick travel.
       zoom = window.innerWidth < 420 ? MOBILE_ZOOM : MOBILE_ZOOM_TABLET;
     }
     this.cameras.main.setZoom(zoom);
-    this.camFollowLerp = isCompactUi() ? 0.18 : 1;
+    this.camFollowLerp = isCompactUi() ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
   }
 
   hitRadius(): number {
@@ -206,14 +235,20 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  /** Prefer render position for local range checks. */
+  youPos(): Vec2 {
+    return this.renderYou;
+  }
+
   interactNearest() {
     if (!this.room) return;
-    const you = this.room.you;
+    const you = this.youPos();
     let best: any = null;
     let bestD = INTERACT_RANGE;
     for (const e of this.room.entities) {
       if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
-      const d = Math.hypot(e.x - you.x, e.y - you.y);
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       if (d < bestD) {
         bestD = d;
         best = e;
@@ -229,12 +264,13 @@ export class WorldScene extends Phaser.Scene {
 
   attackNearest(opts?: { silent?: boolean }) {
     if (!this.room) return;
-    const you = this.room.you;
+    const you = this.youPos();
     let best: any = null;
     let bestD = ATTACK_RANGE;
     for (const e of this.room.entities) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
-      const d = Math.hypot(e.x - you.x, e.y - you.y);
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       if (d < bestD) {
         bestD = d;
         best = e;
@@ -247,16 +283,52 @@ export class WorldScene extends Phaser.Scene {
     this.socket.attack(best.id);
   }
 
+  entityRenderPos(e: { id: string; x: number; y: number }): Vec2 {
+    return this.remoteSmooth.pos(e.id, { x: e.x, y: e.y });
+  }
+
   onNet(msg: any) {
     switch (msg.type) {
-      case "snapshot":
+      case "snapshot": {
+        const prevCanto = this.lastCantoId;
         this.room = msg.room;
         this.lastSnapAt = Date.now();
         updateStats(msg.room.you, msg.room.title);
         renderInventory(msg.room.you.inventory || [], () => {});
-        this.redraw();
-        this.centerOnYou(false);
+
+        const sx = msg.room.you.x as number;
+        const sy = msg.room.you.y as number;
+        const cantoChanged = prevCanto != null && prevCanto !== msg.room.cantoId;
+        const first = this.lastCantoId == null;
+        this.lastCantoId = msg.room.cantoId;
+
+        this.serverYou = { x: sx, y: sy };
+        if (first || cantoChanged) {
+          this.renderYou = { x: sx, y: sy };
+          this.remoteSmooth.clear();
+          this.particles = [];
+          this.moveTarget = null;
+          this.groundCantoId = null;
+          this.centerOnYou(true);
+        }
+
+        // Seed / refresh remote targets from snapshot (smoothed in update)
+        const targets = new Map<string, Vec2>();
+        for (const e of msg.room.entities) {
+          targets.set(e.id, { x: e.x, y: e.y });
+        }
+        for (const pl of msg.room.players) {
+          if (pl.id === msg.room.you.id) continue;
+          targets.set(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+        }
+        // Instant-set missing ids so first frame isn't at 0,0
+        for (const [id, t] of targets) {
+          if (!this.remoteSmooth.get(id)) this.remoteSmooth.set(id, t);
+        }
+
+        this.needsFullRedraw = true;
         break;
+      }
       case "toast":
         showToast(msg.text, msg.level);
         break;
@@ -276,7 +348,6 @@ export class WorldScene extends Phaser.Scene {
         showToast(msg.message, "warn");
         break;
       case "combat":
-        // flash handled by next snapshot
         break;
     }
   }
@@ -285,9 +356,8 @@ export class WorldScene extends Phaser.Scene {
     if (!this.room) return null;
     let best: any = null;
     let bestD = this.hitRadius();
-    const consider = (e: any) => {
-      const p = worldToScreen(e.x, e.y);
-      // Account for visual offset of circles drawn above feet
+    const consider = (e: any, wx: number, wy: number) => {
+      const p = worldToScreen(wx, wy);
       const cy = p.sy - (e.kind === "boss" ? 12 : e.kind === "poi" ? 10 : 6);
       const d = Phaser.Math.Distance.Between(sx, sy, p.sx, cy);
       if (d < bestD) {
@@ -295,20 +365,21 @@ export class WorldScene extends Phaser.Scene {
         best = e;
       }
     };
-    for (const e of this.room.entities) consider(e);
+    for (const e of this.room.entities) {
+      const pos = this.entityRenderPos(e);
+      consider(e, pos.x, pos.y);
+    }
     return best;
   }
 
   centerOnYou(snap = false) {
     if (!this.room) return;
-    const you = this.room.you;
-    const p = worldToScreen(you.x, you.y);
+    const p = worldToScreen(this.renderYou.x, this.renderYou.y);
     const cam = this.cameras.main;
-    if (snap || this.camFollowLerp >= 1) {
+    if (snap || this.camFollowLerp >= 0.99) {
       cam.centerOn(p.sx, p.sy);
       return;
     }
-    // Soft follow on mobile so stick motion feels less jumpy while POIs stay readable.
     const curX = cam.scrollX + cam.width * 0.5;
     const curY = cam.scrollY + cam.height * 0.5;
     const nx = curX + (p.sx - curX) * this.camFollowLerp;
@@ -320,94 +391,65 @@ export class WorldScene extends Phaser.Scene {
     if (!this.room) return;
     const g = this.graphics;
     g.clear();
-    this.labelGroup.clear(true, true);
 
-    const { width, height } = this.room.bounds;
     const isHub = this.room.role === "hub";
-    const ground = isHub ? 0x1a241c : 0x1a1010;
-    const grid = isHub ? 0x2a3a2e : 0x3a2020;
     const compact = isCompactUi();
     const labelSize = compact ? "13px" : "11px";
+    const seenLabels = new Set<string>();
 
-    // Ground diamond grid (sparse)
-    const step = 4;
-    for (let x = 0; x <= width; x += step) {
-      for (let y = 0; y <= height; y += step) {
-        const p = worldToScreen(x, y);
-        g.fillStyle(ground, 1);
-        g.fillTriangle(
-          p.sx,
-          p.sy - TILE_H / 2,
-          p.sx + TILE_W / 2,
-          p.sy,
-          p.sx,
-          p.sy + TILE_H / 2
-        );
-        g.fillTriangle(
-          p.sx,
-          p.sy - TILE_H / 2,
-          p.sx,
-          p.sy + TILE_H / 2,
-          p.sx - TILE_W / 2,
-          p.sy
-        );
-        g.lineStyle(1, grid, 0.25);
-        g.strokeCircle(p.sx, p.sy, 2);
-      }
+    if (this.groundCantoId !== this.room.cantoId) {
+      this.groundGraphics.clear();
+      drawGround(this.groundGraphics, this.room.bounds, isHub);
+      this.groundCantoId = this.room.cantoId;
+      const bg = isHub ? "#0b0f0c" : "#0a0606";
+      this.cameras.main.setBackgroundColor(bg);
     }
+    drawParticles(g, this.particles);
 
-    // Sort draw by depth (x+y)
-    const ents = [...this.room.entities].sort((a, b) => a.x + a.y - (b.x + b.y));
+    const ents = [...this.room.entities].sort((a, b) => {
+      const pa = this.entityRenderPos(a);
+      const pb = this.entityRenderPos(b);
+      return pa.x + pa.y - (pb.x + pb.y);
+    });
+
     for (const e of ents) {
-      const p = worldToScreen(e.x, e.y);
+      const pos = this.entityRenderPos(e);
+      const p = worldToScreen(pos.x, pos.y);
       if (e.kind === "poi") {
-        const col =
-          e.poiKind === "ah"
-            ? 0xc9a227
-            : e.poiKind === "stash"
-              ? 0x6a7a68
-              : e.poiKind === "quest"
-                ? 0x4a7fd4
-                : 0xd7e0d4;
-        g.fillStyle(col, 1);
-        g.fillCircle(p.sx, p.sy - 10, compact ? 10 : 8);
-        this.addLabel(p.sx, p.sy - 28, e.label || e.name, labelSize);
+        drawPoi(g, p.sx, p.sy, e.poiKind, compact);
+        this.addLabel(`poi:${e.id}`, p.sx, p.sy - 28, e.label || e.name, labelSize, seenLabels);
       } else if (e.kind === "exit") {
-        g.fillStyle(0x88aaff, 0.9);
-        g.fillTriangle(p.sx, p.sy - 16, p.sx + 10, p.sy, p.sx - 10, p.sy);
-        this.addLabel(p.sx, p.sy - 28, e.label || "Exit", labelSize);
+        drawExit(g, p.sx, p.sy);
+        this.addLabel(`exit:${e.id}`, p.sx, p.sy - 30, e.label || "Exit", labelSize, seenLabels);
       } else if (e.kind === "mob") {
-        const col = e.champion ? 0xdd4444 : 0x884444;
-        g.fillStyle(col, 1);
-        g.fillCircle(p.sx, p.sy - 6, e.champion ? 10 : 7);
+        drawMob(g, p.sx, p.sy, Boolean(e.champion));
         this.drawHp(g, p.sx, p.sy - 22, e.hp, e.maxHp, 24);
       } else if (e.kind === "boss") {
-        g.fillStyle(0xaa2222, 1);
-        g.fillCircle(p.sx, p.sy - 12, 16);
-        g.lineStyle(2, 0xffcc00, 1);
-        g.strokeCircle(p.sx, p.sy - 12, 16);
-        this.addLabel(p.sx, p.sy - 40, e.name, labelSize);
-        this.drawHp(g, p.sx, p.sy - 48, e.hp, e.maxHp, 40);
+        drawBoss(g, p.sx, p.sy);
+        this.addLabel(`boss:${e.id}`, p.sx, p.sy - 42, e.name, labelSize, seenLabels);
+        this.drawHp(g, p.sx, p.sy - 50, e.hp, e.maxHp, 40);
       } else if (e.kind === "loot") {
-        const col = RARITY_COLOR[e.item?.rarity] || 0xffffff;
-        g.fillStyle(col, 1);
-        const s = compact ? 10 : 8;
-        g.fillRect(p.sx - s / 2, p.sy - 10, s, s);
+        drawLoot(g, p.sx, p.sy, e.item?.rarity, compact, this.animT);
       }
     }
 
-    // Other players + you
-    for (const pl of this.room.players) {
-      const p = worldToScreen(pl.x, pl.y);
-      const isYou = pl.id === this.room.you.id;
-      g.fillStyle(isYou ? 0xe8f0e4 : 0x7a9a88, 1);
-      g.fillCircle(p.sx, p.sy - 8, 9);
-      if (isYou) {
-        g.lineStyle(2, 0xc9a227, 1);
-        g.strokeCircle(p.sx, p.sy - 8, 11);
-      }
-      this.addLabel(p.sx, p.sy - 28, isYou ? "You" : pl.name, labelSize);
+    // Other players (smoothed) then local (predicted)
+    const others = this.room.players.filter((pl: any) => pl.id !== this.room!.you.id);
+    for (const pl of others) {
+      const pos = this.remoteSmooth.pos(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+      const p = worldToScreen(pos.x, pos.y);
+      drawPlayer(g, p.sx, p.sy, false);
+      this.addLabel(`pl:${pl.id}`, p.sx, p.sy - 28, pl.name, labelSize, seenLabels);
       this.drawHp(g, p.sx, p.sy - 36, pl.hp, pl.maxHp, 28);
+    }
+
+    {
+      const p = worldToScreen(this.renderYou.x, this.renderYou.y);
+      drawPlayer(g, p.sx, p.sy, true);
+      this.addLabel("you", p.sx, p.sy - 28, "You", labelSize, seenLabels);
+      this.pruneLabels(seenLabels);
+      const you = this.room.you;
+      this.drawHp(g, p.sx, p.sy - 36, you.hp, you.maxHp, 28);
     }
   }
 
@@ -421,51 +463,113 @@ export class WorldScene extends Phaser.Scene {
   ) {
     if (maxHp == null) return;
     const ratio = Math.max(0, hp / maxHp);
-    g.fillStyle(0x222, 0.8);
+    g.fillStyle(0x222222, 0.85);
     g.fillRect(x - w / 2, y, w, 4);
-    g.fillStyle(ratio > 0.35 ? 0x3c8 : 0xa33, 1);
+    g.lineStyle(1, 0xc9a227, 0.35);
+    g.strokeRect(x - w / 2, y, w, 4);
+    g.fillStyle(ratio > 0.35 ? 0x3cc88a : 0xaa3333, 1);
     g.fillRect(x - w / 2, y, w * ratio, 4);
   }
 
-  addLabel(x: number, y: number, text: string, fontSize = "11px") {
-    const t = this.add
-      .text(x, y, text, {
-        fontFamily: "Georgia, serif",
-        fontSize,
-        color: "#c8d4c4",
-      })
-      .setOrigin(0.5);
-    this.labelGroup.add(t);
-  }
-
-  /**
-   * Screen-space direction → iso world delta (same basis as WASD).
-   * stick.x right, stick.y down (DOM).
-   */
-  private applyContinuousMove(dx: number, dy: number, dt: number) {
-    if (!this.room) return;
-    if (dx === 0 && dy === 0) return;
-    const you = this.room.you;
-    const len = Math.hypot(dx, dy) || 1;
-    const speed = 0.012 * dt;
-    const nx = you.x + (dx / len) * speed * 8;
-    const ny = you.y + (dy / len) * speed * 8;
-    this.moveTarget = null;
-    const now = Date.now();
-    if (now - this.lastMoveSend > MOVE_SEND_MS) {
-      this.lastMoveSend = now;
-      this.socket.move(nx, ny);
+  addLabel(
+    key: string,
+    x: number,
+    y: number,
+    text: string,
+    fontSize = "11px",
+    seen?: Set<string>
+  ) {
+    seen?.add(key);
+    let t = this.labels.get(key);
+    if (!t) {
+      t = this.add
+        .text(x, y, text, {
+          fontFamily: "Georgia, serif",
+          fontSize,
+          color: "#c8d4c4",
+          stroke: "#0b0f0c",
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+      this.labels.set(key, t);
+      this.labelGroup.add(t);
+    } else {
+      t.setPosition(x, y);
+      if (t.text !== text) t.setText(text);
+      if (t.style.fontSize !== fontSize) t.setFontSize(fontSize);
     }
   }
 
-  update(_t: number, dt: number) {
+  pruneLabels(seen: Set<string>) {
+    for (const [key, t] of this.labels) {
+      if (!seen.has(key)) {
+        t.destroy();
+        this.labels.delete(key);
+      }
+    }
+  }
+
+  private clampToBounds(x: number, y: number): Vec2 {
+    if (!this.room) return { x, y };
+    const b = this.room.bounds;
+    return {
+      x: Math.max(1, Math.min(b.width - 1, x)),
+      y: Math.max(1, Math.min(b.height - 1, y)),
+    };
+  }
+
+  private sendMoveThrottled(x: number, y: number) {
+    const now = Date.now();
+    if (now - this.lastMoveSend < MOVE_SEND_MS) return;
+    this.lastMoveSend = now;
+    this.socket.move(x, y);
+  }
+
+  /**
+   * Apply continuous intent immediately to renderYou, throttle server move.
+   * dx/dy are iso world axes (same basis as WASD).
+   */
+  private applyContinuousMove(dx: number, dy: number, dtSec: number) {
     if (!this.room) return;
+    if (dx === 0 && dy === 0) return;
+    const len = Math.hypot(dx, dy) || 1;
+    const step = PREDICT_SPEED * dtSec;
+    const nx = this.renderYou.x + (dx / len) * step;
+    const ny = this.renderYou.y + (dy / len) * step;
+    this.renderYou = this.clampToBounds(nx, ny);
+    this.moveTarget = null;
+    this.predicting = true;
+    this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
+  }
+
+  private advanceTapMove(dtSec: number) {
+    if (!this.moveTarget || !this.room) return;
+    const dx = this.moveTarget.x - this.renderYou.x;
+    const dy = this.moveTarget.y - this.renderYou.y;
+    const d = Math.hypot(dx, dy);
+    if (d < TAP_ARRIVE) {
+      this.moveTarget = null;
+      this.predicting = false;
+      return;
+    }
+    const step = Math.min(d, PREDICT_SPEED * dtSec);
+    const nx = this.renderYou.x + (dx / d) * step;
+    const ny = this.renderYou.y + (dy / d) * step;
+    this.renderYou = this.clampToBounds(nx, ny);
+    this.predicting = true;
+    this.sendMoveThrottled(this.moveTarget.x, this.moveTarget.y);
+  }
+
+  update(_t: number, dtMs: number) {
+    if (!this.room) return;
+    const dtSec = Math.min(0.05, dtMs / 1000);
+    this.animT += dtMs;
     const keys = this.keys;
 
     let dx = 0;
     let dy = 0;
+    this.predicting = false;
 
-    // Virtual stick (screen → iso): right=(1,-1), down=(1,1), left=(-1,1), up=(-1,-1)
     const stick = this.joystick?.getVector();
     if (stick && (stick.x !== 0 || stick.y !== 0)) {
       dx += stick.y + stick.x;
@@ -495,9 +599,40 @@ export class WorldScene extends Phaser.Scene {
     }
 
     if (dx !== 0 || dy !== 0) {
-      this.applyContinuousMove(dx, dy, dt);
+      this.applyContinuousMove(dx, dy, dtSec);
+    } else if (this.moveTarget) {
+      this.advanceTapMove(dtSec);
     }
 
+    // Reconcile local render toward last server snapshot
+    this.renderYou = reconcileLocal(
+      this.renderYou,
+      this.serverYou,
+      dtSec,
+      this.predicting
+    );
+
+    // Interpolate remotes / mobs toward latest snapshot coords
+    const targets = new Map<string, Vec2>();
+    for (const e of this.room.entities) {
+      targets.set(e.id, { x: e.x, y: e.y });
+    }
+    for (const pl of this.room.players) {
+      if (pl.id === this.room.you.id) continue;
+      targets.set(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+    }
+    this.remoteSmooth.tick(targets, dtSec);
+
+    // Particles (sparse)
+    const isHub = this.room.role === "hub";
+    this.particleAcc += dtSec;
+    if (this.particleAcc > 0.35) {
+      this.particleAcc = 0;
+      spawnParticles(this.particles, isHub, this.room.bounds, isHub ? 2 : 3);
+    }
+    tickParticles(this.particles, dtSec);
+
+    this.redraw();
     this.centerOnYou(false);
   }
 }

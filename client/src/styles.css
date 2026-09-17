@@ -64,8 +64,9 @@ input, textarea, .panel, #panels {
   margin: 0;
   font-weight: 400;
   font-size: 1rem;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--gold);
+  text-shadow: 0 0 12px #c9a22744, 0 1px 0 #000a;
 }
 #canto-title {
   color: var(--muted);
@@ -120,6 +121,13 @@ input, textarea, .panel, #panels {
   max-height: min(50vh, 28rem);
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+  box-shadow:
+    0 0 0 1px #c9a22722 inset,
+    0 8px 24px #000a,
+    0 0 0 1px #1a2418;
+  background-image:
+    linear-gradient(180deg, #1a241822 0%, transparent 40%),
+    linear-gradient(90deg, #c9a22710 0%, transparent 12%, transparent 88%, #c9a22710 100%);
 }
 .panel.hidden { display: none; }
 .panel-head {
@@ -220,7 +228,9 @@ button:active { background: #324a3a; }
   border-radius: 10px;
   background: #152018ee;
   border: 1px solid var(--border);
-  box-shadow: 0 2px 8px #0008;
+  box-shadow:
+    0 2px 8px #0008,
+    0 0 0 1px #c9a22718 inset;
   user-select: none;
   -webkit-user-select: none;
   transition: background 0.08s ease, transform 0.08s ease, border-color 0.08s ease;
