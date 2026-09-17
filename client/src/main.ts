@@ -66,4 +66,11 @@ document.body.addEventListener(
   { passive: false }
 );
 
+// Block pinch-zoom / double-tap zoom gestures over the game surface
+document.addEventListener(
+  "gesturestart",
+  (e) => e.preventDefault(),
+  { passive: false }
+);
+
 console.info("[Selva Oscura] Slice 1 client", { serverUrl, name });

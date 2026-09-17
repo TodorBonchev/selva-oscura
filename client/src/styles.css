@@ -15,6 +15,8 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --action-bar-h: calc(3.25rem + var(--safe-bottom));
+  --stick-size: 118px;
+  --stick-clearance: calc(var(--stick-size) + 1.25rem + var(--safe-left));
 }
 * { box-sizing: border-box; }
 html, body {
@@ -26,6 +28,14 @@ html, body {
   background: var(--bg);
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+input, textarea, .panel, #panels {
+  user-select: text;
+  -webkit-user-select: text;
   touch-action: manipulation;
 }
 #game-root {
@@ -33,6 +43,7 @@ html, body {
   inset: 0;
   z-index: 0;
   touch-action: none;
+  overscroll-behavior: none;
 }
 #hud {
   position: fixed;
@@ -212,6 +223,7 @@ button:active { background: #324a3a; }
   box-shadow: 0 2px 8px #0008;
   user-select: none;
   -webkit-user-select: none;
+  transition: background 0.08s ease, transform 0.08s ease, border-color 0.08s ease;
 }
 .action-btn .action-label {
   font-size: 0.8rem;
@@ -230,7 +242,71 @@ button:active { background: #324a3a; }
   flex: 1.2 1 0;
 }
 .action-btn:hover { background: #1e3026; }
-.action-btn:active { background: #2a4033; transform: scale(0.97); }
+.action-btn:active,
+.action-btn.pressed {
+  background: #2a4033;
+  transform: scale(0.96);
+}
+
+#btn-attack {
+  border-color: #5a3030;
+  background: #2a1818ee;
+  max-width: 7.25rem;
+  flex: 1.15 1 0;
+}
+#btn-attack:hover { background: #3a2222; }
+#btn-attack:active,
+#btn-attack.pressed {
+  background: #4a2a2a;
+  border-color: #a44;
+}
+
+/* —— Virtual joystick (bottom-left) —— */
+#virtual-joystick {
+  position: fixed;
+  z-index: 26;
+  left: calc(0.65rem + var(--safe-left));
+  bottom: calc(0.55rem + var(--safe-bottom));
+  width: var(--stick-size);
+  height: var(--stick-size);
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+#virtual-joystick.vj-hidden {
+  display: none;
+}
+.vj-base {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #1a2820cc 0%, #0e1510aa 70%, #0b0f0c88 100%);
+  border: 2px solid #2a3a2eaa;
+  box-shadow: 0 4px 16px #000a, inset 0 0 24px #0006;
+}
+.vj-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #3a5a42 0%, #1e3026 55%, #152018 100%);
+  border: 2px solid #c9a22788;
+  box-shadow: 0 2px 10px #000c;
+  will-change: transform;
+  transition: opacity 0.12s ease;
+}
+#virtual-joystick.vj-active .vj-base {
+  border-color: #3a5a42;
+  background: radial-gradient(circle at 40% 35%, #1e3226dd 0%, #0e1510bb 70%, #0b0f0c99 100%);
+}
+#virtual-joystick.vj-active .vj-knob {
+  border-color: #c9a227;
+  background: radial-gradient(circle at 35% 30%, #4a7050 0%, #243828 55%, #1a2820 100%);
+}
 
 /* Narrow phones (~375px) and compact layouts */
 @media (max-width: 640px) {
@@ -266,21 +342,41 @@ button:active { background: #324a3a; }
     padding: 0.85rem 0.85rem calc(0.85rem + var(--safe-bottom));
   }
   .panel + .panel {
-    /* only one panel typically open; if both, stack */
     margin-top: 0.25rem;
   }
 
+  /* Action bar sits to the right of the stick so thumbs don't collide */
+  #action-bar {
+    justify-content: flex-end;
+    padding-left: var(--stick-clearance);
+    gap: 0.35rem;
+  }
   .action-btn {
     max-width: none;
+    flex: 1 1 0;
   }
   .action-btn .action-hint { display: none; }
   .action-btn .action-label { font-size: 0.85rem; }
+  #btn-attack {
+    min-height: calc(var(--tap) + 6px);
+    max-width: none;
+    flex: 1.25 1 0;
+  }
+  #btn-attack .action-label { font-size: 0.9rem; }
 }
 
 /* Very narrow */
 @media (max-width: 380px) {
+  :root {
+    --stick-size: 104px;
+  }
   #stats span { font-size: 0.72rem; }
   .action-btn .action-label { font-size: 0.78rem; }
+  .vj-knob {
+    width: 42px;
+    height: 42px;
+    margin: -21px 0 0 -21px;
+  }
 }
 
 /* Prefer coarse pointer (phones/tablets) even on wider tablets */
@@ -288,4 +384,21 @@ button:active { background: #324a3a; }
   .help-desktop { display: none; }
   .help-mobile { display: block; }
   .action-btn .action-hint { display: none; }
+
+  #action-bar {
+    justify-content: flex-end;
+    padding-left: var(--stick-clearance);
+  }
+  #btn-attack {
+    min-height: calc(var(--tap) + 6px);
+    flex: 1.25 1 0;
+  }
+}
+
+/* Desktop / fine pointer: stick hidden via JS; keep centered action bar */
+@media (pointer: fine) and (min-width: 641px) {
+  #action-bar {
+    justify-content: center;
+    padding-left: calc(0.5rem + var(--safe-left));
+  }
 }
