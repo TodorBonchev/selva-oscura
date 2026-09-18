@@ -40,6 +40,7 @@ import {
   drawParticles,
   preloadDoreKit,
   preloadItemIcons,
+  enhanceLustFoeTextures,
   hasTexture,
   entityDoreKey,
   lootTextureKey,
@@ -229,6 +230,8 @@ export class WorldScene extends Phaser.Scene {
     for (const key of Object.values(DORE_KEYS)) {
       if (!hasTexture(this, key)) this.doreFailed.add(key);
     }
+    // Brighten + rim Lust foe plates so dark etchings read on red ground
+    enhanceLustFoeTextures(this);
     this.groundGraphics = this.add.graphics();
     this.graphics = this.add.graphics();
     this.labelGroup = this.add.group();
@@ -1284,32 +1287,34 @@ export class WorldScene extends Phaser.Scene {
         const lab = this.labels.get(`exit:${e.id}`);
         if (lab && e.toCanto === "inferno_05") lab.setColor("#e8c86a");
       } else if (e.kind === "mob") {
-        drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.6 : 1.3) : compact ? 1.35 : 1.1);
+        drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.85 : 1.45) : compact ? 1.55 : 1.2);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, champion: Boolean(e.champion) });
-        let topY = p.sy - (e.champion ? 34 : 28);
-        if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
+        let topY = p.sy - (e.champion ? 40 : 32);
+        const foeScale = compact ? 1.12 : 1.06;
+        if (this.placeSprite(sid, tex!, p.sx, p.sy, depth, { scale: foeScale })) {
           seenSprites.add(sid);
           const b = this.spriteBase.get(sid);
-          if (b) topY = p.sy - 4 - b.h * 0.92 - (compact ? 10 : 6);
+          if (b) topY = p.sy - 4 - b.h * foeScale * 0.92 - (compact ? 12 : 8);
         } else {
           drawMob(g, p.sx, p.sy, Boolean(e.champion));
         }
-        drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, e.champion ? 34 : 26, { compact });
+        drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, e.champion ? 40 : 30, { compact });
       } else if (e.kind === "boss") {
-        drawEntityPad(g, p.sx, p.sy, compact ? 2.4 : 1.9);
+        drawEntityPad(g, p.sx, p.sy, compact ? 2.7 : 2.1);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, boss: true });
-        let topY = p.sy - 60;
-        if (this.placeSprite(sid, DORE_KEYS.boss_judge, p.sx, p.sy, depth)) {
+        let topY = p.sy - 68;
+        const bossScale = compact ? 1.1 : 1.05;
+        if (this.placeSprite(sid, DORE_KEYS.boss_judge, p.sx, p.sy, depth, { scale: bossScale })) {
           seenSprites.add(sid);
           const b = this.spriteBase.get(sid);
-          if (b) topY = p.sy - 4 - b.h * 0.92 - (compact ? 14 : 8);
+          if (b) topY = p.sy - 4 - b.h * bossScale * 0.92 - (compact ? 16 : 10);
         } else {
           drawBoss(g, p.sx, p.sy);
         }
         this.addLabel(`boss:${e.id}`, p.sx, topY - (compact ? 16 : 12), e.name, compact ? "15px" : "12px", seenLabels);
         const bl = this.labels.get(`boss:${e.id}`);
         if (bl) bl.setColor("#e8c86a");
-        drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, 56, { compact, boss: true });
+        drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, 64, { compact, boss: true });
       } else if (e.kind === "loot") {
         const rarity = e.item?.rarity || "normal";
         const tint = RARITY_COLOR[rarity] || 0xffffff;

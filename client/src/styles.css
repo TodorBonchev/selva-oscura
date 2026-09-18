@@ -1266,44 +1266,88 @@ body.has-modal #virtual-joystick { display: none; }
   .inv-grid { --inv-cols: 6; gap: 5px; }
   .inv-slot .inv-glyph { font-size: 1rem; }
 
-  /* Action bar sits to the right of the stick so thumbs don't collide */
+  /* Two-row action cluster on the RIGHT — stick owns bottom-left exclusively.
+     Spells sit above Inv/AH/Use/Attack so neither row can flex under the stick. */
+  :root {
+    --action-bar-h: calc(6.6rem + var(--safe-bottom));
+  }
   #action-bar {
+    left: auto;
+    right: 0;
+    width: auto;
+    max-width: calc(100vw - var(--stick-clearance));
     justify-content: flex-end;
-    padding-left: var(--stick-clearance);
-    gap: 0.35rem;
+    align-content: flex-end;
+    flex-wrap: wrap;
+    flex-direction: row;
+    gap: 0.32rem;
+    padding: 0.35rem calc(0.45rem + var(--safe-right)) calc(0.4rem + var(--safe-bottom)) 0.4rem;
+    background: linear-gradient(0deg, #050706f5 40%, #05070666 78%, transparent);
+  }
+  .spell-bar {
+    order: -1;
+    flex: 1 1 100%;
+    max-width: none;
+    width: 100%;
+    justify-content: flex-end;
+    gap: 0.3rem;
   }
   .action-btn {
     max-width: none;
-    flex: 1 1 0;
-    min-height: calc(var(--tap) + 8px);
+    flex: 0 0 auto;
+    width: var(--tap);
+    min-width: var(--tap);
+    min-height: var(--tap);
+    padding: 0.2rem 0.18rem;
   }
   .action-btn .action-hint { display: none; }
-  .action-btn .action-label { font-size: 0.78rem; letter-spacing: 0.06em; }
-  .spell-bar { max-width: none; flex: 2 1 0; gap: 0.28rem; }
-  .spell-btn { max-width: 3.6rem; min-width: 2.8rem; padding: 0.22rem; }
-  .spell-btn .spell-icon { width: 1.65rem; height: 1.65rem; }
+  .action-btn .action-label { font-size: 0.62rem; letter-spacing: 0.04em; }
+  .spell-btn {
+    width: calc(var(--tap) + 4px);
+    min-width: calc(var(--tap) + 4px);
+    max-width: none;
+    padding: 0.18rem;
+  }
+  .spell-btn .spell-icon { width: 1.55rem; height: 1.55rem; }
   .spell-btn .spell-cost { font-size: 0.48rem; }
-  .spell-btn .action-label { font-size: 0.55rem; }
+  .spell-btn .action-label { font-size: 0.52rem; }
   /* Short label on phones ("Use" for Interact) so nothing clips */
   .action-btn .action-label[data-short] { font-size: 0; }
   .action-btn .action-label[data-short]::after {
     content: attr(data-short);
-    font-size: 0.82rem;
-    letter-spacing: 0.1em;
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+  }
+  #btn-interact, #btn-attack {
+    width: calc(var(--tap) + 10px);
+    min-width: calc(var(--tap) + 10px);
   }
   .action-attack {
-    min-height: calc(var(--tap) + 12px);
+    min-height: var(--tap);
     max-width: none;
-    flex: 1.3 1 0;
+    flex: 0 0 auto;
   }
-  .action-attack .action-label { font-size: 0.84rem; }
+  .action-attack .action-label { font-size: 0.68rem; }
+  #btn-inv, #btn-ah {
+    width: var(--tap);
+  }
+  /* Stick sits clear of the right cluster */
+  #virtual-joystick {
+    bottom: calc(0.55rem + var(--safe-bottom));
+    left: calc(0.55rem + var(--safe-left));
+  }
 }
 
-/* Very narrow */
+/* Very narrow (~390 portrait still uses 2-row; tighten stick + labels) */
 @media (max-width: 380px) {
-  :root { --stick-size: 108px; }
-  .action-btn .action-label { font-size: 0.72rem; letter-spacing: 0.04em; }
-  .action-attack .action-label { font-size: 0.76rem; }
+  :root {
+    --stick-size: 108px;
+    --action-bar-h: calc(6.4rem + var(--safe-bottom));
+  }
+  .action-btn .action-label { font-size: 0.56rem; letter-spacing: 0.02em; }
+  .action-btn .action-label[data-short]::after { font-size: 0.56rem; }
+  .action-attack .action-label { font-size: 0.6rem; }
+  .spell-btn .action-label { font-size: 0.48rem; }
   .vj-knob { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
 }
 
@@ -1312,24 +1356,80 @@ body.has-modal #virtual-joystick { display: none; }
   .help-desktop { display: none; }
   .help-mobile { display: block; }
   .action-btn .action-hint { display: none; }
-  .action-btn .action-label { letter-spacing: 0.08em; }
+  .action-btn .action-label { letter-spacing: 0.06em; }
 
+  /* Mirror the narrow-phone 2-row right cluster when stick is shown */
+  :root {
+    --action-bar-h: calc(6.6rem + var(--safe-bottom));
+  }
   #action-bar {
+    left: auto;
+    right: 0;
+    width: auto;
+    max-width: calc(100vw - var(--stick-clearance));
     justify-content: flex-end;
-    padding-left: var(--stick-clearance);
+    align-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.32rem;
+    padding: 0.35rem calc(0.45rem + var(--safe-right)) calc(0.4rem + var(--safe-bottom)) 0.4rem;
+  }
+  .spell-bar {
+    order: -1;
+    flex: 1 1 100%;
+    max-width: none;
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .action-btn {
+    flex: 0 0 auto;
+    width: var(--tap);
+    min-width: var(--tap);
+    min-height: var(--tap);
+    max-width: none;
+  }
+  .spell-btn {
+    width: calc(var(--tap) + 4px);
+    min-width: calc(var(--tap) + 4px);
+  }
+  #btn-interact, #btn-attack {
+    width: calc(var(--tap) + 10px);
+    min-width: calc(var(--tap) + 10px);
   }
   .action-attack {
-    min-height: calc(var(--tap) + 12px);
-    flex: 1.3 1 0;
+    min-height: var(--tap);
+    flex: 0 0 auto;
   }
 }
 
-/* Desktop / fine pointer: stick hidden via JS; keep centered action bar */
+/* Desktop / fine pointer: stick hidden via JS; keep centered single-row action bar */
 @media (pointer: fine) and (min-width: 641px) {
-  #action-bar {
-    justify-content: center;
-    padding-left: calc(0.5rem + var(--safe-left));
+  :root {
+    --action-bar-h: calc(3.4rem + var(--safe-bottom));
   }
+  #action-bar {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    justify-content: center;
+    flex-wrap: nowrap;
+    padding: 0.45rem calc(0.5rem + var(--safe-right)) calc(0.45rem + var(--safe-bottom)) calc(0.5rem + var(--safe-left));
+  }
+  .spell-bar {
+    order: 0;
+    flex: 1.6 1 0;
+    max-width: 14rem;
+    width: auto;
+    justify-content: center;
+  }
+  .action-btn {
+    flex: 1 1 0;
+    width: auto;
+    max-width: 6.75rem;
+  }
+  .action-btn.action-primary { max-width: 7.5rem; flex: 1.2 1 0; }
+  .action-attack { max-width: 7.25rem; flex: 1.15 1 0; }
+  .spell-btn { max-width: 4.4rem; min-width: 3.2rem; width: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

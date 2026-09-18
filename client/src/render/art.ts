@@ -83,9 +83,9 @@ export const DORE_DISPLAY: Record<string, { h: number }> = {
   [DORE_KEYS.poi_ah]: { h: 68 },
   [DORE_KEYS.poi_quest]: { h: 68 },
   [DORE_KEYS.exit_portal]: { h: 110 },
-  [DORE_KEYS.mob_whirl]: { h: 68 },
-  [DORE_KEYS.mob_champion]: { h: 80 },
-  [DORE_KEYS.boss_judge]: { h: 124 },
+  [DORE_KEYS.mob_whirl]: { h: 92 },
+  [DORE_KEYS.mob_champion]: { h: 108 },
+  [DORE_KEYS.boss_judge]: { h: 152 },
   [DORE_KEYS.loot_gem]: { h: 38 },
   item_ashen_club: { h: 34 },
   item_torn_cape: { h: 34 },
@@ -290,6 +290,80 @@ export function hasTexture(scene: Phaser.Scene, key: string): boolean {
   if (!scene.textures.exists(key)) return false;
   const tex = scene.textures.get(key);
   return !!tex && tex.key !== "__MISSING" && tex.source?.[0]?.width > 0;
+}
+
+const FOE_TEX_KEYS = [DORE_KEYS.mob_whirl, DORE_KEYS.mob_champion, DORE_KEYS.boss_judge];
+
+/**
+ * Lift luminance + stamp a gold/crimson edge rim on Lust foe plates so dark
+ * etchings stay obvious on red-black ground (mobile especially).
+ * Idempotent: skips keys already enhanced.
+ */
+export function enhanceLustFoeTextures(scene: Phaser.Scene): void {
+  for (const key of FOE_TEX_KEYS) {
+    if (!hasTexture(scene, key)) continue;
+    if (scene.textures.exists(key + "__lust_boost")) continue;
+    const srcImg = scene.textures.get(key).getSourceImage() as
+      | HTMLImageElement
+      | HTMLCanvasElement;
+    const w = (srcImg as HTMLImageElement).width || (srcImg as any).width;
+    const h = (srcImg as HTMLImageElement).height || (srcImg as any).height;
+    if (!w || !h) continue;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) continue;
+    ctx.drawImage(srcImg as CanvasImageSource, 0, 0);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const d = imageData.data;
+    // Pass 1: lift midtones (keep alpha)
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3];
+      if (a < 12) continue;
+      // gamma-ish lift + warm bias so crimson etch reads warm-gold
+      d[i] = Math.min(255, Math.round(d[i] * 1.55 + 36));
+      d[i + 1] = Math.min(255, Math.round(d[i + 1] * 1.4 + 22));
+      d[i + 2] = Math.min(255, Math.round(d[i + 2] * 1.25 + 14));
+    }
+    // Pass 2: gold/crimson rim on alpha edges
+    const copy = new Uint8ClampedArray(d);
+    const rimR = 232, rimG = 200, rimB = 106; // gold
+    const rimR2 = 220, rimG2 = 72, rimB2 = 48; // crimson
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = (y * w + x) * 4;
+        const a = copy[i + 3];
+        if (a >= 40) continue;
+        // near an opaque texel?
+        let near = false;
+        for (let oy = -1; oy <= 1 && !near; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            if (ox === 0 && oy === 0) continue;
+            if (copy[((y + oy) * w + (x + ox)) * 4 + 3] >= 80) {
+              near = true;
+              break;
+            }
+          }
+        }
+        if (!near) continue;
+        const mix = key === DORE_KEYS.mob_whirl ? 0.55 : 0.4;
+        d[i] = Math.round(rimR * (1 - mix) + rimR2 * mix);
+        d[i + 1] = Math.round(rimG * (1 - mix) + rimG2 * mix);
+        d[i + 2] = Math.round(rimB * (1 - mix) + rimB2 * mix);
+        d[i + 3] = Math.max(a, 210);
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    // Replace texture in place
+    scene.textures.remove(key);
+    scene.textures.addCanvas(key, canvas);
+    // Marker so we do not double-boost on scene restarts that keep the texture cache
+    const mark = document.createElement("canvas");
+    mark.width = 1;
+    mark.height = 1;
+    scene.textures.addCanvas(key + "__lust_boost", mark);
+  }
 }
 
 /** Queue Doré kit images; returns keys that were requested. */
@@ -637,19 +711,17 @@ export function drawMob(
   const cy = sy - 6 * scale;
   const r = (champion ? 10 : 7) * scale;
   // Whirl shade — jagged / wind silhouette
-  const body = champion ? 0xcc3333 : 0x6a3030;
+  const body = champion ? 0xe84838 : 0xb05040;
   g.fillStyle(body, 1);
   g.fillCircle(sx, cy, r);
-  g.fillStyle(0x2a1010, 0.7);
+  g.fillStyle(0x3a1810, 0.55);
   g.fillEllipse(sx - 2, cy - 2, r * 0.7, r * 0.5);
   // Gale streaks
-  g.lineStyle(1.5, champion ? 0xff8866 : 0xaa6666, 0.7);
+  g.lineStyle(2, champion ? 0xffaa66 : 0xff8866, 0.9);
   g.lineBetween(sx - r - 4, cy - 2, sx - r + 2, cy + 4);
   g.lineBetween(sx + r + 4, cy - 3, sx + r - 2, cy + 3);
-  if (champion) {
-    g.lineStyle(1.5, 0xffcc66, 0.85);
-    g.strokeCircle(sx, cy, r + 2);
-  }
+  g.lineStyle(2, champion ? 0xffd27a : 0xe8b84a, 0.95);
+  g.strokeCircle(sx, cy, r + 2);
 }
 
 export function drawBoss(g: Phaser.GameObjects.Graphics, sx: number, sy: number) {
@@ -806,10 +878,10 @@ export function drawEntityPad(
   sy: number,
   scale = 1
 ) {
-  g.fillStyle(0x000000, 0.4);
-  g.fillEllipse(sx, sy + 3, 30 * scale, 13 * scale);
-  g.fillStyle(0x0a100c, 0.22);
-  g.fillEllipse(sx, sy + 3, 44 * scale, 20 * scale);
+  g.fillStyle(0x000000, 0.55);
+  g.fillEllipse(sx, sy + 3, 34 * scale, 15 * scale);
+  g.fillStyle(0x050308, 0.32);
+  g.fillEllipse(sx, sy + 3, 52 * scale, 24 * scale);
 }
 
 /** Hub framing: tree silhouettes + soft vignette so the clearing reads as a place. */
@@ -1053,8 +1125,9 @@ export function buildGroundTiles(
   const mask = maskGfx.createGeometryMask();
 
   // Softer plate tint so etching reads without harsh checker seams.
-  const tint = isHub ? 0xb8c4b4 : 0xa88884;
-  const alpha = isHub ? 0.92 : 0.88;
+  // Lust: slightly darker / cooler so crimson-gold foe rims pop at a glance.
+  const tint = isHub ? 0xb8c4b4 : 0x7a5854;
+  const alpha = isHub ? 0.92 : 0.82;
   const root = scene.add.container(0, 0);
   root.setDepth(0);
   root.setMask(mask);
@@ -1114,33 +1187,39 @@ export function drawFoeHpBar(
 ) {
   if (maxHp == null || maxHp <= 0) return;
   const ratio = Math.max(0, Math.min(1, hp / maxHp));
-  const barW = opts.compact ? w * 1.3 : w;
-  const barH = opts.boss ? (opts.compact ? 9 : 7) : opts.compact ? 7 : 5;
+  const barW = opts.compact ? w * 1.45 : w * 1.1;
+  const barH = opts.boss ? (opts.compact ? 12 : 9) : opts.compact ? 10 : 7;
   const left = x - barW / 2;
-  // Shadow + bone frame
-  g.fillStyle(0x000000, 0.6);
-  g.fillRect(left - 2, y - 2, barW + 4, barH + 4);
+  // Shadow + bone frame (thicker so bars read on dark Lust ground)
+  g.fillStyle(0x000000, 0.75);
+  g.fillRect(left - 3, y - 3, barW + 6, barH + 6);
   g.fillStyle(0x1a1610, 1);
   g.fillRect(left, y, barW, barH);
-  // Fill: crimson for foes, bone-green for allies
-  const fill = opts.ally ? (ratio > 0.35 ? 0x9fbf8a : 0xcc3333) : ratio > 0.3 ? 0xa8241f : 0xd63a2a;
+  // Fill: brighter crimson for foes, bone-green for allies
+  const fill = opts.ally
+    ? ratio > 0.35
+      ? 0xb8d898
+      : 0xff5544
+    : ratio > 0.3
+      ? 0xe83828
+      : 0xff6a3a;
   g.fillStyle(fill, 1);
   g.fillRect(left, y, Math.max(0, barW * ratio), barH);
   // Gloss line
-  g.fillStyle(0xffffff, 0.12);
-  g.fillRect(left, y, Math.max(0, barW * ratio), Math.max(1, barH * 0.35));
+  g.fillStyle(0xffffff, 0.22);
+  g.fillRect(left, y, Math.max(0, barW * ratio), Math.max(1, barH * 0.4));
   // Gold ticks at quarters
-  g.lineStyle(1, 0xc9a227, 0.5);
+  g.lineStyle(1, 0xe8c86a, 0.7);
   for (let i = 1; i < 4; i++) {
     const tx = Math.round(left + (barW * i) / 4) + 0.5;
     g.lineBetween(tx, y, tx, y + barH);
   }
   // Bone outline + gold finials
-  g.lineStyle(1, 0xd9cfae, 0.8);
+  g.lineStyle(1.5, 0xf0e6c8, 0.95);
   g.strokeRect(left, y, barW, barH);
-  g.fillStyle(0xc9a227, 0.95);
-  g.fillRect(left - 2, y - 1, 2, barH + 2);
-  g.fillRect(left + barW, y - 1, 2, barH + 2);
+  g.fillStyle(0xe8c86a, 1);
+  g.fillRect(left - 3, y - 1, 3, barH + 2);
+  g.fillRect(left + barW, y - 1, 3, barH + 2);
 }
 
 /* ————————————————————————————————————————————————————————————————————————
@@ -1169,7 +1248,10 @@ export function drawLootGlow(
   g.fillTriangle(sx - 5 * s, sy + 1, sx + 5 * s, sy + 1, sx, sy - 34 * s);
 }
 
-/** Faint ember rim under foes so smoky shades read on red-black ground. */
+/**
+ * Lust foe underfoot + body rim: darken the busy red ground, then paint a
+ * gold/crimson halo so whirl / champion / boss read at a glance on mobile.
+ */
 export function drawFoeGlow(
   g: Phaser.GameObjects.Graphics,
   sx: number,
@@ -1178,14 +1260,32 @@ export function drawFoeGlow(
   opts: { compact: boolean; champion?: boolean; boss?: boolean }
 ) {
   const pulse = 0.5 + 0.5 * Math.sin(t * 0.004 + sx * 0.03);
-  const s = (opts.compact ? 1.5 : 1) * (opts.boss ? 2.1 : opts.champion ? 1.35 : 1);
-  const col = opts.boss ? 0xd63a2a : opts.champion ? 0xff7a3a : 0xc0402a;
-  g.fillStyle(col, 0.10 + pulse * 0.10);
-  g.fillEllipse(sx, sy + 3, 52 * s, 22 * s);
-  g.fillStyle(col, 0.08 + pulse * 0.08);
-  g.fillEllipse(sx, sy + 2, 28 * s, 12 * s);
-  g.lineStyle(1.5, col, 0.28 + pulse * 0.3);
-  g.strokeEllipse(sx, sy + 3, 38 * s, 15 * s);
+  const s = (opts.compact ? 1.65 : 1.15) * (opts.boss ? 2.2 : opts.champion ? 1.45 : 1);
+  const ember = opts.boss ? 0xff4a2a : opts.champion ? 0xff8a40 : 0xe05030;
+  const gold = opts.boss ? 0xffd27a : opts.champion ? 0xf0c060 : 0xe8b84a;
+  // Desaturated dark well under feet (sprites pop without killing ground read)
+  g.fillStyle(0x040102, 0.62);
+  g.fillEllipse(sx, sy + 4, 58 * s, 26 * s);
+  g.fillStyle(0x120608, 0.35);
+  g.fillEllipse(sx, sy + 4, 40 * s, 18 * s);
+  // Warm light pool
+  g.fillStyle(ember, 0.18 + pulse * 0.16);
+  g.fillEllipse(sx, sy + 3, 48 * s, 20 * s);
+  g.fillStyle(gold, 0.14 + pulse * 0.12);
+  g.fillEllipse(sx, sy + 2, 26 * s, 11 * s);
+  // Crimson then gold underfoot rings
+  g.lineStyle(opts.compact ? 3 : 2.25, ember, 0.55 + pulse * 0.35);
+  g.strokeEllipse(sx, sy + 3, 42 * s, 17 * s);
+  g.lineStyle(opts.compact ? 2.25 : 1.75, gold, 0.7 + pulse * 0.25);
+  g.strokeEllipse(sx, sy + 3, 34 * s, 13 * s);
+  // Body-height gold/crimson rim so the silhouette reads even if the etch is dark
+  const bodyY = sy - (opts.boss ? 42 : opts.champion ? 30 : 24) * (opts.compact ? 1.15 : 1);
+  const bw = (opts.boss ? 46 : opts.champion ? 34 : 26) * s * 0.55;
+  const bh = (opts.boss ? 70 : opts.champion ? 52 : 40) * (opts.compact ? 1.1 : 1) * 0.55;
+  g.lineStyle(opts.compact ? 2.5 : 2, gold, 0.55 + pulse * 0.3);
+  g.strokeEllipse(sx, bodyY, bw * 2, bh * 2);
+  g.lineStyle(opts.compact ? 1.75 : 1.25, ember, 0.4 + pulse * 0.25);
+  g.strokeEllipse(sx, bodyY, bw * 1.7, bh * 1.7);
 }
 
 export function spawnKillBurst(particles: Particle[], wx: number, wy: number, boss = false) {
