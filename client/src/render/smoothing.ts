@@ -15,7 +15,7 @@ export const RECONCILE_IDLE = 9;
 /** Remote / mob exponential smooth rate (per second). */
 export const REMOTE_SMOOTH = 12;
 /** Camera follow rate (per second, dt-based exponential approach). Desktop is a bit tighter. */
-export const CAM_LERP_MOBILE = 5;
+export const CAM_LERP_MOBILE = 6.5;
 export const CAM_LERP_DESKTOP = 8;
 
 export function dist(a: Vec2, b: Vec2): number {

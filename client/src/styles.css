@@ -68,11 +68,14 @@ input, textarea, .panel, #panels {
 .plate {
   position: relative;
   background:
+    linear-gradient(180deg, #ffffff0a, transparent 35%),
     linear-gradient(180deg, #24211a 0%, #14130f 60%, #0e0d0a 100%);
   border: 1px solid var(--border);
   box-shadow:
     inset 0 0 0 1px #000c,
     inset 0 0 0 2px #6a5e3f55,
+    inset 0 0 0 3px #00000088,
+    inset 0 -8px 14px #0007,
     0 2px 10px #000b;
   border-radius: 3px;
 }
@@ -273,9 +276,17 @@ input, textarea, .panel, #panels {
   font-variant-numeric: tabular-nums;
 }
 
-/* Toasts */
+/* Toasts — #toast-layer sits outside #hud so it stacks above open modals (#panels z=20).
+   hud.ts pins its `top` just under the HUD plates. */
+#toast-layer {
+  position: fixed;
+  z-index: 30;
+  left: calc(0.75rem + var(--safe-left));
+  right: calc(0.75rem + var(--safe-right));
+  top: calc(4.5rem + var(--safe-top));
+  pointer-events: none;
+}
 #toast {
-  margin-top: 0.45rem;
   min-height: 1.2rem;
   font-size: 0.9rem;
   max-width: 36rem;
@@ -289,6 +300,11 @@ input, textarea, .panel, #panels {
   transition: opacity 0.6s ease;
 }
 #toast.toast-show { animation: toast-in 0.22s ease-out forwards; }
+/* Over a modal: brighten the plate so it reads against the dimmed sheet */
+body.has-modal #toast.toast-show {
+  background: linear-gradient(90deg, #0b0f0cf2, #0b0f0cbb 70%, #0b0f0c66);
+  box-shadow: 0 2px 12px #000c;
+}
 #toast.toast-fade { opacity: 0; }
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(-4px); }
@@ -313,12 +329,21 @@ input, textarea, .panel, #panels {
 }
 
 #help, #help-mobile {
-  margin-top: 0.3rem;
-  font-size: 0.7rem;
+  /* Leave a band for the (out-of-flow) toast that hud.ts pins under #hud-top */
+  margin-top: 2.2rem;
+  font-size: 0.66rem;
   color: var(--bone-dim);
-  line-height: 1.35;
-  max-width: 36rem;
+  line-height: 1.3;
+  max-width: 30rem;
+  letter-spacing: 0.03em;
+  opacity: 0.85;
   text-shadow: 0 1px 0 #000, 0 0 6px #000;
+  transition: opacity 1.4s ease, transform 1.4s ease;
+}
+#help.help-fade, #help-mobile.help-fade {
+  opacity: 0;
+  transform: translateY(-3px);
+  pointer-events: none;
 }
 .help-mobile { display: none; }
 .help-desktop { display: block; }
@@ -393,6 +418,16 @@ input, textarea, .panel, #panels {
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--gold), transparent);
 }
+.panel-head::before {
+  content: "";
+  position: absolute;
+  left: 50%; bottom: -5px;
+  width: 9px; height: 9px;
+  margin-left: -4.5px;
+  background: linear-gradient(135deg, #f0d982, var(--gold) 55%, #7a5a14);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  box-shadow: 0 0 8px #c9a22788;
+}
 .panel h2 {
   margin: 0;
   font-size: 1.05rem;
@@ -465,6 +500,7 @@ input, textarea, .panel, #panels {
   border: 1px solid #3a3224;
   background: linear-gradient(180deg, #1a1712, #0e0c0a);
   color: var(--bone-dim);
+  box-shadow: inset 0 0 0 1px #000a, inset 0 0 10px #0009;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -490,26 +526,49 @@ input, textarea, .panel, #panels {
 }
 .equip-stats {
   grid-column: 1 / -1;
-  font-size: 0.62rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 0.5rem;
+  font-size: 0.66rem;
   color: var(--bone-dim);
   letter-spacing: 0.04em;
-  padding: 2px 2px 0;
-  text-align: center;
+  padding: 3px 2px 1px;
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid #2a2418;
 }
-.inv-icon, .equip-slot-body .inv-icon {
+.equip-stats i {
+  font-style: normal;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  font-size: 0.58rem;
+}
+.equip-stats .stat-dmg { color: #e8b84a; }
+.equip-stats .stat-hp { color: #d46a6a; }
+.equip-stats .stat-armor { color: #8fb0cc; }
+.inv-icon, .equip-slot-body .inv-icon, .inv-slot img, .equip-slot-body img {
   width: 78%;
   height: 78%;
   object-fit: contain;
   image-rendering: auto;
   pointer-events: none;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
   filter: drop-shadow(0 1px 1px #000c);
 }
 .inv-slot .inv-glyph { display: none; }
 .inv-actions { flex-wrap: wrap; gap: 0.35rem; }
 .inv-actions input { flex: 1 1 6rem; min-width: 5rem; }
-@media (max-width: 420px) {
-  .inv-layout { grid-template-columns: 1fr; }
-  .equip-doll { grid-template-columns: repeat(3, 1fr); }
+/* Phones: paper-doll becomes a 6-across strip above the grid so the sheet fits without scrolling */
+@media (max-width: 480px) {
+  .inv-layout { grid-template-columns: 1fr; gap: 0.4rem; }
+  .equip-doll { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; padding: 4px; }
+  .equip-slot { padding: 1px; gap: 1px; }
+  .equip-slot-label { font-size: 0.48rem; letter-spacing: 0.08em; }
+  .equip-slot-body { width: 82%; height: 62%; }
 }
 
 /* Inventory grid (PoE-style slab of slots) */
@@ -653,11 +712,25 @@ input, textarea, .panel, #panels {
 .ah-actions { margin-top: 0.15rem; }
 .ah-actions button { flex: 1; }
 
-/* ——— Buttons: etched bone/gold ——— */
+/* ——— Buttons: etched bone/gold, double border, corner ticks ——— */
 button {
-  background: linear-gradient(180deg, #2a261c 0%, #1a1712 55%, #12100c 100%);
+  /* Corner ticks: four gold triangles clipped by the button edge (no image assets) */
+  --tick: #c9a22799;
+  --tick-size: 9px;
+  background:
+    linear-gradient(135deg, var(--tick) 0 4px, transparent 4.5px) top left / var(--tick-size) var(--tick-size) no-repeat,
+    linear-gradient(225deg, var(--tick) 0 4px, transparent 4.5px) top right / var(--tick-size) var(--tick-size) no-repeat,
+    linear-gradient(45deg, var(--tick) 0 4px, transparent 4.5px) bottom left / var(--tick-size) var(--tick-size) no-repeat,
+    linear-gradient(315deg, var(--tick) 0 4px, transparent 4.5px) bottom right / var(--tick-size) var(--tick-size) no-repeat,
+    linear-gradient(180deg, #ffffff10, transparent 40%),
+    linear-gradient(180deg, #2a261c 0%, #1a1712 55%, #12100c 100%);
   border: 1px solid #5a4e34;
-  box-shadow: inset 0 0 0 1px #000c, inset 0 1px 0 #ffffff12, 0 2px 6px #0009;
+  box-shadow:
+    inset 0 0 0 1px #000c,
+    inset 0 0 0 2px #7a6a4433,
+    inset 0 0 0 3px #00000088,
+    inset 0 -6px 10px #0006,
+    0 2px 6px #0009;
   color: var(--bone);
   padding: 0.45rem 0.85rem;
   border-radius: 2px;
@@ -667,18 +740,59 @@ button {
   min-height: var(--tap);
   font-size: 0.9rem;
   text-shadow: 0 1px 0 #000;
-  transition: background 0.08s ease, transform 0.08s ease, box-shadow 0.08s ease;
+  transition: background 0.08s ease, transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
 }
-button:hover { background: linear-gradient(180deg, #34301f, #1f1b14 55%, #14110d); border-color: var(--gold-dim); }
-button:active { transform: translateY(1px); box-shadow: inset 0 0 0 1px #000c, inset 0 2px 8px #000c; }
+button:hover {
+  --tick: var(--gold-2);
+  border-color: var(--gold-dim);
+  box-shadow:
+    inset 0 0 0 1px #000c,
+    inset 0 0 0 2px #c9a22744,
+    inset 0 0 0 3px #00000088,
+    inset 0 -6px 10px #0006,
+    0 2px 6px #0009, 0 0 8px #c9a22722;
+}
+button:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 0 0 1px #000c, inset 0 0 0 2px #c9a22744, inset 0 2px 8px #000c;
+}
+button:disabled { opacity: 0.55; cursor: default; }
 .btn-gold {
+  --tick: #3a2c0a;
   color: #1a1408;
-  background: linear-gradient(180deg, #f0d982 0%, var(--gold) 55%, #9a7a20 100%);
+  background:
+    linear-gradient(135deg, var(--tick) 0 4px, transparent 4.5px) top left / var(--tick-size) var(--tick-size) no-repeat,
+    linear-gradient(225deg, var(--tick) 0 4px, transparent 4.5px) top right / var(--tick-size) var(--tick-size) no-repeat,
+    linear-gradient(45deg, var(--tick) 0 4px, transparent 4.5px) bottom left / var(--tick-size) var(--tick-size) no-repeat,
+    linear-gradient(315deg, var(--tick) 0 4px, transparent 4.5px) bottom right / var(--tick-size) var(--tick-size) no-repeat,
+    linear-gradient(180deg, #fff4c055, transparent 40%),
+    linear-gradient(180deg, #f0d982 0%, var(--gold) 55%, #9a7a20 100%);
   border-color: #6a5214;
   text-shadow: 0 1px 0 #fff4c066;
-  box-shadow: inset 0 0 0 1px #3a2c0a, inset 0 1px 0 #fff8, 0 2px 8px #0009, 0 0 10px #c9a22733;
+  box-shadow:
+    inset 0 0 0 1px #3a2c0a,
+    inset 0 0 0 2px #fff4c055,
+    inset 0 0 0 3px #3a2c0a44,
+    inset 0 -6px 10px #7a5a1455,
+    0 2px 8px #0009, 0 0 10px #c9a22733;
 }
-.btn-gold:hover { background: linear-gradient(180deg, #ffe89a, var(--gold-2) 55%, #a8862a); border-color: #6a5214; }
+.btn-gold:hover {
+  --tick: #1a1408;
+  border-color: #6a5214;
+  box-shadow:
+    inset 0 0 0 1px #3a2c0a,
+    inset 0 0 0 2px #fff8,
+    inset 0 0 0 3px #3a2c0a44,
+    inset 0 -6px 10px #7a5a1455,
+    0 2px 8px #0009, 0 0 14px #c9a22755;
+}
+/* Close "✕" — round gothic seal instead of a stock square */
+.btn-close {
+  --tick-size: 0px;
+  border-radius: 50%;
+  border-color: #5a4e34;
+  box-shadow: inset 0 0 0 1px #000c, inset 0 0 0 2px #7a6a4433, 0 2px 6px #0009;
+}
 
 /* ——— Action bar (gothic etched rects) ——— */
 #action-bar {
@@ -695,36 +809,73 @@ button:active { transform: translateY(1px); box-shadow: inset 0 0 0 1px #000c, i
   pointer-events: none;
 }
 .action-btn {
+  --ab-edge: #7a6a44;
+  --ab-line: #c9a22755;
+  --ab-fin: var(--gold);
+  --ab-glow: #c9a22733;
+  --tick-size: 0px;
   pointer-events: auto;
   position: relative;
   flex: 1 1 0;
   max-width: 6.75rem;
   min-width: var(--tap);
-  min-height: calc(var(--tap) + 4px);
+  min-height: calc(var(--tap) + 6px);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.05rem;
-  padding: 0.35rem 0.4rem;
-  border-radius: 2px;
-  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+  padding: 0.4rem 0.55rem;
+  border-radius: 3px;
+  /* Bone-gold metal: top sheen, dark inset well, warm underglow */
   background:
-    linear-gradient(180deg, #2a261c 0%, #17150f 55%, #0f0d0a 100%);
-  border: 1px solid #5a4e34;
-  box-shadow: inset 0 0 0 1px #000c, inset 0 0 0 2px #6a5e3f33, inset 0 1px 0 #ffffff10;
+    linear-gradient(180deg, #ffffff14, transparent 38%),
+    radial-gradient(ellipse 80% 60% at 50% 115%, #3a3220 0%, transparent 70%),
+    linear-gradient(180deg, #2c2719 0%, #17150f 55%, #0f0d0a 100%);
+  border: 1px solid var(--ab-edge);
+  /* Double border: black seam → gold inner line → black seam */
+  box-shadow:
+    inset 0 0 0 1px #000e,
+    inset 0 0 0 2px var(--ab-line),
+    inset 0 0 0 3px #000a,
+    inset 0 -7px 12px #0008,
+    0 2px 6px #000d,
+    0 0 0 1px #000a;
   user-select: none;
   -webkit-user-select: none;
-  transition: background 0.08s ease, transform 0.08s ease, border-color 0.08s ease;
+  transition: background 0.08s ease, transform 0.08s ease, border-color 0.08s ease, box-shadow 0.08s ease;
 }
-/* Etched inner line */
+/* Corner finials: four gold diamonds riding the outer edge.
+   One pseudo-element, one polygon: each diamond loop is joined to the next by a
+   retraced (zero-area) segment so only the diamonds fill. */
+.action-btn::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  pointer-events: none;
+  background: linear-gradient(135deg, #fff5d0, var(--ab-fin) 45%, color-mix(in srgb, var(--ab-fin) 55%, #000));
+  clip-path: polygon(
+    4px 0, 8px 4px, 4px 8px, 0 4px, 4px 0,
+    calc(100% - 4px) 0, 100% 4px, calc(100% - 4px) 8px, calc(100% - 8px) 4px, calc(100% - 4px) 0,
+    4px 0,
+    calc(100% - 4px) calc(100% - 8px), 100% calc(100% - 4px), calc(100% - 4px) 100%, calc(100% - 8px) calc(100% - 4px), calc(100% - 4px) calc(100% - 8px),
+    4px 0,
+    4px calc(100% - 8px), 8px calc(100% - 4px), 4px 100%, 0 calc(100% - 4px), 4px calc(100% - 8px)
+  );
+  filter: drop-shadow(0 0 3px var(--ab-glow));
+  opacity: 0.95;
+}
+/* Etched inner chamfered line + a tiny keystone under the label */
 .action-btn::after {
   content: "";
   position: absolute;
-  inset: 4px;
-  border: 1px solid #c9a22733;
+  inset: 5px;
+  border: 1px solid var(--ab-line);
   pointer-events: none;
   clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
+  background:
+    linear-gradient(180deg, transparent calc(100% - 4px), var(--ab-fin) calc(100% - 4px)) center bottom / 10px 4px no-repeat;
+  opacity: 0.9;
 }
 .action-btn .action-label {
   font-size: 0.82rem;
@@ -741,36 +892,75 @@ button:active { transform: translateY(1px); box-shadow: inset 0 0 0 1px #000c, i
   letter-spacing: 0.1em;
 }
 .action-btn.action-primary {
-  border-color: #7a6a44;
-  background: linear-gradient(180deg, #34301f 0%, #1c1912 55%, #12100c 100%);
+  --ab-edge: #9a8650;
+  --ab-line: #c9a22788;
+  background:
+    linear-gradient(180deg, #ffffff18, transparent 38%),
+    radial-gradient(ellipse 80% 60% at 50% 115%, #4a3f22 0%, transparent 70%),
+    linear-gradient(180deg, #36301d 0%, #1c1912 55%, #12100c 100%);
   max-width: 7.5rem;
   flex: 1.2 1 0;
 }
-.action-btn:hover { background: linear-gradient(180deg, #37321f, #1f1b14 55%, #14110d); border-color: var(--gold-dim); }
+.action-btn:hover {
+  --ab-line: #e8c86a88;
+  border-color: var(--gold-dim);
+  background:
+    linear-gradient(180deg, #ffffff18, transparent 38%),
+    radial-gradient(ellipse 80% 60% at 50% 115%, #4a3f22 0%, transparent 70%),
+    linear-gradient(180deg, #37321f, #1f1b14 55%, #14110d);
+}
 .action-btn:active,
 .action-btn.pressed {
-  background: linear-gradient(180deg, #14110c, #1f1b14 60%, #2a261c);
+  --ab-line: var(--gold-2);
+  --ab-fin: var(--gold-2);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -15%, #3a3220 0%, transparent 70%),
+    linear-gradient(180deg, #14110c, #1f1b14 60%, #2a261c);
   transform: scale(0.96) translateY(1px);
   border-color: var(--gold);
-  box-shadow: inset 0 0 0 1px #000c, inset 0 2px 10px #000d, 0 0 12px #c9a22755;
+  box-shadow:
+    inset 0 0 0 1px #000e,
+    inset 0 0 0 2px var(--ab-line),
+    inset 0 2px 10px #000d,
+    0 0 12px #c9a22766;
 }
 .action-btn:active .action-label,
 .action-btn.pressed .action-label { color: #fff2c0; }
 
 .action-attack {
-  border-color: #6a2a24;
-  background: linear-gradient(180deg, #3a1a16 0%, #1e0e0c 55%, #120908 100%);
+  --ab-edge: #7a2e26;
+  --ab-line: #d63a2a55;
+  --ab-fin: var(--crimson-2);
+  --ab-glow: #d63a2a55;
+  background:
+    linear-gradient(180deg, #ffffff12, transparent 38%),
+    radial-gradient(ellipse 80% 60% at 50% 115%, #5a2018 0%, transparent 70%),
+    linear-gradient(180deg, #3e1a15 0%, #1e0e0c 55%, #120908 100%);
   max-width: 7.25rem;
   flex: 1.15 1 0;
 }
-.action-attack::after { border-color: #d63a2a44; }
 .action-attack .action-label { color: #ffb0a0; text-shadow: 0 1px 0 #000, 0 0 8px #d63a2a66; }
-.action-attack:hover { background: linear-gradient(180deg, #4a2420, #24110e 55%, #140a08); border-color: var(--crimson); }
+.action-attack:hover {
+  --ab-line: #d63a2a88;
+  border-color: var(--crimson);
+  background:
+    linear-gradient(180deg, #ffffff12, transparent 38%),
+    radial-gradient(ellipse 80% 60% at 50% 115%, #6a2418 0%, transparent 70%),
+    linear-gradient(180deg, #4a2420, #24110e 55%, #140a08);
+}
 .action-attack:active,
 .action-attack.pressed {
-  background: linear-gradient(180deg, #1a0a08, #3a1a16 60%, #5a2820);
+  --ab-line: #ff8a7a;
+  --ab-fin: #ff8a7a;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -15%, #5a2018 0%, transparent 70%),
+    linear-gradient(180deg, #1a0a08, #3a1a16 60%, #5a2820);
   border-color: var(--crimson-2);
-  box-shadow: inset 0 0 0 1px #000c, inset 0 2px 10px #000d, 0 0 14px #d63a2a88;
+  box-shadow:
+    inset 0 0 0 1px #000e,
+    inset 0 0 0 2px var(--ab-line),
+    inset 0 2px 10px #000d,
+    0 0 14px #d63a2a88;
 }
 .action-attack:active .action-label,
 .action-attack.pressed .action-label { color: #ffd8cc; }
@@ -898,7 +1088,8 @@ body.has-modal #virtual-joystick { display: none; }
   #ash b { font-size: 0.95rem; }
   #ash em { display: none; }
   #toast { font-size: 0.85rem; }
-  #help-mobile { font-size: 0.66rem; }
+  #toast-layer { left: calc(0.55rem + var(--safe-left)); right: calc(0.55rem + var(--safe-right)); }
+  #help-mobile { font-size: 0.64rem; margin-top: 2.05rem; }
 
   /* Modals become bottom sheets above the action bar */
   #panels {
@@ -952,7 +1143,6 @@ body.has-modal #virtual-joystick { display: none; }
   .action-btn .action-label { font-size: 0.72rem; letter-spacing: 0.04em; }
   .action-attack .action-label { font-size: 0.76rem; }
   .vj-knob { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
-  .inv-grid { --inv-cols: 5; }
 }
 
 /* Prefer coarse pointer (phones/tablets) even on wider tablets */
@@ -1017,43 +1207,126 @@ body.has-modal #virtual-joystick { display: none; }
   flex-direction: column;
   gap: 0.2rem;
   margin-top: 0;
+  min-height: 3.1rem;
+  padding-left: 0.55rem;
+  border-left: 3px solid var(--rc, #3a3224);
+}
+.inv-detail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.6rem;
+  min-width: 0;
 }
 .inv-detail-name {
-  font-size: 0.95rem;
+  font-size: 1rem;
   color: var(--rc, var(--gold-2));
   letter-spacing: 0.04em;
+  text-shadow: 0 1px 0 #000, 0 0 8px color-mix(in srgb, var(--rc, var(--gold)) 35%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.inv-detail-name.muted { white-space: normal; text-shadow: none; }
 .inv-detail-rarity {
-  font-size: 0.72rem;
-  color: var(--muted);
-  letter-spacing: 0.08em;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.7rem;
+  color: var(--rc, var(--muted));
+  opacity: 0.9;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
+.inv-detail-worn {
+  font-weight: 400;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  color: #1a1408;
+  background: linear-gradient(180deg, var(--gold-2), var(--gold-dim));
+  padding: 1px 5px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px #3a2c0a;
+}
+/* Stat pills: the headline numbers a phone player needs without a tooltip */
 .inv-detail-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem 0.7rem;
-  margin-top: 0.25rem;
-  font-size: 0.82rem;
+  gap: 0.3rem 0.4rem;
+  margin-top: 0.3rem;
+  font-size: 0.92rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }
-.inv-detail-stats .stat-dmg { color: #e8b84a; }
-.inv-detail-stats .stat-hp { color: #c45a5a; }
-.inv-detail-stats .stat-armor { color: #7a9ab8; }
-.inv-detail-stats .stat-none { color: var(--muted); font-size: 0.75rem; }
+.inv-detail-stats > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.55rem 0.14rem;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #1c1912, #0f0e0b);
+  border: 1px solid #3a3224;
+  box-shadow: inset 0 0 0 1px #000a, inset 0 1px 0 #ffffff0c;
+  text-shadow: 0 1px 0 #000;
+  line-height: 1.15;
+}
+.inv-detail-stats > span::before {
+  content: "";
+  width: 7px; height: 7px;
+  background: currentColor;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  opacity: 0.9;
+  flex: 0 0 auto;
+}
+.inv-detail-stats .stat-dmg { color: #f0c24e; border-color: #6e5e22; }
+.inv-detail-stats .stat-hp { color: #e07a6e; border-color: #6a2a24; }
+.inv-detail-stats .stat-armor { color: #9dbfe0; border-color: #2c4a66; }
+.inv-detail-stats .stat-none { color: var(--muted); font-size: 0.78rem; }
+.inv-detail-stats .stat-none::before { display: none; }
 .inv-footer .inv-actions { margin-top: 0.45rem; }
 @media (max-width: 640px) {
   #inventory.inv-panel,
   .inv-panel {
-    max-height: min(68dvh, 32rem);
+    max-height: min(74dvh, 34rem);
+    padding-top: 0.6rem;
   }
+  .inv-panel .panel-head { margin-bottom: 0.45rem; padding-bottom: 0.3rem; }
+  .inv-panel .btn-close { min-width: 38px; min-height: 38px; }
   .equip-doll { gap: 3px; padding: 4px; }
   .equip-slot-label { font-size: 0.5rem; }
-  .inv-grid { gap: 3px; }
+  .inv-grid { gap: 3px; padding: 4px; }
+  .inv-footer { margin-top: 0.35rem; padding-top: 0.35rem; }
+  .inv-detail { min-height: 2.8rem; }
+  .inv-detail-name { font-size: 0.95rem; }
+  .inv-detail-stats { font-size: 0.88rem; margin-top: 0.22rem; }
+  /* Compact one-row action strip: Equip · Unequip · price · List */
+  .inv-footer .inv-actions {
+    display: grid;
+    grid-template-columns: 1.1fr 1.2fr 1.3fr 1fr;
+    gap: 0.3rem;
+    margin-top: 0.35rem;
+  }
+  .inv-footer .inv-actions button,
+  .inv-footer .inv-actions input {
+    min-width: 0;
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+    font-size: 0.84rem;
+    letter-spacing: 0.04em;
+    min-height: 40px;
+  }
+  .inv-footer .inv-actions input { font-size: 0.9rem; }
 }
 @media (max-width: 390px) {
-  .inv-panel { max-height: min(70dvh, 30rem); }
-  .inv-layout { gap: 0.4rem; }
-  .inv-detail-stats { font-size: 0.78rem; }
+  .inv-panel { max-height: min(76dvh, 32rem); }
+  .inv-layout { gap: 0.35rem; }
+  .inv-detail-stats { font-size: 0.84rem; }
+  .inv-footer .inv-actions button { font-size: 0.78rem; letter-spacing: 0.02em; }
+}
+/* Short landscape phones: let the sheet scroll rather than crush the grid */
+@media (max-height: 520px) {
+  .inv-panel { max-height: calc(100dvh - var(--action-bar-h) - 0.5rem); }
+  .inv-detail { min-height: 0; }
 }

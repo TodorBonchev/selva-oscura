@@ -100,6 +100,12 @@ export function resolveEquipSlot(it: {
   );
 }
 
+/** Append the build version so the immutable CDN cache never serves an old plate. */
+export function assetUrl(path: string): string {
+  const v = typeof __ASSET_VER__ !== "undefined" ? __ASSET_VER__ : "dev";
+  return `${path}?v=${v}`;
+}
+
 export function itemIconUrl(it: {
   baseId?: string | null;
   name?: string;
@@ -111,7 +117,7 @@ export function itemIconUrl(it: {
     ITEM_ICON_FILES[base] ||
     ITEM_ICON_FILES[resolveEquipSlot(it) || ""] ||
     ITEM_ICON_FILES.misc;
-  return `assets/items/${file}`;
+  return assetUrl(`assets/items/${file}`);
 }
 
 export function itemIconKey(it: {
