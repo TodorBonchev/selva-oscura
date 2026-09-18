@@ -441,6 +441,10 @@ body.has-modal #toast.toast-show {
   }
 }
 
+#btn-interact {
+  position: relative;
+  overflow: hidden;
+}
 #btn-interact.interact-ready {
   --ab-edge: #c9a227;
   --ab-line: #e8c86a99;
@@ -1664,11 +1668,35 @@ body.has-modal #virtual-joystick { display: none; }
 }
 
 
-/* Gale Bolt hold-to-aim — button glow while aiming */
-.spell-btn.aiming,
-.spell-btn[data-spell="gale_bolt"].aiming {
+/* Spell hold-to-confirm — button glow while aiming / charging */
+.spell-btn.aiming {
   box-shadow: 0 0 0 2px #e8c86a, 0 0 18px #ff884466;
   filter: brightness(1.15);
   transform: translateY(1px) scale(0.98);
+}
+.spell-btn[data-spell="whirl_ward"].aiming {
+  box-shadow: 0 0 0 2px #e8c86a, 0 0 16px #c9a22766;
+}
+.spell-btn[data-spell="infernal_burst"].aiming {
+  box-shadow: 0 0 0 2px #ff6644, 0 0 18px #ff442266;
+}
+
+/* Portal hold-to-travel charge on Interact */
+#btn-interact.charging {
+  box-shadow: 0 0 0 2px #8af, 0 0 20px #6a8cff88;
+  filter: brightness(1.12);
+}
+#btn-interact.charging::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: inherit;
+  border: 2px solid transparent;
+  border-top-color: #c9e0ff;
+  animation: portal-charge-spin 0.42s linear infinite;
+  pointer-events: none;
+}
+@keyframes portal-charge-spin {
+  to { transform: rotate(360deg); }
 }
 

@@ -45,3 +45,8 @@ export const SPELLS: Record<SpellId, SpellDef> = {
 };
 
 export const SPELL_HOTBAR: SpellId[] = ["gale_bolt", "whirl_ward", "infernal_burst"];
+
+/** Mirror of server gale_bolt.range — aim preview / out-of-range hint. */
+export const GALE_RANGE = 9.5;
+/** Mirror of server infernal_burst.radius. */
+export const BURST_RADIUS = 4.2;
