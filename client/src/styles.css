@@ -1534,12 +1534,14 @@ body.has-modal #virtual-joystick { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   #hp-fill.low, .plate-hp.hp-hurt, #toast.toast-show, .ward-pip,
-  .spell-ready, .ward-expire, body.low-hp #danger-vignette, #btn-inv.inv-loot-glow,
+  .spell-ready, .ward-expire, .ward-soak, body.low-hp #danger-vignette,
+  body.low-mana #mana-vignette, #btn-inv.inv-loot-glow,
   .combo-pip, .combo-pip.combo-bump, .combo-pip.combo-expire,
   body.death-flash #death-flash, body.respawn-fade #death-flash,
   .ah-row.ah-loot-pulse, .compass-arrow { animation: none; }
   #toast.toast-show { opacity: 1; }
   body.low-hp #danger-vignette { opacity: 0.55; }
+  body.low-mana #mana-vignette { opacity: 0.5; }
   body.death-flash #death-flash, body.respawn-fade #death-flash { opacity: 0.55; }
 }
 
@@ -2017,6 +2019,8 @@ body.respawn-fade #death-flash {
   align-items: center;
   justify-content: center;
   filter: drop-shadow(0 1px 3px #000c);
+  opacity: 1;
+  transition: opacity 0.28s ease;
 }
 .compass-chevron {
   width: 0;
@@ -2088,5 +2092,61 @@ body.respawn-fade #death-flash {
       repeating-linear-gradient(-32deg, transparent 0 8px, #c9a22714 8px 9px),
       repeating-linear-gradient(32deg, transparent 0 10px, #5a08081c 10px 11px),
       radial-gradient(ellipse 80% 70% at 50% 42%, #6a141890 0%, #1a0606d0 55%, #050202f2 100%);
+  }
+}
+
+
+/* ——— Polish r8 ——— */
+
+/* Low-mana blue/gold vignette (mirrors low-HP crimson) */
+#mana-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse 72% 68% at 50% 45%, transparent 42%, #1a2a4866 78%, #0a1428cc 100%),
+    radial-gradient(ellipse 90% 80% at 50% 100%, #c9a22722 0%, transparent 55%);
+  transition: opacity 0.35s ease;
+}
+body.low-mana #mana-vignette {
+  opacity: 1;
+  animation: mana-vignette-pulse 1.25s ease-in-out infinite alternate;
+}
+@keyframes mana-vignette-pulse {
+  from { opacity: 0.38; }
+  to { opacity: 0.72; }
+}
+/* Prefer HP danger when both; mana stays softer underneath */
+body.low-hp.low-mana #mana-vignette {
+  opacity: 0.35;
+  animation: none;
+}
+@media (max-width: 640px) {
+  #mana-vignette {
+    background:
+      radial-gradient(ellipse 80% 75% at 50% 42%, transparent 38%, #1a2a4870 72%, #0a1428d0 100%),
+      radial-gradient(ellipse 90% 80% at 50% 100%, #c9a22728 0%, transparent 55%);
+  }
+}
+
+/* Ward pip soak flash when armor reduces a hit */
+.ward-pip.ward-soak {
+  animation: ward-soak-flash 0.38s ease-out;
+}
+@keyframes ward-soak-flash {
+  0% {
+    transform: scale(1.55);
+    box-shadow: 0 0 0 1px #000a, 0 0 18px #ffe08acc, 0 0 6px #c9a227;
+    filter: brightness(1.45);
+  }
+  55% {
+    transform: scale(1.2);
+    box-shadow: 0 0 0 1px #000a, 0 0 12px #c9a227bb;
+  }
+  100% {
+    transform: scale(1);
+    filter: none;
   }
 }

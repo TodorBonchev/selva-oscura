@@ -793,7 +793,9 @@ class CantoRoom {
               const led = players.get(target.playerId);
               const armor =
                 (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
-              const taken = Math.max(1, dmg - Math.floor(armor * 0.5));
+              const soak = Math.floor(armor * 0.5);
+              const taken = Math.max(1, dmg - soak);
+              const soaked = Math.max(0, dmg - taken);
               target.hp = Math.max(0, target.hp - taken);
               this.broadcast({
                 type: "combat",
@@ -801,6 +803,8 @@ class CantoRoom {
                 targetId: target.playerId,
                 targetIsPlayer: true,
                 damage: taken,
+                soaked,
+                wardActive: !!(target.armorBuff > 0),
                 targetHp: target.hp,
               });
               this.markDirty();
@@ -819,10 +823,10 @@ class CantoRoom {
       }
       if (nearestD <= 2.2 && e.atkCd <= 0 && !(nearest.iframes > 0)) {
         if (e.kind === "boss") {
-          // Start Judge slam telegraph — damage resolves after windup
-          e.windupLeft = 0.58;
+          // Start Judge slam telegraph — ~1.4s so countdown pip reads 2→1 clearly
+          e.windupLeft = 1.4;
           e.windupTargetId = nearest.playerId;
-          e.atkCd = 1.9; // covers windup + recovery
+          e.atkCd = 2.2; // covers windup + recovery
           this.broadcast({
             type: "boss_telegraph",
             id: e.id,
@@ -830,7 +834,7 @@ class CantoRoom {
             x: e.x,
             y: e.y,
             radius: 2.8,
-            duration: 0.58,
+            duration: 1.4,
           });
           this.markDirty();
           continue;
@@ -840,7 +844,9 @@ class CantoRoom {
         const led = players.get(nearest.playerId);
         const armor =
           (led ? computeGearStats(led).armor : 0) + (nearest.armorBuff || 0);
-        const taken = Math.max(1, dmg - Math.floor(armor * 0.5));
+        const soak = Math.floor(armor * 0.5);
+        const taken = Math.max(1, dmg - soak);
+        const soaked = Math.max(0, dmg - taken);
         nearest.hp = Math.max(0, nearest.hp - taken);
         e.atkCd = 0.9;
         this.broadcast({
@@ -849,6 +855,8 @@ class CantoRoom {
           targetId: nearest.playerId,
           targetIsPlayer: true,
           damage: taken,
+          soaked,
+          wardActive: !!(nearest.armorBuff > 0),
           targetHp: nearest.hp,
         });
         this.markDirty();

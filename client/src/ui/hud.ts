@@ -138,6 +138,13 @@ export function updateStats(you: any, title: string) {
     mpPlate.setAttribute("aria-valuenow", String(Math.floor(curMp)));
     mpPlate.setAttribute("aria-valuemax", String(maxMp));
   }
+  // Low-mana blue/gold vignette (~25% and below) — mirrors low-HP style
+  const lowMana = mpRatio <= 0.25 && curMp > 0 && cur > 0;
+  document.body.classList.toggle("low-mana", lowMana);
+  document.getElementById("mana-vignette")?.setAttribute(
+    "aria-hidden",
+    lowMana ? "false" : "true"
+  );
   lastManaShown = curMp;
   syncWardPip(you);
   updateSpellButtons(curMp);
@@ -411,6 +418,19 @@ export function noteWardBuff(durationSec: number) {
   kickSpellCdLoop();
 }
 
+/** Brief gold flash on the Ward pip when armor soaked part of a hit. */
+export function flashWardSoak() {
+  const pip = document.getElementById("ward-pip");
+  if (!pip) return;
+  pip.classList.remove("hidden", "ward-soak");
+  void (pip as HTMLElement).offsetWidth;
+  pip.classList.add("ward-soak");
+  pip.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    pip.classList.remove("ward-soak");
+  }, 380);
+}
+
 function syncWardPip(you: any | null) {
   const pip = document.getElementById("ward-pip");
   if (!pip) return;
@@ -490,13 +510,20 @@ let comboCount = 0;
 let comboLastAt = 0;
 let comboExpireTimer: number | null = null;
 
-export function noteComboHit() {
+/** Returns the new streak count (milestones ×5 / ×10 are for camera punch, no toast). */
+export function noteComboHit(): number {
   const now = Date.now();
   if (comboLastAt && now - comboLastAt > COMBO_GAP_MS) comboCount = 0;
   comboCount += 1;
   comboLastAt = now;
   syncComboPip(true);
   kickSpellCdLoop();
+  return comboCount;
+}
+
+/** True when streak just landed on a camera-punch milestone. */
+export function isComboMilestone(n: number): boolean {
+  return n === 5 || n === 10;
 }
 
 export function resetCombo() {
