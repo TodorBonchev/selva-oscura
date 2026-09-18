@@ -2231,3 +2231,137 @@ body.low-hp.low-mana #mana-vignette {
   .combo-pip.combo-fever,
   .combo-pip.combo-fever-max { animation: none; transform: none; }
 }
+
+/* ——— Polish r10 ——— */
+
+/* Toast raised above the two-row action bar on narrow / short phones */
+#toast-layer.toast-above-actions {
+  top: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+}
+#toast-layer.toast-above-actions #toast {
+  align-self: center;
+  max-width: min(92vw, 28rem);
+  text-align: center;
+  border-left-width: 0;
+  border-bottom: 2px solid var(--bone-dim);
+  background: linear-gradient(0deg, #0b0f0cee, #0b0f0caa 55%, transparent);
+  box-shadow: 0 -2px 14px #000a;
+}
+#toast-layer.toast-above-actions #toast.toast-show {
+  border-left-width: 0;
+  border-bottom-width: 3px;
+}
+#toast-layer.toast-above-actions #toast.toast-warn {
+  border-bottom-color: var(--crimson-2);
+  background: linear-gradient(0deg, #2a0c0aee, #2a0c0aaa 55%, transparent);
+}
+#toast-layer.toast-above-actions #toast.toast-loot,
+#toast-layer.toast-above-actions #toast.toast-emit {
+  border-bottom-color: var(--gold);
+}
+
+/* Attack CD: match spell treatment (dim label while sweeping) */
+#btn-attack.on-cooldown .action-label {
+  opacity: 0.55;
+}
+#btn-attack .spell-cd,
+#btn-attack .attack-cd {
+  /* Align inset / type with spell seals */
+  inset: 4px;
+  font-size: 0.95rem;
+  color: #fff4d0;
+  text-shadow: 0 1px 2px #000, 0 0 6px #000a;
+  box-shadow: inset 0 0 0 1px #c9a22744, inset 0 0 12px #0008;
+  background:
+    conic-gradient(
+      from -90deg,
+      rgba(8, 6, 4, 0.82) 0deg,
+      rgba(8, 6, 4, 0.82) var(--cd-deg, 360deg),
+      rgba(201, 162, 39, 0.18) var(--cd-deg, 360deg),
+      rgba(0, 0, 0, 0.12) 360deg
+    );
+}
+#btn-attack .spell-cd::before,
+#btn-attack .attack-cd::before {
+  background: conic-gradient(
+    from -90deg,
+    transparent 0deg,
+    transparent calc(var(--cd-deg, 360deg) - 4deg),
+    #ffe8a0 calc(var(--cd-deg, 360deg) - 2deg),
+    #ffe8a0 var(--cd-deg, 360deg),
+    transparent calc(var(--cd-deg, 360deg) + 0.1deg),
+    transparent 360deg
+  );
+}
+#btn-attack.on-cooldown {
+  filter: saturate(0.35) brightness(0.62);
+  opacity: 0.78;
+  box-shadow: inset 0 0 0 1px #000e, inset 0 0 18px #000a;
+}
+
+/* Interact: clearer idle (disabled-feel) vs ready states */
+#btn-interact.interact-idle {
+  filter: saturate(0.55) brightness(0.78);
+  opacity: 0.72;
+  box-shadow:
+    inset 0 0 0 1px #000c,
+    inset 0 0 0 2px #3a322488,
+    inset 0 0 10px #0008,
+    0 1px 3px #000a;
+}
+#btn-interact.interact-idle .action-label {
+  color: #8a8070;
+  text-shadow: 0 1px 0 #000;
+}
+#btn-interact.interact-ready {
+  filter: none;
+  opacity: 1;
+}
+#btn-interact.interact-ready .action-label {
+  color: #ffe8a0;
+  text-shadow: 0 1px 0 #000, 0 0 8px #c9a22788;
+  font-weight: 700;
+}
+
+/* Compass distance fades independently (driven by inline opacity) */
+.compass-dist {
+  transition: opacity 0.22s ease;
+}
+
+/* ≤400px / short height: spell labels collapse to icons-only; keep 2-row right layout */
+@media (max-width: 400px), (max-height: 520px) and (max-width: 900px) {
+  .spell-btn .action-label {
+    display: none;
+  }
+  .spell-btn {
+    padding: 0.35rem 0.18rem 0.28rem;
+  }
+  .spell-btn .spell-icon {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+  .spell-btn .spell-cost {
+    top: 2px;
+    left: 3px;
+    font-size: 0.46rem;
+  }
+  /* Slightly shorter spell row once labels are gone */
+  :root {
+    --action-bar-h: calc(6.15rem + var(--safe-bottom));
+  }
+}
+
+@media (max-width: 400px) {
+  :root {
+    --tap: 48px;
+    --action-bar-h: calc(6.15rem + var(--safe-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #btn-interact.interact-ready { animation: none; }
+}
