@@ -69,6 +69,10 @@ import {
   drawGaleBoltArc,
   drawWardRingGfx,
   drawInfernalShock,
+  drawGaleAimTelegraph,
+  drawWardChargeTelegraph,
+  drawBurstGroundTelegraph,
+  drawBossTelegraph,
   buildGroundTiles,
   destroyGroundTiles,
   facing8FromWorldVel,
@@ -122,6 +126,17 @@ const ATTACK_RECOVERY_MS = 400;
 const ATTACK_SWIPE_MS = 400;
 /** Kill ring / ghost-fade duration (ms). */
 const KILL_FX_MS = 520;
+/** Heavier Judge dissolve / ghost linger (ms). */
+const BOSS_KILL_FX_MS = 820;
+/** Spell cast windup — telegraph rings/line before the cast resolves. */
+const SPELL_TELEGRAPH_MS: Record<string, number> = {
+  gale_bolt: 180,
+  whirl_ward: 260,
+  infernal_burst: 300,
+};
+/** Full overworld labels when within this world distance; icon/dot when farther. */
+const LABEL_NEAR_RANGE = 7.5;
+const LABEL_FAR_RANGE = 16;
 /** Brief combat freeze on solid hits (ms wall-clock). */
 const HIT_STOP_MS = 58;
 const HIT_STOP_KILL_MS = 90;
@@ -213,6 +228,23 @@ export class WorldScene extends Phaser.Scene {
   /** Aim vector from last move / facing for spells. */
   aimX = 1;
   aimY = 0;
+  /** Pending cast windup (telegraph drawn until resolve). */
+  pendingCast: {
+    spellId: SpellId;
+    aimX: number;
+    aimY: number;
+    start: number;
+    until: number;
+  } | null = null;
+  /** Active boss attack telegraphs (Judge windup). */
+  bossTelegraphs: {
+    id: string;
+    x: number;
+    y: number;
+    radius: number;
+    start: number;
+    until: number;
+  }[] = [];
   /** Camera-following soft vignette so the arena edges fall into dark. */
   vignette: Phaser.GameObjects.Image | null = null;
   /** Remote player last render pos + moving timestamp so they stride too. */
@@ -388,6 +420,7 @@ export class WorldScene extends Phaser.Scene {
 
   castSpell(spellId: SpellId) {
     if (!this.room) return;
+    if (this.pendingCast) return;
     const def = SPELLS[spellId];
     if (!def) return;
     const mana = Number(this.room.you?.mana) || 0;
@@ -422,6 +455,27 @@ export class WorldScene extends Phaser.Scene {
     const len = Math.hypot(ax, ay) || 1;
     this.aimX = ax / len;
     this.aimY = ay / len;
+    const wind = SPELL_TELEGRAPH_MS[spellId] ?? 220;
+    this.pendingCast = {
+      spellId,
+      aimX: this.aimX,
+      aimY: this.aimY,
+      start: this.animT,
+      until: this.animT + wind,
+    };
+  }
+
+  /** Fire the pending cast once the telegraph windup completes. */
+  private resolvePendingCast() {
+    const pc = this.pendingCast;
+    if (!pc || !this.room) return;
+    if (this.animT < pc.until) return;
+    this.pendingCast = null;
+    const spellId = pc.spellId;
+    const def = SPELLS[spellId];
+    if (!def) return;
+    this.aimX = pc.aimX;
+    this.aimY = pc.aimY;
     this.socket.cast(spellId, { x: this.aimX, y: this.aimY });
     noteSpellCast(spellId, def.cooldown);
     // Optimistic cast flash matching spell color
@@ -786,6 +840,23 @@ export class WorldScene extends Phaser.Scene {
         this.onSpellFx(msg);
         break;
       }
+      case "boss_telegraph": {
+        const id = String(msg.id || msg.attackerId || "");
+        const x = Number(msg.x) || 0;
+        const y = Number(msg.y) || 0;
+        const radius = Number(msg.radius) || 2.6;
+        const durMs = (Number(msg.duration) || 0.55) * 1000;
+        this.bossTelegraphs = this.bossTelegraphs.filter((t) => t.id !== id);
+        this.bossTelegraphs.push({
+          id,
+          x,
+          y,
+          radius,
+          start: this.animT,
+          until: this.animT + durMs,
+        });
+        break;
+      }
       case "entity_removed": {
         const rid = msg.id as string;
         const ent = this.room?.entities?.find((e: any) => e.id === rid);
@@ -795,13 +866,15 @@ export class WorldScene extends Phaser.Scene {
           const p = worldToScreen(pos.x, pos.y);
           spawnKillBurst(this.particles, pos.x, pos.y, boss);
           spawnDissolveAsh(this.particles, pos.x, pos.y, boss);
+          if (boss) spawnDissolveAsh(this.particles, pos.x, pos.y, true);
           this.killFx.push({ sx: p.sx, sy: p.sy, start: this.animT, boss });
           this.ghostFadeSprite(`${ent.kind}:${ent.id}`, boss);
           this.triggerHitStop(HIT_STOP_KILL_MS);
-          this.cameraPunch(boss ? 0.06 : 0.04, boss ? 320 : 200);
-          this.cameras.main.shake(boss ? 360 : 180, boss ? 0.016 : 0.008);
-          if (boss) this.cameras.main.flash(280, 201, 162, 39, false);
+          this.cameraPunch(boss ? 0.09 : 0.04, boss ? 420 : 200);
+          this.cameras.main.shake(boss ? 480 : 180, boss ? 0.022 : 0.008);
+          if (boss) this.cameras.main.flash(360, 201, 162, 39, false);
           else this.cameras.main.flash(80, 140, 70, 35, false);
+          this.bossTelegraphs = this.bossTelegraphs.filter((t) => t.id !== String(ent.id));
         }
         break;
       }
@@ -824,13 +897,14 @@ export class WorldScene extends Phaser.Scene {
     ghost.setAlpha(0.95);
     ghost.setBlendMode(Phaser.BlendModes.ADD);
     // Crimson lift + stretch, then a second bone ash twin that drifts apart
+    const fadeMs = boss ? BOSS_KILL_FX_MS : KILL_FX_MS;
     this.tweens.add({
       targets: ghost,
       alpha: 0,
-      y: ghost.y - (boss ? 42 : 28),
-      scaleX: ghost.scaleX * 1.35,
-      scaleY: ghost.scaleY * 1.6,
-      duration: KILL_FX_MS,
+      y: ghost.y - (boss ? 58 : 28),
+      scaleX: ghost.scaleX * (boss ? 1.55 : 1.35),
+      scaleY: ghost.scaleY * (boss ? 1.85 : 1.6),
+      duration: fadeMs,
       ease: "Cubic.easeOut",
       onComplete: () => ghost.destroy(),
     });
@@ -840,18 +914,39 @@ export class WorldScene extends Phaser.Scene {
     ash.setFlipX(src.flipX);
     ash.setDepth(src.depth + 0.4);
     ash.setTint(0xd9cfae);
-    ash.setAlpha(0.7);
+    ash.setAlpha(boss ? 0.85 : 0.7);
     this.tweens.add({
       targets: ash,
       alpha: 0,
-      y: ash.y - (boss ? 18 : 12),
-      x: ash.x + (Math.random() - 0.5) * 18,
-      scaleX: ash.scaleX * 0.7,
-      scaleY: ash.scaleY * 1.15,
-      duration: KILL_FX_MS + 80,
+      y: ash.y - (boss ? 28 : 12),
+      x: ash.x + (Math.random() - 0.5) * (boss ? 28 : 18),
+      scaleX: ash.scaleX * (boss ? 0.55 : 0.7),
+      scaleY: ash.scaleY * (boss ? 1.35 : 1.15),
+      duration: fadeMs + (boss ? 160 : 80),
       ease: "Quad.easeIn",
       onComplete: () => ash.destroy(),
     });
+    if (boss) {
+      // Third gold afterimage for Judge — heavier dissolve beat
+      const gold = this.add.image(src.x, src.y, src.texture.key);
+      gold.setOrigin(src.originX, src.originY);
+      gold.setScale(src.scaleX * 1.05, src.scaleY * 1.05);
+      gold.setFlipX(src.flipX);
+      gold.setDepth(src.depth + 0.55);
+      gold.setTint(0xc9a227);
+      gold.setAlpha(0.75);
+      gold.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: gold,
+        alpha: 0,
+        y: gold.y - 72,
+        scaleX: gold.scaleX * 1.7,
+        scaleY: gold.scaleY * 2.1,
+        duration: fadeMs + 120,
+        ease: "Cubic.easeOut",
+        onComplete: () => gold.destroy(),
+      });
+    }
   }
 
   /** Keep the vignette glued to the camera view at any zoom / resize. */
@@ -1283,7 +1378,7 @@ export class WorldScene extends Phaser.Scene {
     drawParticles(g, this.particles);
     for (let i = this.killFx.length - 1; i >= 0; i--) {
       const k = this.killFx[i];
-      const prog = (this.animT - k.start) / KILL_FX_MS;
+      const prog = (this.animT - k.start) / (k.boss ? BOSS_KILL_FX_MS : KILL_FX_MS);
       if (prog >= 1) {
         this.killFx.splice(i, 1);
         continue;
@@ -1333,6 +1428,37 @@ export class WorldScene extends Phaser.Scene {
       drawWardRingGfx(g, p.sx, p.sy, this.animT, 0.55 + fade * 0.45);
     }
 
+    // Spell cast telegraphs (aim line / ward charge / burst ground circle)
+    if (this.pendingCast) {
+      const pc = this.pendingCast;
+      const charge = Math.min(1, (this.animT - pc.start) / Math.max(1, pc.until - pc.start));
+      const you = worldToScreen(this.renderYou.x, this.renderYou.y);
+      if (pc.spellId === "gale_bolt") {
+        const reach = 7.2;
+        const tip = worldToScreen(
+          this.renderYou.x + pc.aimX * reach,
+          this.renderYou.y + pc.aimY * reach
+        );
+        drawGaleAimTelegraph(g, you.sx, you.sy - 10, tip.sx, tip.sy - 10, charge);
+      } else if (pc.spellId === "whirl_ward") {
+        drawWardChargeTelegraph(g, you.sx, you.sy, charge, this.animT);
+      } else if (pc.spellId === "infernal_burst") {
+        drawBurstGroundTelegraph(g, you.sx, you.sy, charge, 4.2);
+      }
+    }
+
+    // Boss (Judge) attack telegraphs
+    for (let i = this.bossTelegraphs.length - 1; i >= 0; i--) {
+      const t = this.bossTelegraphs[i];
+      if (this.animT >= t.until) {
+        this.bossTelegraphs.splice(i, 1);
+        continue;
+      }
+      const charge = Math.min(1, (this.animT - t.start) / Math.max(1, t.until - t.start));
+      const p = worldToScreen(t.x, t.y);
+      drawBossTelegraph(g, p.sx, p.sy, charge, t.radius, this.animT);
+    }
+
     // Live hub decor pulse (lightweight vignette trees already stamped on ground)
     if (isHub) {
       // Soft center darkening under playable clearing each frame for sprite pop
@@ -1374,7 +1500,16 @@ export class WorldScene extends Phaser.Scene {
         } else {
           drawPoi(g, p.sx, p.sy, e.poiKind, compact);
         }
-        this.addLabel(`poi:${e.id}`, p.sx, p.sy - (compact ? 40 : 30), e.label || e.name, labelSize, seenLabels);
+        this.addDistanceLabel(
+          `poi:${e.id}`,
+          p.sx,
+          p.sy - (compact ? 40 : 30),
+          e.label || e.name || "POI",
+          labelSize,
+          Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y),
+          seenLabels,
+          { icon: "◆", farAlpha: 0.45 }
+        );
       } else if (e.kind === "exit") {
         drawEntityPad(g, p.sx, p.sy, compact ? 1.9 : 1.4);
         drawExitSpotlight(g, p.sx, p.sy, this.animT, compact);
@@ -1387,20 +1522,22 @@ export class WorldScene extends Phaser.Scene {
           e.toCanto === "inferno_05"
             ? "Toward Lust →"
             : e.label || "Exit";
-        this.addLabel(
+        const exitDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+        this.addDistanceLabel(
           `exit:${e.id}`,
           p.sx,
           p.sy - (compact ? 84 : 62),
           exitLabel,
           compact ? "16px" : "13px",
-          seenLabels
+          exitDist,
+          seenLabels,
+          {
+            icon: "◎",
+            farAlpha: 0.5,
+            nearColor: e.toCanto === "inferno_05" ? "#e8c86a" : undefined,
+            nearAlpha: 0.78,
+          }
         );
-        // Gold-ish label for Lust exit (slightly brighter than soft nameplates)
-        const lab = this.labels.get(`exit:${e.id}`);
-        if (lab) {
-          lab.setAlpha(0.78);
-          if (e.toCanto === "inferno_05") lab.setColor("#e8c86a");
-        }
       } else if (e.kind === "mob") {
         drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.85 : 1.45) : compact ? 1.55 : 1.2);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, champion: Boolean(e.champion) });
@@ -1426,12 +1563,16 @@ export class WorldScene extends Phaser.Scene {
         } else {
           drawBoss(g, p.sx, p.sy);
         }
-        this.addLabel(`boss:${e.id}`, p.sx, topY - (compact ? 16 : 12), e.name, compact ? "15px" : "12px", seenLabels);
-        const bl = this.labels.get(`boss:${e.id}`);
-        if (bl) {
-          bl.setColor("#e8c86a");
-          bl.setAlpha(0.8);
-        }
+        this.addDistanceLabel(
+          `boss:${e.id}`,
+          p.sx,
+          topY - (compact ? 16 : 12),
+          e.name || "Judge",
+          compact ? "15px" : "12px",
+          Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y),
+          seenLabels,
+          { icon: "†", farAlpha: 0.55, nearColor: "#e8c86a", nearAlpha: 0.8, nearRange: 12 }
+        );
         drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, 64, { compact, boss: true });
       } else if (e.kind === "loot") {
         const rarity = e.item?.rarity || "normal";
@@ -1455,9 +1596,22 @@ export class WorldScene extends Phaser.Scene {
           drawLoot(g, p.sx, p.sy, e.item?.rarity, compact, this.animT);
         }
         if (strong) {
-          this.addLabel(`loot:${e.id}`, p.sx, p.sy - (compact ? 46 : 34), e.item?.name || "", compact ? "12px" : "10px", seenLabels);
-          const ll = this.labels.get(`loot:${e.id}`);
-          if (ll) ll.setColor("#" + tint.toString(16).padStart(6, "0"));
+          const lootDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+          this.addDistanceLabel(
+            `loot:${e.id}`,
+            p.sx,
+            p.sy - (compact ? 46 : 34),
+            e.item?.name || "Loot",
+            compact ? "12px" : "10px",
+            lootDist,
+            seenLabels,
+            {
+              icon: "✦",
+              farAlpha: 0.4,
+              nearColor: "#" + tint.toString(16).padStart(6, "0"),
+              nearRange: 6.5,
+            }
+          );
         }
       }
     }
@@ -1624,6 +1778,41 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Overworld label declutter: full text when near the player, icon/dot when far,
+   * nothing beyond LABEL_FAR_RANGE.
+   */
+  addDistanceLabel(
+    key: string,
+    x: number,
+    y: number,
+    fullText: string,
+    fontSize: string,
+    dist: number,
+    seen: Set<string> | undefined,
+    opts?: {
+      icon?: string;
+      farAlpha?: number;
+      nearAlpha?: number;
+      nearColor?: string;
+      nearRange?: number;
+      farRange?: number;
+    }
+  ) {
+    const nearR = opts?.nearRange ?? LABEL_NEAR_RANGE;
+    const farR = opts?.farRange ?? LABEL_FAR_RANGE;
+    if (dist > farR) return;
+    const near = dist <= nearR;
+    const text = near ? fullText : opts?.icon || "•";
+    const size = near ? fontSize : "10px";
+    this.addLabel(key, x, y, text, size, seen);
+    const lab = this.labels.get(key);
+    if (!lab) return;
+    lab.setAlpha(near ? (opts?.nearAlpha ?? 0.72) : (opts?.farAlpha ?? 0.42));
+    if (near && opts?.nearColor) lab.setColor(opts.nearColor);
+    else if (!near) lab.setColor("#9a9078");
+  }
+
   pruneLabels(seen: Set<string>) {
     for (const [key, t] of this.labels) {
       if (!seen.has(key)) {
@@ -1759,25 +1948,20 @@ export class WorldScene extends Phaser.Scene {
       this.nearestInteract = null;
       this.lastInteractHintId = null;
       interactBtn?.classList.remove("interact-ready");
+      this.resetInteractButtonLabel();
       return;
     }
     const scr = worldToScreen(bestPos.x, bestPos.y);
-    const label =
-      best.kind === "loot"
-        ? best.item?.name || "Loot"
-        : best.kind === "exit"
-          ? best.toCanto === "inferno_05"
-            ? "Toward Lust"
-            : best.label || "Exit"
-          : best.label || best.name || "Interact";
+    const ctx = this.interactContextLabel(best);
     this.nearestInteract = {
       id: String(best.id),
       kind: best.kind,
-      label,
+      label: ctx.full,
       sx: scr.sx,
       sy: scr.sy,
     };
     interactBtn?.classList.add("interact-ready");
+    this.setInteractButtonLabel(ctx.full, ctx.short);
     // Toast only for loot / portals — POIs get pulse + Interact-button glow only
     // (avoids spam walking past Oak / AH / Darkwood in the hub).
     if (this.lastInteractHintId !== this.nearestInteract.id) {
@@ -1785,14 +1969,41 @@ export class WorldScene extends Phaser.Scene {
       this.lastInteractHintAt = Date.now();
       if (best.kind === "exit" && best.toCanto === "inferno_05") return;
       if (best.kind === "poi" && best.poiKind !== "portal") return;
-      const verb =
-        best.kind === "loot"
-          ? "Pick up"
-          : best.kind === "exit" || best.poiKind === "portal"
-            ? "Enter"
-            : "Use";
-      showToast(`${verb} ${label} — Interact`, "info");
+      showToast(`${ctx.full} — ready`, "info");
     }
+  }
+
+  /** Contextual Interact button copy: Enter Lust / Pick up / Open AH / … */
+  private interactContextLabel(best: any): { full: string; short: string } {
+    if (best.kind === "loot") {
+      return { full: "Pick up", short: "Pick" };
+    }
+    if (best.kind === "exit" || best.poiKind === "portal") {
+      if (best.toCanto === "inferno_05") return { full: "Enter Lust", short: "Lust" };
+      const dest = best.label || best.name || "portal";
+      return { full: `Enter ${dest}`, short: "Enter" };
+    }
+    if (best.poiKind === "ah") return { full: "Open AH", short: "AH" };
+    if (best.poiKind === "stash") return { full: "Open Stash", short: "Stash" };
+    if (best.poiKind === "quest") return { full: "Talk", short: "Talk" };
+    if (best.poiKind === "guide") {
+      const n = best.label || best.name || "Guide";
+      return { full: n.length > 12 ? "Talk" : `Talk ${n}`, short: "Talk" };
+    }
+    const n = best.label || best.name || "Interact";
+    return { full: n, short: "Use" };
+  }
+
+  private setInteractButtonLabel(full: string, short: string) {
+    const btn = document.getElementById("btn-interact");
+    const lab = btn?.querySelector<HTMLElement>(".action-label");
+    if (!lab) return;
+    if (lab.textContent !== full) lab.textContent = full;
+    lab.setAttribute("data-short", short);
+  }
+
+  private resetInteractButtonLabel() {
+    this.setInteractButtonLabel("Interact", "Use");
   }
 
   /** Puff dust under feet when the walk frame advances. */
@@ -1905,6 +2116,7 @@ export class WorldScene extends Phaser.Scene {
     this.autoPickupScan();
     this.scanNearestInteract();
     this.maybeFootstepDust();
+    this.resolvePendingCast();
 
     // Lust exit proximity hint + reliable travel nudge
     if (this.room) {

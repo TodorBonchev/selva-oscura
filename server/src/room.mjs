@@ -774,15 +774,71 @@ class CantoRoom {
         e.y += (dy / len) * speed * dt;
         moved = true;
       }
+      // Boss: telegraph windup before the hit so players can dodge
+      if (e.kind === "boss" && e.windupLeft > 0) {
+        e.windupLeft = Math.max(0, e.windupLeft - dt);
+        if (e.windupLeft <= 0) {
+          const target = this.sessions.get(e.windupTargetId);
+          e.windupTargetId = null;
+          e.atkCd = 1.35;
+          if (target && !(target.iframes > 0)) {
+            const dHit = dist(e, target);
+            if (dHit <= 3.2) {
+              const arch = e.archetype || "boss";
+              const dmg = MOB_DMG[arch] || MOB_DMG.boss || 18;
+              const led = players.get(target.playerId);
+              const armor =
+                (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
+              const taken = Math.max(1, dmg - Math.floor(armor * 0.5));
+              target.hp = Math.max(0, target.hp - taken);
+              this.broadcast({
+                type: "combat",
+                attackerId: e.id,
+                targetId: target.playerId,
+                targetIsPlayer: true,
+                damage: taken,
+                targetHp: target.hp,
+              });
+              this.markDirty();
+              if (target.hp <= 0) {
+                const sp = this.canto.geo.spawn;
+                target.x = sp.x;
+                target.y = sp.y;
+                target.hp = target.maxHp;
+                target.iframes = RESPAWN_IFRAMES;
+                this.toast(target.ws, "warn", "You are slain… and wake at the canto entrance.");
+              }
+            }
+          }
+        }
+        continue;
+      }
       if (nearestD <= 2.2 && e.atkCd <= 0 && !(nearest.iframes > 0)) {
-        const arch = e.archetype || (e.kind === "boss" ? "boss" : "whirl_shade");
+        if (e.kind === "boss") {
+          // Start Judge slam telegraph — damage resolves after windup
+          e.windupLeft = 0.58;
+          e.windupTargetId = nearest.playerId;
+          e.atkCd = 1.9; // covers windup + recovery
+          this.broadcast({
+            type: "boss_telegraph",
+            id: e.id,
+            attackerId: e.id,
+            x: e.x,
+            y: e.y,
+            radius: 2.8,
+            duration: 0.58,
+          });
+          this.markDirty();
+          continue;
+        }
+        const arch = e.archetype || "whirl_shade";
         const dmg = e.champion ? MOB_DMG.gale_champion : MOB_DMG[arch] || MOB_DMG.whirl_shade;
         const led = players.get(nearest.playerId);
         const armor =
           (led ? computeGearStats(led).armor : 0) + (nearest.armorBuff || 0);
         const taken = Math.max(1, dmg - Math.floor(armor * 0.5));
         nearest.hp = Math.max(0, nearest.hp - taken);
-        e.atkCd = e.kind === "boss" ? 1.2 : 0.9;
+        e.atkCd = 0.9;
         this.broadcast({
           type: "combat",
           attackerId: e.id,

@@ -573,22 +573,26 @@ export function drawHatchOverlay(
   const hatch = isHub ? 0x2a3a2e : 0x3a1818;
   const fog = isHub ? 0x6a7a68 : 0x5a2820;
   const edge = isHub ? 0x3a4a3e : 0x4a2020;
-  const step = 6;
+  // Hub: coarser, fainter ticks so the Doré plate reads without visual noise.
+  const step = isHub ? 10 : 6;
+  const hatchA = isHub ? 0.035 : 0.08;
+  const fogA = isHub ? 0.025 : 0.05;
+  const triA = isHub ? 0.015 : 0.035;
   const hw = TILE_W / 2;
   const hh = TILE_H / 2;
   for (let x = 0; x <= bounds.width; x += step) {
     for (let y = 0; y <= bounds.height; y += step) {
       const p = worldToScreen(x, y);
-      if (((x + y) / step) % 2 === 0) {
-        g.lineStyle(1, hatch, 0.08);
-        g.lineBetween(p.sx - 5, p.sy, p.sx + 5, p.sy);
+      if (((x + y) / step) % 3 === 0) {
+        g.lineStyle(1, hatch, hatchA);
+        g.lineBetween(p.sx - 4, p.sy, p.sx + 4, p.sy);
       }
-      if (((x * 3 + y) / step) % 4 === 0) {
-        g.lineStyle(1, fog, 0.05);
+      if (((x * 3 + y) / step) % 5 === 0) {
+        g.lineStyle(1, fog, fogA);
         g.lineBetween(p.sx - 3, p.sy - 2, p.sx + 3, p.sy + 2);
       }
-      if (((x + y * 2) / step) % 5 === 0) {
-        g.fillStyle(hatch, 0.035);
+      if (!isHub && ((x + y * 2) / step) % 5 === 0) {
+        g.fillStyle(hatch, triA);
         g.fillTriangle(
           p.sx,
           p.sy - hh * 0.35,
@@ -1025,17 +1029,21 @@ export function drawKillRing(
   boss: boolean
 ) {
   const t = Math.max(0, Math.min(1, prog));
-  const r = (boss ? 28 : 18) + t * (boss ? 82 : 54);
+  const r = (boss ? 36 : 18) + t * (boss ? 110 : 54);
   const a = (1 - t) * (1 - t);
-  g.lineStyle(boss ? 6 : 4, 0xffd27a, 0.95 * a);
+  g.lineStyle(boss ? 8 : 4, 0xffd27a, 0.95 * a);
   g.strokeEllipse(sx, sy - 6, r * 2, r);
-  g.lineStyle(2, 0xff6644, 0.55 * a);
+  g.lineStyle(boss ? 3.5 : 2, 0xff6644, 0.55 * a);
   g.strokeEllipse(sx, sy - 6, r * 1.75, r * 0.88);
   g.lineStyle(1.5, 0xffffff, 0.7 * a);
   g.strokeEllipse(sx, sy - 6, r * 1.45, r * 0.72);
+  if (boss && t < 0.55) {
+    g.lineStyle(2, 0xc9a227, 0.45 * a);
+    g.strokeEllipse(sx, sy - 6, r * 2.35, r * 1.15);
+  }
   if (t < 0.4) {
-    g.fillStyle(0xfff0c0, 0.62 * (1 - t / 0.4));
-    g.fillEllipse(sx, sy - 14, (boss ? 68 : 42) * (1 + t), (boss ? 50 : 30) * (1 + t));
+    g.fillStyle(0xfff0c0, (boss ? 0.78 : 0.62) * (1 - t / 0.4));
+    g.fillEllipse(sx, sy - 14, (boss ? 88 : 42) * (1 + t), (boss ? 64 : 30) * (1 + t));
   }
 }
 
@@ -1077,18 +1085,18 @@ export function spawnFootstepDust(particles: Particle[], wx: number, wy: number)
 
 /** Extra ash flecks when a foe dissolves on death. */
 export function spawnDissolveAsh(particles: Particle[], wx: number, wy: number, boss = false) {
-  const n = boss ? 22 : 14;
+  const n = boss ? 48 : 14;
   for (let i = 0; i < n; i++) {
-    if (particles.length > 140) break;
+    if (particles.length > 180) break;
     particles.push({
-      x: wx + (Math.random() - 0.5) * 0.8,
-      y: wy + (Math.random() - 0.5) * 0.6,
-      vx: (Math.random() - 0.5) * 1.6,
-      vy: -0.8 - Math.random() * 1.8,
-      life: 0.55 + Math.random() * 0.45,
-      maxLife: 1.0,
-      size: 1.4 + Math.random() * (boss ? 3 : 2.2),
-      color: i % 2 === 0 ? 0xff6644 : 0xc9a227,
+      x: wx + (Math.random() - 0.5) * (boss ? 1.4 : 0.8),
+      y: wy + (Math.random() - 0.5) * (boss ? 1.1 : 0.6),
+      vx: (Math.random() - 0.5) * (boss ? 2.4 : 1.6),
+      vy: -0.8 - Math.random() * (boss ? 2.8 : 1.8),
+      life: 0.55 + Math.random() * (boss ? 0.75 : 0.45),
+      maxLife: boss ? 1.45 : 1.0,
+      size: 1.4 + Math.random() * (boss ? 4.2 : 2.2),
+      color: i % 3 === 0 ? 0xff6644 : i % 3 === 1 ? 0xc9a227 : 0xd9cfae,
       kind: i % 3 === 0 ? "ash" : "ember",
     });
   }
@@ -1195,8 +1203,9 @@ export function buildGroundTiles(
 
   // Softer plate tint so etching reads without harsh checker seams.
   // Lust: slightly darker / cooler so crimson-gold foe rims pop at a glance.
-  const tint = isHub ? 0xb8c4b4 : 0x7a5854;
-  const alpha = isHub ? 0.92 : 0.82;
+  // Hub: quieter plate so busy Doré etching doesn't roar over sprites/UI.
+  const tint = isHub ? 0x8a9a88 : 0x7a5854;
+  const alpha = isHub ? 0.68 : 0.82;
   const root = scene.add.container(0, 0);
   root.setDepth(0);
   root.setMask(mask);
@@ -1358,19 +1367,19 @@ export function drawFoeGlow(
 }
 
 export function spawnKillBurst(particles: Particle[], wx: number, wy: number, boss = false) {
-  const n = boss ? 36 : 24;
+  const n = boss ? 56 : 24;
   for (let i = 0; i < n; i++) {
-    if (particles.length > 140) break;
+    if (particles.length > 200) break;
     const ang = (Math.PI * 2 * i) / n + Math.random() * 0.5;
-    const sp = 2.8 + Math.random() * (boss ? 4.0 : 3.0);
+    const sp = 2.8 + Math.random() * (boss ? 5.2 : 3.0);
     particles.push({
       x: wx,
       y: wy,
       vx: Math.cos(ang) * sp,
       vy: Math.sin(ang) * sp - 0.8,
-      life: 0.55 + Math.random() * 0.45,
-      maxLife: 1.0,
-      size: 2.2 + Math.random() * (boss ? 3.8 : 2.8),
+      life: 0.55 + Math.random() * (boss ? 0.7 : 0.45),
+      maxLife: boss ? 1.35 : 1.0,
+      size: 2.2 + Math.random() * (boss ? 5.0 : 2.8),
       color: i % 3 === 0 ? 0xc9a227 : i % 3 === 1 ? 0xff5533 : 0xd9cfae,
       kind: i % 4 === 0 ? "ash" : "ember",
     });
@@ -1555,4 +1564,118 @@ export function drawInfernalShock(
   g.fillEllipse(sx, sy, r * 0.7, r * 0.3);
   g.fillStyle(0xffe8a0, 0.55 * a);
   g.fillCircle(sx, sy - 4, 6 * (1 - p * 0.5));
+}
+
+
+/* ————————————————————————————————————————————————————————————————————————
+ *  Cast telegraphs (aim / charge / ground circle) — drawn before resolve
+ * ———————————————————————————————————————————————————————————————————————— */
+
+/** Gale aim line: dashed bone-gold ray in aim direction (screen space). */
+export function drawGaleAimTelegraph(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  aimSx: number,
+  aimSy: number,
+  charge: number
+) {
+  const c = Math.max(0, Math.min(1, charge));
+  const ex = sx + (aimSx - sx);
+  const ey = sy + (aimSy - sy);
+  const segs = 8;
+  for (let i = 0; i < segs; i++) {
+    if (i / segs > c * 0.95 + 0.05) break;
+    if (i % 2 === 1) continue;
+    const t0 = i / segs;
+    const t1 = Math.min(1, (i + 1) / segs);
+    g.lineStyle(3.5, 0xff6644, 0.22 + c * 0.25);
+    g.lineBetween(sx + (ex - sx) * t0, sy + (ey - sy) * t0, sx + (ex - sx) * t1, sy + (ey - sy) * t1);
+    g.lineStyle(1.75, 0xffe08a, 0.45 + c * 0.45);
+    g.lineBetween(sx + (ex - sx) * t0, sy + (ey - sy) * t0, sx + (ex - sx) * t1, sy + (ey - sy) * t1);
+  }
+  g.fillStyle(0xffe8a0, 0.55 + c * 0.4);
+  g.fillCircle(sx + (ex - sx) * c, sy + (ey - sy) * c, 3.5 + c * 2.5);
+  g.lineStyle(1.25, 0xc9a227, 0.7);
+  g.strokeCircle(sx, sy - 4, 6 + c * 2);
+}
+
+/** Ward charge ring: grows under caster while windup fills. */
+export function drawWardChargeTelegraph(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  charge: number,
+  tMs: number
+) {
+  const c = Math.max(0, Math.min(1, charge));
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.02);
+  const rx = 10 + c * 22 + pulse * 2;
+  const ry = 4 + c * 9 + pulse;
+  g.lineStyle(2.5, 0xc9a227, 0.25 + c * 0.45);
+  g.strokeEllipse(sx, sy + 6, rx + 4, ry + 2);
+  g.lineStyle(2, 0xffe8a0, 0.4 + c * 0.5);
+  g.strokeEllipse(sx, sy + 6, rx, ry);
+  g.fillStyle(0xc9a227, 0.06 + c * 0.1);
+  g.fillEllipse(sx, sy + 6, rx * 0.85, ry * 0.85);
+  // Sweep arc showing charge
+  const sweep = c * Math.PI * 2;
+  const steps = Math.max(2, Math.floor(12 * c));
+  for (let i = 0; i < steps; i++) {
+    const a0 = -Math.PI / 2 + (sweep * i) / steps;
+    const a1 = -Math.PI / 2 + (sweep * (i + 1)) / steps;
+    g.lineStyle(2.5, 0xffe8a0, 0.85);
+    g.lineBetween(
+      sx + Math.cos(a0) * rx,
+      sy + 6 + Math.sin(a0) * ry,
+      sx + Math.cos(a1) * rx,
+      sy + 6 + Math.sin(a1) * ry
+    );
+  }
+}
+
+/** Infernal burst ground circle: fills radius while charging. */
+export function drawBurstGroundTelegraph(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  charge: number,
+  radiusWorld: number
+) {
+  const c = Math.max(0, Math.min(1, charge));
+  const scale = 18 * radiusWorld;
+  const r = scale * (0.35 + c * 0.65);
+  g.fillStyle(0xff4422, 0.06 + c * 0.1);
+  g.fillEllipse(sx, sy, r * 1.05, r * 0.45);
+  g.lineStyle(3, 0xff5533, 0.3 + c * 0.4);
+  g.strokeEllipse(sx, sy, r, r * 0.42);
+  g.lineStyle(2, 0xc9a227, 0.45 + c * 0.4);
+  g.strokeEllipse(sx, sy, r * 0.88, r * 0.37);
+  g.lineStyle(1.25, 0xffe8a0, 0.55);
+  g.strokeEllipse(sx, sy, r * c * 0.7, r * c * 0.3);
+}
+
+/** Boss (Judge) attack telegraph — expanding crimson danger ellipse. */
+export function drawBossTelegraph(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  charge: number,
+  radiusWorld: number,
+  tMs: number
+) {
+  const c = Math.max(0, Math.min(1, charge));
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.025);
+  const scale = 16 * radiusWorld;
+  const r = scale * (0.55 + c * 0.55);
+  g.fillStyle(0xff2200, 0.08 + c * 0.14 + pulse * 0.04);
+  g.fillEllipse(sx, sy + 4, r * 1.1, r * 0.48);
+  g.lineStyle(3.5, 0xff4422, 0.45 + c * 0.4);
+  g.strokeEllipse(sx, sy + 4, r, r * 0.42);
+  g.lineStyle(2, 0xffd078, 0.35 + c * 0.45 + pulse * 0.15);
+  g.strokeEllipse(sx, sy + 4, r * 0.82, r * 0.34);
+  // Inner countdown ring
+  const ir = r * (0.35 + (1 - c) * 0.45);
+  g.lineStyle(2.5, 0xffe8a0, 0.55 + c * 0.35);
+  g.strokeEllipse(sx, sy + 4, ir, ir * 0.42);
 }
