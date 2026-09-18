@@ -62,6 +62,8 @@ import {
   drawExitSpotlight,
   drawFoeHpBar,
   drawFoeGlow,
+  drawChampionCrownPip,
+  drawJudgeSlamImpact,
   drawLootGlow,
   lootRarityPulse,
   spawnHitBurst,
@@ -187,6 +189,15 @@ const DMG_POOL_MAX = 28;
 const COMPASS_HIDE_RANGE = 8.2;
 /** Compass arrows start fading toward hide range from this distance. */
 const COMPASS_FADE_START = 14.5;
+/** Distance text fades out earlier than the chevron when approaching hide range. */
+const COMPASS_DIST_FADE_START = 12.0;
+/** World distance under which foes count as overlapping (HP / silhouette nudge). */
+const FOE_STACK_RANGE = 1.35;
+/** Judge slam impact flash linger (ms). */
+const JUDGE_SLAM_FX_MS = 520;
+/** Soft vignette punch at combo ×25+ (ms window). */
+const COMBO_VIGNETTE_MS = 480;
+const COMBO_VIGNETTE_PEAK = 0.96;
 /** Gale hold must last at least this long before cancel/confirm toasts. */
 const GALE_HOLD_TOAST_MS = 90;
 /** Ignore duplicate death FX within this window (combat + slain toast). */
@@ -298,6 +309,17 @@ export class WorldScene extends Phaser.Scene {
     start: number;
     until: number;
   }[] = [];
+  /** Judge slam resolve VFX (impact flash + ground crack). */
+  bossSlamFx: {
+    x: number;
+    y: number;
+    radius: number;
+    start: number;
+    until: number;
+  }[] = [];
+  /** Soft vignette punch window for combo ×25+ (animT ms). */
+  comboVignetteUntil = 0;
+  comboVignettePeak = 0;
   /** Camera-following soft vignette so the arena edges fall into dark. */
   vignette: Phaser.GameObjects.Image | null = null;
   /** Soft vignette alpha tween target during canto travel flash. */
@@ -1279,6 +1301,12 @@ export class WorldScene extends Phaser.Scene {
             this.cameraPunch(streak >= 10 ? 0.055 : 0.04, streak >= 10 ? 220 : 170);
             this.cameras.main.shake(streak >= 10 ? 90 : 60, isCompactUi() ? 0.004 : 0.0028);
           }
+          if (streak === 25 || (streak > 25 && streak % 25 === 0)) {
+            // Soft vignette punch at ×25+ — no toast
+            this.punchComboVignette();
+            this.cameraPunch(0.06, 240);
+            this.cameras.main.shake(100, isCompactUi() ? 0.0045 : 0.003);
+          }
         }
         if (ent) {
           const sid = `${ent.kind}:${ent.id}`;
@@ -1420,13 +1448,44 @@ export class WorldScene extends Phaser.Scene {
     const z = Math.max(0.05, cam.zoom);
     this.vignette.setDisplaySize((cam.width / z) * 1.02, (cam.height / z) * 1.02);
     this.vignette.setPosition(cam.scrollX + cam.width * 0.5, cam.scrollY + cam.height * 0.5);
-    // Soft travel flash: briefly deepen vignette while animT is inside the window
+    // Soft travel / combo flash: briefly deepen vignette while animT is inside the window
+    const base = 0.84;
+    let alpha = base;
     if (this.travelVignetteUntil > this.animT && this.travelVignettePeak > 0) {
       const left = this.travelVignetteUntil - this.animT;
       const pulse = Math.min(1, left / 400);
-      const base = 0.84;
-      this.vignette.setAlpha(base + (this.travelVignettePeak - base) * pulse * 0.5);
+      alpha = base + (this.travelVignettePeak - base) * pulse * 0.5;
     }
+    if (this.comboVignetteUntil > this.animT && this.comboVignettePeak > 0) {
+      const left = this.comboVignetteUntil - this.animT;
+      const pulse = Math.min(1, left / (COMBO_VIGNETTE_MS * 0.55));
+      const comboA = base + (this.comboVignettePeak - base) * pulse * 0.55;
+      alpha = Math.max(alpha, comboA);
+    }
+    if (alpha !== base || this.travelVignetteUntil > this.animT || this.comboVignetteUntil > this.animT) {
+      this.vignette.setAlpha(alpha);
+    }
+  }
+
+  /** Soft vignette punch at combo ×25+ (no toast). */
+  punchComboVignette() {
+    this.comboVignetteUntil = this.animT + COMBO_VIGNETTE_MS;
+    this.comboVignettePeak = COMBO_VIGNETTE_PEAK;
+    if (!this.vignette) return;
+    const base = 0.84;
+    this.tweens.add({
+      targets: this.vignette,
+      alpha: Math.min(1, Math.max(base, COMBO_VIGNETTE_PEAK)),
+      duration: 110,
+      yoyo: true,
+      hold: 70,
+      ease: "Sine.easeInOut",
+      onComplete: () => {
+        if (this.vignette && this.comboVignetteUntil <= this.animT) {
+          this.vignette.setAlpha(base);
+        }
+      },
+    });
   }
 
   /** Soft room fade + vignette punch when changing cantos. */
@@ -2159,6 +2218,16 @@ export class WorldScene extends Phaser.Scene {
     for (let i = this.bossTelegraphs.length - 1; i >= 0; i--) {
       const t = this.bossTelegraphs[i];
       if (this.animT >= t.until) {
+        // Slam resolve: impact flash + ground crack at the telegraph footprint
+        this.bossSlamFx.push({
+          x: t.x,
+          y: t.y,
+          radius: t.radius,
+          start: this.animT,
+          until: this.animT + JUDGE_SLAM_FX_MS,
+        });
+        this.cameras.main.flash(70, 255, 180, 120, false);
+        this.cameras.main.shake(140, isCompactUi() ? 0.008 : 0.0055);
         this.bossTelegraphs.splice(i, 1);
         continue;
       }
@@ -2176,6 +2245,18 @@ export class WorldScene extends Phaser.Scene {
         lab.setStroke("#ffe8a0", compact ? 3 : 2);
         lab.setDepth(9500);
       }
+    }
+
+    // Judge slam resolve VFX
+    for (let i = this.bossSlamFx.length - 1; i >= 0; i--) {
+      const s = this.bossSlamFx[i];
+      if (this.animT >= s.until) {
+        this.bossSlamFx.splice(i, 1);
+        continue;
+      }
+      const life = 1 - (this.animT - s.start) / Math.max(1, s.until - s.start);
+      const p = worldToScreen(s.x, s.y);
+      drawJudgeSlamImpact(g, p.sx, p.sy, life, s.radius, compact);
     }
 
     // Live hub decor pulse (lightweight vignette trees already stamped on ground)
@@ -2226,6 +2307,36 @@ export class WorldScene extends Phaser.Scene {
       const pb = this.entityRenderPos(b);
       return pa.x + pa.y - (pb.x + pb.y);
     });
+
+    // Overlapping foes: lateral HP nudge + stronger silhouette when packed
+    const foeStackInfo = new Map<string, { count: number; slot: number; lateral: number }>();
+    {
+      const foes = ents.filter((e) => e.kind === "mob" || e.kind === "boss");
+      const assigned = new Set<string>();
+      for (const seed of foes) {
+        const sid = String(seed.id);
+        if (assigned.has(sid)) continue;
+        const spos = this.entityRenderPos(seed);
+        const cluster: { e: any; pos: { x: number; y: number } }[] = [];
+        for (const o of foes) {
+          const oid = String(o.id);
+          if (assigned.has(oid)) continue;
+          const opos = this.entityRenderPos(o);
+          if (Math.hypot(opos.x - spos.x, opos.y - spos.y) <= FOE_STACK_RANGE) {
+            cluster.push({ e: o, pos: opos });
+          }
+        }
+        cluster.sort((a, b) => a.pos.x + a.pos.y - (b.pos.x + b.pos.y));
+        const n = cluster.length;
+        cluster.forEach((c, i) => {
+          const id = String(c.e.id);
+          assigned.add(id);
+          const lateral =
+            n <= 1 ? 0 : (i - (n - 1) / 2) * (compact ? 14 : 11);
+          foeStackInfo.set(id, { count: n, slot: i, lateral });
+        });
+      }
+    }
 
     for (const e of ents) {
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
@@ -2331,6 +2442,13 @@ export class WorldScene extends Phaser.Scene {
           );
         }
       } else if (e.kind === "mob") {
+        const stack = foeStackInfo.get(String(e.id));
+        const stacked = Boolean(stack && stack.count > 1);
+        const lat = stack ? stack.lateral : 0;
+        const drawSx = p.sx + lat;
+        const hpSx = p.sx + lat * 1.35;
+        // Depth-sort nudge: laterals also bump depth so sprites layer cleanly
+        const stackDepth = depth + (stack ? stack.slot * 0.02 : 0);
         if (
           this.lastHitFoe &&
           this.lastHitFoe.id === String(e.id) &&
@@ -2338,28 +2456,37 @@ export class WorldScene extends Phaser.Scene {
         ) {
           const cam = this.cameras.main;
           const nearEdge =
-            p.sx < cam.worldView.x + cam.worldView.width * STICKY_EDGE_FRAC ||
-            p.sx > cam.worldView.x + cam.worldView.width * (1 - STICKY_EDGE_FRAC) ||
+            drawSx < cam.worldView.x + cam.worldView.width * STICKY_EDGE_FRAC ||
+            drawSx > cam.worldView.x + cam.worldView.width * (1 - STICKY_EDGE_FRAC) ||
             p.sy < cam.worldView.y + cam.worldView.height * STICKY_EDGE_FRAC ||
             p.sy > cam.worldView.y + cam.worldView.height * (1 - STICKY_EDGE_FRAC);
-          drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact, {
+          drawStickyTargetReticle(g, drawSx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
             nearEdge,
           });
         }
-        drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.85 : 1.45) : compact ? 1.55 : 1.2);
-        drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, champion: Boolean(e.champion) });
-        let topY = p.sy - (e.champion ? 40 : 32);
-        const foeScale = compact ? 1.12 : 1.06;
-        if (this.placeSprite(sid, tex!, p.sx, p.sy, depth, { scale: foeScale })) {
+        const champ = Boolean(e.champion);
+        drawEntityPad(g, drawSx, p.sy, champ ? (compact ? 2.05 : 1.65) : compact ? 1.55 : 1.2);
+        drawFoeGlow(g, drawSx, p.sy, this.animT, {
+          compact,
+          champion: champ,
+          stacked,
+        });
+        let topY = p.sy - (champ ? 48 : 32);
+        const foeScale = (compact ? 1.12 : 1.06) * (champ ? 1.18 : 1);
+        if (this.placeSprite(sid, tex!, drawSx, p.sy, stackDepth, { scale: foeScale })) {
           seenSprites.add(sid);
           const b = this.spriteBase.get(sid);
           if (b) topY = p.sy - 4 - b.h * foeScale * 0.92 - (compact ? 12 : 8);
         } else {
-          drawMob(g, p.sx, p.sy, Boolean(e.champion));
+          drawMob(g, drawSx, p.sy, champ);
         }
-        drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, e.champion ? 40 : 30, { compact });
+        if (champ) {
+          drawChampionCrownPip(g, hpSx, topY - (compact ? 2 : 0), this.animT, compact);
+          topY -= compact ? 14 : 11;
+        }
+        drawFoeHpBar(g, hpSx, topY, e.hp, e.maxHp, champ ? 44 : 30, { compact });
       } else if (e.kind === "boss") {
         if (
           this.lastHitFoe &&
@@ -2807,6 +2934,7 @@ export class WorldScene extends Phaser.Scene {
       this.nearestInteract = null;
       this.lastInteractHintId = null;
       interactBtn?.classList.remove("interact-ready");
+      interactBtn?.classList.add("interact-idle");
       this.resetInteractButtonLabel();
       return;
     }
@@ -2819,6 +2947,7 @@ export class WorldScene extends Phaser.Scene {
       sx: scr.sx,
       sy: scr.sy,
     };
+    interactBtn?.classList.remove("interact-idle");
     interactBtn?.classList.add("interact-ready");
     this.setInteractButtonLabel(ctx.full, ctx.short);
     // Toast only for loot / portals — POIs get pulse + Interact-button glow only
@@ -3096,11 +3225,17 @@ export class WorldScene extends Phaser.Scene {
       if (compact && ex < 88 && ey > vh - 170) ey = vh - 170;
       const ang = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
       const label = w.dest === "lust" ? "Lust" : "Wood";
-      // Fade (not pop) as the player approaches the portal
+      // Fade (not pop) as the player approaches the portal.
+      // Distance text fades earlier than the chevron/label so the arrow lingers alone.
       const alpha =
         w.d >= COMPASS_FADE_START
           ? 1
           : Math.max(0, Math.min(1, (w.d - COMPASS_HIDE_RANGE) / fadeSpan));
+      const distFadeSpan = Math.max(0.01, COMPASS_DIST_FADE_START - COMPASS_HIDE_RANGE);
+      const distAlpha =
+        w.d >= COMPASS_DIST_FADE_START
+          ? 1
+          : Math.max(0, Math.min(1, (w.d - COMPASS_HIDE_RANGE) / distFadeSpan));
       let el = existing[i];
       if (!el) {
         el = document.createElement("div");
@@ -3114,9 +3249,10 @@ export class WorldScene extends Phaser.Scene {
       if (el.getAttribute("data-dest") !== w.dest) el.setAttribute("data-dest", w.dest);
       const lab = el.querySelector(".compass-label");
       if (lab && lab.textContent !== label) lab.textContent = label;
-      const distEl = el.querySelector(".compass-dist");
+      const distEl = el.querySelector<HTMLElement>(".compass-dist");
       const distTxt = `${Math.max(1, Math.round(w.d))}u`;
       if (distEl && distEl.textContent !== distTxt) distEl.textContent = distTxt;
+      if (distEl) distEl.style.opacity = (distAlpha * 0.85).toFixed(3);
       el.style.left = `${ex.toFixed(1)}px`;
       el.style.top = `${ey.toFixed(1)}px`;
       el.style.setProperty("--ang", `${ang.toFixed(1)}deg`);

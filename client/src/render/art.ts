@@ -1358,35 +1358,68 @@ export function drawFoeGlow(
   sx: number,
   sy: number,
   t: number,
-  opts: { compact: boolean; champion?: boolean; boss?: boolean }
+  opts: { compact: boolean; champion?: boolean; boss?: boolean; stacked?: boolean }
 ) {
   const pulse = 0.5 + 0.5 * Math.sin(t * 0.004 + sx * 0.03);
-  const s = (opts.compact ? 1.65 : 1.15) * (opts.boss ? 2.2 : opts.champion ? 1.45 : 1);
+  // Champions read larger; stacked packs get a thicker silhouette rim
+  const champMul = opts.champion ? 1.55 : 1;
+  const s = (opts.compact ? 1.65 : 1.15) * (opts.boss ? 2.2 : champMul);
   const ember = opts.boss ? 0xff4a2a : opts.champion ? 0xff8a40 : 0xe05030;
   const gold = opts.boss ? 0xffd27a : opts.champion ? 0xf0c060 : 0xe8b84a;
+  const stack = Boolean(opts.stacked);
   // Desaturated dark well under feet (sprites pop without killing ground read)
-  g.fillStyle(0x040102, 0.62);
-  g.fillEllipse(sx, sy + 4, 58 * s, 26 * s);
-  g.fillStyle(0x120608, 0.35);
+  g.fillStyle(0x040102, stack ? 0.78 : 0.62);
+  g.fillEllipse(sx, sy + 4, 58 * s * (stack ? 1.08 : 1), 26 * s * (stack ? 1.08 : 1));
+  g.fillStyle(0x120608, stack ? 0.48 : 0.35);
   g.fillEllipse(sx, sy + 4, 40 * s, 18 * s);
-  // Warm light pool
-  g.fillStyle(ember, 0.18 + pulse * 0.16);
+  // Warm light pool — champions get a brighter gold well
+  g.fillStyle(ember, (opts.champion ? 0.24 : 0.18) + pulse * 0.16);
   g.fillEllipse(sx, sy + 3, 48 * s, 20 * s);
-  g.fillStyle(gold, 0.14 + pulse * 0.12);
-  g.fillEllipse(sx, sy + 2, 26 * s, 11 * s);
+  g.fillStyle(gold, (opts.champion ? 0.22 : 0.14) + pulse * 0.12);
+  g.fillEllipse(sx, sy + 2, 26 * s * (opts.champion ? 1.15 : 1), 11 * s * (opts.champion ? 1.1 : 1));
   // Crimson then gold underfoot rings
   g.lineStyle(opts.compact ? 3 : 2.25, ember, 0.55 + pulse * 0.35);
   g.strokeEllipse(sx, sy + 3, 42 * s, 17 * s);
   g.lineStyle(opts.compact ? 2.25 : 1.75, gold, 0.7 + pulse * 0.25);
   g.strokeEllipse(sx, sy + 3, 34 * s, 13 * s);
   // Body-height gold/crimson rim so the silhouette reads even if the etch is dark
-  const bodyY = sy - (opts.boss ? 42 : opts.champion ? 30 : 24) * (opts.compact ? 1.15 : 1);
-  const bw = (opts.boss ? 46 : opts.champion ? 34 : 26) * s * 0.55;
-  const bh = (opts.boss ? 70 : opts.champion ? 52 : 40) * (opts.compact ? 1.1 : 1) * 0.55;
-  g.lineStyle(opts.compact ? 2.5 : 2, gold, 0.55 + pulse * 0.3);
+  const bodyY = sy - (opts.boss ? 42 : opts.champion ? 34 : 24) * (opts.compact ? 1.15 : 1);
+  const bw = (opts.boss ? 46 : opts.champion ? 38 : 26) * s * 0.55;
+  const bh = (opts.boss ? 70 : opts.champion ? 58 : 40) * (opts.compact ? 1.1 : 1) * 0.55;
+  const rimW = (opts.compact ? 2.5 : 2) + (stack ? 1.6 : 0) + (opts.champion ? 0.6 : 0);
+  // Stacked: bone outer stroke so overlapping silhouettes separate
+  if (stack) {
+    g.lineStyle(rimW + 2.2, 0xf0e6c8, 0.72 + pulse * 0.2);
+    g.strokeEllipse(sx, bodyY, bw * 2.15, bh * 2.15);
+  }
+  g.lineStyle(rimW, gold, 0.55 + pulse * 0.3 + (stack ? 0.2 : 0));
   g.strokeEllipse(sx, bodyY, bw * 2, bh * 2);
-  g.lineStyle(opts.compact ? 1.75 : 1.25, ember, 0.4 + pulse * 0.25);
+  g.lineStyle((opts.compact ? 1.75 : 1.25) + (stack ? 0.75 : 0), ember, 0.4 + pulse * 0.25 + (stack ? 0.2 : 0));
   g.strokeEllipse(sx, bodyY, bw * 1.7, bh * 1.7);
+}
+
+/** Tiny gold crown pip above champion HP so trash vs elite reads at a glance. */
+export function drawChampionCrownPip(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  t: number,
+  compact: boolean
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(t * 0.006);
+  const s = compact ? 1.25 : 1;
+  const cy = sy - (compact ? 6 : 4);
+  g.fillStyle(0x1a1208, 0.85);
+  g.fillEllipse(sx, cy + 3 * s, 14 * s, 5 * s);
+  g.fillStyle(0xc9a227, 0.95);
+  // Three-point crown
+  g.fillTriangle(sx - 7 * s, cy + 2 * s, sx - 4 * s, cy - 6 * s, sx - 1 * s, cy + 2 * s);
+  g.fillTriangle(sx - 3 * s, cy + 2 * s, sx, cy - 9 * s * (0.95 + pulse * 0.08), sx + 3 * s, cy + 2 * s);
+  g.fillTriangle(sx + 1 * s, cy + 2 * s, sx + 4 * s, cy - 6 * s, sx + 7 * s, cy + 2 * s);
+  g.fillStyle(0xffe8a0, 0.95);
+  g.fillCircle(sx, cy - 9 * s, compact ? 2.2 : 1.8);
+  g.lineStyle(1.2, 0xfff6d0, 0.7 + pulse * 0.25);
+  g.lineBetween(sx - 7 * s, cy + 2 * s, sx + 7 * s, cy + 2 * s);
 }
 
 export function spawnKillBurst(particles: Particle[], wx: number, wy: number, boss = false) {
@@ -1739,6 +1772,53 @@ export function drawBossTelegraph(
 export function bossTelegraphPipY(sy: number, compact: boolean): number {
   return sy - (compact ? 28 : 24);
 }
+
+/** Judge slam resolve — impact flash bloom + cracked ground ellipse (screen space). */
+export function drawJudgeSlamImpact(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  life: number,
+  radiusWorld: number,
+  compact: boolean
+) {
+  const t = Math.max(0, Math.min(1, life)); // 1 = just hit, 0 = gone
+  const fade = t * t;
+  const scale = 16 * radiusWorld;
+  const expand = 0.55 + (1 - t) * 0.7;
+  const rx = scale * expand;
+  const ry = scale * expand * 0.42;
+  // Flash bloom
+  g.fillStyle(0xffe8a0, 0.22 * fade);
+  g.fillEllipse(sx, sy + 4, rx * 1.35, ry * 1.35);
+  g.fillStyle(0xff6644, 0.28 * fade);
+  g.fillEllipse(sx, sy + 4, rx * 0.95, ry * 0.95);
+  g.fillStyle(0xffffff, 0.35 * fade * t);
+  g.fillEllipse(sx, sy + 2, rx * 0.35, ry * 0.35);
+  // Cracked ground rings
+  g.lineStyle(compact ? 3.2 : 2.6, 0x1a0808, 0.75 * fade);
+  g.strokeEllipse(sx, sy + 5, rx, ry);
+  g.lineStyle(compact ? 2.2 : 1.7, 0xff4422, 0.55 * fade);
+  g.strokeEllipse(sx, sy + 5, rx * 0.82, ry * 0.82);
+  g.lineStyle(1.4, 0xffe08a, 0.45 * fade);
+  g.strokeEllipse(sx, sy + 5, rx * 0.55, ry * 0.55);
+  // Radial cracks
+  const cracks = 7;
+  for (let i = 0; i < cracks; i++) {
+    const a = (i / cracks) * Math.PI * 2 + 0.2;
+    const jagged = 0.7 + (i % 3) * 0.12;
+    const x0 = sx + Math.cos(a) * rx * 0.18;
+    const y0 = sy + 5 + Math.sin(a) * ry * 0.18;
+    const x1 = sx + Math.cos(a) * rx * jagged;
+    const y1 = sy + 5 + Math.sin(a) * ry * jagged;
+    const midX = sx + Math.cos(a + 0.08) * rx * (0.4 + (i % 2) * 0.1);
+    const midY = sy + 5 + Math.sin(a + 0.08) * ry * (0.4 + (i % 2) * 0.1);
+    g.lineStyle(compact ? 2.1 : 1.6, i % 2 === 0 ? 0xff8866 : 0x2a1010, 0.7 * fade);
+    g.lineBetween(x0, y0, midX, midY);
+    g.lineBetween(midX, midY, x1, y1);
+  }
+}
+
 
 
 /** Gale max-range iso ellipse + soft aim cone (screen space). */

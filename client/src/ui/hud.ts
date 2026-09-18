@@ -63,13 +63,30 @@ export function showToast(text: string, level = "info") {
   }, hold);
 }
 
-/** #toast-layer is fixed (above modals); pin it just under the HUD plates so it reads like part of the HUD. */
+/** #toast-layer is fixed (above modals).
+ *  Desktop / wide: pin under HUD plates.
+ *  Narrow / short phones: raise above the two-row action bar so combat toasts stay readable.
+ */
 function placeToastLayer() {
   const layer = document.getElementById("toast-layer");
   const top = document.getElementById("hud-top");
   if (!layer || !top) return;
-  const r = top.getBoundingClientRect();
-  layer.style.top = `${Math.round(r.bottom + 6)}px`;
+  const narrow =
+    window.matchMedia("(max-width: 400px)").matches ||
+    window.matchMedia("(max-height: 520px) and (max-width: 900px)").matches;
+  if (narrow) {
+    layer.classList.add("toast-above-actions");
+    layer.style.top = "";
+    const bar = document.getElementById("action-bar");
+    const barH = bar ? bar.getBoundingClientRect().height : 0;
+    const gap = 10;
+    layer.style.bottom = `${Math.round(barH + gap)}px`;
+  } else {
+    layer.classList.remove("toast-above-actions");
+    layer.style.bottom = "";
+    const r = top.getBoundingClientRect();
+    layer.style.top = `${Math.round(r.bottom + 6)}px`;
+  }
 }
 
 /** Fade the "how to play" tip overlay after a short grace period; call once on boot. */
@@ -664,6 +681,8 @@ function updateAttackCdButton() {
     } else {
       cdEl.hidden = true;
       cdEl.textContent = "";
+      cdEl.style.removeProperty("--cd-frac");
+      cdEl.style.removeProperty("--cd-deg");
     }
   }
   if (was && !onCd) pingSpellReady(btn);
