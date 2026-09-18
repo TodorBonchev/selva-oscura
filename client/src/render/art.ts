@@ -9,6 +9,8 @@ export const DORE_KEYS = {
   hub_ground: "dore_hub_ground",
   lust_ground: "dore_lust_ground",
   player: "dore_player",
+  player_walk_a: "dore_player_walk_a",
+  player_walk_b: "dore_player_walk_b",
   poi_guide: "dore_poi_guide",
   poi_stash: "dore_poi_stash",
   poi_ah: "dore_poi_ah",
@@ -24,6 +26,8 @@ export const DORE_FILES: Record<keyof typeof DORE_KEYS, string> = {
   hub_ground: "hub_ground.png",
   lust_ground: "lust_ground.png",
   player: "player.png",
+  player_walk_a: "player_walk_a.png",
+  player_walk_b: "player_walk_b.png",
   poi_guide: "poi_guide.png",
   poi_stash: "poi_stash.png",
   poi_ah: "poi_ah.png",
@@ -42,6 +46,8 @@ export const DORE_FILES: Record<keyof typeof DORE_KEYS, string> = {
  */
 export const DORE_DISPLAY: Record<string, { h: number }> = {
   [DORE_KEYS.player]: { h: 74 },
+  [DORE_KEYS.player_walk_a]: { h: 74 },
+  [DORE_KEYS.player_walk_b]: { h: 74 },
   [DORE_KEYS.poi_guide]: { h: 66 },
   [DORE_KEYS.poi_stash]: { h: 54 },
   [DORE_KEYS.poi_ah]: { h: 60 },

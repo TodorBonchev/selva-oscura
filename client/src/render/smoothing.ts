@@ -2,13 +2,14 @@
 
 export type Vec2 = { x: number; y: number };
 
-export const MOVE_SEND_MS = 40;
-/** World units — hard snap if render drifts this far from server. */
-export const SNAP_ERROR = 3.2;
-/** Soft correction rate toward server while predicting (per second). */
-export const RECONCILE_PREDICT = 3.5;
+/** Throttle for move packets — slightly slower than before to cut rubber-band chatter. */
+export const MOVE_SEND_MS = 50;
+/** World units — hard snap only on large desync (was 3.2; caused teleports). */
+export const SNAP_ERROR = 5.5;
+/** Soft correction toward server while predicting (per second) — keep gentle. */
+export const RECONCILE_PREDICT = 2.2;
 /** Stronger correction when idle (per second). */
-export const RECONCILE_IDLE = 8;
+export const RECONCILE_IDLE = 9;
 /** Remote / mob exponential smooth rate (per second). */
 export const REMOTE_SMOOTH = 12;
 /** Soft camera follow (mobile). Desktop snaps harder. */
@@ -33,8 +34,8 @@ export function expAlpha(rate: number, dtSec: number): number {
 }
 
 /**
- * Nudge render toward server. Hard-snaps on large error.
- * Returns the new render position (mutates nothing).
+ * Nudge render toward server. Hard-snaps only on large error.
+ * While predicting, correction is soft so local motion stays smooth.
  */
 export function reconcileLocal(
   render: Vec2,
@@ -44,7 +45,7 @@ export function reconcileLocal(
 ): Vec2 {
   const err = dist(render, server);
   if (err > SNAP_ERROR) return { x: server.x, y: server.y };
-  if (err < 0.01) return { x: server.x, y: server.y };
+  if (err < 0.02) return { x: server.x, y: server.y };
   const rate = predicting ? RECONCILE_PREDICT : RECONCILE_IDLE;
   const a = expAlpha(rate, dtSec);
   return lerpVec(render, server, a);

@@ -5,6 +5,7 @@ import {
   resolveEquipSlot,
   type EquipSlot,
 } from "../items/icons";
+import { formatItemStats, itemStatBonus, itemStatsHtml, slotLabelForItem } from "../items/stats";
 
 let selectedItemId: string | null = null;
 let toastTimer: number | null = null;
@@ -12,7 +13,7 @@ let lastHpShown: number | null = null;
 
 /** Server cap is 40; grid shows a fixed PoE-style slab of slots. */
 const INV_COLS = 6;
-const INV_MIN_SLOTS = 24;
+const INV_MIN_SLOTS = 18;
 const INV_MAX_SLOTS = 40;
 
 const RARITY_LABEL: Record<string, string> = {
@@ -148,8 +149,15 @@ export function renderInventory(
       continue;
     }
     slot.classList.add(rarityClass(it.rarity));
-    slot.title = `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name}`;
-    slot.setAttribute("aria-label", slot.title);
+    {
+      const st = itemStatBonus(it);
+      const tipStats = formatItemStats(st);
+      const wear = slotLabelForItem(it);
+      slot.title = tipStats
+        ? `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name} (${wear})\n${tipStats}`
+        : `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name} (${wear})`;
+      slot.setAttribute("aria-label", slot.title.replace("\n", ", "));
+    }
     const icon = itemIconUrl(it);
     slot.innerHTML = `<img class="inv-icon" src="${icon}" alt="" draggable="false" /><span class="inv-tier" aria-hidden="true"></span>`;
     if (it.id === selectedItemId) slot.classList.add("selected");
@@ -173,7 +181,11 @@ export function renderInventory(
     if (body) {
       if (worn) {
         body.innerHTML = `<img class="inv-icon" src="${itemIconUrl(worn)}" alt="" draggable="false" />`;
-        btn.title = `${es}: ${worn.name}`;
+        {
+          const st = itemStatBonus(worn);
+          const tip = formatItemStats(st);
+          btn.title = tip ? `${es}: ${worn.name}\n${tip}` : `${es}: ${worn.name}`;
+        }
       } else {
         body.innerHTML = "";
         btn.title = es;
@@ -202,9 +214,13 @@ export function renderInventory(
       items.find((it) => it.id === selectedItemId) ||
       Object.values(equipped).find((it: any) => it?.id === selectedItemId);
     if (sel) {
-      const wear = resolveEquipSlot(sel);
+      const wear = slotLabelForItem(sel);
+      const st = itemStatBonus(sel);
       detail.className = `inv-detail ${rarityClass(sel.rarity)}`;
-      detail.innerHTML = `<span class="inv-detail-name">${escapeHtml(sel.name)}</span><span class="inv-detail-rarity">${RARITY_LABEL[sel.rarity] || escapeHtml(sel.rarity)}${wear ? " · " + wear : " · junk"}</span>`;
+      detail.innerHTML =
+        `<span class="inv-detail-name">${escapeHtml(sel.name)}</span>` +
+        `<span class="inv-detail-rarity">${RARITY_LABEL[sel.rarity] || escapeHtml(sel.rarity)} · ${escapeHtml(wear)}</span>` +
+        `<div class="inv-detail-stats">${itemStatsHtml(st)}</div>`;
     } else {
       detail.className = "inv-detail";
       detail.innerHTML = `<span class="inv-detail-name muted">${count ? "Select an item — Equip wears it; List AH sells it." : "Your satchel is empty — foes in Lust drop loot."}</span>`;
