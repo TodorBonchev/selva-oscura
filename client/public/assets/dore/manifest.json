@@ -1,6 +1,6 @@
 {
   "kit": "slice1_dore",
-  "style": "Gustave Doré engraving / bone-gold",
+  "style": "Gustave Dor\u00e9 engraving / bone-gold",
   "assets": {
     "hub_ground": "hub_ground.png",
     "lust_ground": "lust_ground.png",
@@ -13,7 +13,15 @@
     "mob_whirl": "mob_whirl.png",
     "mob_champion": "mob_champion.png",
     "boss_judge": "boss_judge.png",
-    "loot_gem": "loot_gem.png"
+    "loot_gem": "loot_gem.png",
+    "player_n": "player_n.png",
+    "player_ne": "player_ne.png",
+    "player_e": "player_e.png",
+    "player_se": "player_se.png",
+    "player_s": "player_s.png",
+    "player_e_walkb": "player_e_walkb.png",
+    "player_s_walkb": "player_s_walkb.png"
   },
-  "legal": "Original generated assets inspired by Doré mood; not plate scans; no third-party Dante game assets."
+  "legal": "Original generated assets inspired by Dor\u00e9 mood; not plate scans; no third-party Dante game assets.",
+  "notes": "8-dir player: N/NE/E/SE/S real plates; W/NW/SW = flipX of E/NE/SE. Walk-B for E/S."
 }
