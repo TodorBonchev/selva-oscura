@@ -16,6 +16,7 @@ export type ClientMessage =
   | { type: "claim_daily" }
   | { type: "equip"; itemId: string }
   | { type: "unequip"; itemId?: string; slot?: string }
+  | { type: "cast"; spellId: string; aimX?: number; aimY?: number }
   | { type: "ping" };
 
 export type ServerMessage =
@@ -24,6 +25,17 @@ export type ServerMessage =
   | { type: "toast"; level: "info" | "warn" | "loot" | "emit"; text: string }
   | { type: "ah_listings"; listings: import("./types").AhListing[] }
   | { type: "combat"; attackerId: string; targetId: string; damage: number; targetHp: number }
+  | {
+      type: "spell_fx";
+      spellId: string;
+      casterId: string;
+      x: number;
+      y: number;
+      tx?: number;
+      ty?: number;
+      radius?: number;
+      duration?: number;
+    }
   | { type: "entity_removed"; id: string }
   | { type: "error"; code: string; message: string }
   | { type: "pong"; t: number };

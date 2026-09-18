@@ -1079,3 +1079,182 @@ export function spawnKillBurst(particles: Particle[], wx: number, wy: number, bo
     });
   }
 }
+
+/* ————————————————————————————————————————————————————————————————————————
+ *  Inferno spell VFX helpers (Doré crimson-gold)
+ * ———————————————————————————————————————————————————————————————————————— */
+
+/** Crimson-gold trail embers along a gale bolt path (world units). */
+export function spawnGaleTrail(
+  particles: Particle[],
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+) {
+  const steps = 14;
+  for (let i = 0; i <= steps; i++) {
+    if (particles.length > 140) break;
+    const t = i / steps;
+    const wx = x0 + (x1 - x0) * t;
+    const wy = y0 + (y1 - y0) * t;
+    particles.push({
+      x: wx + (Math.random() - 0.5) * 0.25,
+      y: wy + (Math.random() - 0.5) * 0.25,
+      vx: (Math.random() - 0.5) * 0.8,
+      vy: -0.4 - Math.random() * 0.8,
+      life: 0.35 + Math.random() * 0.35,
+      maxLife: 0.7,
+      size: 1.4 + Math.random() * 2.2,
+      color: i % 2 === 0 ? 0xff6644 : 0xffd078,
+      kind: "ember",
+    });
+  }
+  // Impact bloom
+  for (let i = 0; i < 12; i++) {
+    if (particles.length > 140) break;
+    const ang = (Math.PI * 2 * i) / 12;
+    particles.push({
+      x: x1,
+      y: y1,
+      vx: Math.cos(ang) * (2 + Math.random()),
+      vy: Math.sin(ang) * (2 + Math.random()),
+      life: 0.4 + Math.random() * 0.3,
+      maxLife: 0.7,
+      size: 2 + Math.random() * 2.5,
+      color: Math.random() > 0.5 ? 0xc9a227 : 0xff5533,
+      kind: "ember",
+    });
+  }
+}
+
+/** Soft luminous ring particles around the caster (whirl ward). */
+export function spawnWardRing(particles: Particle[], wx: number, wy: number) {
+  for (let i = 0; i < 18; i++) {
+    if (particles.length > 140) break;
+    const ang = (Math.PI * 2 * i) / 18 + Math.random() * 0.15;
+    const r = 1.1 + Math.random() * 0.35;
+    particles.push({
+      x: wx + Math.cos(ang) * r,
+      y: wy + Math.sin(ang) * r * 0.55,
+      vx: Math.cos(ang) * 0.35,
+      vy: Math.sin(ang) * 0.2 - 0.15,
+      life: 0.7 + Math.random() * 0.5,
+      maxLife: 1.2,
+      size: 1.6 + Math.random() * 2,
+      color: i % 3 === 0 ? 0xffe8a0 : i % 3 === 1 ? 0xc9a227 : 0xd9cfae,
+      kind: "mist",
+    });
+  }
+}
+
+/** Infernal burst bloom — dense ember/ash ring. */
+export function spawnInfernalBloom(
+  particles: Particle[],
+  wx: number,
+  wy: number,
+  radius = 4
+) {
+  const n = 36;
+  for (let i = 0; i < n; i++) {
+    if (particles.length > 160) break;
+    const ang = (Math.PI * 2 * i) / n + Math.random() * 0.2;
+    const sp = 2.2 + Math.random() * 3.5;
+    particles.push({
+      x: wx,
+      y: wy,
+      vx: Math.cos(ang) * sp * (radius / 4),
+      vy: Math.sin(ang) * sp * (radius / 4) - 0.5,
+      life: 0.55 + Math.random() * 0.45,
+      maxLife: 1.0,
+      size: 2.2 + Math.random() * 3.2,
+      color: i % 4 === 0 ? 0xc9a227 : i % 4 === 1 ? 0xff4422 : i % 4 === 2 ? 0xff8844 : 0xd9cfae,
+      kind: i % 5 === 0 ? "ash" : "ember",
+    });
+  }
+  for (let i = 0; i < 10; i++) {
+    if (particles.length > 160) break;
+    particles.push({
+      x: wx + (Math.random() - 0.5) * 0.4,
+      y: wy + (Math.random() - 0.5) * 0.4,
+      vx: (Math.random() - 0.5) * 1.2,
+      vy: -1.5 - Math.random() * 2,
+      life: 0.7 + Math.random() * 0.4,
+      maxLife: 1.1,
+      size: 3 + Math.random() * 3,
+      color: 0xffe08a,
+      kind: "ember",
+    });
+  }
+}
+
+/** Draw a gale bolt bolt/trail arc in screen space. */
+export function drawGaleBoltArc(
+  g: Phaser.GameObjects.Graphics,
+  sx0: number,
+  sy0: number,
+  sx1: number,
+  sy1: number,
+  prog: number
+) {
+  const mid = Math.min(1, Math.max(0, prog));
+  const mx = sx0 + (sx1 - sx0) * mid;
+  const my = sy0 + (sy1 - sy0) * mid;
+  g.lineStyle(5, 0xff5533, 0.25);
+  g.lineBetween(sx0, sy0, mx, my);
+  g.lineStyle(2.5, 0xffd078, 0.85);
+  g.lineBetween(sx0, sy0, mx, my);
+  g.fillStyle(0xffe8a0, 0.95);
+  g.fillCircle(mx, my, 4 + Math.sin(mid * Math.PI) * 3);
+  g.lineStyle(1.5, 0xc9a227, 0.7);
+  g.strokeCircle(mx, my, 7);
+}
+
+/** Luminous ward ring under/around the player (screen space). */
+export function drawWardRingGfx(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  t: number,
+  alpha = 0.85
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(t * 0.012);
+  const rx = 28 + pulse * 4;
+  const ry = 12 + pulse * 2;
+  g.lineStyle(3, 0xc9a227, 0.35 * alpha);
+  g.strokeEllipse(sx, sy + 6, rx + 6, ry + 3);
+  g.lineStyle(2, 0xffe8a0, 0.75 * alpha);
+  g.strokeEllipse(sx, sy + 6, rx, ry);
+  g.fillStyle(0xc9a227, 0.08 * alpha);
+  g.fillEllipse(sx, sy + 6, rx - 4, ry - 2);
+  // Orbiting sparks
+  for (let i = 0; i < 5; i++) {
+    const a = t * 0.006 + (i / 5) * Math.PI * 2;
+    const px = sx + Math.cos(a) * rx;
+    const py = sy + 6 + Math.sin(a) * ry;
+    g.fillStyle(i % 2 ? 0xffe8a0 : 0xff6644, 0.9 * alpha);
+    g.fillCircle(px, py, 2.2);
+  }
+}
+
+/** Expanding infernal burst shockwave (screen space). */
+export function drawInfernalShock(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  prog: number,
+  radiusWorld: number
+) {
+  const p = Math.min(1, Math.max(0, prog));
+  const scale = 18 * radiusWorld; // rough world→screen
+  const r = scale * (0.25 + p * 0.9);
+  const a = (1 - p) * 0.9;
+  g.lineStyle(4, 0xff4422, 0.35 * a);
+  g.strokeEllipse(sx, sy, r * 1.1, r * 0.48);
+  g.lineStyle(2.5, 0xc9a227, 0.7 * a);
+  g.strokeEllipse(sx, sy, r, r * 0.42);
+  g.fillStyle(0xff6644, 0.12 * a);
+  g.fillEllipse(sx, sy, r * 0.7, r * 0.3);
+  g.fillStyle(0xffe8a0, 0.55 * a);
+  g.fillCircle(sx, sy - 4, 6 * (1 - p * 0.5));
+}

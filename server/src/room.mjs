@@ -13,6 +13,11 @@ import {
   unequipSlot,
 } from "./ledger.mjs";
 import * as ah from "./ah.mjs";
+import {
+  PLAYER_MAX_MANA,
+  MANA_REGEN_PER_SEC,
+  spellById,
+} from "./spells.mjs";
 
 const ATTACK_RANGE = 3.5;
 /** Generous loot / POI reach so mobile players rarely see "Too far". */
@@ -60,7 +65,7 @@ class CantoRoom {
     if (!this.canto) throw new Error(`unknown canto ${cantoId}`);
     this.cantoId = cantoId;
     this.entities = new Map();
-    this.sessions = new Map(); // playerId -> { ws, x, y, hp, maxHp, atkCd }
+    this.sessions = new Map(); // playerId -> { ws, x, y, hp, maxHp, mana, maxMana, atkCd, spellCd }
     this.dirty = false;
     this._snapAcc = 0;
     this.spawnWorld();
@@ -162,7 +167,12 @@ class CantoRoom {
       y: spawn.y,
       hp: maxHp,
       maxHp,
+      mana: PLAYER_MAX_MANA,
+      maxMana: PLAYER_MAX_MANA,
       atkCd: 0,
+      spellCd: { gale_bolt: 0, whirl_ward: 0, infernal_burst: 0 },
+      armorBuff: 0,
+      wardUntil: 0,
       iframes: 0,
       cantoId: this.cantoId,
     };
@@ -231,6 +241,8 @@ class CantoRoom {
           y: s.y,
           hp: s.hp,
           maxHp: s.maxHp,
+          mana: s.mana,
+          maxMana: s.maxMana,
           cantoId: this.cantoId,
         })
       );
@@ -247,6 +259,8 @@ class CantoRoom {
         y: youSess.y,
         hp: youSess.hp,
         maxHp: youSess.maxHp,
+        mana: youSess.mana,
+        maxMana: youSess.maxMana,
         cantoId: this.cantoId,
       }),
     };
@@ -274,8 +288,17 @@ class CantoRoom {
       x = s.x + dx * scale;
       y = s.y + dy * scale;
     }
-    s.x = clamp(x, 0.5, b.width - 0.5);
-    s.y = clamp(y, 0.5, b.height - 0.5);
+    const nx = clamp(x, 0.5, b.width - 0.5);
+    const ny = clamp(y, 0.5, b.height - 0.5);
+    const mdx = nx - s.x;
+    const mdy = ny - s.y;
+    if (Math.hypot(mdx, mdy) > 0.05) {
+      const ml = Math.hypot(mdx, mdy) || 1;
+      s._lastFaceX = mdx / ml;
+      s._lastFaceY = mdy / ml;
+    }
+    s.x = nx;
+    s.y = ny;
     this.markDirty();
   }
 
@@ -306,6 +329,212 @@ class CantoRoom {
     if (target.hp <= 0) {
       this.onEntityKilled(playerId, target);
     } else {
+      this.pushAllSnapshots();
+    }
+  }
+
+  handleCast(playerId, spellId, aimX, aimY) {
+    const s = this.sessions.get(playerId);
+    if (!s) return;
+    const spell = spellById(spellId);
+    if (!spell) {
+      this.toast(s.ws, "warn", "Unknown spell.");
+      return;
+    }
+    const cdLeft = s.spellCd?.[spell.id] ?? 0;
+    if (cdLeft > 0) {
+      this.toast(s.ws, "warn", `${spell.name} recharging…`);
+      return;
+    }
+    if (s.mana < spell.manaCost) {
+      this.toast(s.ws, "warn", `Not enough mana for ${spell.name} (${spell.manaCost}).`);
+      this.send(s.ws, {
+        type: "spell_fx",
+        spellId: "mana_deny",
+        casterId: playerId,
+        x: s.x,
+        y: s.y,
+      });
+      return;
+    }
+
+    if (spell.id === "gale_bolt") {
+      this._castGaleBolt(playerId, s, spell, aimX, aimY);
+      return;
+    }
+    if (spell.id === "whirl_ward") {
+      this._castWhirlWard(playerId, s, spell);
+      return;
+    }
+    if (spell.id === "infernal_burst") {
+      this._castInfernalBurst(playerId, s, spell);
+      return;
+    }
+  }
+
+  _spendSpell(s, spell) {
+    s.mana = Math.max(0, s.mana - spell.manaCost);
+    if (!s.spellCd) s.spellCd = {};
+    s.spellCd[spell.id] = spell.cooldown;
+  }
+
+  _nearestFoe(from, maxRange) {
+    let best = null;
+    let bestD = maxRange;
+    for (const e of this.entities.values()) {
+      if (e.kind !== "mob" && e.kind !== "boss") continue;
+      const d = dist(from, e);
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  _foeInAim(from, aimX, aimY, maxRange, coneCos = 0.35) {
+    const hasAim =
+      Number.isFinite(aimX) && Number.isFinite(aimY) && (aimX !== 0 || aimY !== 0);
+    if (!hasAim) return this._nearestFoe(from, maxRange);
+    const len = Math.hypot(aimX, aimY) || 1;
+    const ax = aimX / len;
+    const ay = aimY / len;
+    let best = null;
+    let bestScore = Infinity;
+    for (const e of this.entities.values()) {
+      if (e.kind !== "mob" && e.kind !== "boss") continue;
+      const dx = e.x - from.x;
+      const dy = e.y - from.y;
+      const d = Math.hypot(dx, dy);
+      if (d > maxRange || d < 0.01) continue;
+      const dot = (dx / d) * ax + (dy / d) * ay;
+      if (dot < coneCos) continue;
+      // Prefer closer targets still roughly in the aim cone
+      const score = d - dot * 2;
+      if (score < bestScore) {
+        bestScore = score;
+        best = e;
+      }
+    }
+    return best || this._nearestFoe(from, maxRange);
+  }
+
+  _castGaleBolt(playerId, s, spell, aimX, aimY) {
+    const target = this._foeInAim(s, aimX, aimY, spell.range);
+    let tx = s.x;
+    let ty = s.y;
+    if (Number.isFinite(aimX) && Number.isFinite(aimY) && (aimX !== 0 || aimY !== 0)) {
+      const len = Math.hypot(aimX, aimY) || 1;
+      tx = s.x + (aimX / len) * spell.range;
+      ty = s.y + (aimY / len) * spell.range;
+    } else if (s._lastFaceX != null) {
+      tx = s.x + s._lastFaceX * spell.range;
+      ty = s.y + s._lastFaceY * spell.range;
+    }
+
+    this._spendSpell(s, spell);
+
+    if (target) {
+      tx = target.x;
+      ty = target.y;
+      const gear = computeGearStats(players.get(playerId) || { inventory: [] });
+      const dmg =
+        spell.baseDamage +
+        Math.floor(gear.dmg * 0.55) +
+        Math.floor(Math.random() * (spell.damageVar + 1));
+      target.hp = Math.max(0, target.hp - dmg);
+      this.broadcast({
+        type: "combat",
+        attackerId: playerId,
+        targetId: target.id,
+        damage: dmg,
+        targetHp: target.hp,
+        spellId: spell.id,
+      });
+      this.broadcast({
+        type: "spell_fx",
+        spellId: spell.id,
+        casterId: playerId,
+        x: s.x,
+        y: s.y,
+        tx: target.x,
+        ty: target.y,
+      });
+      if (target.hp <= 0) {
+        this.onEntityKilled(playerId, target);
+      } else {
+        this.pushAllSnapshots();
+      }
+    } else {
+      this.broadcast({
+        type: "spell_fx",
+        spellId: spell.id,
+        casterId: playerId,
+        x: s.x,
+        y: s.y,
+        tx,
+        ty,
+      });
+      this.toast(s.ws, "info", "Gale Bolt lashes empty air…");
+      this.pushSnapshot(playerId);
+    }
+  }
+
+  _castWhirlWard(playerId, s, spell) {
+    this._spendSpell(s, spell);
+    s.armorBuff = spell.armorBonus;
+    s.wardUntil = spell.duration;
+    this.broadcast({
+      type: "spell_fx",
+      spellId: spell.id,
+      casterId: playerId,
+      x: s.x,
+      y: s.y,
+      duration: spell.duration,
+      radius: 1.6,
+    });
+    this.toast(s.ws, "info", `Whirl Ward — +${spell.armorBonus} armor`);
+    this.pushAllSnapshots();
+  }
+
+  _castInfernalBurst(playerId, s, spell) {
+    this._spendSpell(s, spell);
+    const gear = computeGearStats(players.get(playerId) || { inventory: [] });
+    const base =
+      spell.baseDamage +
+      Math.floor(gear.dmg * 0.7) +
+      Math.floor(Math.random() * (spell.damageVar + 1));
+    const hit = [];
+    for (const e of [...this.entities.values()]) {
+      if (e.kind !== "mob" && e.kind !== "boss") continue;
+      if (dist(s, e) > spell.radius) continue;
+      const dmg = base + Math.floor(Math.random() * 5);
+      e.hp = Math.max(0, e.hp - dmg);
+      hit.push({ id: e.id, dmg, hp: e.hp, ent: e });
+      this.broadcast({
+        type: "combat",
+        attackerId: playerId,
+        targetId: e.id,
+        damage: dmg,
+        targetHp: e.hp,
+        spellId: spell.id,
+      });
+    }
+    this.broadcast({
+      type: "spell_fx",
+      spellId: spell.id,
+      casterId: playerId,
+      x: s.x,
+      y: s.y,
+      radius: spell.radius,
+    });
+    for (const h of hit) {
+      if (h.hp <= 0) this.onEntityKilled(playerId, h.ent);
+    }
+    if (!hit.some((h) => h.hp <= 0)) {
+      this.pushAllSnapshots();
+    } else {
+      // onEntityKilled already pushed; ensure mana bar updates
       this.pushAllSnapshots();
     }
   }
@@ -498,10 +727,29 @@ class CantoRoom {
 
   tick(dt) {
     if (this.sessions.size === 0) return;
+    let manaDirty = false;
     for (const s of this.sessions.values()) {
       if (s.atkCd > 0) s.atkCd = Math.max(0, s.atkCd - dt);
       if (s.iframes > 0) s.iframes = Math.max(0, s.iframes - dt);
+      if (s.spellCd) {
+        for (const k of Object.keys(s.spellCd)) {
+          if (s.spellCd[k] > 0) s.spellCd[k] = Math.max(0, s.spellCd[k] - dt);
+        }
+      }
+      if (s.wardUntil > 0) {
+        s.wardUntil = Math.max(0, s.wardUntil - dt);
+        if (s.wardUntil <= 0 && s.armorBuff) {
+          s.armorBuff = 0;
+          manaDirty = true;
+        }
+      }
+      if (s.hp > 0 && s.mana < s.maxMana) {
+        const before = s.mana;
+        s.mana = Math.min(s.maxMana, s.mana + MANA_REGEN_PER_SEC * dt);
+        if (Math.floor(s.mana) !== Math.floor(before)) manaDirty = true;
+      }
     }
+    if (manaDirty) this.markDirty();
     let moved = false;
     for (const e of this.entities.values()) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
@@ -530,7 +778,8 @@ class CantoRoom {
         const arch = e.archetype || (e.kind === "boss" ? "boss" : "whirl_shade");
         const dmg = e.champion ? MOB_DMG.gale_champion : MOB_DMG[arch] || MOB_DMG.whirl_shade;
         const led = players.get(nearest.playerId);
-        const armor = led ? computeGearStats(led).armor : 0;
+        const armor =
+          (led ? computeGearStats(led).armor : 0) + (nearest.armorBuff || 0);
         const taken = Math.max(1, dmg - Math.floor(armor * 0.5));
         nearest.hp = Math.max(0, nearest.hp - taken);
         e.atkCd = e.kind === "boss" ? 1.2 : 0.9;

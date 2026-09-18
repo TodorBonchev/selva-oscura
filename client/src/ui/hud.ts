@@ -6,10 +6,12 @@ import {
   type EquipSlot,
 } from "../items/icons";
 import { formatItemStats, itemStatBonus, itemStatsHtml, slotLabelForItem } from "../items/stats";
+import { SPELLS, SPELL_HOTBAR, type SpellId } from "../spells";
 
 let selectedItemId: string | null = null;
 let toastTimer: number | null = null;
 let lastHpShown: number | null = null;
+let lastManaShown: number | null = null;
 let helpFadeTimer: number | null = null;
 
 /** Instructional overlay fades out after this long (any input re-arms nothing; it's a one-shot). */
@@ -115,6 +117,24 @@ export function updateStats(you: any, title: string) {
   if (ash) {
     ash.innerHTML = `<b>${formatAsh(you.ash)}</b> <i>Ash</i> <em>${ashToStelleDisplay(you.ash)} STELLE</em>`;
   }
+  const maxMp = Number(you.maxMana) || 100;
+  const curMp = Math.max(0, Number(you.mana) || 0);
+  const mpRatio = Math.max(0, Math.min(1, curMp / maxMp));
+  const mp = document.getElementById("mp");
+  const mpFill = document.getElementById("mp-fill");
+  const mpPlate = document.getElementById("mp-plate");
+  if (mp) mp.textContent = `${Math.floor(curMp)} / ${maxMp}`;
+  if (mpFill) {
+    mpFill.style.width = `${(mpRatio * 100).toFixed(1)}%`;
+    mpFill.classList.toggle("low", mpRatio <= 0.25);
+  }
+  if (mpPlate) {
+    mpPlate.setAttribute("aria-valuenow", String(Math.floor(curMp)));
+    mpPlate.setAttribute("aria-valuemax", String(maxMp));
+  }
+  lastManaShown = curMp;
+  updateSpellButtons(curMp);
+
   if (pending) {
     const p = Number(you.pendingAsh) || 0;
     pending.textContent = p > 0 ? `+${formatAsh(p)} pending` : "";
@@ -369,6 +389,84 @@ function wirePressed(btn: HTMLElement) {
   btn.addEventListener("pointercancel", off);
 }
 
+
+/** Client-side cooldown deadlines (ms epoch) keyed by spell id — optimistic UI. */
+const spellCdUntil = new Map<string, number>();
+let spellCdRaf = 0;
+
+export function noteSpellCast(spellId: string, cooldownSec: number) {
+  spellCdUntil.set(spellId, Date.now() + cooldownSec * 1000);
+  kickSpellCdLoop();
+}
+
+export function flashManaDeny(spellId?: string) {
+  const plate = document.getElementById("mp-plate");
+  if (plate) {
+    plate.classList.remove("mp-deny");
+    void (plate as HTMLElement).offsetWidth;
+    plate.classList.add("mp-deny");
+  }
+  const sel = spellId
+    ? `.spell-btn[data-spell="${spellId}"]`
+    : ".spell-btn";
+  document.querySelectorAll<HTMLElement>(sel).forEach((btn) => {
+    btn.classList.remove("mana-flash");
+    void btn.offsetWidth;
+    btn.classList.add("mana-flash");
+  });
+}
+
+function updateSpellButtons(mana: number) {
+  const now = Date.now();
+  for (const id of SPELL_HOTBAR) {
+    const def = SPELLS[id];
+    const btn = document.querySelector<HTMLElement>(`.spell-btn[data-spell="${id}"]`);
+    if (!btn) continue;
+    const until = spellCdUntil.get(id) || 0;
+    const onCd = until > now;
+    const lack = mana < def.manaCost;
+    btn.classList.toggle("on-cooldown", onCd);
+    btn.classList.toggle("no-mana", lack && !onCd);
+    btn.setAttribute("aria-disabled", onCd || lack ? "true" : "false");
+    const cdEl = btn.querySelector<HTMLElement>(".spell-cd");
+    if (cdEl) {
+      if (onCd) {
+        const left = Math.max(0, (until - now) / 1000);
+        cdEl.hidden = false;
+        cdEl.textContent = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
+        const frac = Math.max(0, Math.min(1, (until - now) / (def.cooldown * 1000)));
+        cdEl.style.setProperty("--cd-frac", String(frac));
+      } else {
+        cdEl.hidden = true;
+        cdEl.textContent = "";
+      }
+    }
+  }
+}
+
+function kickSpellCdLoop() {
+  if (spellCdRaf) return;
+  const tick = () => {
+    spellCdRaf = 0;
+    const manaTxt = document.getElementById("mp")?.textContent || "";
+    const m = manaTxt.match(/^(\d+)/);
+    const mana = m ? Number(m[1]) : 0;
+    updateSpellButtons(mana);
+    const now = Date.now();
+    let any = false;
+    for (const until of spellCdUntil.values()) {
+      if (until > now) {
+        any = true;
+        break;
+      }
+    }
+    if (any) {
+      spellCdRaf = window.requestAnimationFrame(tick);
+    }
+  };
+  spellCdRaf = window.requestAnimationFrame(tick);
+}
+
 export function wireHud(api: {
   listSelected: (price: number) => void;
   refreshAh: () => void;
@@ -380,6 +478,7 @@ export function wireHud(api: {
   onAttackHoldEnd?: () => void;
   equipSelected?: () => void;
   unequipSelected?: () => void;
+  castSpell?: (spellId: SpellId) => void;
 }) {
   document.getElementById("btn-list")?.addEventListener("click", () => {
     const price = Number((document.getElementById("list-price") as HTMLInputElement)?.value);
@@ -437,6 +536,17 @@ export function wireHud(api: {
     // Avoid duplicate click after pointerup
     attackBtn.addEventListener("click", (e) => e.preventDefault());
   }
+
+  document.querySelectorAll<HTMLButtonElement>(".spell-btn[data-spell]").forEach((btn) => {
+    wirePressed(btn);
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const id = btn.getAttribute("data-spell") as SpellId | null;
+      if (!id || !SPELLS[id]) return;
+      hapticLight();
+      api.castSpell?.(id);
+    });
+  });
 
   document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
