@@ -16,6 +16,9 @@ import {
   noteWardBuff,
   noteAttackCd,
   pulseInvBag,
+  noteComboHit,
+  resetCombo,
+  playDeathRevive,
 } from "../ui/hud";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
@@ -77,6 +80,7 @@ import {
   drawWardChargeTelegraph,
   drawBurstGroundTelegraph,
   drawBossTelegraph,
+  bossTelegraphPipY,
   drawGaleRangePreview,
   drawOutOfRangeFoeMark,
   drawPortalChargeRing,
@@ -169,6 +173,12 @@ const CRIT_DMG_FLASH = 36;
 const TRAVEL_VIGNETTE_PEAK = 0.98;
 /** Max pooled floating damage texts. */
 const DMG_POOL_MAX = 28;
+/** Show Lust/Dark Wood edge arrows beyond this world distance. */
+const COMPASS_HIDE_RANGE = 8.2;
+/** Gale hold must last at least this long before cancel/confirm toasts. */
+const GALE_HOLD_TOAST_MS = 90;
+/** Ignore duplicate death FX within this window (combat + slain toast). */
+const DEATH_FX_LOCK_MS = 1600;
 
 type HitFx = {
   start: number;
@@ -327,6 +337,8 @@ export class WorldScene extends Phaser.Scene {
   lastHitFoe: { id: string; until: number } | null = null;
   /** Reused floating damage Text objects. */
   dmgPool: Phaser.GameObjects.Text[] = [];
+  /** Epoch ms until which death etch/fade should not retrigger. */
+  deathFxUntil = 0;
 
   constructor() {
     super("world");
@@ -713,6 +725,9 @@ export class WorldScene extends Phaser.Scene {
     this.spellHold = null;
     document.getElementById(btnId)?.classList.remove("aiming");
     if (!cast) return;
+    if (spellId === "gale_bolt" && heldMs >= GALE_HOLD_TOAST_MS && heldMs < SPELL_HOLD_CONFIRM_MS) {
+      showToast("Gale loosed", "info");
+    }
     if (spellId === "gale_bolt") {
       if (aimed) this.castSpell("gale_bolt", { aimX, aimY, preferNearest: false });
       else this.castSpell("gale_bolt", { preferNearest: true });
@@ -723,10 +738,15 @@ export class WorldScene extends Phaser.Scene {
 
   cancelSpellHold() {
     if (!this.spellHold) return;
-    const btnId = `btn-spell-${this.spellHold.spellId}`;
+    const heldMs = performance.now() - this.spellHold.startMs;
+    const spellId = this.spellHold.spellId;
+    const btnId = `btn-spell-${spellId}`;
     this.clearSpellHoldListeners();
     this.spellHold = null;
     document.getElementById(btnId)?.classList.remove("aiming");
+    if (spellId === "gale_bolt" && heldMs >= GALE_HOLD_TOAST_MS) {
+      showToast("Gale cancelled", "info");
+    }
   }
 
   private clearSpellHoldListeners() {
@@ -995,7 +1015,10 @@ export class WorldScene extends Phaser.Scene {
       }
     }
     if (!best) {
-      if (!opts?.silent) showToast("No foe in range", "warn");
+      if (!opts?.silent) {
+        showToast("No foe in range", "warn");
+        resetCombo();
+      }
       return;
     }
     this.sendAttack(best.id);
@@ -1123,6 +1146,7 @@ export class WorldScene extends Phaser.Scene {
           this.remotePrev.clear();
           this.lastHitFoe = null;
           this.seenInvItemIds.clear();
+          resetCombo();
           this.centerOnYou(true);
           if (cantoChanged) this.playTravelTransition();
         }
@@ -1176,9 +1200,13 @@ export class WorldScene extends Phaser.Scene {
           showToast("Reconnected", "info");
         }
         break;
-      case "toast":
-        showToast(msg.text, msg.level);
+      case "toast": {
+        const text = String(msg.text || "");
+        showToast(text, msg.level);
+        if (isComboMissToast(text)) resetCombo();
+        if (/slain/i.test(text)) this.triggerDeathRevive();
         break;
+      }
       case "ah_listings":
         renderAh(
           msg.listings,
@@ -1209,6 +1237,8 @@ export class WorldScene extends Phaser.Scene {
           this.showPlayerDamageNumber(msg.damage);
           if (msg.targetHp != null && msg.targetHp <= 0) {
             this.cameras.main.shake(280, 0.014);
+            this.triggerDeathRevive();
+            resetCombo();
           }
           break;
         }
@@ -1218,6 +1248,7 @@ export class WorldScene extends Phaser.Scene {
           Boolean(attacker) && (attacker === youId || attacker === sockId);
         if (weHit && ent && (ent.kind === "mob" || ent.kind === "boss")) {
           this.lastHitFoe = { id: String(ent.id), until: this.animT + GALE_STICKY_MS };
+          noteComboHit();
         }
         if (ent) {
           const sid = `${ent.kind}:${ent.id}`;
@@ -2068,7 +2099,18 @@ export class WorldScene extends Phaser.Scene {
       }
       const charge = Math.min(1, (this.animT - t.start) / Math.max(1, t.until - t.start));
       const p = worldToScreen(t.x, t.y);
-      drawBossTelegraph(g, p.sx, p.sy, charge, t.radius, this.animT);
+      drawBossTelegraph(g, p.sx, p.sy, charge, t.radius, this.animT, compact);
+      const left = Math.max(0, (t.until - this.animT) / 1000);
+      const num = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
+      const pipY = bossTelegraphPipY(p.sy, compact);
+      this.addLabel(`boss-cd:${t.id}`, p.sx, pipY, num, compact ? "15px" : "13px", seenLabels);
+      const lab = this.labels.get(`boss-cd:${t.id}`);
+      if (lab) {
+        lab.setColor("#1a1408");
+        lab.setAlpha(0.98);
+        lab.setStroke("#ffe8a0", compact ? 3 : 2);
+        lab.setDepth(9500);
+      }
     }
 
     // Live hub decor pulse (lightweight vignette trees already stamped on ground)
@@ -2778,6 +2820,96 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  /** Etch flash + camera fade, then soft respawn fade-in. */
+  private triggerDeathRevive() {
+    const now = Date.now();
+    if (now < this.deathFxUntil) return;
+    this.deathFxUntil = now + DEATH_FX_LOCK_MS;
+    playDeathRevive();
+    const cam = this.cameras.main;
+    cam.flash(160, 90, 18, 14, false);
+    cam.fadeOut(140, 10, 4, 6);
+    this.time.delayedCall(200, () => {
+      cam.fadeIn(560, 10, 4, 6);
+    });
+  }
+
+  /** Edge arrows toward Lust / Dark Wood portals when the player is far from them. */
+  private layoutCantoCompass() {
+    const layer = document.getElementById("canto-compass");
+    if (!layer || !this.room) {
+      if (layer) layer.innerHTML = "";
+      return;
+    }
+    if (document.body.classList.contains("has-modal")) {
+      layer.innerHTML = "";
+      return;
+    }
+    const cam = this.cameras.main;
+    const view = cam.worldView;
+    const vw = cam.width;
+    const vh = cam.height;
+    const compact = isCompactUi();
+    const pad = {
+      l: compact ? 14 : 16,
+      r: compact ? 14 : 16,
+      t: compact ? 70 : 62,
+      b: compact ? 102 : 86,
+    };
+    const you = this.renderYou;
+    const wanted: { dest: "lust" | "wood"; x: number; y: number; d: number }[] = [];
+    for (const e of this.room.entities) {
+      if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
+      const dest =
+        e.toCanto === "inferno_05" ? "lust" : e.toCanto === "inferno_01" ? "wood" : null;
+      if (!dest) continue;
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < COMPASS_HIDE_RANGE) continue;
+      wanted.push({ dest, x: pos.x, y: pos.y, d });
+    }
+    if (!wanted.length) {
+      if (layer.childElementCount) layer.innerHTML = "";
+      return;
+    }
+    const existing = Array.from(layer.querySelectorAll<HTMLElement>(".compass-arrow"));
+    wanted.forEach((w, i) => {
+      const pnt = worldToScreen(w.x, w.y);
+      const sx = ((pnt.sx - view.x) / Math.max(1e-3, view.width)) * vw;
+      const sy = ((pnt.sy - view.y) / Math.max(1e-3, view.height)) * vh;
+      const cx = vw * 0.5;
+      const cy = vh * 0.46;
+      let dx = sx - cx;
+      let dy = sy - cy;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) dx = 1;
+      const tX = dx > 0 ? (vw - pad.r - cx) / dx : dx < 0 ? (pad.l - cx) / dx : 1e9;
+      const tY = dy > 0 ? (vh - pad.b - cy) / dy : dy < 0 ? (pad.t - cy) / dy : 1e9;
+      const tHit = Math.min(tX, tY);
+      let ex = cx + dx * tHit;
+      let ey = cy + dy * tHit;
+      // Keep clear of the left-stick pocket on phones
+      if (compact && ex < 88 && ey > vh - 170) ey = vh - 170;
+      const ang = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+      const label = w.dest === "lust" ? "Lust" : "Wood";
+      let el = existing[i];
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "compass-arrow";
+        el.innerHTML =
+          `<span class="compass-chevron" aria-hidden="true"></span>` +
+          `<span class="compass-label"></span>`;
+        layer.appendChild(el);
+      }
+      if (el.getAttribute("data-dest") !== w.dest) el.setAttribute("data-dest", w.dest);
+      const lab = el.querySelector(".compass-label");
+      if (lab && lab.textContent !== label) lab.textContent = label;
+      el.style.left = `${ex.toFixed(1)}px`;
+      el.style.top = `${ey.toFixed(1)}px`;
+      el.style.setProperty("--ang", `${ang.toFixed(1)}deg`);
+    });
+    for (let i = wanted.length; i < existing.length; i++) existing[i].remove();
+  }
+
   update(_t: number, dtMs: number) {
     if (!this.room) return;
     const dtSec = Math.min(0.05, dtMs / 1000);
@@ -2894,5 +3026,15 @@ export class WorldScene extends Phaser.Scene {
     this.redraw();
     this.centerOnYou(false);
     this.layoutVignette();
+    this.layoutCantoCompass();
   }
+}
+
+function isComboMissToast(text: string): boolean {
+  return (
+    /out of range/i.test(text) ||
+    /nothing to strike/i.test(text) ||
+    /no foe in range/i.test(text) ||
+    /lashes empty air/i.test(text)
+  );
 }

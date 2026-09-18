@@ -1534,9 +1534,13 @@ body.has-modal #virtual-joystick { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   #hp-fill.low, .plate-hp.hp-hurt, #toast.toast-show, .ward-pip,
-  .spell-ready, .ward-expire, body.low-hp #danger-vignette, #btn-inv.inv-loot-glow { animation: none; }
+  .spell-ready, .ward-expire, body.low-hp #danger-vignette, #btn-inv.inv-loot-glow,
+  .combo-pip, .combo-pip.combo-bump, .combo-pip.combo-expire,
+  body.death-flash #death-flash, body.respawn-fade #death-flash,
+  .ah-row.ah-loot-pulse, .compass-arrow { animation: none; }
   #toast.toast-show { opacity: 1; }
   body.low-hp #danger-vignette { opacity: 0.55; }
+  body.death-flash #death-flash, body.respawn-fade #death-flash { opacity: 0.55; }
 }
 
 
@@ -1719,6 +1723,10 @@ body.has-modal #virtual-joystick { display: none; }
   z-index: 4;
 }
 .buff-pip.hidden { display: none; }
+.combo-pip {
+  right: auto;
+  left: -0.28rem;
+}
 .ward-pip {
   color: #1a1408;
   background: radial-gradient(circle at 35% 30%, #ffe8a0, #c9a227 55%, #8a7020);
@@ -1732,6 +1740,7 @@ body.has-modal #virtual-joystick { display: none; }
 }
 @media (max-width: 640px) {
   .buff-pip { width: 1.05rem; height: 1.05rem; font-size: 0.52rem; top: -0.2rem; right: -0.2rem; }
+  .combo-pip { left: -0.2rem; right: auto; }
 }
 
 /* Spell hold-to-confirm — button glow while aiming / charging */
@@ -1928,5 +1937,156 @@ body.low-hp #danger-vignette {
   #danger-vignette {
     background:
       radial-gradient(ellipse 80% 75% at 50% 42%, transparent 38%, #5a080870 72%, #2a0404d0 100%);
+  }
+}
+
+
+/* ——— Polish r7 ——— */
+
+/* Hit-streak pip on the HP plate (left; Ward stays right) */
+.combo-pip {
+  color: #1a0808;
+  background: radial-gradient(circle at 35% 30%, #ffd0c0, #d63a2a 55%, #7a1810);
+  border: 1px solid #ffb0a0;
+  box-shadow: 0 0 0 1px #000a, 0 0 10px #d63a2a99, inset 0 1px 0 #fff6;
+  font-variant-numeric: tabular-nums;
+  min-width: 1.15rem;
+  animation: combo-pip-pulse 1.15s ease-in-out infinite;
+}
+@keyframes combo-pip-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px #000a, 0 0 8px #d63a2a77, inset 0 1px 0 #fff6; transform: scale(1); }
+  50% { box-shadow: 0 0 0 1px #000a, 0 0 14px #ff6644bb, inset 0 1px 0 #fff6; transform: scale(1.1); }
+}
+.combo-pip.combo-bump {
+  animation: combo-bump 0.28s ease-out;
+}
+@keyframes combo-bump {
+  0% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+.combo-pip.combo-expire {
+  display: flex !important;
+  animation: ward-expire-flash 0.42s ease-out forwards;
+  background: radial-gradient(circle at 35% 30%, #fff, #ff6644 55%, #8a2010);
+}
+
+/* Death etch flash + soft respawn fade (covers canvas + HUD, under toasts) */
+#death-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    repeating-linear-gradient(-32deg, transparent 0 7px, #c9a22718 7px 8px),
+    repeating-linear-gradient(32deg, transparent 0 9px, #5a080822 9px 10px),
+    radial-gradient(ellipse 68% 58% at 50% 44%, #6a141888 0%, #1a0606cc 58%, #050202f0 100%);
+}
+body.death-flash #death-flash {
+  animation: death-etch 0.52s ease-out forwards;
+}
+@keyframes death-etch {
+  0% { opacity: 0; filter: contrast(1.4) brightness(1.8); }
+  18% { opacity: 1; filter: contrast(1.15) brightness(1.05); }
+  100% { opacity: 0; filter: contrast(1) brightness(1); }
+}
+body.respawn-fade #death-flash {
+  background:
+    radial-gradient(ellipse 78% 70% at 50% 46%, #1a1208aa 0%, #0a0806dd 62%, #050403f2 100%);
+  animation: respawn-veil 0.72s ease-in forwards;
+}
+@keyframes respawn-veil {
+  0% { opacity: 0.78; }
+  100% { opacity: 0; }
+}
+
+/* Edge arrows toward Lust / Dark Wood when far from those portals */
+#canto-compass {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+}
+.compass-arrow {
+  position: absolute;
+  width: 2.4rem;
+  height: 2.4rem;
+  margin: -1.2rem 0 0 -1.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 1px 3px #000c);
+}
+.compass-chevron {
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 14px solid #c9a227;
+  transform: rotate(var(--ang, 0deg));
+  transform-origin: 50% 70%;
+}
+.compass-arrow[data-dest="lust"] .compass-chevron {
+  border-bottom-color: #d63a2a;
+  filter: drop-shadow(0 0 5px #d63a2a99);
+}
+.compass-arrow[data-dest="wood"] .compass-chevron {
+  filter: drop-shadow(0 0 5px #c9a22799);
+}
+.compass-label {
+  margin-top: 0.12rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffe8a0;
+  text-shadow: 0 1px 0 #000, 0 0 6px #000;
+  line-height: 1;
+}
+.compass-arrow[data-dest="lust"] .compass-label { color: #ffc8b8; }
+@media (max-width: 640px) {
+  .compass-arrow { width: 2.1rem; height: 2.1rem; margin: -1.05rem 0 0 -1.05rem; }
+  .compass-chevron {
+    border-left-width: 7px;
+    border-right-width: 7px;
+    border-bottom-width: 12px;
+  }
+  .compass-label { font-size: 0.5rem; }
+}
+
+/* AH listing rarity pulse — matches world loot / Inv bag glow */
+.ah-row.ah-loot-pulse {
+  --loot-glow: #b8b0a0;
+  animation: ah-rarity-pulse 1.9s ease-out;
+}
+.ah-row.ah-loot-pulse.r-magic { --loot-glow: #4a7fd4; }
+.ah-row.ah-loot-pulse.r-rare { --loot-glow: #d4b84a; }
+.ah-row.ah-loot-pulse.r-set { --loot-glow: #33cc88; }
+.ah-row.ah-loot-pulse.r-unique { --loot-glow: #c9a227; }
+.ah-row.ah-loot-pulse.r-canto_unique { --loot-glow: #ee66cc; }
+@keyframes ah-rarity-pulse {
+  0%, 22% {
+    box-shadow:
+      inset 0 0 0 1px #000a,
+      inset 0 0 14px #0008,
+      0 0 14px color-mix(in srgb, var(--loot-glow, #c9a227) 70%, transparent),
+      0 0 4px var(--loot-glow, #c9a227);
+    border-color: color-mix(in srgb, var(--loot-glow, #c9a227) 70%, #3a3224);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px #000a, inset 0 0 14px #0008;
+    border-color: #3a3224;
+  }
+}
+.ah-row.ah-loot-pulse .ah-seal {
+  box-shadow: 0 0 10px var(--loot-glow, #c9a227);
+}
+
+@media (max-width: 640px) {
+  #death-flash {
+    background:
+      repeating-linear-gradient(-32deg, transparent 0 8px, #c9a22714 8px 9px),
+      repeating-linear-gradient(32deg, transparent 0 10px, #5a08081c 10px 11px),
+      radial-gradient(ellipse 80% 70% at 50% 42%, #6a141890 0%, #1a0606d0 55%, #050202f2 100%);
   }
 }

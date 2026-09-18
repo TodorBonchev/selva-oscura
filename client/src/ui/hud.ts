@@ -303,7 +303,7 @@ export function renderAh(listings: any[], onBuy: (id: string) => void, onBid: (i
   }
   for (const L of listings) {
     const li = document.createElement("li");
-    li.className = `ah-row ${rarityClass(L.item?.rarity)}`;
+    li.className = `ah-row ah-loot-pulse ${rarityClass(L.item?.rarity)}`;
     const rarity = RARITY_LABEL[L.item?.rarity] || L.item?.rarity || "";
     li.innerHTML = `
       <div class="ah-item">
@@ -484,6 +484,84 @@ export function noteAttackCd(cooldownSec: number) {
   kickSpellCdLoop();
 }
 
+/** Consecutive-hit streak pip on the HP plate (shows at 2+; resets on miss/gap). */
+const COMBO_GAP_MS = 1800;
+let comboCount = 0;
+let comboLastAt = 0;
+let comboExpireTimer: number | null = null;
+
+export function noteComboHit() {
+  const now = Date.now();
+  if (comboLastAt && now - comboLastAt > COMBO_GAP_MS) comboCount = 0;
+  comboCount += 1;
+  comboLastAt = now;
+  syncComboPip(true);
+  kickSpellCdLoop();
+}
+
+export function resetCombo() {
+  if (comboCount <= 0) return;
+  const wasShown = comboCount >= 2;
+  comboCount = 0;
+  comboLastAt = 0;
+  syncComboPip(false, wasShown);
+}
+
+function syncComboPip(bump = false, expire = false) {
+  const pip = document.getElementById("combo-pip");
+  if (!pip) return;
+  const show = comboCount >= 2;
+  if (expire && !show) {
+    pip.classList.remove("hidden", "combo-bump");
+    void (pip as HTMLElement).offsetWidth;
+    pip.classList.add("combo-expire");
+    pip.setAttribute("aria-hidden", "false");
+    if (comboExpireTimer != null) window.clearTimeout(comboExpireTimer);
+    comboExpireTimer = window.setTimeout(() => {
+      comboExpireTimer = null;
+      if (comboCount < 2) {
+        pip.classList.add("hidden");
+        pip.classList.remove("combo-expire", "combo-bump");
+        pip.setAttribute("aria-hidden", "true");
+      }
+    }, 420);
+    return;
+  }
+  if (show) {
+    pip.classList.remove("hidden", "combo-expire");
+    pip.textContent = comboCount > 99 ? "99" : String(comboCount);
+    pip.title = `Hit streak ×${comboCount}`;
+    pip.setAttribute("aria-hidden", "false");
+    if (bump) {
+      pip.classList.remove("combo-bump");
+      void (pip as HTMLElement).offsetWidth;
+      pip.classList.add("combo-bump");
+    }
+  } else if (!pip.classList.contains("combo-expire")) {
+    pip.classList.add("hidden");
+    pip.classList.remove("combo-bump");
+    pip.setAttribute("aria-hidden", "true");
+    pip.textContent = "1";
+  }
+}
+
+/** Fullscreen etch flash + soft respawn veil (death is more than a toast). */
+export function playDeathRevive() {
+  const el = document.getElementById("death-flash");
+  if (!el) return;
+  document.body.classList.remove("respawn-fade");
+  document.body.classList.add("death-flash");
+  el.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    document.body.classList.remove("death-flash");
+    document.body.classList.add("respawn-fade");
+    window.setTimeout(() => {
+      document.body.classList.remove("respawn-fade");
+      el.setAttribute("aria-hidden", "true");
+    }, 740);
+  }, 280);
+}
+
 /** Brief Inv bag glow matching loot rarity when a new item lands. */
 export function pulseInvBag(rarity?: string) {
   const btn = document.getElementById("btn-inv");
@@ -595,6 +673,9 @@ function kickSpellCdLoop() {
     updateSpellButtons(mana);
     syncWardPip(null);
     const now = Date.now();
+    if (comboCount >= 2 && comboLastAt && now - comboLastAt > COMBO_GAP_MS) {
+      resetCombo();
+    }
     let any = false;
     for (const until of spellCdUntil.values()) {
       if (until > now) {
@@ -604,6 +685,7 @@ function kickSpellCdLoop() {
     }
     if (!any && wardBuffUntilMs > now) any = true;
     if (!any && attackCdUntil > now) any = true;
+    if (!any && comboCount >= 2) any = true;
     if (any) {
       spellCdRaf = window.requestAnimationFrame(tick);
     }
