@@ -1893,40 +1893,57 @@ export function drawOutOfRangeFoeMark(
   g.lineBetween(sx + 5, sy - 33, sx - 5, sy - 23);
 }
 
-/** Portal / travel hold charge ring under Interact target. */
+/** Portal / travel hold charge — Ward-timer disc style (gold disc + fill arc). */
 export function drawPortalChargeRing(
   g: Phaser.GameObjects.Graphics,
   sx: number,
   sy: number,
   charge: number,
-  tMs: number
+  tMs: number,
+  compact = false
 ) {
   const c = Math.max(0, Math.min(1, charge));
-  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.018);
-  const rx = 18 + c * 16;
-  const ry = 8 + c * 7;
-  g.fillStyle(0xc9a227, 0.05 + c * 0.12);
-  g.fillEllipse(sx, sy + 8, rx, ry);
-  g.lineStyle(2.5, 0x6a8cff, 0.3 + c * 0.45);
-  g.strokeEllipse(sx, sy + 8, rx + 2, ry + 1);
-  g.lineStyle(2, 0xffe8a0, 0.45 + c * 0.5);
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.02);
+  // Soft ground ellipse under the disc (reads as portal footprint)
+  const rx = (compact ? 22 : 18) + c * 6;
+  const ry = rx * 0.42;
+  g.fillStyle(0x1a1430, 0.2 + c * 0.18);
+  g.fillEllipse(sx, sy + 8, rx * 1.15, ry * 1.15);
+  g.lineStyle(1.5, 0x6a8cff, 0.25 + c * 0.35 + pulse * 0.1);
   g.strokeEllipse(sx, sy + 8, rx, ry);
-  // Sweep
-  const sweep = c * Math.PI * 2;
-  const steps = Math.max(2, Math.floor(16 * c));
-  for (let i = 0; i < steps; i++) {
-    const a0 = -Math.PI / 2 + (sweep * i) / steps;
-    const a1 = -Math.PI / 2 + (sweep * (i + 1)) / steps;
-    g.lineStyle(3, 0xa8c0ff, 0.9);
+
+  // Ward-pip style countdown disc hovering above the footprint
+  const pipR = compact ? 14 : 12;
+  const pipY = sy - (compact ? 10 : 6) - c * 4;
+  g.fillStyle(0x0a0c14, 0.9);
+  g.fillCircle(sx, pipY, pipR + 2.5);
+  g.fillStyle(0xc9a227, 0.94);
+  g.fillCircle(sx, pipY, pipR);
+  g.lineStyle(1.4, 0xffe8a0, 0.95);
+  g.strokeCircle(sx, pipY, pipR);
+  // Soft blue inner glow so it still reads "portal"
+  g.fillStyle(0x6a8cff, 0.12 + c * 0.18);
+  g.fillCircle(sx, pipY, pipR * 0.72);
+
+  // Fill arc (charge progress) — same remaining-arc language as Ward timer / Judge pip
+  const segs = 22;
+  const ringR = pipR + 4.5;
+  const drawn = Math.max(1, Math.ceil(segs * c));
+  for (let i = 0; i < drawn; i++) {
+    const a0 = -Math.PI / 2 + (i / segs) * Math.PI * 2;
+    const a1 = -Math.PI / 2 + ((i + 1) / segs) * Math.PI * 2;
+    const tip = i === drawn - 1;
+    g.lineStyle(2.6, tip ? 0xa8c0ff : i % 3 === 0 ? 0xffe8a0 : 0xc9a227, 0.95);
     g.lineBetween(
-      sx + Math.cos(a0) * rx,
-      sy + 8 + Math.sin(a0) * ry,
-      sx + Math.cos(a1) * rx,
-      sy + 8 + Math.sin(a1) * ry
+      sx + Math.cos(a0) * ringR,
+      pipY + Math.sin(a0) * ringR,
+      sx + Math.cos(a1) * ringR,
+      pipY + Math.sin(a1) * ringR
     );
   }
-  g.fillStyle(0xffe8a0, 0.5 + pulse * 0.3);
-  g.fillCircle(sx, sy - 4 - c * 8, 3 + c * 2);
+  // Center mote rises with charge
+  g.fillStyle(0xffe8a0, 0.55 + pulse * 0.35);
+  g.fillCircle(sx, pipY - 1, 2.2 + c * 1.6);
 }
 
 /** Compact "hold to enter" tip above a near portal pulse (screen space). */
@@ -1967,7 +1984,7 @@ export function drawStickyTargetReticle(
   sy: number,
   tMs: number,
   compact: boolean,
-  opts?: { hp?: number; maxHp?: number; nearEdge?: boolean }
+  opts?: { hp?: number; maxHp?: number; nearEdge?: boolean; champion?: boolean }
 ) {
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.014);
   const rw = (compact ? 28 : 20) + pulse * 3;
@@ -2003,6 +2020,10 @@ export function drawStickyTargetReticle(
     g.fillRect(bx, by, Math.max(0, bw * ratio), bh);
     g.lineStyle(1, 0xe8c86a, 0.85);
     g.strokeRect(bx, by, bw, bh);
+    // Champion crown sits on the edge HP chip so elites still read when clipped
+    if (opts.champion) {
+      drawChampionCrownPip(g, sx, by - (compact ? 2 : 1), tMs, compact);
+    }
   }
 }
 
@@ -2053,3 +2074,37 @@ export function drawMagnetSpark(
   g.fillCircle(x, y, r * 0.65);
 }
 
+/** Soft ash beads drifting corpse → entrance beacon after death (screen space). */
+export function drawDeathAshTrail(
+  g: Phaser.GameObjects.Graphics,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  tMs: number,
+  life01: number,
+  compact: boolean
+) {
+  const life = Math.max(0, Math.min(1, life01));
+  const beads = compact ? 14 : 11;
+  for (let i = 0; i < beads; i++) {
+    const base = i / Math.max(1, beads - 1);
+    // Beads travel along the path over the trail lifetime
+    const travel = (base + (1 - life) * 0.85) % 1;
+    const wobble = Math.sin(tMs * 0.008 + i * 1.7) * (compact ? 5 : 3.5);
+    const nx = -(y1 - y0);
+    const ny = x1 - x0;
+    const nlen = Math.hypot(nx, ny) || 1;
+    const x = x0 + (x1 - x0) * travel + (nx / nlen) * wobble * 0.35;
+    const y = y0 + (y1 - y0) * travel + (ny / nlen) * wobble * 0.35 - travel * 10;
+    const fade = life * (0.35 + Math.sin(travel * Math.PI) * 0.55);
+    const r = (compact ? 2.8 : 2.1) * (0.6 + (1 - Math.abs(travel - 0.5) * 2) * 0.5);
+    g.fillStyle(i % 3 === 0 ? 0xff8866 : 0xd9cfae, 0.25 + fade * 0.55);
+    g.fillCircle(x, y, r + 1.2);
+    g.fillStyle(0xffe8a0, 0.35 + fade * 0.5);
+    g.fillCircle(x, y, r * 0.55);
+  }
+  // Soft endpoint glow at the entrance
+  g.fillStyle(0xc9a227, 0.08 + life * 0.12);
+  g.fillEllipse(x1, y1 + 2, compact ? 28 : 22, compact ? 12 : 9);
+}

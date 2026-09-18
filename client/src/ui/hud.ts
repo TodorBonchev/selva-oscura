@@ -575,7 +575,7 @@ function syncComboPip(bump = false, expire = false) {
       comboExpireTimer = null;
       if (comboCount < 2) {
         pip.classList.add("hidden");
-        pip.classList.remove("combo-expire", "combo-bump", "combo-fever", "combo-fever-max");
+        pip.classList.remove("combo-expire", "combo-bump", "combo-fever", "combo-fever-max", "combo-inferno");
         pip.setAttribute("aria-hidden", "true");
       }
     }, 420);
@@ -586,8 +586,9 @@ function syncComboPip(bump = false, expire = false) {
     pip.textContent = comboCount > 99 ? "99" : String(comboCount);
     pip.title = `Hit streak ×${comboCount}`;
     pip.setAttribute("aria-hidden", "false");
-    pip.classList.toggle("combo-fever", comboCount >= 15);
-    pip.classList.toggle("combo-fever-max", comboCount >= 20);
+    pip.classList.toggle("combo-fever", comboCount >= 15 && comboCount < 50);
+    pip.classList.toggle("combo-fever-max", comboCount >= 20 && comboCount < 50);
+    pip.classList.toggle("combo-inferno", comboCount >= 50);
     if (bump) {
       pip.classList.remove("combo-bump");
       void (pip as HTMLElement).offsetWidth;
@@ -595,7 +596,7 @@ function syncComboPip(bump = false, expire = false) {
     }
   } else if (!pip.classList.contains("combo-expire")) {
     pip.classList.add("hidden");
-    pip.classList.remove("combo-bump", "combo-fever", "combo-fever-max");
+    pip.classList.remove("combo-bump", "combo-fever", "combo-fever-max", "combo-inferno");
     pip.setAttribute("aria-hidden", "true");
     pip.textContent = "1";
   }
@@ -653,7 +654,27 @@ export function flashManaDeny(spellId?: string) {
     btn.classList.remove("mana-flash");
     void btn.offsetWidth;
     btn.classList.add("mana-flash");
+    const cost = btn.querySelector<HTMLElement>(".spell-cost");
+    if (cost) {
+      cost.classList.remove("cost-deny-flash");
+      void cost.offsetWidth;
+      cost.classList.add("cost-deny-flash");
+    }
   });
+}
+
+/** Brief screen-edge crimson sting when Judge slam hits the player. */
+export function flashSlamSting() {
+  const el = document.getElementById("slam-sting");
+  if (!el) return;
+  document.body.classList.remove("slam-sting");
+  void document.body.offsetWidth;
+  document.body.classList.add("slam-sting");
+  el.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    document.body.classList.remove("slam-sting");
+    el.setAttribute("aria-hidden", "true");
+  }, 420);
 }
 
 function pingSpellReady(btn: HTMLElement) {
