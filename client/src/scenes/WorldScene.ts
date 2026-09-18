@@ -14,7 +14,7 @@ import {
   noteSpellCast,
   flashManaDeny,
 } from "../ui/hud";
-import { SPELLS, type SpellId } from "../spells";
+import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
 import {
   SmoothStore,
@@ -73,6 +73,9 @@ import {
   drawWardChargeTelegraph,
   drawBurstGroundTelegraph,
   drawBossTelegraph,
+  drawGaleRangePreview,
+  drawOutOfRangeFoeMark,
+  drawPortalChargeRing,
   buildGroundTiles,
   destroyGroundTiles,
   facing8FromWorldVel,
@@ -140,10 +143,16 @@ const LABEL_FAR_RANGE = 16;
 /** Brief combat freeze on solid hits (ms wall-clock). */
 const HIT_STOP_MS = 58;
 const HIT_STOP_KILL_MS = 90;
-/** Gale Bolt: hold past this → aim mode; shorter = tap nearest-foe cast. */
-const GALE_HOLD_AIM_MS = 200;
-/** Finger/mouse must leave button center by this many CSS px to count as aimed. */
+/** Spell hold: past this → full telegraph / Gale aim mode; shorter tap still casts on release. */
+const SPELL_HOLD_CONFIRM_MS = 200;
+/** Finger/mouse must leave button center by this many CSS px to count as Gale-aimed. */
 const GALE_DRAG_AIM_PX = 26;
+/** Foes between GALE_RANGE and GALE_RANGE+this get an out-of-range mark while aiming. */
+const GALE_OUTSIDE_SLACK = 2.8;
+/** Hold Interact this long to travel through a portal (cancel if released early). */
+const PORTAL_HOLD_MS = 420;
+/** Merge identical floating damage into N×count within this window (ms). */
+const DMG_STACK_WINDOW_MS = 480;
 /** Damage ≥ this gets crit-style flash (scale punch + white flash). */
 const CRIT_DMG_FLASH = 36;
 /** Soft vignette punch alpha during canto travel. */
@@ -263,10 +272,11 @@ export class WorldScene extends Phaser.Scene {
   /** Remote player last render pos + moving timestamp so they stride too. */
   remotePrev = new Map<string, { x: number; y: number; movedAt: number; facing: Facing8 }>();
   /**
-   * Gale Bolt hold-to-aim. Tap = nearest foe; hold shows aim line; release casts;
-   * Esc / drag-off-before-aim cancels.
+   * Spell hold-to-confirm. Gale: aim line + range preview; Ward/Burst: charge telegraph.
+   * Release casts; Esc / drag-off cancels; short tap still casts.
    */
-  galeAim: {
+  spellHold: {
+    spellId: SpellId;
     fromKey: boolean;
     pointerId: number | null;
     startMs: number;
@@ -274,10 +284,33 @@ export class WorldScene extends Phaser.Scene {
     aimY: number;
     aimed: boolean;
     btnEl: HTMLElement | null;
-    /** Document listeners while pointer aim is active. */
     onMove: ((e: PointerEvent) => void) | null;
     onUp: ((e: PointerEvent) => void) | null;
   } | null = null;
+  /** Portal / exit travel charge — must hold to completion. */
+  portalHold: {
+    target: any;
+    fromKey: boolean;
+    pointerId: number | null;
+    startMs: number;
+    completed: boolean;
+    onUp: ((e: PointerEvent) => void) | null;
+  } | null = null;
+  /** Active stacked damage floats keyed by target id ("you" for self). */
+  dmgStacks = new Map<
+    string,
+    {
+      text: Phaser.GameObjects.Text;
+      amount: number;
+      count: number;
+      lastAt: number;
+      isPlayer: boolean;
+      baseY: number;
+      baseX: number;
+    }
+  >();
+  /** True while websocket is down — local player rendered dim / ghost. */
+  netOffline = false;
   /** Reused floating damage Text objects. */
   dmgPool: Phaser.GameObjects.Text[] = [];
 
@@ -344,12 +377,17 @@ export class WorldScene extends Phaser.Scene {
         togglePanel("ah");
         this.socket.ahBrowse();
       });
-      this.keys.ONE.on("down", () => this.beginGaleAim({ fromKey: true }));
-      this.keys.ONE.on("up", () => this.releaseGaleAim(true));
-      this.keys.TWO.on("down", () => this.castSpell("whirl_ward"));
-      this.keys.THREE.on("down", () => this.castSpell("infernal_burst"));
+      this.keys.ONE.on("down", () => this.beginSpellHold("gale_bolt", { fromKey: true }));
+      this.keys.ONE.on("up", () => this.releaseSpellHold(true));
+      this.keys.TWO.on("down", () => this.beginSpellHold("whirl_ward", { fromKey: true }));
+      this.keys.TWO.on("up", () => this.releaseSpellHold(true));
+      this.keys.THREE.on("down", () => this.beginSpellHold("infernal_burst", { fromKey: true }));
+      this.keys.THREE.on("up", () => this.releaseSpellHold(true));
       const esc = kb.addKey("ESC");
-      esc.on("down", () => this.cancelGaleAim());
+      esc.on("down", () => {
+        this.cancelSpellHold();
+        this.cancelPortalHold();
+      });
     }
 
     this.input.addPointer(2);
@@ -389,7 +427,11 @@ export class WorldScene extends Phaser.Scene {
           return;
         }
         if (hit.kind === "poi" || hit.kind === "exit") {
-          this.doInteract(hit);
+          if (hit.kind === "exit" || hit.poiKind === "portal") {
+            this.beginPortalHold(hit, { fromKey: false, pointerId: pointer.id });
+          } else {
+            this.doInteract(hit);
+          }
           return;
         }
       }
@@ -449,12 +491,15 @@ export class WorldScene extends Phaser.Scene {
         this.socket.unequip({ itemId: String(id) });
       },
       castSpell: (spellId) => this.castSpell(spellId),
-      onGaleAimStart: (ev) => this.beginGaleAim({ fromKey: false, pointer: ev }),
-      onGaleAimMove: (ev) => this.updateGaleAimPointer(ev),
-      onGaleAimEnd: (ev, cast) => {
-        if (!cast) this.cancelGaleAim();
-        else this.releaseGaleAim(true, ev);
+      onSpellHoldStart: (spellId, ev) =>
+        this.beginSpellHold(spellId, { fromKey: false, pointer: ev }),
+      onSpellHoldMove: (_spellId, ev) => this.updateSpellHoldPointer(ev),
+      onSpellHoldEnd: (_spellId, ev, cast) => {
+        if (!cast) this.cancelSpellHold();
+        else this.releaseSpellHold(true, ev);
       },
+      onInteractHoldStart: (ev) => this.beginInteractHold(ev),
+      onInteractHoldEnd: (ev, completed) => this.endInteractHold(ev, completed),
     });
   }
 
@@ -534,17 +579,19 @@ export class WorldScene extends Phaser.Scene {
     return { x: this.aimX / len, y: this.aimY / len };
   }
 
-  beginGaleAim(o: { fromKey: boolean; pointer?: PointerEvent }) {
+  beginSpellHold(spellId: SpellId, o: { fromKey: boolean; pointer?: PointerEvent }) {
     if (!this.room || this.pendingCast) return;
-    if (this.galeAim) this.cancelGaleAim();
-    const seed = this.nearestGaleAim();
-    const btn = document.getElementById("btn-spell-gale_bolt");
-    this.galeAim = {
+    if (this.spellHold) this.cancelSpellHold();
+    const seed = spellId === "gale_bolt" ? this.nearestGaleAim() : { x: this.aimX, y: this.aimY };
+    const len = Math.hypot(seed.x, seed.y) || 1;
+    const btn = document.getElementById(`btn-spell-${spellId}`);
+    this.spellHold = {
+      spellId,
       fromKey: o.fromKey,
       pointerId: o.pointer?.pointerId ?? null,
       startMs: performance.now(),
-      aimX: seed.x,
-      aimY: seed.y,
+      aimX: seed.x / len,
+      aimY: seed.y / len,
       aimed: false,
       btnEl: btn,
       onMove: null,
@@ -552,25 +599,25 @@ export class WorldScene extends Phaser.Scene {
     };
     btn?.classList.add("aiming");
     if (!o.fromKey && o.pointer) {
-      const onMove = (e: PointerEvent) => this.updateGaleAimPointer(e);
+      const onMove = (e: PointerEvent) => this.updateSpellHoldPointer(e);
       const onUp = (e: PointerEvent) => {
-        if (this.galeAim?.pointerId != null && e.pointerId !== this.galeAim.pointerId) return;
-        this.releaseGaleAim(true, e);
+        if (this.spellHold?.pointerId != null && e.pointerId !== this.spellHold.pointerId) return;
+        this.releaseSpellHold(true, e);
       };
-      this.galeAim.onMove = onMove;
-      this.galeAim.onUp = onUp;
+      this.spellHold.onMove = onMove;
+      this.spellHold.onUp = onUp;
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
     }
   }
 
-  updateGaleAimPointer(ev: PointerEvent) {
-    const g = this.galeAim;
+  updateSpellHoldPointer(ev: PointerEvent) {
+    const g = this.spellHold;
     if (!g || g.fromKey) return;
     if (g.pointerId != null && ev.pointerId !== g.pointerId) return;
-    // Drag-off cancel before aim locks: pointer left the button without enough drag
-    if (!g.aimed && g.btnEl) {
+    // Drag-off cancel: left the button without locking Gale aim / without hold confirm
+    if (g.btnEl) {
       const r = g.btnEl.getBoundingClientRect();
       const pad = 10;
       const inside =
@@ -581,18 +628,24 @@ export class WorldScene extends Phaser.Scene {
       const cx = (r.left + r.right) / 2;
       const cy = (r.top + r.bottom) / 2;
       const drag = Math.hypot(ev.clientX - cx, ev.clientY - cy);
-      if (!inside && drag < GALE_DRAG_AIM_PX) {
-        this.cancelGaleAim();
+      if (g.spellId === "gale_bolt") {
+        if (!g.aimed && !inside && drag < GALE_DRAG_AIM_PX) {
+          this.cancelSpellHold();
+          return;
+        }
+        if (drag >= GALE_DRAG_AIM_PX) g.aimed = true;
+      } else if (!inside) {
+        // Ward / Burst: leaving the button cancels
+        this.cancelSpellHold();
         return;
       }
-      if (drag >= GALE_DRAG_AIM_PX) g.aimed = true;
     }
-    this.setGaleAimFromClient(ev.clientX, ev.clientY);
+    if (g.spellId === "gale_bolt") this.setGaleAimFromClient(ev.clientX, ev.clientY);
   }
 
   /** Aim gale from screen client coords → world direction from player. */
   private setGaleAimFromClient(clientX: number, clientY: number) {
-    if (!this.galeAim) return;
+    if (!this.spellHold || this.spellHold.spellId !== "gale_bolt") return;
     const canvas = this.game.canvas;
     const rect = canvas.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return;
@@ -605,20 +658,21 @@ export class WorldScene extends Phaser.Scene {
     let ay = w.y - you.y;
     const len = Math.hypot(ax, ay);
     if (len < 0.15) return;
-    this.galeAim.aimX = ax / len;
-    this.galeAim.aimY = ay / len;
-    this.galeAim.aimed = true;
-    const f = facing8FromWorldVel(this.galeAim.aimX, this.galeAim.aimY, 0.01);
+    this.spellHold.aimX = ax / len;
+    this.spellHold.aimY = ay / len;
+    this.spellHold.aimed = true;
+    const f = facing8FromWorldVel(this.spellHold.aimX, this.spellHold.aimY, 0.01);
     if (f) this.facing8 = f;
   }
 
-  /** While key-hold aiming, track mouse over the canvas. */
-  private tickGaleKeyAim() {
-    const g = this.galeAim;
+  /** While key-hold aiming Gale, track mouse over the canvas. */
+  private tickSpellKeyAim() {
+    const g = this.spellHold;
     if (!g || !g.fromKey) return;
+    if (g.spellId !== "gale_bolt") return;
     const ptr = this.input.activePointer;
     if (!ptr) return;
-    const heldLong = performance.now() - g.startMs >= GALE_HOLD_AIM_MS;
+    const heldLong = performance.now() - g.startMs >= SPELL_HOLD_CONFIRM_MS;
     if (!heldLong) return;
     const canvas = this.game.canvas;
     const rect = canvas.getBoundingClientRect();
@@ -627,41 +681,150 @@ export class WorldScene extends Phaser.Scene {
     this.setGaleAimFromClient(clientX, clientY);
   }
 
-  releaseGaleAim(cast: boolean, ev?: PointerEvent) {
-    const g = this.galeAim;
+  releaseSpellHold(cast: boolean, ev?: PointerEvent) {
+    const g = this.spellHold;
     if (!g) return;
     if (ev && g.pointerId != null && ev.pointerId !== g.pointerId) return;
     const heldMs = performance.now() - g.startMs;
+    const spellId = g.spellId;
     const aimX = g.aimX;
     const aimY = g.aimY;
-    const aimed = g.aimed || heldMs >= GALE_HOLD_AIM_MS;
-    this.clearGaleAimListeners();
-    this.galeAim = null;
-    document.getElementById("btn-spell-gale_bolt")?.classList.remove("aiming");
+    const aimed = g.aimed || heldMs >= SPELL_HOLD_CONFIRM_MS;
+    const btnId = `btn-spell-${spellId}`;
+    this.clearSpellHoldListeners();
+    this.spellHold = null;
+    document.getElementById(btnId)?.classList.remove("aiming");
     if (!cast) return;
-    if (aimed) {
-      this.castSpell("gale_bolt", { aimX, aimY, preferNearest: false });
+    if (spellId === "gale_bolt") {
+      if (aimed) this.castSpell("gale_bolt", { aimX, aimY, preferNearest: false });
+      else this.castSpell("gale_bolt", { preferNearest: true });
     } else {
-      // Quick tap — nearest foe
-      this.castSpell("gale_bolt", { preferNearest: true });
+      this.castSpell(spellId);
     }
   }
 
-  cancelGaleAim() {
-    if (!this.galeAim) return;
-    this.clearGaleAimListeners();
-    this.galeAim = null;
-    document.getElementById("btn-spell-gale_bolt")?.classList.remove("aiming");
+  cancelSpellHold() {
+    if (!this.spellHold) return;
+    const btnId = `btn-spell-${this.spellHold.spellId}`;
+    this.clearSpellHoldListeners();
+    this.spellHold = null;
+    document.getElementById(btnId)?.classList.remove("aiming");
   }
 
-  private clearGaleAimListeners() {
-    const g = this.galeAim;
+  private clearSpellHoldListeners() {
+    const g = this.spellHold;
     if (!g) return;
     if (g.onMove) window.removeEventListener("pointermove", g.onMove);
     if (g.onUp) {
       window.removeEventListener("pointerup", g.onUp);
       window.removeEventListener("pointercancel", g.onUp);
     }
+  }
+
+  /** True when nearest interactable is a portal / exit that needs hold-to-travel. */
+  private nearestIsPortalTravel(): any | null {
+    if (!this.room) return null;
+    const you = this.youPos();
+    let best: any = null;
+    let bestD = EXIT_TRAVEL_RANGE;
+    for (const e of this.room.entities) {
+      if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  beginInteractHold(ev?: PointerEvent) {
+    const portal = this.nearestIsPortalTravel();
+    if (portal) {
+      this.beginPortalHold(portal, { fromKey: false, pointer: ev });
+      return;
+    }
+    // Non-portal: fire immediately on press (no charge ring)
+    document.getElementById("btn-interact")?.classList.remove("charging");
+    this.interactNearest();
+  }
+
+  endInteractHold(_ev: PointerEvent, completed: boolean) {
+    const ph = this.portalHold;
+    if (!ph || ph.fromKey) {
+      document.getElementById("btn-interact")?.classList.remove("charging");
+      return;
+    }
+    if (!completed || !ph.completed) {
+      this.cancelPortalHold();
+      return;
+    }
+    // Charge already finished in tickPortalHold — just clear CSS
+    document.getElementById("btn-interact")?.classList.remove("charging");
+  }
+
+  beginPortalHold(
+    target: any,
+    o: { fromKey: boolean; pointer?: PointerEvent; pointerId?: number }
+  ) {
+    if (!target) return;
+    if (this.portalHold) this.cancelPortalHold();
+    this.portalHold = {
+      target,
+      fromKey: o.fromKey,
+      pointerId: o.pointer?.pointerId ?? o.pointerId ?? null,
+      startMs: performance.now(),
+      completed: false,
+      onUp: null,
+    };
+    document.getElementById("btn-interact")?.classList.add("charging");
+    // Cancel if finger/mouse released before charge completes (Interact btn + world tap)
+    if (!o.fromKey) {
+      const onUp = (e: PointerEvent) => {
+        const ph = this.portalHold;
+        if (!ph || ph.fromKey) return;
+        if (ph.pointerId != null && e.pointerId !== ph.pointerId) return;
+        if (!ph.completed) this.cancelPortalHold();
+      };
+      this.portalHold.onUp = onUp;
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    }
+  }
+
+  cancelPortalHold() {
+    if (!this.portalHold) return;
+    const onUp = this.portalHold.onUp;
+    if (onUp) {
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    }
+    this.portalHold = null;
+    document.getElementById("btn-interact")?.classList.remove("charging");
+  }
+
+  /** Advance portal charge; travel when full. */
+  private tickPortalHold() {
+    const ph = this.portalHold;
+    if (!ph || ph.completed) return;
+    // Key hold: cancel if E released early
+    if (ph.fromKey && this.keys && !this.keys.E.isDown) {
+      this.cancelPortalHold();
+      return;
+    }
+    const held = performance.now() - ph.startMs;
+    if (held < PORTAL_HOLD_MS) return;
+    ph.completed = true;
+    const dest =
+      ph.target.toCanto === "inferno_05"
+        ? "Lust"
+        : ph.target.label || ph.target.name || "portal";
+    showToast(`Entering ${dest}…`, "emit");
+    const target = ph.target;
+    // Clear hold (and pointer listeners) before travel
+    this.cancelPortalHold();
+    this.doInteract(target);
   }
 
   /** Fire the pending cast once the telegraph windup completes. */
@@ -983,8 +1146,10 @@ export class WorldScene extends Phaser.Scene {
       }
       case "net":
         if (msg.state === "disconnected") {
+          this.netOffline = true;
           showToast("Connection lost — reconnecting…", "warn");
         } else if (msg.state === "reconnected") {
+          this.netOffline = false;
           showToast("Reconnected", "info");
         }
         break;
@@ -1232,82 +1397,155 @@ export class WorldScene extends Phaser.Scene {
   /** Crimson float above local player — camera-locked so flash/shake cannot hide it. */
   showPlayerDamageNumber(dmg: number) {
     if (dmg == null) return;
-    const cam = this.cameras.main;
-    const world = worldToScreen(this.renderYou.x, this.renderYou.y);
-    const sx = world.sx - cam.scrollX + (Math.random() - 0.5) * 16;
-    const sy = world.sy - cam.scrollY - 78;
-    const compact = isCompactUi();
-    const crit = dmg >= CRIT_DMG_FLASH;
-    const t = this.acquireDmgText();
-    t.setText(String(dmg))
-      .setPosition(sx, sy)
-      .setDepth(12000)
-      .setScrollFactor(0)
-      .setColor(crit ? "#fff6e8" : "#ff7a68")
-      .setStroke(crit ? "#4a1808" : "#2a0806", 7)
-      .setFontSize(compact ? (crit ? "44px" : "38px") : crit ? "34px" : "28px")
-      .setScale(crit ? 2.15 : 1.7);
-    if (crit) this.cameras.main.flash(55, 255, 230, 180, false);
-    this.tweens.add({
-      targets: t,
-      scale: crit ? 1.15 : 1,
-      duration: crit ? 180 : 150,
-      ease: "Back.easeOut",
-    });
-    this.tweens.add({
-      targets: t,
-      y: sy - (crit ? 72 : 60),
-      alpha: 0,
-      duration: crit ? 1100 : 980,
-      delay: 130,
-      ease: "Cubic.easeOut",
-      onComplete: () => this.releaseDmgText(t),
-    });
+    this.pushStackedDamage("you", dmg, true);
   }
 
-  /** Floating damage number (gold by default) — pooled Text + crit flash on big hits. */
+  /** Floating damage number (gold by default) — pooled Text + crit flash; stacks multi-hits. */
   showDamageNumber(
-    ent: { x: number; y: number; kind: string },
+    ent: { x: number; y: number; kind: string; id?: string | number },
     dmg: number,
     o?: { color?: string; screen?: { sx: number; sy: number } }
   ) {
     if (dmg == null) return;
-    let p = o?.screen;
-    if (!p) {
-      const pos = this.entityRenderPos(ent as any);
-      p = worldToScreen(pos.x, pos.y);
+    const key = ent.id != null ? String(ent.id) : `anon:${ent.x},${ent.y}`;
+    this.pushStackedDamage(key, dmg, false, ent, o);
+  }
+
+  /**
+   * Merge rapid identical hits into e.g. 36×3. Different amounts start a fresh float.
+   */
+  private pushStackedDamage(
+    key: string,
+    dmg: number,
+    isPlayer: boolean,
+    ent?: { x: number; y: number; kind: string },
+    o?: { color?: string; screen?: { sx: number; sy: number } }
+  ) {
+    const now = performance.now();
+    const existing = this.dmgStacks.get(key);
+    if (
+      existing &&
+      now - existing.lastAt < DMG_STACK_WINDOW_MS &&
+      existing.amount === dmg &&
+      existing.isPlayer === isPlayer
+    ) {
+      existing.count += 1;
+      existing.lastAt = now;
+      existing.text.setText(`${existing.amount}×${existing.count}`);
+      // Punch the stack again (keep anchored to baseY so stacks don't drift)
+      this.tweens.killTweensOf(existing.text);
+      existing.text.setAlpha(1).setPosition(existing.baseX, existing.baseY);
+      const crit = existing.amount * existing.count >= CRIT_DMG_FLASH || existing.amount >= CRIT_DMG_FLASH;
+      existing.text.setScale(crit ? 1.55 : 1.35);
+      this.tweens.add({
+        targets: existing.text,
+        scale: crit ? 1.15 : 1,
+        duration: 140,
+        ease: "Back.easeOut",
+      });
+      this.tweens.add({
+        targets: existing.text,
+        y: existing.baseY - (crit ? 56 : 48),
+        alpha: 0,
+        duration: crit ? 1000 : 880,
+        delay: 160,
+        ease: "Cubic.easeOut",
+        onComplete: () => {
+          this.dmgStacks.delete(key);
+          this.releaseDmgText(existing.text);
+        },
+      });
+      return;
     }
+    if (existing) {
+      this.tweens.killTweensOf(existing.text);
+      this.dmgStacks.delete(key);
+      this.releaseDmgText(existing.text);
+    }
+
     const compact = isCompactUi();
-    const drift = (Math.random() - 0.5) * 26;
     const crit = dmg >= CRIT_DMG_FLASH;
     const t = this.acquireDmgText();
-    t.setText(String(dmg))
-      .setPosition(p.sx + drift, p.sy - (ent.kind === "boss" ? 102 : 68))
-      .setDepth(9500)
-      .setScrollFactor(1)
-      .setColor(crit ? "#fff8e0" : o?.color || "#ffe08a")
-      .setStroke(crit ? "#5a2a08" : "#1a0a06", crit ? 8 : 7)
-      .setFontSize(compact ? (crit ? "40px" : "34px") : crit ? "30px" : "24px")
-      .setScale(crit ? 2.2 : 1.75);
-    if (crit) {
-      this.cameras.main.flash(48, 255, 240, 200, false);
-      this.cameraPunch(0.035, 120);
+    if (isPlayer) {
+      const cam = this.cameras.main;
+      const world = worldToScreen(this.renderYou.x, this.renderYou.y);
+      const sx = world.sx - cam.scrollX + (Math.random() - 0.5) * 16;
+      const sy = world.sy - cam.scrollY - 78;
+      t.setText(String(dmg))
+        .setPosition(sx, sy)
+        .setDepth(12000)
+        .setScrollFactor(0)
+        .setColor(crit ? "#fff6e8" : "#ff7a68")
+        .setStroke(crit ? "#4a1808" : "#2a0806", 7)
+        .setFontSize(compact ? (crit ? "44px" : "38px") : crit ? "34px" : "28px")
+        .setScale(crit ? 2.15 : 1.7);
+      if (crit) this.cameras.main.flash(55, 255, 230, 180, false);
+      this.tweens.add({
+        targets: t,
+        scale: crit ? 1.15 : 1,
+        duration: crit ? 180 : 150,
+        ease: "Back.easeOut",
+      });
+      this.tweens.add({
+        targets: t,
+        y: sy - (crit ? 72 : 60),
+        alpha: 0,
+        duration: crit ? 1100 : 980,
+        delay: 130,
+        ease: "Cubic.easeOut",
+        onComplete: () => {
+          this.dmgStacks.delete(key);
+          this.releaseDmgText(t);
+        },
+      });
+    } else {
+      const e = ent!;
+      let p = o?.screen;
+      if (!p) {
+        const pos = this.entityRenderPos(e as any);
+        p = worldToScreen(pos.x, pos.y);
+      }
+      const drift = (Math.random() - 0.5) * 26;
+      t.setText(String(dmg))
+        .setPosition(p.sx + drift, p.sy - (e.kind === "boss" ? 102 : 68))
+        .setDepth(9500)
+        .setScrollFactor(1)
+        .setColor(crit ? "#fff8e0" : o?.color || "#ffe08a")
+        .setStroke(crit ? "#5a2a08" : "#1a0a06", crit ? 8 : 7)
+        .setFontSize(compact ? (crit ? "40px" : "34px") : crit ? "30px" : "24px")
+        .setScale(crit ? 2.2 : 1.75);
+      if (crit) {
+        this.cameras.main.flash(48, 255, 240, 200, false);
+        this.cameraPunch(0.035, 120);
+      }
+      this.tweens.add({
+        targets: t,
+        scale: crit ? 1.2 : 1,
+        duration: crit ? 180 : 160,
+        ease: "Back.easeOut",
+      });
+      this.tweens.add({
+        targets: t,
+        x: t.x + drift * 0.85,
+        y: t.y - (compact ? (crit ? 64 : 52) : crit ? 52 : 40),
+        alpha: 0,
+        duration: crit ? 1050 : 900,
+        delay: 150,
+        ease: "Cubic.easeOut",
+        onComplete: () => {
+          this.dmgStacks.delete(key);
+          this.releaseDmgText(t);
+        },
+      });
     }
-    this.tweens.add({
-      targets: t,
-      scale: crit ? 1.2 : 1,
-      duration: crit ? 180 : 160,
-      ease: "Back.easeOut",
-    });
-    this.tweens.add({
-      targets: t,
-      x: t.x + drift * 0.85,
-      y: t.y - (compact ? (crit ? 64 : 52) : crit ? 52 : 40),
-      alpha: 0,
-      duration: crit ? 1050 : 900,
-      delay: 150,
-      ease: "Cubic.easeOut",
-      onComplete: () => this.releaseDmgText(t),
+    this.dmgStacks.set(key, {
+      text: t,
+      amount: dmg,
+      count: 1,
+      lastAt: now,
+      isPlayer,
+      baseX: t.x,
+      baseY: t.y,
     });
   }
 
@@ -1441,7 +1679,15 @@ export class WorldScene extends Phaser.Scene {
     sx: number,
     sy: number,
     depth: number,
-    opts?: { tint?: number; bob?: number; flipX?: boolean; scale?: number; squash?: number; rot?: number }
+    opts?: {
+      tint?: number;
+      bob?: number;
+      flipX?: boolean;
+      scale?: number;
+      squash?: number;
+      rot?: number;
+      alpha?: number;
+    }
   ): boolean {
     if (!this.doreOk(texKey)) {
       this.hideSprite(id);
@@ -1490,6 +1736,7 @@ export class WorldScene extends Phaser.Scene {
     img.setPosition(sx + ox, sy - 4 + bob + oy);
     img.setDepth(depth);
     img.setVisible(true);
+    img.setAlpha(opts?.alpha ?? 1);
     if (!fxActive) {
       if (opts?.tint != null) img.setTint(opts.tint);
       else img.clearTint();
@@ -1707,25 +1954,58 @@ export class WorldScene extends Phaser.Scene {
       drawWardRingGfx(g, p.sx, p.sy, this.animT, 0.55 + fade * 0.45);
     }
 
-    // Gale hold-to-aim line (before cast windup)
-    if (this.galeAim) {
-      const held = performance.now() - this.galeAim.startMs;
-      const charge = Math.min(1, held / Math.max(1, GALE_HOLD_AIM_MS));
+    // Spell hold telegraphs (Gale aim+range / Ward charge / Burst ground)
+    if (this.spellHold) {
+      const sh = this.spellHold;
+      const held = performance.now() - sh.startMs;
+      const charge = Math.min(1, held / Math.max(1, SPELL_HOLD_CONFIRM_MS));
       const you = worldToScreen(this.renderYou.x, this.renderYou.y);
-      const reach = 7.2;
-      const tip = worldToScreen(
-        this.renderYou.x + this.galeAim.aimX * reach,
-        this.renderYou.y + this.galeAim.aimY * reach
-      );
-      // Dim line until hold locks into aim mode, then full telegraph
-      drawGaleAimTelegraph(
-        g,
-        you.sx,
-        you.sy - 10,
-        tip.sx,
-        tip.sy - 10,
-        this.galeAim.aimed || held >= GALE_HOLD_AIM_MS ? Math.max(0.45, charge) : 0.22 + charge * 0.25
-      );
+      if (sh.spellId === "gale_bolt") {
+        const reach = GALE_RANGE;
+        const tip = worldToScreen(
+          this.renderYou.x + sh.aimX * reach,
+          this.renderYou.y + sh.aimY * reach
+        );
+        let outsideHint = false;
+        if (this.room) {
+          for (const e of this.room.entities) {
+            if (e.kind !== "mob" && e.kind !== "boss") continue;
+            const pos = this.entityRenderPos(e);
+            const d = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+            if (d > GALE_RANGE && d <= GALE_RANGE + GALE_OUTSIDE_SLACK) {
+              outsideHint = true;
+              const fp = worldToScreen(pos.x, pos.y);
+              drawOutOfRangeFoeMark(g, fp.sx, fp.sy, this.animT);
+            }
+          }
+        }
+        const locked = sh.aimed || held >= SPELL_HOLD_CONFIRM_MS;
+        const alpha = locked ? Math.max(0.45, charge) : 0.22 + charge * 0.25;
+        drawGaleRangePreview(
+          g,
+          you.sx,
+          you.sy,
+          tip.sx,
+          tip.sy - 10,
+          GALE_RANGE,
+          alpha,
+          { outsideHint }
+        );
+        drawGaleAimTelegraph(g, you.sx, you.sy - 10, tip.sx, tip.sy - 10, alpha);
+      } else if (sh.spellId === "whirl_ward") {
+        drawWardChargeTelegraph(g, you.sx, you.sy, Math.max(0.2, charge), this.animT);
+      } else if (sh.spellId === "infernal_burst") {
+        drawBurstGroundTelegraph(g, you.sx, you.sy, Math.max(0.2, charge), BURST_RADIUS);
+      }
+    }
+
+    // Portal travel charge ring
+    if (this.portalHold && !this.portalHold.completed) {
+      const ph = this.portalHold;
+      const charge = Math.min(1, (performance.now() - ph.startMs) / PORTAL_HOLD_MS);
+      const pos = this.entityRenderPos(ph.target);
+      const pp = worldToScreen(pos.x, pos.y);
+      drawPortalChargeRing(g, pp.sx, pp.sy, charge, this.animT);
     }
 
     // Spell cast telegraphs (aim line / ward charge / burst ground circle)
@@ -1734,16 +2014,17 @@ export class WorldScene extends Phaser.Scene {
       const charge = Math.min(1, (this.animT - pc.start) / Math.max(1, pc.until - pc.start));
       const you = worldToScreen(this.renderYou.x, this.renderYou.y);
       if (pc.spellId === "gale_bolt") {
-        const reach = 7.2;
+        const reach = GALE_RANGE;
         const tip = worldToScreen(
           this.renderYou.x + pc.aimX * reach,
           this.renderYou.y + pc.aimY * reach
         );
+        drawGaleRangePreview(g, you.sx, you.sy, tip.sx, tip.sy - 10, GALE_RANGE, charge);
         drawGaleAimTelegraph(g, you.sx, you.sy - 10, tip.sx, tip.sy - 10, charge);
       } else if (pc.spellId === "whirl_ward") {
         drawWardChargeTelegraph(g, you.sx, you.sy, charge, this.animT);
       } else if (pc.spellId === "infernal_burst") {
-        drawBurstGroundTelegraph(g, you.sx, you.sy, charge, 4.2);
+        drawBurstGroundTelegraph(g, you.sx, you.sy, charge, BURST_RADIUS);
       }
     }
 
@@ -1995,6 +2276,8 @@ export class WorldScene extends Phaser.Scene {
           scale: vis.scale,
           squash: vis.squash,
           rot: vis.rot,
+          alpha: this.netOffline ? 0.42 : 1,
+          tint: this.netOffline ? 0x8899aa : undefined,
         })
       ) {
         seenSprites.add(sid);
@@ -2378,7 +2661,9 @@ export class WorldScene extends Phaser.Scene {
         dy -= 1;
       }
       if (Phaser.Input.Keyboard.JustDown(keys.E)) {
-        this.interactNearest();
+        const portal = this.nearestIsPortalTravel();
+        if (portal) this.beginPortalHold(portal, { fromKey: true });
+        else this.interactNearest();
       }
     }
 
@@ -2445,13 +2730,14 @@ export class WorldScene extends Phaser.Scene {
           const now = Date.now();
           if (now - this.nearExitToastAt > 8000) {
             this.nearExitToastAt = now;
-            showToast("Portal near — press Interact to enter Lust", "info");
+            showToast("Portal near — hold Interact to enter Lust", "info");
           }
         }
       }
     }
 
-    this.tickGaleKeyAim();
+    this.tickSpellKeyAim();
+    this.tickPortalHold();
     this.redraw();
     this.centerOnYou(false);
     this.layoutVignette();

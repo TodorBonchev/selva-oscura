@@ -479,10 +479,13 @@ export function wireHud(api: {
   equipSelected?: () => void;
   unequipSelected?: () => void;
   castSpell?: (spellId: SpellId) => void;
-  /** Gale Bolt hold-to-aim (pointer). Other spells stay tap-to-cast. */
-  onGaleAimStart?: (ev: PointerEvent) => void;
-  onGaleAimMove?: (ev: PointerEvent) => void;
-  onGaleAimEnd?: (ev: PointerEvent, cast: boolean) => void;
+  /** Spell hold-to-confirm (Gale aim / Ward+Burst telegraph). */
+  onSpellHoldStart?: (spellId: SpellId, ev: PointerEvent) => void;
+  onSpellHoldMove?: (spellId: SpellId, ev: PointerEvent) => void;
+  onSpellHoldEnd?: (spellId: SpellId, ev: PointerEvent, cast: boolean) => void;
+  /** Portal travel: hold Interact to charge; release early cancels. Non-portal = tap. */
+  onInteractHoldStart?: (ev: PointerEvent) => void;
+  onInteractHoldEnd?: (ev: PointerEvent, completed: boolean) => void;
 }) {
   document.getElementById("btn-list")?.addEventListener("click", () => {
     const price = Number((document.getElementById("list-price") as HTMLInputElement)?.value);
@@ -509,11 +512,51 @@ export function wireHud(api: {
     api.toggleAh();
   });
   const interact = document.getElementById("btn-interact");
-  interact?.addEventListener("click", (e) => {
-    e.preventDefault();
-    hapticLight();
-    api.interactNearest();
-  });
+  if (interact && api.onInteractHoldStart) {
+    let interactArmed = false;
+    interact.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      interactArmed = true;
+      try {
+        interact.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      interact.classList.add("pressed", "charging");
+      hapticLight();
+      api.onInteractHoldStart?.(e);
+    });
+    const endInteract = (e: PointerEvent, completed: boolean) => {
+      if (!interactArmed) return;
+      interactArmed = false;
+      interact.classList.remove("pressed", "charging");
+      try {
+        interact.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      api.onInteractHoldEnd?.(e, completed);
+    };
+    interact.addEventListener("pointerup", (e) => {
+      e.preventDefault();
+      endInteract(e, true);
+    });
+    interact.addEventListener("pointercancel", (e) => {
+      e.preventDefault();
+      endInteract(e, false);
+    });
+    interact.addEventListener("pointerleave", (e) => {
+      // Drag-off cancels portal charge (scene ignores if already travelling / non-portal)
+      if (interactArmed) endInteract(e, false);
+    });
+    interact.addEventListener("click", (e) => e.preventDefault());
+  } else {
+    interact?.addEventListener("click", (e) => {
+      e.preventDefault();
+      hapticLight();
+      api.interactNearest();
+    });
+  }
   for (const b of [inv, ahBtn, interact]) if (b) wirePressed(b);
 
   const attackBtn = document.getElementById("btn-attack");
@@ -544,8 +587,8 @@ export function wireHud(api: {
   document.querySelectorAll<HTMLButtonElement>(".spell-btn[data-spell]").forEach((btn) => {
     wirePressed(btn);
     const spellId = btn.getAttribute("data-spell") as SpellId | null;
-    if (spellId === "gale_bolt" && api.onGaleAimStart) {
-      // Hold-to-aim: scene owns move/up via window listeners; cancel if released off-button before aim.
+    if (spellId && SPELLS[spellId] && api.onSpellHoldStart) {
+      // Hold-to-confirm: Gale aims; Ward/Burst show telegraph; release casts; Esc/drag-off cancels.
       btn.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -556,13 +599,13 @@ export function wireHud(api: {
         }
         btn.classList.add("pressed", "aiming");
         hapticLight();
-        api.onGaleAimStart?.(e);
+        api.onSpellHoldStart?.(spellId, e);
       });
       btn.addEventListener("pointermove", (e) => {
         if (!btn.classList.contains("aiming")) return;
-        api.onGaleAimMove?.(e);
+        api.onSpellHoldMove?.(spellId, e);
       });
-      const endGale = (e: PointerEvent, cast: boolean) => {
+      const endHold = (e: PointerEvent, cast: boolean) => {
         if (!btn.classList.contains("aiming") && !cast) return;
         btn.classList.remove("pressed", "aiming");
         try {
@@ -570,20 +613,18 @@ export function wireHud(api: {
         } catch {
           /* ignore */
         }
-        api.onGaleAimEnd?.(e, cast);
+        api.onSpellHoldEnd?.(spellId, e, cast);
       };
       btn.addEventListener("pointerup", (e) => {
         e.preventDefault();
-        endGale(e, true);
+        endHold(e, true);
       });
       btn.addEventListener("pointercancel", (e) => {
         e.preventDefault();
-        endGale(e, false);
+        endHold(e, false);
       });
-      // Drag-off before aim locks is handled in the scene; keep leave as soft cancel hint only if not aiming.
       btn.addEventListener("pointerleave", (e) => {
-        // Don't cancel here — scene decides via drag distance; leaving while aimed continues aim.
-        api.onGaleAimMove?.(e);
+        api.onSpellHoldMove?.(spellId, e);
       });
       btn.addEventListener("click", (e) => e.preventDefault());
       return;

@@ -1679,3 +1679,112 @@ export function drawBossTelegraph(
   g.lineStyle(2.5, 0xffe8a0, 0.55 + c * 0.35);
   g.strokeEllipse(sx, sy + 4, ir, ir * 0.42);
 }
+
+
+/** Gale max-range iso ellipse + soft aim cone (screen space). */
+export function drawGaleRangePreview(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  aimSx: number,
+  aimSy: number,
+  rangeWorld: number,
+  charge: number,
+  opts?: { outsideHint?: boolean }
+) {
+  const c = Math.max(0, Math.min(1, charge));
+  const scale = 18 * rangeWorld;
+  const rx = scale;
+  const ry = scale * 0.42;
+  // Soft filled range disc
+  g.fillStyle(0xff8844, 0.03 + c * 0.05);
+  g.fillEllipse(sx, sy + 4, rx, ry);
+  // Dashed outer ring
+  const segs = 28;
+  for (let i = 0; i < segs; i++) {
+    if (i % 2 === 1) continue;
+    const a0 = (i / segs) * Math.PI * 2;
+    const a1 = ((i + 0.85) / segs) * Math.PI * 2;
+    g.lineStyle(1.75, 0xffe08a, 0.22 + c * 0.35);
+    g.lineBetween(
+      sx + Math.cos(a0) * rx * 0.5,
+      sy + 4 + Math.sin(a0) * ry * 0.5,
+      sx + Math.cos(a1) * rx * 0.5,
+      sy + 4 + Math.sin(a1) * ry * 0.5
+    );
+  }
+  // Aim cone wedge toward tip
+  const dx = aimSx - sx;
+  const dy = aimSy - sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const px = -uy;
+  const py = ux;
+  const tipX = sx + ux * (rx * 0.48);
+  const tipY = sy + 4 + uy * (ry * 0.48);
+  const half = 14 + c * 10;
+  g.fillStyle(0xff6644, 0.06 + c * 0.1);
+  g.fillTriangle(sx, sy + 2, tipX + px * half, tipY + py * half * 0.45, tipX - px * half, tipY - py * half * 0.45);
+  g.lineStyle(1.5, 0xffe08a, 0.35 + c * 0.35);
+  g.lineBetween(sx, sy + 2, tipX, tipY);
+  if (opts?.outsideHint) {
+    // Slightly larger dashed ring for "just outside" band
+    const ox = rx * 1.18;
+    const oy = ry * 1.18;
+    g.lineStyle(1.25, 0xff5533, 0.18 + c * 0.2);
+    g.strokeEllipse(sx, sy + 4, ox, oy);
+  }
+}
+
+/** Dim mark on a foe just outside Gale range. */
+export function drawOutOfRangeFoeMark(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  tMs: number
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.012);
+  g.lineStyle(2, 0xff6644, 0.35 + pulse * 0.35);
+  g.strokeCircle(sx, sy - 28, 10 + pulse * 2);
+  g.lineStyle(1.25, 0xffe08a, 0.4);
+  // Small "X" ticks
+  g.lineBetween(sx - 5, sy - 33, sx + 5, sy - 23);
+  g.lineBetween(sx + 5, sy - 33, sx - 5, sy - 23);
+}
+
+/** Portal / travel hold charge ring under Interact target. */
+export function drawPortalChargeRing(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  charge: number,
+  tMs: number
+) {
+  const c = Math.max(0, Math.min(1, charge));
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.018);
+  const rx = 18 + c * 16;
+  const ry = 8 + c * 7;
+  g.fillStyle(0xc9a227, 0.05 + c * 0.12);
+  g.fillEllipse(sx, sy + 8, rx, ry);
+  g.lineStyle(2.5, 0x6a8cff, 0.3 + c * 0.45);
+  g.strokeEllipse(sx, sy + 8, rx + 2, ry + 1);
+  g.lineStyle(2, 0xffe8a0, 0.45 + c * 0.5);
+  g.strokeEllipse(sx, sy + 8, rx, ry);
+  // Sweep
+  const sweep = c * Math.PI * 2;
+  const steps = Math.max(2, Math.floor(16 * c));
+  for (let i = 0; i < steps; i++) {
+    const a0 = -Math.PI / 2 + (sweep * i) / steps;
+    const a1 = -Math.PI / 2 + (sweep * (i + 1)) / steps;
+    g.lineStyle(3, 0xa8c0ff, 0.9);
+    g.lineBetween(
+      sx + Math.cos(a0) * rx,
+      sy + 8 + Math.sin(a0) * ry,
+      sx + Math.cos(a1) * rx,
+      sy + 8 + Math.sin(a1) * ry
+    );
+  }
+  g.fillStyle(0xffe8a0, 0.5 + pulse * 0.3);
+  g.fillCircle(sx, sy - 4 - c * 8, 3 + c * 2);
+}
