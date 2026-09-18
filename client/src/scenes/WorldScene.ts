@@ -17,8 +17,10 @@ import {
   noteAttackCd,
   pulseInvBag,
   noteComboHit,
+  isComboMilestone,
   resetCombo,
   playDeathRevive,
+  flashWardSoak,
 } from "../ui/hud";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
@@ -173,8 +175,10 @@ const CRIT_DMG_FLASH = 36;
 const TRAVEL_VIGNETTE_PEAK = 0.98;
 /** Max pooled floating damage texts. */
 const DMG_POOL_MAX = 28;
-/** Show Lust/Dark Wood edge arrows beyond this world distance. */
+/** Compass arrows fully hidden inside this world distance. */
 const COMPASS_HIDE_RANGE = 8.2;
+/** Compass arrows start fading toward hide range from this distance. */
+const COMPASS_FADE_START = 14.5;
 /** Gale hold must last at least this long before cancel/confirm toasts. */
 const GALE_HOLD_TOAST_MS = 90;
 /** Ignore duplicate death FX within this window (combat + slain toast). */
@@ -1235,6 +1239,10 @@ export class WorldScene extends Phaser.Scene {
           this.triggerHitStop(HIT_STOP_MS);
           this.cameraPunch(0.028, 140);
           this.showPlayerDamageNumber(msg.damage);
+          const soaked = Number(msg.soaked) || 0;
+          if (soaked > 0 && msg.wardActive) {
+            flashWardSoak();
+          }
           if (msg.targetHp != null && msg.targetHp <= 0) {
             this.cameras.main.shake(280, 0.014);
             this.triggerDeathRevive();
@@ -1248,7 +1256,12 @@ export class WorldScene extends Phaser.Scene {
           Boolean(attacker) && (attacker === youId || attacker === sockId);
         if (weHit && ent && (ent.kind === "mob" || ent.kind === "boss")) {
           this.lastHitFoe = { id: String(ent.id), until: this.animT + GALE_STICKY_MS };
-          noteComboHit();
+          const streak = noteComboHit();
+          if (isComboMilestone(streak)) {
+            // Short camera punch at ×5 / ×10 — no toast spam
+            this.cameraPunch(streak >= 10 ? 0.055 : 0.04, streak >= 10 ? 220 : 170);
+            this.cameras.main.shake(streak >= 10 ? 90 : 60, isCompactUi() ? 0.004 : 0.0028);
+          }
         }
         if (ent) {
           const sid = `${ent.kind}:${ent.id}`;
@@ -1278,7 +1291,7 @@ export class WorldScene extends Phaser.Scene {
         const x = Number(msg.x) || 0;
         const y = Number(msg.y) || 0;
         const radius = Number(msg.radius) || 2.6;
-        const durMs = (Number(msg.duration) || 0.55) * 1000;
+        const durMs = (Number(msg.duration) || 1.4) * 1000;
         this.bossTelegraphs = this.bossTelegraphs.filter((t) => t.id !== id);
         this.bossTelegraphs.push({
           id,
@@ -2319,6 +2332,19 @@ export class WorldScene extends Phaser.Scene {
         {
           const lootDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
           const hex = "#" + tint.toString(16).padStart(6, "0");
+          // Magnet pull line toward the player while in pickup/magnet range
+          if (lootDist < MAGNET_RANGE && lootDist > 0.15) {
+            const youP = worldToScreen(this.renderYou.x, this.renderYou.y);
+            const pull = 1 - lootDist / MAGNET_RANGE;
+            const a = 0.18 + pull * 0.55;
+            g.lineStyle(compact ? 2.2 : 1.6, tint, a * 0.55);
+            g.lineBetween(p.sx, p.sy - 4, youP.sx, youP.sy - 10);
+            g.lineStyle(compact ? 1.2 : 0.9, 0xffe8a0, a);
+            g.lineBetween(p.sx, p.sy - 4, youP.sx, youP.sy - 10);
+            // Soft tip near the player feet
+            g.fillStyle(0xffe8a0, a * 0.7);
+            g.fillCircle(youP.sx, youP.sy - 10, compact ? 2.4 : 1.8);
+          }
           this.addDistanceLabel(
             `loot:${e.id}`,
             p.sx,
@@ -2825,12 +2851,78 @@ export class WorldScene extends Phaser.Scene {
     const now = Date.now();
     if (now < this.deathFxUntil) return;
     this.deathFxUntil = now + DEATH_FX_LOCK_MS;
+    this.spawnPlayerDeathGhost();
     playDeathRevive();
     const cam = this.cameras.main;
     cam.flash(160, 90, 18, 14, false);
     cam.fadeOut(140, 10, 4, 6);
     this.time.delayedCall(200, () => {
       cam.fadeIn(560, 10, 4, 6);
+    });
+  }
+
+  /**
+   * Leave a bone/crimson afterimage at the death site while the respawn veil
+   * plays — the body doesn't just teleport to the entrance.
+   */
+  private spawnPlayerDeathGhost() {
+    const src = this.entitySprites.get("you");
+    const fallback = worldToScreen(this.renderYou.x, this.renderYou.y);
+    const sx = src?.x ?? fallback.sx;
+    const sy = src?.y ?? fallback.sy;
+    const fadeMs = 720;
+    const key = src?.texture?.key;
+    if (src && key && this.textures.exists(key)) {
+      const ghost = this.add.image(sx, sy, key);
+      ghost.setOrigin(src.originX, src.originY);
+      ghost.setScale(src.scaleX, src.scaleY);
+      ghost.setFlipX(src.flipX);
+      ghost.setDepth((src.depth || 200) + 0.6);
+      ghost.setTint(0xff6a4a);
+      ghost.setAlpha(0.92);
+      ghost.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: ghost,
+        alpha: 0,
+        y: sy - 36,
+        scaleX: ghost.scaleX * 1.25,
+        scaleY: ghost.scaleY * 1.55,
+        duration: fadeMs,
+        ease: "Cubic.easeOut",
+        onComplete: () => ghost.destroy(),
+      });
+      const ash = this.add.image(sx, sy, key);
+      ash.setOrigin(src.originX, src.originY);
+      ash.setScale(src.scaleX * 0.96, src.scaleY * 0.96);
+      ash.setFlipX(src.flipX);
+      ash.setDepth((src.depth || 200) + 0.5);
+      ash.setTint(0xd9cfae);
+      ash.setAlpha(0.75);
+      this.tweens.add({
+        targets: ash,
+        alpha: 0,
+        y: sy - 14,
+        x: sx + (Math.random() - 0.5) * 16,
+        scaleX: ash.scaleX * 0.7,
+        scaleY: ash.scaleY * 1.2,
+        duration: fadeMs + 80,
+        ease: "Quad.easeIn",
+        onComplete: () => ash.destroy(),
+      });
+      return;
+    }
+    // Fallback: soft ellipse ghost if sprite missing
+    const g = this.add.graphics();
+    g.setDepth(250);
+    g.fillStyle(0xff6a4a, 0.55);
+    g.fillEllipse(sx, sy - 18, 28, 48);
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      y: g.y - 28,
+      duration: fadeMs,
+      ease: "Cubic.easeOut",
+      onComplete: () => g.destroy(),
     });
   }
 
@@ -2873,6 +2965,7 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
     const existing = Array.from(layer.querySelectorAll<HTMLElement>(".compass-arrow"));
+    const fadeSpan = Math.max(0.01, COMPASS_FADE_START - COMPASS_HIDE_RANGE);
     wanted.forEach((w, i) => {
       const pnt = worldToScreen(w.x, w.y);
       const sx = ((pnt.sx - view.x) / Math.max(1e-3, view.width)) * vw;
@@ -2891,6 +2984,11 @@ export class WorldScene extends Phaser.Scene {
       if (compact && ex < 88 && ey > vh - 170) ey = vh - 170;
       const ang = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
       const label = w.dest === "lust" ? "Lust" : "Wood";
+      // Fade (not pop) as the player approaches the portal
+      const alpha =
+        w.d >= COMPASS_FADE_START
+          ? 1
+          : Math.max(0, Math.min(1, (w.d - COMPASS_HIDE_RANGE) / fadeSpan));
       let el = existing[i];
       if (!el) {
         el = document.createElement("div");
@@ -2906,6 +3004,7 @@ export class WorldScene extends Phaser.Scene {
       el.style.left = `${ex.toFixed(1)}px`;
       el.style.top = `${ey.toFixed(1)}px`;
       el.style.setProperty("--ang", `${ang.toFixed(1)}deg`);
+      el.style.opacity = alpha.toFixed(3);
     });
     for (let i = wanted.length; i < existing.length; i++) existing[i].remove();
   }
