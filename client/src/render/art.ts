@@ -1362,15 +1362,19 @@ export function drawLootTowerSpine(
   compact: boolean,
   stackCount: number,
   /** Highest rarity pulse intensity in the pile. */
-  intensity = 1
+  intensity = 1,
+  /** 1→0 age of magnet-start rarity tick pop (0 = idle). */
+  magnetPop01 = 0
 ) {
   const n = Math.max(2, stackCount);
   const pulse = 0.5 + 0.5 * Math.sin(t * 0.005 + sx * 0.02);
   const inv = Math.max(0.35, intensity);
+  const pop = Math.max(0, Math.min(1, magnetPop01));
+  const popEase = pop * pop; // punch early then settle
   const step = compact ? 15 : 12;
   const h = (n - 1) * step + (compact ? 22 : 18);
-  const w = (compact ? 7 : 5.5) * (0.85 + inv * 0.2);
-  const a = (0.12 + pulse * 0.14) * (0.55 + inv * 0.45);
+  const w = (compact ? 7 : 5.5) * (0.85 + inv * 0.2) * (1 + popEase * 0.35);
+  const a = (0.12 + pulse * 0.14) * (0.55 + inv * 0.45) * (1 + popEase * 0.55);
   // Soft outer wash
   g.fillStyle(color, a * 0.45);
   g.fillTriangle(sx - w * 1.6, sy + 2, sx + w * 1.6, sy + 2, sx, sy - h - 6);
@@ -1378,15 +1382,23 @@ export function drawLootTowerSpine(
   g.fillStyle(color, a * 0.85);
   g.fillTriangle(sx - w * 0.7, sy + 1, sx + w * 0.7, sy + 1, sx, sy - h);
   // Bright filament
-  g.lineStyle(compact ? 2.2 : 1.6, 0xffe8a0, 0.25 + pulse * 0.35 * inv);
+  g.lineStyle(compact ? 2.2 : 1.6, 0xffe8a0, 0.25 + pulse * 0.35 * inv + popEase * 0.35);
   g.lineBetween(sx, sy, sx, sy - h);
-  // Soft beads along the spine (rarity ticks)
+  // Soft beads along the spine (rarity ticks) — pop scale when magnet starts
   for (let i = 0; i < n; i++) {
     const by = sy - i * step - 2;
-    g.fillStyle(color, 0.35 + pulse * 0.25);
-    g.fillCircle(sx, by, compact ? 2.4 : 1.9);
-    g.fillStyle(0xffe8a0, 0.45 + pulse * 0.2);
-    g.fillCircle(sx, by, compact ? 1.2 : 1);
+    // Stagger pop so ticks cascade upward
+    const tickPop = Math.max(0, Math.min(1, pop * 1.35 - i * 0.12));
+    const tickEase = tickPop * tickPop;
+    const br = (compact ? 2.4 : 1.9) * (1 + tickEase * 1.55);
+    g.fillStyle(color, 0.35 + pulse * 0.25 + tickEase * 0.45);
+    g.fillCircle(sx, by, br);
+    g.fillStyle(0xffe8a0, 0.45 + pulse * 0.2 + tickEase * 0.4);
+    g.fillCircle(sx, by, (compact ? 1.2 : 1) * (1 + tickEase * 1.8));
+    if (tickEase > 0.05) {
+      g.lineStyle(1.2, 0xffe8a0, tickEase * 0.7);
+      g.strokeCircle(sx, by, br + 2 + tickEase * 3);
+    }
   }
 }
 
@@ -1464,6 +1476,68 @@ export function drawChampionCrownPip(
 }
 
 /** Brief world ember drift around the player at combo ×100 eclipse (no toast). */
+/**
+ * Player footprint ghost during Judge slam windup.
+ * Crimson when inside the danger disc; gold when standing in the just-safe band.
+ */
+export function drawPlayerFootprintGhost(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  zone: "danger" | "safe",
+  tMs: number,
+  compact: boolean
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.028);
+  const danger = zone === "danger";
+  const fill = danger ? 0xff2200 : 0xc9a227;
+  const rim = danger ? 0xff8866 : 0xffe8a0;
+  const rx = (compact ? 18 : 14) * (0.92 + pulse * 0.1);
+  const ry = rx * 0.42;
+  const cy = sy + (compact ? 5 : 4);
+  // Soft ghost wash
+  g.fillStyle(fill, danger ? 0.16 + pulse * 0.1 : 0.12 + pulse * 0.08);
+  g.fillEllipse(sx, cy, rx * 2.1, ry * 2.1);
+  g.fillStyle(0x0a0404, danger ? 0.28 : 0.18);
+  g.fillEllipse(sx, cy, rx * 1.55, ry * 1.55);
+  // Footprint silhouette (two toe ellipses + heel)
+  g.fillStyle(rim, danger ? 0.45 + pulse * 0.25 : 0.5 + pulse * 0.25);
+  g.fillEllipse(sx - rx * 0.28, cy - ry * 0.15, rx * 0.55, ry * 0.7);
+  g.fillEllipse(sx + rx * 0.28, cy - ry * 0.15, rx * 0.55, ry * 0.7);
+  g.fillEllipse(sx, cy + ry * 0.35, rx * 0.7, ry * 0.85);
+  g.lineStyle(compact ? 2.2 : 1.7, rim, 0.65 + pulse * 0.25);
+  g.strokeEllipse(sx, cy, rx * 1.85, ry * 1.85);
+  // Zone pip
+  g.fillStyle(rim, 0.85);
+  g.fillCircle(sx, cy - ry * 1.35, compact ? 2.4 : 1.9);
+}
+
+/** Brief corpse X at death site — fades with the wake / ash crumb. */
+export function drawCorpseXMarker(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  life01: number,
+  compact: boolean
+) {
+  const life = Math.max(0, Math.min(1, life01));
+  const fade = life * life;
+  const s = (compact ? 14 : 11) * (0.85 + (1 - life) * 0.25);
+  const cy = sy - 6;
+  g.lineStyle(compact ? 4.2 : 3.4, 0x1a0808, 0.55 * fade);
+  g.lineBetween(sx - s, cy - s, sx + s, cy + s);
+  g.lineBetween(sx + s, cy - s, sx - s, cy + s);
+  g.lineStyle(compact ? 2.6 : 2.1, 0xff6644, 0.85 * fade);
+  g.lineBetween(sx - s, cy - s, sx + s, cy + s);
+  g.lineBetween(sx + s, cy - s, sx - s, cy + s);
+  g.lineStyle(1.4, 0xffe8a0, 0.55 * fade);
+  g.lineBetween(sx - s * 0.72, cy - s * 0.72, sx + s * 0.72, cy + s * 0.72);
+  g.lineBetween(sx + s * 0.72, cy - s * 0.72, sx - s * 0.72, cy + s * 0.72);
+  // Soft ground well
+  g.fillStyle(0xff4422, 0.08 * fade);
+  g.fillEllipse(sx, sy + 2, s * 1.6, s * 0.55);
+}
+
 export function spawnEclipseEmberDrift(particles: Particle[], wx: number, wy: number, compact = false) {
   const n = compact ? 28 : 22;
   for (let i = 0; i < n; i++) {

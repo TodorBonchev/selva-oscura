@@ -20,11 +20,15 @@ import {
   isComboMilestone,
   isComboInfernoFringe,
   isComboEclipse,
+  isComboVoidCorona,
   resetCombo,
   playDeathRevive,
   flashWardSoak,
   flashSlamSting,
   flashSlamSafeRim,
+  pulseVoidCorona,
+  hapticInteractReady,
+  hapticPortalComplete,
 } from "../ui/hud";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
@@ -75,6 +79,8 @@ import {
   spawnHitBurst,
   spawnKillBurst,
   spawnEclipseEmberDrift,
+  drawPlayerFootprintGhost,
+  drawCorpseXMarker,
   spawnFootstepDust,
   spawnDissolveAsh,
   drawInteractPulse,
@@ -134,6 +140,8 @@ const MAGNET_RANGE = 5.5;
 const RESPAWN_BEACON_MS = 2200;
 /** Soft ash trail from corpse → entrance after death (ms). */
 const DEATH_ASH_TRAIL_MS = 1600;
+/** Rarity-tick pop duration when loot first enters magnet range (ms). */
+const MAGNET_TICK_POP_MS = 420;
 /** Loot piles within this world distance share a tile and get staggered. */
 const LOOT_STACK_RANGE = 0.85;
 /** Travel time for auto-pickup magnet spark (ms). */
@@ -415,6 +423,18 @@ export class WorldScene extends Phaser.Scene {
     x0: number; y0: number; x1: number; y1: number;
     start: number; tint: number;
   }[] = [];
+  /** When each loot id first entered magnet range (animT) — drives spine tick pop. */
+  magnetEnteredAt = new Map<string, number>();
+  /**
+   * Sticky edge chip hit zone for tap-to-retarget (screen space, last frame).
+   * Tap chip → sticky Gale target = nearest threat-arrow foe.
+   */
+  stickyChipHit: {
+    sx: number;
+    sy: number;
+    r: number;
+    threatIds: string[];
+  } | null = null;
 
   constructor() {
     super("world");
@@ -518,6 +538,8 @@ export class WorldScene extends Phaser.Scene {
       }
       const sx = pointer.worldX;
       const sy = pointer.worldY;
+      // Sticky chip: tap to retarget Gale sticky onto nearest threat-arrow foe
+      if (this.tryStickyChipRetarget(sx, sy)) return;
       const hit = this.pickEntity(sx, sy);
       if (hit) {
         if (hit.kind === "mob" || hit.kind === "boss") {
@@ -930,6 +952,7 @@ export class WorldScene extends Phaser.Scene {
     const held = performance.now() - ph.startMs;
     if (held < PORTAL_HOLD_MS) return;
     ph.completed = true;
+    hapticPortalComplete();
     const dest =
       ph.target.toCanto === "inferno_05"
         ? "Lust"
@@ -1353,11 +1376,24 @@ export class WorldScene extends Phaser.Scene {
             this.cameraPunch(0.09, 320);
             this.cameras.main.shake(140, isCompactUi() ? 0.0065 : 0.0045);
           }
-          if (isComboEclipse(streak) && (streak === 100 || streak % 100 === 0)) {
+          if (isComboEclipse(streak) && (streak === 100 || streak % 100 === 0) && streak < 150) {
             // ×100 eclipse pip + brief world ember drift — still no toast
             this.punchComboVignette();
             this.cameraPunch(0.11, 360);
             this.cameras.main.shake(160, isCompactUi() ? 0.0075 : 0.005);
+            spawnEclipseEmberDrift(
+              this.particles,
+              this.renderYou.x,
+              this.renderYou.y,
+              isCompactUi()
+            );
+          }
+          if (isComboVoidCorona(streak) && (streak === 150 || streak % 150 === 0)) {
+            // ×150 void corona — brief screen desat pulse, no toast
+            this.punchComboVignette();
+            this.cameraPunch(0.13, 400);
+            this.cameras.main.shake(180, isCompactUi() ? 0.0085 : 0.0055);
+            pulseVoidCorona();
             spawnEclipseEmberDrift(
               this.particles,
               this.renderYou.x,
@@ -1790,6 +1826,36 @@ export class WorldScene extends Phaser.Scene {
       baseX: t.x,
       baseY: t.y,
     });
+  }
+
+  /**
+   * Tap sticky edge chip → retarget Gale sticky to nearest threat-arrow foe.
+   * Returns true if the tap was consumed.
+   */
+  private tryStickyChipRetarget(sx: number, sy: number): boolean {
+    const chip = this.stickyChipHit;
+    if (!chip || !chip.threatIds.length || !this.room) return false;
+    const d = Phaser.Math.Distance.Between(sx, sy, chip.sx, chip.sy);
+    if (d > chip.r) return false;
+    const you = this.renderYou;
+    let bestId: string | null = null;
+    let bestD = Infinity;
+    for (const id of chip.threatIds) {
+      const ent = this.room.entities.find(
+        (e: any) => String(e.id) === id && (e.kind === "mob" || e.kind === "boss")
+      );
+      if (!ent) continue;
+      const pos = this.entityRenderPos(ent);
+      const dist = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (dist < bestD) {
+        bestD = dist;
+        bestId = id;
+      }
+    }
+    if (!bestId) return false;
+    this.lastHitFoe = { id: bestId, until: this.animT + GALE_STICKY_MS };
+    hapticInteractReady();
+    return true;
   }
 
   pickEntity(sx: number, sy: number): any | null {
@@ -2311,6 +2377,25 @@ export class WorldScene extends Phaser.Scene {
       const charge = Math.min(1, (this.animT - t.start) / Math.max(1, t.until - t.start));
       const p = worldToScreen(t.x, t.y);
       drawBossTelegraph(g, p.sx, p.sy, charge, t.radius, this.animT, compact, JUDGE_SLAM_SAFE_BAND);
+      // Player footprint ghost: danger vs safe-band during windup
+      {
+        const dx = this.renderYou.x - t.x;
+        const dy = this.renderYou.y - t.y;
+        const dist = Math.hypot(dx, dy);
+        const hitR = t.radius + 0.35;
+        const safeOuter = hitR + JUDGE_SLAM_SAFE_BAND;
+        if (dist <= safeOuter) {
+          const youP = worldToScreen(this.renderYou.x, this.renderYou.y);
+          drawPlayerFootprintGhost(
+            g,
+            youP.sx,
+            youP.sy,
+            dist <= hitR ? "danger" : "safe",
+            this.animT,
+            compact
+          );
+        }
+      }
       const left = Math.max(0, (t.until - this.animT) / 1000);
       const num = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
       const pipY = bossTelegraphPipY(p.sy, compact);
@@ -2376,6 +2461,8 @@ export class WorldScene extends Phaser.Scene {
         const a = worldToScreen(tr.x0, tr.y0);
         const b = worldToScreen(tr.x1, tr.y1);
         drawDeathAshTrail(g, a.sx, a.sy - 8, b.sx, b.sy - 4, this.animT, life, compact);
+        // Brief corpse X that fades as the Wake crumb clears
+        drawCorpseXMarker(g, a.sx, a.sy - 10, life, compact);
       }
     }
 
@@ -2522,8 +2609,9 @@ export class WorldScene extends Phaser.Scene {
     }
 
     // Edge-of-screen foes for sticky multi-threat arrows
+    this.stickyChipHit = null;
     const camEdge = this.cameras.main;
-    const edgeFoes: { id: string; sx: number; sy: number }[] = [];
+    const edgeFoes: { id: string; sx: number; sy: number; wx: number; wy: number }[] = [];
     for (const fe of ents) {
       if (fe.kind !== "mob" && fe.kind !== "boss") continue;
       const fpos = this.entityRenderPos(fe);
@@ -2533,7 +2621,7 @@ export class WorldScene extends Phaser.Scene {
         fp.sx > camEdge.worldView.x + camEdge.worldView.width * (1 - STICKY_EDGE_FRAC) ||
         fp.sy < camEdge.worldView.y + camEdge.worldView.height * STICKY_EDGE_FRAC ||
         fp.sy > camEdge.worldView.y + camEdge.worldView.height * (1 - STICKY_EDGE_FRAC);
-      if (near) edgeFoes.push({ id: String(fe.id), sx: fp.sx, sy: fp.sy });
+      if (near) edgeFoes.push({ id: String(fe.id), sx: fp.sx, sy: fp.sy, wx: fpos.x, wy: fpos.y });
     }
 
     // Spine drawn once per loot tower (track anchors already painted)
@@ -2664,13 +2752,13 @@ export class WorldScene extends Phaser.Scene {
           const foeDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
           const short =
             e.champion ? "Champ" : String(e.name || e.label || "Foe").split(" ")[0].slice(0, 8);
-          const threatArrows =
+          const threatFoes =
             nearEdge && edgeFoes.length > 1
-              ? edgeFoes
-                  .filter((f) => f.id !== String(e.id))
-                  .slice(0, 3)
-                  .map((f) => ({ dx: f.sx - drawSx, dy: f.sy - p.sy }))
-              : undefined;
+              ? edgeFoes.filter((f) => f.id !== String(e.id)).slice(0, 3)
+              : [];
+          const threatArrows = threatFoes.length
+            ? threatFoes.map((f) => ({ dx: f.sx - drawSx, dy: f.sy - p.sy }))
+            : undefined;
           drawStickyTargetReticle(g, drawSx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
@@ -2681,6 +2769,12 @@ export class WorldScene extends Phaser.Scene {
             threatArrows,
           });
           if (nearEdge) {
+            this.stickyChipHit = {
+              sx: drawSx,
+              sy: p.sy - (compact ? 18 : 14),
+              r: compact ? 42 : 34,
+              threatIds: threatFoes.map((f) => f.id),
+            };
             this.addLabel(
               `sticky-crumb:${e.id}`,
               drawSx,
@@ -2732,13 +2826,13 @@ export class WorldScene extends Phaser.Scene {
             p.sy < cam.worldView.y + cam.worldView.height * STICKY_EDGE_FRAC ||
             p.sy > cam.worldView.y + cam.worldView.height * (1 - STICKY_EDGE_FRAC);
           const bossDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
-          const threatArrows =
+          const threatFoes =
             nearEdge && edgeFoes.length > 1
-              ? edgeFoes
-                  .filter((f) => f.id !== String(e.id))
-                  .slice(0, 3)
-                  .map((f) => ({ dx: f.sx - p.sx, dy: f.sy - p.sy }))
-              : undefined;
+              ? edgeFoes.filter((f) => f.id !== String(e.id)).slice(0, 3)
+              : [];
+          const threatArrows = threatFoes.length
+            ? threatFoes.map((f) => ({ dx: f.sx - p.sx, dy: f.sy - p.sy }))
+            : undefined;
           drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
@@ -2748,6 +2842,12 @@ export class WorldScene extends Phaser.Scene {
             threatArrows,
           });
           if (nearEdge) {
+            this.stickyChipHit = {
+              sx: p.sx,
+              sy: p.sy - (compact ? 18 : 14),
+              r: compact ? 46 : 38,
+              threatIds: threatFoes.map((f) => f.id),
+            };
             this.addLabel(
               `sticky-crumb:${e.id}`,
               p.sx,
@@ -2796,11 +2896,28 @@ export class WorldScene extends Phaser.Scene {
         const lsx = p.sx + (lstack?.ox || 0);
         const lsy = p.sy + (lstack?.oy || 0);
         const ldepth = depth + (lstack ? lstack.slot * 0.015 : 0);
+        const lootDistEarly = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+        const lootIdEarly = String(e.id);
+        if (lootDistEarly < MAGNET_RANGE && lootDistEarly > 0.15) {
+          if (!this.magnetEnteredAt.has(lootIdEarly)) {
+            this.magnetEnteredAt.set(lootIdEarly, this.animT);
+          }
+        } else {
+          this.magnetEnteredAt.delete(lootIdEarly);
+        }
         // Soft rarity-colored stack glow spine for vertical towers
         if (lstack?.tower && lstack.count > 1 && lstack.slot === 0) {
           const spineKey = `${Math.round(p.sx)}:${Math.round(p.sy)}:${lstack.count}`;
           if (!towerSpineDrawn.has(spineKey)) {
             towerSpineDrawn.add(spineKey);
+            const entered = this.magnetEnteredAt.get(lootIdEarly);
+            let magnetPop = 0;
+            if (entered != null) {
+              const age = this.animT - entered;
+              if (age >= 0 && age < MAGNET_TICK_POP_MS) {
+                magnetPop = 1 - age / MAGNET_TICK_POP_MS;
+              }
+            }
             drawLootTowerSpine(
               g,
               p.sx,
@@ -2809,7 +2926,8 @@ export class WorldScene extends Phaser.Scene {
               this.animT,
               compact,
               lstack.count,
-              lstack.topPulse ?? pulse
+              lstack.topPulse ?? pulse,
+              magnetPop
             );
           }
         }
@@ -3236,6 +3354,7 @@ export class WorldScene extends Phaser.Scene {
     if (this.lastInteractHintId !== this.nearestInteract.id) {
       this.lastInteractHintId = this.nearestInteract.id;
       this.lastInteractHintAt = Date.now();
+      hapticInteractReady();
       if (best.kind === "exit" && best.toCanto === "inferno_05") return;
       if (best.kind === "poi" && best.poiKind !== "portal") return;
       showToast(`${ctx.full} — ready`, "info");
