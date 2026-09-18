@@ -1984,7 +1984,16 @@ export function drawStickyTargetReticle(
   sy: number,
   tMs: number,
   compact: boolean,
-  opts?: { hp?: number; maxHp?: number; nearEdge?: boolean; champion?: boolean }
+  opts?: {
+    hp?: number;
+    maxHp?: number;
+    nearEdge?: boolean;
+    champion?: boolean;
+    /** World distance for edge crumb. */
+    dist?: number;
+    /** Optional short name under the edge HP chip. */
+    shortName?: string;
+  }
 ) {
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.014);
   const rw = (compact ? 28 : 20) + pulse * 3;
@@ -2023,6 +2032,46 @@ export function drawStickyTargetReticle(
     // Champion crown sits on the edge HP chip so elites still read when clipped
     if (opts.champion) {
       drawChampionCrownPip(g, sx, by - (compact ? 2 : 1), tMs, compact);
+    }
+    // Tiny distance crumb (+ optional short name) under the chip
+    const crumbY = by + bh + (compact ? 8 : 7);
+    const bits: string[] = [];
+    if (opts.shortName) {
+      const sn = opts.shortName.length > 8 ? opts.shortName.slice(0, 7) + "…" : opts.shortName;
+      bits.push(sn);
+    }
+    if (opts.dist != null && Number.isFinite(opts.dist)) {
+      bits.push(`${Math.max(1, Math.round(opts.dist))}u`);
+    }
+    if (bits.length) {
+      const label = bits.join(" · ");
+      // Soft plate behind crumb so it reads on busy edges
+      const cw = Math.min(compact ? 52 : 44, 6 + label.length * (compact ? 4.2 : 3.6));
+      const ch = compact ? 9 : 8;
+      g.fillStyle(0x0a0806, 0.72);
+      g.fillRoundedRect(sx - cw / 2, crumbY - ch / 2, cw, ch, 2);
+      g.lineStyle(1, 0xc9a227, 0.45 + pulse * 0.2);
+      g.strokeRoundedRect(sx - cw / 2, crumbY - ch / 2, cw, ch, 2);
+      // Glyph ticks approximating distance digits (Phaser Text handled by caller when present)
+      // Draw miniature hash marks proportional to distance for a crumb feel without Text
+      const d = opts.dist != null ? Math.max(1, Math.min(12, Math.round(opts.dist))) : 0;
+      const markN = Math.min(5, Math.max(1, Math.ceil(d / 3)));
+      const mw = compact ? 3.2 : 2.6;
+      const gap = compact ? 2.2 : 1.8;
+      const totalW = markN * mw + (markN - 1) * gap;
+      let mx = sx - totalW / 2;
+      for (let i = 0; i < markN; i++) {
+        g.fillStyle(i === markN - 1 ? 0xffe8a0 : 0xc9a227, 0.75 + pulse * 0.2);
+        g.fillRect(mx, crumbY - (compact ? 1.6 : 1.3), mw, compact ? 3.2 : 2.6);
+        mx += mw + gap;
+      }
+      // Name pip as a tiny diamond when shortName present
+      if (opts.shortName) {
+        const ny = crumbY - (compact ? 7 : 6);
+        g.fillStyle(0xe8c86a, 0.85);
+        g.fillTriangle(sx, ny - 3, sx + 3, ny, sx, ny + 3);
+        g.fillTriangle(sx, ny - 3, sx - 3, ny, sx, ny + 3);
+      }
     }
   }
 }
@@ -2072,6 +2121,37 @@ export function drawMagnetSpark(
   g.fillCircle(x, y, r + 1.5);
   g.fillStyle(0xffe8a0, 0.9);
   g.fillCircle(x, y, r * 0.65);
+}
+
+
+/** Gold “just safe” rim — player barely outside Judge slam at resolve (screen space). */
+export function drawJudgeSlamSafeRim(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  life: number,
+  radiusWorld: number,
+  compact: boolean
+) {
+  const t = Math.max(0, Math.min(1, life));
+  const fade = t * t;
+  const scale = 16 * radiusWorld;
+  const expand = 0.62 + (1 - t) * 0.35;
+  const rx = scale * expand * 1.08;
+  const ry = scale * expand * 0.42 * 1.08;
+  g.lineStyle(compact ? 3.4 : 2.8, 0xc9a227, 0.75 * fade);
+  g.strokeEllipse(sx, sy + 5, rx, ry);
+  g.lineStyle(compact ? 2.2 : 1.7, 0xffe8a0, 0.55 * fade);
+  g.strokeEllipse(sx, sy + 5, rx * 0.92, ry * 0.92);
+  g.fillStyle(0xc9a227, 0.06 * fade);
+  g.fillEllipse(sx, sy + 5, rx * 1.05, ry * 1.05);
+  // Soft cardinal ticks — “you made it”
+  const tick = compact ? 7 : 5;
+  g.lineStyle(2, 0xffe8a0, 0.65 * fade);
+  g.lineBetween(sx, sy + 5 - ry * 0.5 - 2, sx, sy + 5 - ry * 0.5 - 2 - tick);
+  g.lineBetween(sx, sy + 5 + ry * 0.5 + 2, sx, sy + 5 + ry * 0.5 + 2 + tick);
+  g.lineBetween(sx - rx * 0.5 - 2, sy + 5, sx - rx * 0.5 - 2 - tick, sy + 5);
+  g.lineBetween(sx + rx * 0.5 + 2, sy + 5, sx + rx * 0.5 + 2 + tick, sy + 5);
 }
 
 /** Soft ash beads drifting corpse → entrance beacon after death (screen space). */

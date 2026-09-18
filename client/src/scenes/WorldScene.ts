@@ -18,9 +18,12 @@ import {
   pulseInvBag,
   noteComboHit,
   isComboMilestone,
+  isComboInfernoFringe,
   resetCombo,
   playDeathRevive,
   flashWardSoak,
+  flashSlamSting,
+  flashSlamSafeRim,
 } from "../ui/hud";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
@@ -64,6 +67,7 @@ import {
   drawFoeGlow,
   drawChampionCrownPip,
   drawJudgeSlamImpact,
+  drawJudgeSlamSafeRim,
   drawLootGlow,
   lootRarityPulse,
   spawnHitBurst,
@@ -200,6 +204,9 @@ const COMPASS_DIST_FADE_START = 12.0;
 const FOE_STACK_RANGE = 1.35;
 /** Judge slam impact flash linger (ms). */
 const JUDGE_SLAM_FX_MS = 520;
+/** World units outside slam radius that still count as “just safe”. */
+const JUDGE_SLAM_SAFE_BAND = 1.15;
+const JUDGE_SLAM_SAFE_FX_MS = 560;
 /** Soft vignette punch at combo ×25+ (ms window). */
 const COMBO_VIGNETTE_MS = 480;
 const COMBO_VIGNETTE_PEAK = 0.96;
@@ -316,6 +323,14 @@ export class WorldScene extends Phaser.Scene {
   }[] = [];
   /** Judge slam resolve VFX (impact flash + ground crack). */
   bossSlamFx: {
+    x: number;
+    y: number;
+    radius: number;
+    start: number;
+    until: number;
+  }[] = [];
+  /** Gold “just safe” rim FX when barely outside slam. */
+  bossSlamSafeFx: {
     x: number;
     y: number;
     radius: number;
@@ -1323,11 +1338,17 @@ export class WorldScene extends Phaser.Scene {
             this.cameraPunch(0.06, 240);
             this.cameras.main.shake(100, isCompactUi() ? 0.0045 : 0.003);
           }
-          if (streak === 50 || (streak > 50 && streak % 50 === 0)) {
+          if (streak === 50 || (streak > 50 && streak % 50 === 0 && streak % 75 !== 0)) {
             // Inferno pip milestone — stronger vignette, still no toast
             this.punchComboVignette();
             this.cameraPunch(0.075, 280);
             this.cameras.main.shake(120, isCompactUi() ? 0.0055 : 0.0038);
+          }
+          if (isComboInfernoFringe(streak) && (streak === 75 || streak % 75 === 0)) {
+            // ×75+ inferno fringe / heat haze — still no toast
+            this.punchComboVignette();
+            this.cameraPunch(0.09, 320);
+            this.cameras.main.shake(140, isCompactUi() ? 0.0065 : 0.0045);
           }
         }
         if (ent) {
@@ -2250,12 +2271,23 @@ export class WorldScene extends Phaser.Scene {
         });
         this.cameras.main.flash(70, 255, 180, 120, false);
         this.cameras.main.shake(140, isCompactUi() ? 0.008 : 0.0055);
-        // Screen-edge crimson sting if the player is inside the slam radius
+        // Crimson sting if inside; gold “just safe” rim if barely outside
         {
           const dx = this.renderYou.x - t.x;
           const dy = this.renderYou.y - t.y;
-          if (Math.hypot(dx, dy) <= t.radius + 0.35) {
+          const dist = Math.hypot(dx, dy);
+          const hitR = t.radius + 0.35;
+          if (dist <= hitR) {
             flashSlamSting();
+          } else if (dist <= hitR + JUDGE_SLAM_SAFE_BAND) {
+            flashSlamSafeRim();
+            this.bossSlamSafeFx.push({
+              x: t.x,
+              y: t.y,
+              radius: t.radius,
+              start: this.animT,
+              until: this.animT + JUDGE_SLAM_SAFE_FX_MS,
+            });
           }
         }
         this.bossTelegraphs.splice(i, 1);
@@ -2287,6 +2319,18 @@ export class WorldScene extends Phaser.Scene {
       const life = 1 - (this.animT - s.start) / Math.max(1, s.until - s.start);
       const p = worldToScreen(s.x, s.y);
       drawJudgeSlamImpact(g, p.sx, p.sy, life, s.radius, compact);
+    }
+
+    // Gold “just safe” rim when barely outside slam at resolve
+    for (let i = this.bossSlamSafeFx.length - 1; i >= 0; i--) {
+      const s = this.bossSlamSafeFx[i];
+      if (this.animT >= s.until) {
+        this.bossSlamSafeFx.splice(i, 1);
+        continue;
+      }
+      const life = 1 - (this.animT - s.start) / Math.max(1, s.until - s.start);
+      const p = worldToScreen(s.x, s.y);
+      drawJudgeSlamSafeRim(g, p.sx, p.sy, life, s.radius, compact);
     }
 
     // Live hub decor pulse (lightweight vignette trees already stamped on ground)
@@ -2414,11 +2458,24 @@ export class WorldScene extends Phaser.Scene {
             a.pos.x + a.pos.y - (b.pos.x + b.pos.y)
         );
         const n = cluster.length;
+        const maxRank = cluster.reduce(
+          (m, c) => Math.max(m, rank[c.rarity] ?? 0),
+          0
+        );
+        // Unique / canto piles: taller vertical rarity tower (less lateral sprawl)
+        const tower = maxRank >= 4;
         cluster.forEach((c, i) => {
           const id = String(c.e.id);
           assigned.add(id);
           if (n <= 1) {
             lootStackInfo.set(id, { count: 1, slot: 0, ox: 0, oy: 0 });
+            return;
+          }
+          if (tower) {
+            const stepY = compact ? 15 : 12;
+            const ox = ((i % 2) - 0.5) * (compact ? 5 : 4) * (i > 0 ? 1 : 0);
+            const oy = -i * stepY - (rank[c.rarity] ?? 0) * 1.2;
+            lootStackInfo.set(id, { count: n, slot: i, ox, oy });
             return;
           }
           const step = compact ? 11 : 9;
@@ -2551,12 +2608,34 @@ export class WorldScene extends Phaser.Scene {
             drawSx > cam.worldView.x + cam.worldView.width * (1 - STICKY_EDGE_FRAC) ||
             p.sy < cam.worldView.y + cam.worldView.height * STICKY_EDGE_FRAC ||
             p.sy > cam.worldView.y + cam.worldView.height * (1 - STICKY_EDGE_FRAC);
+          const foeDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+          const short =
+            e.champion ? "Champ" : String(e.name || e.label || "Foe").split(" ")[0].slice(0, 8);
           drawStickyTargetReticle(g, drawSx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
             nearEdge,
             champion: Boolean(e.champion),
+            dist: foeDist,
+            shortName: short,
           });
+          if (nearEdge) {
+            this.addLabel(
+              `sticky-crumb:${e.id}`,
+              drawSx,
+              p.sy + (compact ? 22 : 18),
+              `${short} · ${Math.max(1, Math.round(foeDist))}u`,
+              compact ? "10px" : "9px",
+              seenLabels
+            );
+            const crumb = this.labels.get(`sticky-crumb:${e.id}`);
+            if (crumb) {
+              crumb.setColor("#e8c86a");
+              crumb.setAlpha(0.88);
+              crumb.setStroke("#0a0806", 3);
+              crumb.setDepth(9600);
+            }
+          }
         }
         const champ = Boolean(e.champion);
         drawEntityPad(g, drawSx, p.sy, champ ? (compact ? 2.05 : 1.65) : compact ? 1.55 : 1.2);
@@ -2591,11 +2670,31 @@ export class WorldScene extends Phaser.Scene {
             p.sx > cam.worldView.x + cam.worldView.width * (1 - STICKY_EDGE_FRAC) ||
             p.sy < cam.worldView.y + cam.worldView.height * STICKY_EDGE_FRAC ||
             p.sy > cam.worldView.y + cam.worldView.height * (1 - STICKY_EDGE_FRAC);
+          const bossDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
           drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
             nearEdge,
+            dist: bossDist,
+            shortName: String(e.name || "Judge").slice(0, 8),
           });
+          if (nearEdge) {
+            this.addLabel(
+              `sticky-crumb:${e.id}`,
+              p.sx,
+              p.sy + (compact ? 26 : 22),
+              `${String(e.name || "Judge").slice(0, 8)} · ${Math.max(1, Math.round(bossDist))}u`,
+              compact ? "10px" : "9px",
+              seenLabels
+            );
+            const crumb = this.labels.get(`sticky-crumb:${e.id}`);
+            if (crumb) {
+              crumb.setColor("#e8c86a");
+              crumb.setAlpha(0.9);
+              crumb.setStroke("#0a0806", 3);
+              crumb.setDepth(9600);
+            }
+          }
         }
         drawEntityPad(g, p.sx, p.sy, compact ? 2.7 : 2.1);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, boss: true });
@@ -3315,7 +3414,23 @@ export class WorldScene extends Phaser.Scene {
       if (d < COMPASS_HIDE_RANGE) continue;
       wanted.push({ dest, x: pos.x, y: pos.y, d });
     }
+    // Death ash trail: briefly pulse compass and steer a Wake pip toward the beacon
+    const ashTrail =
+      this.deathAshTrail && this.animT < this.deathAshTrail.until ? this.deathAshTrail : null;
+    layer.classList.toggle("compass-ash-active", Boolean(ashTrail));
+    if (ashTrail) {
+      wanted.push({
+        dest: "wood",
+        x: ashTrail.x1,
+        y: ashTrail.y1,
+        d: Math.max(
+          Math.hypot(ashTrail.x1 - you.x, ashTrail.y1 - you.y),
+          COMPASS_HIDE_RANGE + 0.5
+        ),
+      });
+    }
     if (!wanted.length) {
+      layer.classList.remove("compass-ash-active");
       if (layer.childElementCount) layer.innerHTML = "";
       return;
     }
@@ -3337,6 +3452,16 @@ export class WorldScene extends Phaser.Scene {
       let ey = cy + dy * tHit;
       // Keep clear of the left-stick pocket on phones
       if (compact && ex < 88 && ey > vh - 170) ey = vh - 170;
+      // Ash Wake pip: if beacon is on-screen, sit on it (not edge-clamped)
+      const isAshTarget = Boolean(ashTrail) && i === wanted.length - 1;
+      if (isAshTarget) {
+        const onScreen =
+          sx >= pad.l && sx <= vw - pad.r && sy >= pad.t && sy <= vh - pad.b;
+        if (onScreen || Math.hypot(ashTrail!.x1 - you.x, ashTrail!.y1 - you.y) < 2.5) {
+          ex = Math.max(pad.l, Math.min(vw - pad.r, sx));
+          ey = Math.max(pad.t, Math.min(vh - pad.b, sy));
+        }
+      }
       const ang = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
       const label = w.dest === "lust" ? "Lust" : "Wood";
       // Fade (not pop) as the player approaches the portal.
@@ -3371,6 +3496,17 @@ export class WorldScene extends Phaser.Scene {
       el.style.top = `${ey.toFixed(1)}px`;
       el.style.setProperty("--ang", `${ang.toFixed(1)}deg`);
       el.style.opacity = alpha.toFixed(3);
+      // Ash-trail: pulse the Wake pip (last injected target)
+      const isAsh = isAshTarget;
+      el.classList.toggle("compass-ash-pulse", isAsh || Boolean(ashTrail));
+      if (isAsh) {
+        if (lab) lab.textContent = "Wake";
+        el.setAttribute("data-dest", "beacon");
+        el.style.opacity = Math.max(alpha, 0.9).toFixed(3);
+        if (distEl) distEl.textContent = "ash";
+      } else if (!ashTrail) {
+        el.classList.remove("compass-ash-pulse");
+      }
     });
     for (let i = wanted.length; i < existing.length; i++) existing[i].remove();
   }
