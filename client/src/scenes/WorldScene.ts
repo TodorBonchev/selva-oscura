@@ -91,6 +91,7 @@ import {
   drawPortalEnterTip,
   drawStickyTargetReticle,
   drawRespawnBeacon,
+  drawDeathAshTrail,
   drawMagnetSpark,
   buildGroundTiles,
   destroyGroundTiles,
@@ -124,6 +125,10 @@ const AUTO_PICKUP_RANGE = 4.0;
 const MAGNET_RANGE = 5.5;
 /** Soft entrance beacon after death revive (ms). */
 const RESPAWN_BEACON_MS = 2200;
+/** Soft ash trail from corpse → entrance after death (ms). */
+const DEATH_ASH_TRAIL_MS = 1600;
+/** Loot piles within this world distance share a tile and get staggered. */
+const LOOT_STACK_RANGE = 0.85;
 /** Travel time for auto-pickup magnet spark (ms). */
 const MAGNET_SPARK_MS = 380;
 /** Screen-edge margin (fraction of view) for sticky HP pip. */
@@ -376,6 +381,17 @@ export class WorldScene extends Phaser.Scene {
   /** Entrance beacon after revive — world pos + expiry (animT ms). */
   respawnBeaconUntil = 0;
   respawnBeaconPos: { x: number; y: number } | null = null;
+  /** Soft ash trail corpse → entrance after death. */
+  deathAshTrail: {
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+    start: number;
+    until: number;
+  } | null = null;
+  /** Corpse world pos captured at death (before snap to entrance). */
+  deathCorpsePos: { x: number; y: number } | null = null;
   /** Loot magnet sparks traveling loot→player after auto-pickup. */
   magnetSparks: {
     x0: number; y0: number; x1: number; y1: number;
@@ -1301,11 +1317,17 @@ export class WorldScene extends Phaser.Scene {
             this.cameraPunch(streak >= 10 ? 0.055 : 0.04, streak >= 10 ? 220 : 170);
             this.cameras.main.shake(streak >= 10 ? 90 : 60, isCompactUi() ? 0.004 : 0.0028);
           }
-          if (streak === 25 || (streak > 25 && streak % 25 === 0)) {
+          if (streak === 25 || (streak > 25 && streak % 25 === 0 && streak % 50 !== 0)) {
             // Soft vignette punch at ×25+ — no toast
             this.punchComboVignette();
             this.cameraPunch(0.06, 240);
             this.cameras.main.shake(100, isCompactUi() ? 0.0045 : 0.003);
+          }
+          if (streak === 50 || (streak > 50 && streak % 50 === 0)) {
+            // Inferno pip milestone — stronger vignette, still no toast
+            this.punchComboVignette();
+            this.cameraPunch(0.075, 280);
+            this.cameras.main.shake(120, isCompactUi() ? 0.0055 : 0.0038);
           }
         }
         if (ent) {
@@ -2191,7 +2213,7 @@ export class WorldScene extends Phaser.Scene {
       const charge = Math.min(1, (performance.now() - ph.startMs) / PORTAL_HOLD_MS);
       const pos = this.entityRenderPos(ph.target);
       const pp = worldToScreen(pos.x, pos.y);
-      drawPortalChargeRing(g, pp.sx, pp.sy, charge, this.animT);
+      drawPortalChargeRing(g, pp.sx, pp.sy, charge, this.animT, compact);
     }
 
     // Spell cast telegraphs (aim line / ward charge / burst ground circle)
@@ -2228,6 +2250,14 @@ export class WorldScene extends Phaser.Scene {
         });
         this.cameras.main.flash(70, 255, 180, 120, false);
         this.cameras.main.shake(140, isCompactUi() ? 0.008 : 0.0055);
+        // Screen-edge crimson sting if the player is inside the slam radius
+        {
+          const dx = this.renderYou.x - t.x;
+          const dy = this.renderYou.y - t.y;
+          if (Math.hypot(dx, dy) <= t.radius + 0.35) {
+            flashSlamSting();
+          }
+        }
         this.bossTelegraphs.splice(i, 1);
         continue;
       }
@@ -2275,6 +2305,19 @@ export class WorldScene extends Phaser.Scene {
       drawRespawnBeacon(g, bp.sx, bp.sy, this.animT, life, compact);
     } else if (this.respawnBeaconPos && this.animT >= this.respawnBeaconUntil) {
       this.respawnBeaconPos = null;
+    }
+
+    // Soft ash trail from death corpse → entrance beacon
+    if (this.deathAshTrail) {
+      const tr = this.deathAshTrail;
+      if (this.animT >= tr.until) {
+        this.deathAshTrail = null;
+      } else {
+        const life = 1 - (this.animT - tr.start) / Math.max(1, tr.until - tr.start);
+        const a = worldToScreen(tr.x0, tr.y0);
+        const b = worldToScreen(tr.x1, tr.y1);
+        drawDeathAshTrail(g, a.sx, a.sy - 8, b.sx, b.sy - 4, this.animT, life, compact);
+      }
     }
 
     // Loot magnet sparks traveling along auto-pickup lines
@@ -2334,6 +2377,54 @@ export class WorldScene extends Phaser.Scene {
           const lateral =
             n <= 1 ? 0 : (i - (n - 1) / 2) * (compact ? 14 : 11);
           foeStackInfo.set(id, { count: n, slot: i, lateral });
+        });
+      }
+    }
+
+    // Stacked loot piles: stagger when many drops share a tile
+    const lootStackInfo = new Map<string, { count: number; slot: number; ox: number; oy: number }>();
+    {
+      const drops = ents.filter((e) => e.kind === "loot");
+      const assigned = new Set<string>();
+      for (const seed of drops) {
+        const sid = String(seed.id);
+        if (assigned.has(sid)) continue;
+        const spos = this.entityRenderPos(seed);
+        const cluster: { e: any; pos: { x: number; y: number }; rarity: string }[] = [];
+        for (const o of drops) {
+          const oid = String(o.id);
+          if (assigned.has(oid)) continue;
+          const opos = this.entityRenderPos(o);
+          if (Math.hypot(opos.x - spos.x, opos.y - spos.y) <= LOOT_STACK_RANGE) {
+            cluster.push({ e: o, pos: opos, rarity: String(o.item?.rarity || "normal") });
+          }
+        }
+        // Higher rarity drifts slightly outward / on top of the pile
+        const rank: Record<string, number> = {
+          normal: 0,
+          magic: 1,
+          rare: 2,
+          set: 3,
+          unique: 4,
+          canto_unique: 5,
+        };
+        cluster.sort(
+          (a, b) =>
+            (rank[a.rarity] ?? 0) - (rank[b.rarity] ?? 0) ||
+            a.pos.x + a.pos.y - (b.pos.x + b.pos.y)
+        );
+        const n = cluster.length;
+        cluster.forEach((c, i) => {
+          const id = String(c.e.id);
+          assigned.add(id);
+          if (n <= 1) {
+            lootStackInfo.set(id, { count: 1, slot: 0, ox: 0, oy: 0 });
+            return;
+          }
+          const step = compact ? 11 : 9;
+          const ox = (i - (n - 1) / 2) * step;
+          const oy = -((i % 3) - 1) * (compact ? 5 : 4) - i * 0.6;
+          lootStackInfo.set(id, { count: n, slot: i, ox, oy });
         });
       }
     }
@@ -2464,6 +2555,7 @@ export class WorldScene extends Phaser.Scene {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
             nearEdge,
+            champion: Boolean(e.champion),
           });
         }
         const champ = Boolean(e.champion);
@@ -2532,22 +2624,26 @@ export class WorldScene extends Phaser.Scene {
         const tint = RARITY_COLOR[rarity] || 0xffffff;
         const pulse = lootRarityPulse(rarity);
         const strong = pulse >= 0.85;
-        drawLootGlow(g, p.sx, p.sy, tint, this.animT, compact, pulse);
-        const bob = Math.sin(this.animT * 0.004 + p.sx * 0.01) * (compact ? 3 : 2);
+        const lstack = lootStackInfo.get(String(e.id));
+        const lsx = p.sx + (lstack?.ox || 0);
+        const lsy = p.sy + (lstack?.oy || 0);
+        const ldepth = depth + (lstack ? lstack.slot * 0.015 : 0);
+        drawLootGlow(g, lsx, lsy, tint, this.animT, compact, pulse);
+        const bob = Math.sin(this.animT * 0.004 + lsx * 0.01) * (compact ? 3 : 2);
         const lootKey = lootTextureKey(e.item);
         const placedLoot =
-          this.placeSprite(sid, lootKey, p.sx, p.sy, depth, {
+          this.placeSprite(sid, lootKey, lsx, lsy, ldepth, {
             tint: rarity === "normal" ? undefined : tint,
             bob,
           }) ||
-          this.placeSprite(sid, DORE_KEYS.loot_gem, p.sx, p.sy, depth, {
+          this.placeSprite(sid, DORE_KEYS.loot_gem, lsx, lsy, ldepth, {
             tint: rarity === "normal" ? 0xe8dcc0 : tint,
             bob,
           });
         if (placedLoot) {
           seenSprites.add(sid);
         } else {
-          drawLoot(g, p.sx, p.sy, e.item?.rarity, compact, this.animT);
+          drawLoot(g, lsx, lsy, e.item?.rarity, compact, this.animT);
         }
         // Rarity dots always visible when far; full name only in magnet/near range
         {
@@ -2559,17 +2655,17 @@ export class WorldScene extends Phaser.Scene {
             const pull = 1 - lootDist / MAGNET_RANGE;
             const a = 0.18 + pull * 0.55;
             g.lineStyle(compact ? 2.2 : 1.6, tint, a * 0.55);
-            g.lineBetween(p.sx, p.sy - 4, youP.sx, youP.sy - 10);
+            g.lineBetween(lsx, lsy - 4, youP.sx, youP.sy - 10);
             g.lineStyle(compact ? 1.2 : 0.9, 0xffe8a0, a);
-            g.lineBetween(p.sx, p.sy - 4, youP.sx, youP.sy - 10);
+            g.lineBetween(lsx, lsy - 4, youP.sx, youP.sy - 10);
             // Soft tip near the player feet
             g.fillStyle(0xffe8a0, a * 0.7);
             g.fillCircle(youP.sx, youP.sy - 10, compact ? 2.4 : 1.8);
           }
           this.addDistanceLabel(
             `loot:${e.id}`,
-            p.sx,
-            p.sy - (compact ? 46 : 34),
+            lsx,
+            lsy - (compact ? 46 : 34),
             e.item?.name || "Loot",
             compact ? "12px" : "10px",
             lootDist,
@@ -3085,6 +3181,7 @@ export class WorldScene extends Phaser.Scene {
     const now = Date.now();
     if (now < this.deathFxUntil) return;
     this.deathFxUntil = now + DEATH_FX_LOCK_MS;
+    this.deathCorpsePos = { x: this.renderYou.x, y: this.renderYou.y };
     this.spawnPlayerDeathGhost();
     playDeathRevive();
     const cam = this.cameras.main;
@@ -3092,12 +3189,29 @@ export class WorldScene extends Phaser.Scene {
     cam.fadeOut(140, 10, 4, 6);
     this.time.delayedCall(200, () => {
       // Snap to entrance (server already moved us) and light a wake beacon
+      const corpse = this.deathCorpsePos;
       this.renderYou = { x: this.serverYou.x, y: this.serverYou.y };
       this.velX = 0;
       this.velY = 0;
       this.moveTarget = null;
       this.respawnBeaconPos = { x: this.serverYou.x, y: this.serverYou.y };
       this.respawnBeaconUntil = this.animT + RESPAWN_BEACON_MS;
+      if (corpse) {
+        const dx = this.serverYou.x - corpse.x;
+        const dy = this.serverYou.y - corpse.y;
+        if (Math.hypot(dx, dy) > 0.4) {
+          this.deathAshTrail = {
+            x0: corpse.x,
+            y0: corpse.y,
+            x1: this.serverYou.x,
+            y1: this.serverYou.y,
+            start: this.animT,
+            until: this.animT + DEATH_ASH_TRAIL_MS,
+          };
+          spawnDissolveAsh(this.particles, corpse.x, corpse.y, false);
+        }
+      }
+      this.deathCorpsePos = null;
       cam.fadeIn(560, 10, 4, 6);
     });
   }
