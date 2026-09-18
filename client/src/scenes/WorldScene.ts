@@ -57,6 +57,9 @@ import {
   drawLootGlow,
   spawnHitBurst,
   spawnKillBurst,
+  spawnFootstepDust,
+  spawnDissolveAsh,
+  drawInteractPulse,
   ensureVignetteTexture,
   drawKillRing,
   spawnLootSparkle,
@@ -82,9 +85,11 @@ const DESKTOP_HIT_RADIUS = 28;
 const MOBILE_HIT_RADIUS = 48;
 /** Loot gets a fatter tap target — it is small and the thing players want most. */
 const LOOT_HIT_BONUS = 1.6;
-const INTERACT_RANGE = 5.0;
+const INTERACT_RANGE = 5.2;
+/** Pulse outline + Interact toast when within this distance of a POI/exit/loot. */
+const INTERACT_HIGHLIGHT_RANGE = 5.0;
 const EXIT_HINT_RANGE = 7;
-const EXIT_TRAVEL_RANGE = 6.0;
+const EXIT_TRAVEL_RANGE = 6.2;
 const ATTACK_RANGE = 5.5;
 /** Client auto-loot: send pickup once loot is within this many world units. */
 const AUTO_PICKUP_RANGE = 4.0;
@@ -112,11 +117,14 @@ const PREDICT_SPEED = 8.0;
 const MOVE_ACCEL = 28;
 const MOVE_FRICTION = 18;
 const TAP_ARRIVE = 0.35;
-const ATTACK_WINDUP_MS = 140;
-const ATTACK_RECOVERY_MS = 380;
-const ATTACK_SWIPE_MS = 340;
+const ATTACK_WINDUP_MS = 160;
+const ATTACK_RECOVERY_MS = 400;
+const ATTACK_SWIPE_MS = 400;
 /** Kill ring / ghost-fade duration (ms). */
-const KILL_FX_MS = 420;
+const KILL_FX_MS = 520;
+/** Brief combat freeze on solid hits (ms wall-clock). */
+const HIT_STOP_MS = 58;
+const HIT_STOP_KILL_MS = 90;
 
 type HitFx = {
   start: number;
@@ -186,6 +194,13 @@ export class WorldScene extends Phaser.Scene {
   movingVisual = false;
   attackBusyUntil = 0;
   swipeFx: { until: number; dir: number; start: number } | null = null;
+  /** Nearest interactable for pulse outline + toast (poi/exit/loot). */
+  nearestInteract: { id: string; kind: string; label: string; sx: number; sy: number } | null = null;
+  lastInteractHintId: string | null = null;
+  lastInteractHintAt = 0;
+  /** Last walk frame index used to spawn footstep dust. */
+  lastDustFrame = -1;
+  hitStopActive = false;
   lastYouSnapshot: any = null;
   /** Expanding kill rings (screen px) drawn in redraw(). */
   killFx: { sx: number; sy: number; start: number; boss: boolean }[] = [];
@@ -409,13 +424,24 @@ export class WorldScene extends Phaser.Scene {
     this.aimY = ay / len;
     this.socket.cast(spellId, { x: this.aimX, y: this.aimY });
     noteSpellCast(spellId, def.cooldown);
-    // Optimistic cast flourish on self
+    // Optimistic cast flash matching spell color
     if (spellId === "whirl_ward") {
-      this.punch("you", { dur: 280, punch: 0.1, tint: 0xffe8a0, ox: 0, oy: -4 });
+      this.punch("you", { dur: 300, punch: 0.12, tint: 0xffe8a0, ox: 0, oy: -5 });
+      this.cameras.main.flash(70, 232, 200, 106, false);
     } else if (spellId === "infernal_burst") {
-      this.punch("you", { dur: 320, punch: 0.18, tint: 0xff6644, ox: 0, oy: -6 });
+      this.punch("you", { dur: 360, punch: 0.22, tint: 0xff5533, ox: 0, oy: -8 });
+      this.cameras.main.flash(90, 255, 80, 40, false);
+      this.cameraPunch(0.05, 260);
     } else {
-      this.punch("you", { dur: 180, punch: 0.12, tint: 0xffd078, ox: facing8IsLeft(this.facing8) ? -6 : 6, oy: -4 });
+      // Gale — ember-gold bolt flash
+      this.punch("you", {
+        dur: 200,
+        punch: 0.14,
+        tint: 0xffd078,
+        ox: facing8IsLeft(this.facing8) ? -7 : 7,
+        oy: -5,
+      });
+      this.cameras.main.flash(55, 255, 180, 90, false);
     }
   }
 
@@ -486,7 +512,7 @@ export class WorldScene extends Phaser.Scene {
       bestD = INTERACT_RANGE;
       for (const e of this.room.entities) {
         if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
-        const pos = this.entityRenderPos(e);
+        const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
         const d = Math.hypot(pos.x - you.x, pos.y - you.y);
         if (d < bestD) {
           bestD = d;
@@ -495,11 +521,27 @@ export class WorldScene extends Phaser.Scene {
       }
     }
     if (!best) {
-      showToast("Nothing nearby to interact with", "warn");
+      showToast("Nothing nearby — walk closer to a portal, NPC, or loot", "warn");
       return;
     }
-    if (best.kind === "loot") this.socket.pickup(best.id);
-    else this.doInteract(best);
+    if (best.kind === "loot") {
+      const name = best.item?.name || "loot";
+      showToast(`Picking up ${name}`, "loot");
+      this.socket.pickup(best.id);
+    } else if (best.kind === "exit" || best.poiKind === "portal") {
+      const dest =
+        best.toCanto === "inferno_05"
+          ? "Lust"
+          : best.label || best.name || "portal";
+      showToast(`Entering ${dest}…`, "emit");
+      this.doInteract(best);
+    } else if (best.poiKind === "ah") {
+      showToast("Opening Auction House", "info");
+      this.doInteract(best);
+    } else {
+      showToast(`Interact: ${best.label || best.name || "object"}`, "info");
+      this.doInteract(best);
+    }
   }
 
   attackNearest(opts?: { silent?: boolean }) {
@@ -533,10 +575,49 @@ export class WorldScene extends Phaser.Scene {
       until: this.animT + ATTACK_SWIPE_MS,
       dir: facing8IsLeft(this.facing8) ? -1 : 1,
     };
-    this.punch("you", { dur: ATTACK_WINDUP_MS + 40, punch: 0.2, tint: 0xffe8a0, ox: facing8IsLeft(this.facing8) ? -8 : 8, oy: -5 });
+    // Wind-up lean + gold tint, then strike punch
+    this.punch("you", {
+      dur: ATTACK_WINDUP_MS + 50,
+      punch: 0.26,
+      tint: 0xffe8a0,
+      ox: facing8IsLeft(this.facing8) ? -10 : 10,
+      oy: -6,
+    });
     this.time.delayedCall(ATTACK_WINDUP_MS, () => {
       this.socket.attack(targetId);
-      this.punch("you", { dur: 140, punch: 0.12, tint: null, ox: facing8IsLeft(this.facing8) ? -6 : 6, oy: -2 });
+      this.punch("you", {
+        dur: 160,
+        punch: 0.16,
+        tint: 0xfff6d0,
+        ox: facing8IsLeft(this.facing8) ? -8 : 8,
+        oy: -3,
+      });
+    });
+  }
+
+  /** Brief wall-clock freeze so hits read as weighted. */
+  triggerHitStop(ms = HIT_STOP_MS) {
+    if (this.hitStopActive) return;
+    this.hitStopActive = true;
+    this.time.timeScale = 0.12;
+    this.tweens.timeScale = 0.12;
+    window.setTimeout(() => {
+      this.time.timeScale = 1;
+      this.tweens.timeScale = 1;
+      this.hitStopActive = false;
+    }, ms);
+  }
+
+  /** Quick zoom punch (Burst / heavy hit) — restores to current zoom. */
+  cameraPunch(amount = 0.035, dur = 160) {
+    const cam = this.cameras.main;
+    const z0 = cam.zoom;
+    cam.setZoom(z0 * (1 + amount));
+    this.tweens.add({
+      targets: cam,
+      zoom: z0,
+      duration: dur,
+      ease: "Cubic.easeOut",
     });
   }
 
@@ -670,30 +751,33 @@ export class WorldScene extends Phaser.Scene {
         const hitSelf = Boolean(tid) && (tid === youId || tid === sockId);
         if (hitSelf) {
           // We got hit: crimson flash + short shake + recoil on our sprite
-          this.punch("you", { dur: 200, punch: -0.06, tint: 0xff7a6a, ox: (Math.random() - 0.5) * 8, oy: 2 });
-          this.cameras.main.shake(110, isCompactUi() ? 0.006 : 0.004);
-          this.cameras.main.flash(80, 140, 20, 20, false);
-          // HUD-locked crimson float (scrollFactor 0) — pass2 missed world-space floats
+          this.punch("you", { dur: 220, punch: -0.08, tint: 0xff7a6a, ox: (Math.random() - 0.5) * 10, oy: 3 });
+          this.cameras.main.shake(120, isCompactUi() ? 0.007 : 0.005);
+          this.cameras.main.flash(90, 160, 24, 24, false);
+          this.triggerHitStop(HIT_STOP_MS);
+          this.cameraPunch(0.028, 140);
           this.showPlayerDamageNumber(msg.damage);
           if (msg.targetHp != null && msg.targetHp <= 0) {
-            this.cameras.main.shake(260, 0.012);
+            this.cameras.main.shake(280, 0.014);
           }
           break;
         }
         const ent = this.room?.entities?.find((e: any) => String(e.id) === tid);
         if (ent) {
           const sid = `${ent.kind}:${ent.id}`;
-          // Hit flash (white) + big punch + knockback away from us + tiny screen kick
+          // Foe flinch: crimson-white tint + punch + knockback + hit-stop
           const away = Math.sign(ent.x + ent.y - (this.renderYou.x + this.renderYou.y)) || 1;
           this.punch(sid, {
-            dur: 220,
-            punch: ent.kind === "boss" ? 0.14 : 0.32,
-            tint: 0xffffff,
-            ox: away * (6 + Math.random() * 8) * (facing8IsLeft(this.facing8) ? -1 : 1),
-            oy: -6 - Math.random() * 6,
+            dur: 260,
+            punch: ent.kind === "boss" ? 0.18 : 0.38,
+            tint: 0xffccaa,
+            ox: away * (8 + Math.random() * 10) * (facing8IsLeft(this.facing8) ? -1 : 1),
+            oy: -8 - Math.random() * 7,
           });
           spawnHitBurst(this.particles, ent.x, ent.y);
-          this.cameras.main.shake(70, isCompactUi() ? 0.0035 : 0.0025);
+          this.cameras.main.shake(85, isCompactUi() ? 0.0045 : 0.0032);
+          this.triggerHitStop(ent.kind === "boss" ? HIT_STOP_KILL_MS : HIT_STOP_MS);
+          this.cameraPunch(ent.kind === "boss" ? 0.04 : 0.03, 150);
           this.showDamageNumber(ent, msg.damage);
         }
         break;
@@ -710,11 +794,14 @@ export class WorldScene extends Phaser.Scene {
           const pos = this.entityRenderPos(ent);
           const p = worldToScreen(pos.x, pos.y);
           spawnKillBurst(this.particles, pos.x, pos.y, boss);
+          spawnDissolveAsh(this.particles, pos.x, pos.y, boss);
           this.killFx.push({ sx: p.sx, sy: p.sy, start: this.animT, boss });
           this.ghostFadeSprite(`${ent.kind}:${ent.id}`, boss);
-          this.cameras.main.shake(boss ? 340 : 160, boss ? 0.014 : 0.007);
-          if (boss) this.cameras.main.flash(260, 201, 162, 39, false);
-          else this.cameras.main.flash(60, 120, 60, 30, false);
+          this.triggerHitStop(HIT_STOP_KILL_MS);
+          this.cameraPunch(boss ? 0.06 : 0.04, boss ? 320 : 200);
+          this.cameras.main.shake(boss ? 360 : 180, boss ? 0.016 : 0.008);
+          if (boss) this.cameras.main.flash(280, 201, 162, 39, false);
+          else this.cameras.main.flash(80, 140, 70, 35, false);
         }
         break;
       }
@@ -734,17 +821,36 @@ export class WorldScene extends Phaser.Scene {
     ghost.setFlipX(src.flipX);
     ghost.setDepth(src.depth + 0.5);
     ghost.setTint(0xff6a4a);
-    ghost.setAlpha(0.9);
+    ghost.setAlpha(0.95);
     ghost.setBlendMode(Phaser.BlendModes.ADD);
+    // Crimson lift + stretch, then a second bone ash twin that drifts apart
     this.tweens.add({
       targets: ghost,
       alpha: 0,
-      y: ghost.y - (boss ? 34 : 22),
-      scaleX: ghost.scaleX * 1.25,
-      scaleY: ghost.scaleY * 1.45,
+      y: ghost.y - (boss ? 42 : 28),
+      scaleX: ghost.scaleX * 1.35,
+      scaleY: ghost.scaleY * 1.6,
       duration: KILL_FX_MS,
       ease: "Cubic.easeOut",
       onComplete: () => ghost.destroy(),
+    });
+    const ash = this.add.image(src.x, src.y, src.texture.key);
+    ash.setOrigin(src.originX, src.originY);
+    ash.setScale(src.scaleX * 0.95, src.scaleY * 0.95);
+    ash.setFlipX(src.flipX);
+    ash.setDepth(src.depth + 0.4);
+    ash.setTint(0xd9cfae);
+    ash.setAlpha(0.7);
+    this.tweens.add({
+      targets: ash,
+      alpha: 0,
+      y: ash.y - (boss ? 18 : 12),
+      x: ash.x + (Math.random() - 0.5) * 18,
+      scaleX: ash.scaleX * 0.7,
+      scaleY: ash.scaleY * 1.15,
+      duration: KILL_FX_MS + 80,
+      ease: "Quad.easeIn",
+      onComplete: () => ash.destroy(),
     });
   }
 
@@ -762,30 +868,30 @@ export class WorldScene extends Phaser.Scene {
     if (dmg == null) return;
     const cam = this.cameras.main;
     const world = worldToScreen(this.renderYou.x, this.renderYou.y);
-    const sx = world.sx - cam.scrollX + (Math.random() - 0.5) * 14;
-    const sy = world.sy - cam.scrollY - 72;
+    const sx = world.sx - cam.scrollX + (Math.random() - 0.5) * 16;
+    const sy = world.sy - cam.scrollY - 78;
     const compact = isCompactUi();
     const t = this.add
       .text(sx, sy, String(dmg), {
         fontFamily: "Georgia, serif",
-        fontSize: compact ? "34px" : "24px",
+        fontSize: compact ? "38px" : "28px",
         fontStyle: "bold",
-        color: "#ff6b5a",
-        stroke: "#1a0a06",
-        strokeThickness: 6,
-        shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 6, fill: true },
+        color: "#ff7a68",
+        stroke: "#2a0806",
+        strokeThickness: 7,
+        shadow: { offsetX: 0, offsetY: 3, color: "#000", blur: 8, fill: true },
       })
       .setOrigin(0.5)
       .setDepth(12000)
       .setScrollFactor(0)
-      .setScale(1.5);
-    this.tweens.add({ targets: t, scale: 1, duration: 140, ease: "Back.easeOut" });
+      .setScale(1.7);
+    this.tweens.add({ targets: t, scale: 1, duration: 150, ease: "Back.easeOut" });
     this.tweens.add({
       targets: t,
-      y: sy - 54,
+      y: sy - 60,
       alpha: 0,
-      duration: 900,
-      delay: 120,
+      duration: 980,
+      delay: 130,
       ease: "Cubic.easeOut",
       onComplete: () => t.destroy(),
     });
@@ -804,28 +910,28 @@ export class WorldScene extends Phaser.Scene {
       p = worldToScreen(pos.x, pos.y);
     }
     const compact = isCompactUi();
-    const drift = (Math.random() - 0.5) * 22;
+    const drift = (Math.random() - 0.5) * 26;
     const t = this.add
-      .text(p.sx + drift, p.sy - (ent.kind === "boss" ? 96 : 62), String(dmg), {
+      .text(p.sx + drift, p.sy - (ent.kind === "boss" ? 102 : 68), String(dmg), {
         fontFamily: "Georgia, serif",
-        fontSize: compact ? "30px" : "20px",
+        fontSize: compact ? "34px" : "24px",
         fontStyle: "bold",
-        color: o?.color || "#ffd966",
+        color: o?.color || "#ffe08a",
         stroke: "#1a0a06",
-        strokeThickness: 6,
-        shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 6, fill: true },
+        strokeThickness: 7,
+        shadow: { offsetX: 0, offsetY: 3, color: "#000", blur: 8, fill: true },
       })
       .setOrigin(0.5)
       .setDepth(9500)
-      .setScale(1.6);
-    this.tweens.add({ targets: t, scale: 1, duration: 150, ease: "Back.easeOut" });
+      .setScale(1.75);
+    this.tweens.add({ targets: t, scale: 1, duration: 160, ease: "Back.easeOut" });
     this.tweens.add({
       targets: t,
-      x: t.x + drift * 0.8,
-      y: t.y - (compact ? 44 : 34),
+      x: t.x + drift * 0.85,
+      y: t.y - (compact ? 52 : 40),
       alpha: 0,
-      duration: 820,
-      delay: 140,
+      duration: 900,
+      delay: 150,
       ease: "Cubic.easeOut",
       onComplete: () => t.destroy(),
     });
@@ -1120,7 +1226,8 @@ export class WorldScene extends Phaser.Scene {
         start: this.animT,
         dur: 280,
       });
-      this.cameras.main.shake(55, isCompactUi() ? 0.0025 : 0.0018);
+      this.cameras.main.shake(60, isCompactUi() ? 0.003 : 0.002);
+      this.cameraPunch(0.022, 120);
       return;
     }
 
@@ -1145,20 +1252,13 @@ export class WorldScene extends Phaser.Scene {
         x,
         y,
         start: this.animT,
-        dur: 520,
+        dur: 560,
         radius,
       });
-      this.cameras.main.shake(220, isCompactUi() ? 0.012 : 0.009);
-      this.cameras.main.flash(120, 180, 40, 20, false);
-      const cam = this.cameras.main;
-      const z0 = cam.zoom;
-      cam.setZoom(z0 * 1.06);
-      this.tweens.add({
-        targets: cam,
-        zoom: z0,
-        duration: 280,
-        ease: "Cubic.easeOut",
-      });
+      this.cameras.main.shake(240, isCompactUi() ? 0.014 : 0.01);
+      this.cameras.main.flash(140, 200, 45, 22, false);
+      this.triggerHitStop(HIT_STOP_MS);
+      this.cameraPunch(0.07, 300);
       return;
     }
   }
@@ -1242,6 +1342,18 @@ export class WorldScene extends Phaser.Scene {
       g.fillEllipse(c.sx, c.sy, 180, 80);
     }
 
+    // Nearest-interact pulse outline (drawn under entities)
+    if (this.nearestInteract) {
+      drawInteractPulse(
+        g,
+        this.nearestInteract.sx,
+        this.nearestInteract.sy,
+        this.animT,
+        compact,
+        this.nearestInteract.kind
+      );
+    }
+
     const ents = [...this.room.entities].sort((a, b) => {
       const pa = this.entityRenderPos(a);
       const pb = this.entityRenderPos(b);
@@ -1283,9 +1395,12 @@ export class WorldScene extends Phaser.Scene {
           compact ? "16px" : "13px",
           seenLabels
         );
-        // Gold-ish label for Lust exit
+        // Gold-ish label for Lust exit (slightly brighter than soft nameplates)
         const lab = this.labels.get(`exit:${e.id}`);
-        if (lab && e.toCanto === "inferno_05") lab.setColor("#e8c86a");
+        if (lab) {
+          lab.setAlpha(0.78);
+          if (e.toCanto === "inferno_05") lab.setColor("#e8c86a");
+        }
       } else if (e.kind === "mob") {
         drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.85 : 1.45) : compact ? 1.55 : 1.2);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, champion: Boolean(e.champion) });
@@ -1313,7 +1428,10 @@ export class WorldScene extends Phaser.Scene {
         }
         this.addLabel(`boss:${e.id}`, p.sx, topY - (compact ? 16 : 12), e.name, compact ? "15px" : "12px", seenLabels);
         const bl = this.labels.get(`boss:${e.id}`);
-        if (bl) bl.setColor("#e8c86a");
+        if (bl) {
+          bl.setColor("#e8c86a");
+          bl.setAlpha(0.8);
+        }
         drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, 64, { compact, boss: true });
       } else if (e.kind === "loot") {
         const rarity = e.item?.rarity || "normal";
@@ -1426,34 +1544,41 @@ export class WorldScene extends Phaser.Scene {
       } else {
         drawPlayer(g, p.sx, p.sy, true);
       }
-      // Attack swipe arc feedback
+      // Attack swipe arc — longer wind, brighter blade, trailing sparks
       if (this.swipeFx && this.animT <= this.swipeFx.until) {
         const prog = (this.animT - this.swipeFx.start) / Math.max(1, this.swipeFx.until - this.swipeFx.start);
-        const ang = (this.swipeFx.dir > 0 ? -0.9 : Math.PI + 0.9) + prog * this.swipeFx.dir * 1.6;
-        const reach = compact ? 84 : 52;
+        const ang = (this.swipeFx.dir > 0 ? -1.05 : Math.PI + 1.05) + prog * this.swipeFx.dir * 1.85;
+        const reach = compact ? 96 : 60;
         const fade = 1 - prog * prog;
-        const cy = p.sy - (compact ? 44 : 28);
+        const cy = p.sy - (compact ? 46 : 30);
         const d = this.swipeFx.dir;
-        // Crescent sweeps across the front of the figure: wide soft glow, gold
-        // blade, white-hot core; the trailing edge stretches as it fades.
-        const trail = 0.9 + prog * 0.9;
-        g.lineStyle(compact ? 22 : 14, 0xc9a227, 0.2 * fade);
+        const trail = 1.05 + prog * 1.05;
+        g.lineStyle(compact ? 28 : 18, 0xc9a227, 0.22 * fade);
         g.beginPath();
-        g.arc(p.sx, cy, reach, ang - d * trail, ang + d * 0.35, d < 0);
+        g.arc(p.sx, cy, reach, ang - d * trail, ang + d * 0.4, d < 0);
         g.strokePath();
-        g.lineStyle(compact ? 9 : 6, 0xffe08a, 0.95 * fade);
+        g.lineStyle(compact ? 12 : 8, 0xffe08a, 0.98 * fade);
         g.beginPath();
-        g.arc(p.sx, cy, reach, ang - d * trail, ang + d * 0.3, d < 0);
+        g.arc(p.sx, cy, reach, ang - d * trail, ang + d * 0.32, d < 0);
         g.strokePath();
-        g.lineStyle(compact ? 3 : 2, 0xffffff, 0.85 * fade);
+        g.lineStyle(compact ? 4 : 2.5, 0xffffff, 0.9 * fade);
         g.beginPath();
-        g.arc(p.sx, cy, reach * 0.9, ang - d * trail * 0.6, ang + d * 0.2, d < 0);
+        g.arc(p.sx, cy, reach * 0.88, ang - d * trail * 0.65, ang + d * 0.22, d < 0);
         g.strokePath();
-        // Leading spark
-        const tipX = p.sx + Math.cos(ang + d * 0.3) * reach;
-        const tipY = cy + Math.sin(ang + d * 0.3) * reach;
-        g.fillStyle(0xfff6d0, 0.9 * fade);
-        g.fillCircle(tipX, tipY, compact ? 6 : 4);
+        // Leading spark + small trail sparks
+        const tipX = p.sx + Math.cos(ang + d * 0.32) * reach;
+        const tipY = cy + Math.sin(ang + d * 0.32) * reach;
+        g.fillStyle(0xfff6d0, 0.95 * fade);
+        g.fillCircle(tipX, tipY, compact ? 8 : 5);
+        g.fillStyle(0xff6644, 0.55 * fade);
+        g.fillCircle(tipX - d * 6, tipY + 2, compact ? 4 : 2.5);
+        for (let s = 1; s <= 3; s++) {
+          const ta = ang - d * trail * (0.25 * s);
+          const sx = p.sx + Math.cos(ta) * reach * (0.92 - s * 0.04);
+          const sy = cy + Math.sin(ta) * reach * (0.92 - s * 0.04);
+          g.fillStyle(0xffe08a, (0.55 - s * 0.12) * fade);
+          g.fillCircle(sx, sy, (compact ? 4 : 2.5) - s * 0.5);
+        }
       } else if (this.swipeFx && this.animT > this.swipeFx.until) {
         this.swipeFx = null;
       }
@@ -1482,12 +1607,12 @@ export class WorldScene extends Phaser.Scene {
         .text(x, y, text, {
           fontFamily: "Georgia, serif",
           fontSize,
-          color: "#c8bfa2",
+          color: "#b0a88c",
           stroke: "#0b0f0c",
-          strokeThickness: 3,
+          strokeThickness: 2,
         })
         .setOrigin(0.5)
-        .setAlpha(0.82)
+        .setAlpha(0.62)
         .setDepth(9000);
       this.labels.set(key, t);
       this.labelGroup.add(t);
@@ -1495,6 +1620,7 @@ export class WorldScene extends Phaser.Scene {
       t.setPosition(x, y);
       if (t.text !== text) t.setText(text);
       if (t.style.fontSize !== fontSize) t.setFontSize(fontSize);
+      t.setAlpha(0.62);
     }
   }
 
@@ -1608,6 +1734,79 @@ export class WorldScene extends Phaser.Scene {
     this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
   }
 
+  /** Track nearest POI/exit/loot for pulse outline + Interact button hint. */
+  private scanNearestInteract() {
+    if (!this.room) {
+      this.nearestInteract = null;
+      return;
+    }
+    const you = this.youPos();
+    let best: any = null;
+    let bestD = INTERACT_HIGHLIGHT_RANGE;
+    let bestPos = { x: 0, y: 0 };
+    for (const e of this.room.entities) {
+      if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+      const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+        bestPos = pos;
+      }
+    }
+    const interactBtn = document.getElementById("btn-interact");
+    if (!best) {
+      this.nearestInteract = null;
+      this.lastInteractHintId = null;
+      interactBtn?.classList.remove("interact-ready");
+      return;
+    }
+    const scr = worldToScreen(bestPos.x, bestPos.y);
+    const label =
+      best.kind === "loot"
+        ? best.item?.name || "Loot"
+        : best.kind === "exit"
+          ? best.toCanto === "inferno_05"
+            ? "Toward Lust"
+            : best.label || "Exit"
+          : best.label || best.name || "Interact";
+    this.nearestInteract = {
+      id: String(best.id),
+      kind: best.kind,
+      label,
+      sx: scr.sx,
+      sy: scr.sy,
+    };
+    interactBtn?.classList.add("interact-ready");
+    // Toast only for loot / portals — POIs get pulse + Interact-button glow only
+    // (avoids spam walking past Oak / AH / Darkwood in the hub).
+    if (this.lastInteractHintId !== this.nearestInteract.id) {
+      this.lastInteractHintId = this.nearestInteract.id;
+      this.lastInteractHintAt = Date.now();
+      if (best.kind === "exit" && best.toCanto === "inferno_05") return;
+      if (best.kind === "poi" && best.poiKind !== "portal") return;
+      const verb =
+        best.kind === "loot"
+          ? "Pick up"
+          : best.kind === "exit" || best.poiKind === "portal"
+            ? "Enter"
+            : "Use";
+      showToast(`${verb} ${label} — Interact`, "info");
+    }
+  }
+
+  /** Puff dust under feet when the walk frame advances. */
+  private maybeFootstepDust() {
+    if (!this.movingVisual) {
+      this.lastDustFrame = -1;
+      return;
+    }
+    const frame = Math.floor(this.animT / WALK_FRAME_MS) % 2;
+    if (frame === this.lastDustFrame) return;
+    this.lastDustFrame = frame;
+    spawnFootstepDust(this.particles, this.renderYou.x, this.renderYou.y);
+  }
+
   /** Auto-loot: request pickup for loot near the player (server range-checks). */
   private autoPickupScan() {
     if (!this.room) return;
@@ -1704,6 +1903,8 @@ export class WorldScene extends Phaser.Scene {
     tickParticles(this.particles, dtSec);
 
     this.autoPickupScan();
+    this.scanNearestInteract();
+    this.maybeFootstepDust();
 
     // Lust exit proximity hint + reliable travel nudge
     if (this.room) {
