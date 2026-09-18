@@ -103,6 +103,12 @@ export function updateStats(you: any, title: string) {
     hpFill.style.width = `${(ratio * 100).toFixed(1)}%`;
     hpFill.classList.toggle("low", ratio <= 0.3);
   }
+  // Low-HP screen vignette pulse (~30% and below)
+  document.body.classList.toggle("low-hp", ratio <= 0.3 && cur > 0);
+  document.getElementById("danger-vignette")?.setAttribute(
+    "aria-hidden",
+    ratio <= 0.3 && cur > 0 ? "false" : "true"
+  );
   if (hpPlate) {
     hpPlate.setAttribute("aria-valuenow", String(cur));
     hpPlate.setAttribute("aria-valuemax", String(maxHp));
@@ -394,6 +400,8 @@ function wirePressed(btn: HTMLElement) {
 
 /** Local optimistic ward buff end (ms). Server `armorBuff`/`wardUntil` overrides when present. */
 let wardBuffUntilMs = 0;
+/** True while the pip was showing last frame — used to fire expiry flash. */
+let wardPipWasActive = false;
 
 /** Call when Whirl Ward fx starts so the HUD pip lights immediately. */
 export function noteWardBuff(durationSec: number) {
@@ -419,17 +427,82 @@ function syncWardPip(you: any | null) {
   }
   if (!active && wardBuffUntilMs > Date.now()) active = true;
   if (wardBuffUntilMs > 0 && wardBuffUntilMs <= Date.now()) wardBuffUntilMs = 0;
-  pip.classList.toggle("hidden", !active);
-  pip.setAttribute("aria-hidden", active ? "false" : "true");
+
+  // Expiry flash when pip drops
+  if (wardPipWasActive && !active) {
+    pip.classList.remove("hidden", "ward-expire");
+    void (pip as HTMLElement).offsetWidth;
+    pip.classList.add("ward-expire");
+    pip.textContent = "W";
+    pip.setAttribute("aria-hidden", "false");
+    window.setTimeout(() => {
+      if (wardBuffUntilMs <= Date.now()) {
+        pip.classList.add("hidden");
+        pip.classList.remove("ward-expire");
+        pip.setAttribute("aria-hidden", "true");
+        pip.textContent = "W";
+      }
+    }, 420);
+  } else if (active) {
+    pip.classList.remove("hidden", "ward-expire");
+    const left = Math.max(0, (wardBuffUntilMs - Date.now()) / 1000);
+    // Tiny remaining time; keep "W" glyph when >9s so the pip stays compact
+    if (left > 0 && left < 9.95) {
+      pip.textContent = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
+    } else {
+      pip.textContent = "W";
+    }
+    pip.title = left > 0 ? `Whirl Ward — +armor (${left.toFixed(1)}s)` : "Whirl Ward — +armor";
+    pip.setAttribute("aria-hidden", "false");
+  } else if (!pip.classList.contains("ward-expire")) {
+    pip.classList.add("hidden");
+    pip.setAttribute("aria-hidden", "true");
+    pip.textContent = "W";
+  }
+  wardPipWasActive = active;
 }
 
 /** Client-side cooldown deadlines (ms epoch) keyed by spell id — optimistic UI. */
 const spellCdUntil = new Map<string, number>();
 let spellCdRaf = 0;
+/** Attack button radial CD deadline (ms epoch). */
+let attackCdUntil = 0;
+let attackCdTotalMs = 560;
+/** Track which spells were on CD so we can fire a ready ping when they clear. */
+const spellWasOnCd = new Map<string, boolean>();
 
 export function noteSpellCast(spellId: string, cooldownSec: number) {
   spellCdUntil.set(spellId, Date.now() + cooldownSec * 1000);
   kickSpellCdLoop();
+}
+
+/** Optimistic melee CD radial on the Attack button (matches spell-style sweep). */
+export function noteAttackCd(cooldownSec: number) {
+  const ms = Math.max(0.05, Number(cooldownSec) || 0) * 1000;
+  attackCdTotalMs = ms;
+  attackCdUntil = Date.now() + ms;
+  kickSpellCdLoop();
+}
+
+/** Brief Inv bag glow matching loot rarity when a new item lands. */
+export function pulseInvBag(rarity?: string) {
+  const btn = document.getElementById("btn-inv");
+  if (!btn) return;
+  const r = String(rarity || "normal");
+  btn.classList.remove(
+    "inv-loot-glow",
+    "r-normal",
+    "r-magic",
+    "r-rare",
+    "r-set",
+    "r-unique",
+    "r-canto_unique"
+  );
+  void (btn as HTMLElement).offsetWidth;
+  btn.classList.add("inv-loot-glow", `r-${r in RARITY_LABEL ? r : "normal"}`);
+  window.setTimeout(() => {
+    btn.classList.remove("inv-loot-glow", `r-${r in RARITY_LABEL ? r : "normal"}`);
+  }, 2200);
 }
 
 export function flashManaDeny(spellId?: string) {
@@ -449,6 +522,36 @@ export function flashManaDeny(spellId?: string) {
   });
 }
 
+function pingSpellReady(btn: HTMLElement) {
+  btn.classList.remove("spell-ready");
+  void btn.offsetWidth;
+  btn.classList.add("spell-ready");
+}
+
+function updateAttackCdButton() {
+  const btn = document.getElementById("btn-attack");
+  if (!btn) return;
+  const now = Date.now();
+  const onCd = attackCdUntil > now;
+  const was = btn.classList.contains("on-cooldown");
+  btn.classList.toggle("on-cooldown", onCd);
+  const cdEl = btn.querySelector<HTMLElement>(".spell-cd, .attack-cd");
+  if (cdEl) {
+    if (onCd) {
+      const left = Math.max(0, (attackCdUntil - now) / 1000);
+      cdEl.hidden = false;
+      cdEl.textContent = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
+      const frac = Math.max(0, Math.min(1, (attackCdUntil - now) / Math.max(1, attackCdTotalMs)));
+      cdEl.style.setProperty("--cd-frac", String(frac));
+      cdEl.style.setProperty("--cd-deg", `${(frac * 360).toFixed(1)}deg`);
+    } else {
+      cdEl.hidden = true;
+      cdEl.textContent = "";
+    }
+  }
+  if (was && !onCd) pingSpellReady(btn);
+}
+
 function updateSpellButtons(mana: number) {
   const now = Date.now();
   for (const id of SPELL_HOTBAR) {
@@ -457,6 +560,7 @@ function updateSpellButtons(mana: number) {
     if (!btn) continue;
     const until = spellCdUntil.get(id) || 0;
     const onCd = until > now;
+    const was = spellWasOnCd.get(id) === true;
     const lack = mana < def.manaCost;
     btn.classList.toggle("on-cooldown", onCd);
     btn.classList.toggle("no-mana", lack && !onCd);
@@ -475,7 +579,10 @@ function updateSpellButtons(mana: number) {
         cdEl.textContent = "";
       }
     }
+    if (was && !onCd) pingSpellReady(btn);
+    spellWasOnCd.set(id, onCd);
   }
+  updateAttackCdButton();
 }
 
 function kickSpellCdLoop() {
@@ -496,6 +603,7 @@ function kickSpellCdLoop() {
       }
     }
     if (!any && wardBuffUntilMs > now) any = true;
+    if (!any && attackCdUntil > now) any = true;
     if (any) {
       spellCdRaf = window.requestAnimationFrame(tick);
     }
