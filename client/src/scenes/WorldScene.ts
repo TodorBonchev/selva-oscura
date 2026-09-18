@@ -13,6 +13,7 @@ import {
   isCompactUi,
   noteSpellCast,
   flashManaDeny,
+  noteWardBuff,
 } from "../ui/hud";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
@@ -55,6 +56,7 @@ import {
   drawFoeHpBar,
   drawFoeGlow,
   drawLootGlow,
+  lootRarityPulse,
   spawnHitBurst,
   spawnKillBurst,
   spawnFootstepDust,
@@ -76,6 +78,7 @@ import {
   drawGaleRangePreview,
   drawOutOfRangeFoeMark,
   drawPortalChargeRing,
+  drawPortalEnterTip,
   buildGroundTiles,
   destroyGroundTiles,
   facing8FromWorldVel,
@@ -97,6 +100,10 @@ const INTERACT_RANGE = 5.2;
 const INTERACT_HIGHLIGHT_RANGE = 5.0;
 const EXIT_HINT_RANGE = 7;
 const EXIT_TRAVEL_RANGE = 6.2;
+/** Prefer last-hit foe for this long after we land a hit (Gale sticky aim). */
+const GALE_STICKY_MS = 1600;
+/** Remotes dim if no snapshot for this long, or while globally reconnecting. */
+const REMOTE_STALE_MS = 2200;
 const ATTACK_RANGE = 5.5;
 /** Client auto-loot: send pickup once loot is within this many world units. */
 const AUTO_PICKUP_RANGE = 4.0;
@@ -311,6 +318,8 @@ export class WorldScene extends Phaser.Scene {
   >();
   /** True while websocket is down — local player rendered dim / ghost. */
   netOffline = false;
+  /** Last foe we damaged — Gale briefly prefers them when aiming. */
+  lastHitFoe: { id: string; until: number } | null = null;
   /** Reused floating damage Text objects. */
   dmgPool: Phaser.GameObjects.Text[] = [];
 
@@ -519,24 +528,11 @@ export class WorldScene extends Phaser.Scene {
     let ay = opts?.aimY ?? this.aimY;
     const preferNearest = opts?.preferNearest !== false && opts?.aimX == null;
     if (spellId === "gale_bolt" && preferNearest) {
-      const you = this.youPos();
-      let best: any = null;
-      let bestD = 9.5;
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob" && e.kind !== "boss") continue;
-        const pos = this.entityRenderPos(e);
-        const d = Math.hypot(pos.x - you.x, pos.y - you.y);
-        if (d < bestD) {
-          bestD = d;
-          best = { pos };
-        }
-      }
-      if (best) {
-        ax = best.pos.x - you.x;
-        ay = best.pos.y - you.y;
-        const f = facing8FromWorldVel(ax, ay, 0.01);
-        if (f) this.facing8 = f;
-      }
+      const dir = this.pickGaleAimDir();
+      ax = dir.x;
+      ay = dir.y;
+      const f = facing8FromWorldVel(ax, ay, 0.01);
+      if (f) this.facing8 = f;
     }
     const len = Math.hypot(ax, ay) || 1;
     this.aimX = ax / len;
@@ -555,25 +551,42 @@ export class WorldScene extends Phaser.Scene {
     };
   }
 
-  /** Seed gale aim toward nearest foe (or current facing). */
+  /** Seed gale aim toward last-hit foe (sticky) else nearest foe (or facing). */
   private nearestGaleAim(): { x: number; y: number } {
+    return this.pickGaleAimDir();
+  }
+
+  /** Soft sticky: briefly prefer last-hit foe if still in/near Gale range. */
+  private pickGaleAimDir(): { x: number; y: number } {
     const you = this.youPos();
+    const stickyId =
+      this.lastHitFoe && this.animT < this.lastHitFoe.until ? this.lastHitFoe.id : null;
+    let stickyDir: { x: number; y: number } | null = null;
+    let stickyD = 99;
     let best: { x: number; y: number } | null = null;
-    let bestD = 9.5;
+    let bestD = GALE_RANGE;
     if (this.room) {
       for (const e of this.room.entities) {
         if (e.kind !== "mob" && e.kind !== "boss") continue;
         const pos = this.entityRenderPos(e);
-        const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+        const dx = pos.x - you.x;
+        const dy = pos.y - you.y;
+        const d = Math.hypot(dx, dy);
+        if (stickyId && String(e.id) === stickyId && d < GALE_RANGE * 1.2) {
+          stickyDir = { x: dx, y: dy };
+          stickyD = d;
+        }
         if (d < bestD) {
           bestD = d;
-          best = { x: pos.x - you.x, y: pos.y - you.y };
+          best = { x: dx, y: dy };
         }
       }
     }
-    if (best) {
-      const len = Math.hypot(best.x, best.y) || 1;
-      return { x: best.x / len, y: best.y / len };
+    // Prefer sticky unless another foe is much closer (in melee)
+    const use = stickyDir && !(best && bestD < 2.2 && stickyD > bestD + 1.4) ? stickyDir : best;
+    if (use) {
+      const len = Math.hypot(use.x, use.y) || 1;
+      return { x: use.x / len, y: use.y / len };
     }
     const len = Math.hypot(this.aimX, this.aimY) || 1;
     return { x: this.aimX / len, y: this.aimY / len };
@@ -1100,6 +1113,7 @@ export class WorldScene extends Phaser.Scene {
           this.wardRings.clear();
           this.infernalShocks = [];
           this.remotePrev.clear();
+          this.lastHitFoe = null;
           this.centerOnYou(true);
           if (cantoChanged) this.playTravelTransition();
         }
@@ -1190,6 +1204,12 @@ export class WorldScene extends Phaser.Scene {
           break;
         }
         const ent = this.room?.entities?.find((e: any) => String(e.id) === tid);
+        const attacker = String(msg.attackerId ?? "");
+        const weHit =
+          Boolean(attacker) && (attacker === youId || attacker === sockId);
+        if (weHit && ent && (ent.kind === "mob" || ent.kind === "boss")) {
+          this.lastHitFoe = { id: String(ent.id), until: this.animT + GALE_STICKY_MS };
+        }
         if (ent) {
           const sid = `${ent.kind}:${ent.id}`;
           // Foe flinch: crimson-white tint + punch + knockback + hit-stop
@@ -1248,6 +1268,7 @@ export class WorldScene extends Phaser.Scene {
           if (boss) this.cameras.main.flash(360, 201, 162, 39, false);
           else this.cameras.main.flash(80, 140, 70, 35, false);
           this.bossTelegraphs = this.bossTelegraphs.filter((t) => t.id !== String(ent.id));
+          if (this.lastHitFoe && this.lastHitFoe.id === String(ent.id)) this.lastHitFoe = null;
         }
         break;
       }
@@ -1862,6 +1883,7 @@ export class WorldScene extends Phaser.Scene {
       });
       if (casterId === this.room?.you?.id || casterId === this.socket.playerId) {
         this.wardRings.set("you", { until: this.animT + durMs, x, y });
+        noteWardBuff(durMs / 1000);
       }
       return;
     }
@@ -2076,24 +2098,56 @@ export class WorldScene extends Phaser.Scene {
 
       if (e.kind === "poi") {
         drawEntityPad(g, p.sx, p.sy, compact ? 1.5 : 1.1);
+        if (e.poiKind === "portal") {
+          const poiDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+          if (poiDist <= EXIT_TRAVEL_RANGE) {
+            drawPortalEnterTip(g, p.sx, p.sy, this.animT, compact);
+          }
+        }
         if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
         } else {
           drawPoi(g, p.sx, p.sy, e.poiKind, compact);
         }
-        this.addDistanceLabel(
-          `poi:${e.id}`,
-          p.sx,
-          p.sy - (compact ? 40 : 30),
-          e.label || e.name || "POI",
-          labelSize,
-          Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y),
-          seenLabels,
-          { icon: "◆", farAlpha: 0.45 }
-        );
+        {
+          const poiDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+          this.addDistanceLabel(
+            `poi:${e.id}`,
+            p.sx,
+            p.sy - (compact ? 40 : 30),
+            e.label || e.name || "POI",
+            labelSize,
+            poiDist,
+            seenLabels,
+            { icon: "◆", farAlpha: 0.45 }
+          );
+          if (e.poiKind === "portal" && poiDist <= EXIT_TRAVEL_RANGE) {
+            this.addDistanceLabel(
+              `poi-hold:${e.id}`,
+              p.sx,
+              p.sy - (compact ? 56 : 44),
+              "hold to enter",
+              compact ? "11px" : "10px",
+              poiDist,
+              seenLabels,
+              {
+                nearRange: EXIT_TRAVEL_RANGE,
+                farRange: EXIT_TRAVEL_RANGE,
+                nearColor: "#e8c86a",
+                nearAlpha: 0.9,
+              }
+            );
+          }
+        }
       } else if (e.kind === "exit") {
         drawEntityPad(g, p.sx, p.sy, compact ? 1.9 : 1.4);
         drawExitSpotlight(g, p.sx, p.sy, this.animT, compact);
+        {
+          const exitDist0 = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+          if (exitDist0 <= EXIT_TRAVEL_RANGE) {
+            drawPortalEnterTip(g, p.sx, p.sy, this.animT, compact);
+          }
+        }
         if (this.placeSprite(sid, DORE_KEYS.exit_portal, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
         } else {
@@ -2119,6 +2173,23 @@ export class WorldScene extends Phaser.Scene {
             nearAlpha: 0.78,
           }
         );
+        if (exitDist <= EXIT_TRAVEL_RANGE) {
+          this.addDistanceLabel(
+            `exit-hold:${e.id}`,
+            p.sx,
+            p.sy - (compact ? 102 : 78),
+            "hold to enter",
+            compact ? "11px" : "10px",
+            exitDist,
+            seenLabels,
+            {
+              nearRange: EXIT_TRAVEL_RANGE,
+              farRange: EXIT_TRAVEL_RANGE,
+              nearColor: "#e8c86a",
+              nearAlpha: 0.9,
+            }
+          );
+        }
       } else if (e.kind === "mob") {
         drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.85 : 1.45) : compact ? 1.55 : 1.2);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, champion: Boolean(e.champion) });
@@ -2158,8 +2229,9 @@ export class WorldScene extends Phaser.Scene {
       } else if (e.kind === "loot") {
         const rarity = e.item?.rarity || "normal";
         const tint = RARITY_COLOR[rarity] || 0xffffff;
-        const strong = rarity !== "normal" && rarity !== "magic";
-        drawLootGlow(g, p.sx, p.sy, tint, this.animT, compact, strong);
+        const pulse = lootRarityPulse(rarity);
+        const strong = pulse >= 0.85;
+        drawLootGlow(g, p.sx, p.sy, tint, this.animT, compact, pulse);
         const bob = Math.sin(this.animT * 0.004 + p.sx * 0.01) * (compact ? 3 : 2);
         const lootKey = lootTextureKey(e.item);
         const placedLoot =
@@ -2241,14 +2313,17 @@ export class WorldScene extends Phaser.Scene {
               rot: 0,
             };
           })();
+      const remoteStale =
+        this.netOffline || (this.lastSnapAt > 0 && Date.now() - this.lastSnapAt > REMOTE_STALE_MS);
       if (
         this.placeSprite(sid, rv.key, p.sx, p.sy, depth, {
-          tint: 0x9ab0a0,
+          tint: remoteStale ? 0x667788 : 0x9ab0a0,
           bob: rv.bob,
           scale: rv.scale,
           squash: rv.squash,
           rot: rv.rot,
           flipX: rv.flipX,
+          alpha: remoteStale ? 0.38 : 1,
         })
       ) {
         seenSprites.add(sid);

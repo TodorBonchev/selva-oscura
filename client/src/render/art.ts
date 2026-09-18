@@ -1304,6 +1304,24 @@ export function drawFoeHpBar(
  *  Loot glow / pulse
  * ———————————————————————————————————————————————————————————————————————— */
 
+/** Rarity → pulse intensity (common soft → unique stronger). */
+export function lootRarityPulse(rarity: string | undefined): number {
+  switch (String(rarity || "normal")) {
+    case "magic":
+      return 0.55;
+    case "rare":
+      return 0.85;
+    case "set":
+      return 1.05;
+    case "unique":
+      return 1.25;
+    case "canto_unique":
+      return 1.45;
+    default:
+      return 0.32; // normal / common — soft
+  }
+}
+
 export function drawLootGlow(
   g: Phaser.GameObjects.Graphics,
   sx: number,
@@ -1311,19 +1329,24 @@ export function drawLootGlow(
   color: number,
   t: number,
   compact: boolean,
-  strong = false
+  /** 0..~1.5 pulse intensity; bool still accepted (true≈rare). */
+  intensity: number | boolean = 0.5
 ) {
-  const pulse = 0.5 + 0.5 * Math.sin(t * 0.006 + sx * 0.02);
-  const s = (compact ? 1.5 : 1) * (strong ? 1.25 : 1);
-  g.fillStyle(color, 0.10 + pulse * 0.12);
-  g.fillEllipse(sx, sy + 2, 40 * s * (0.9 + pulse * 0.15), 18 * s * (0.9 + pulse * 0.15));
-  g.fillStyle(color, 0.16 + pulse * 0.18);
+  const inv =
+    typeof intensity === "boolean" ? (intensity ? 1.0 : 0.35) : Math.max(0.15, Number(intensity) || 0.35);
+  const pulse = 0.5 + 0.5 * Math.sin(t * (0.004 + inv * 0.004) + sx * 0.02);
+  const s = (compact ? 1.5 : 1) * (0.85 + inv * 0.35);
+  const aMul = 0.55 + inv * 0.55;
+  g.fillStyle(color, (0.06 + pulse * 0.10) * aMul);
+  g.fillEllipse(sx, sy + 2, 40 * s * (0.9 + pulse * 0.15 * inv), 18 * s * (0.9 + pulse * 0.15 * inv));
+  g.fillStyle(color, (0.10 + pulse * 0.16) * aMul);
   g.fillEllipse(sx, sy + 2, 22 * s, 10 * s);
-  g.lineStyle(1, color, 0.35 + pulse * 0.4);
+  g.lineStyle(1 + inv * 0.75, color, (0.22 + pulse * 0.35) * aMul);
   g.strokeEllipse(sx, sy + 2, 30 * s * (0.95 + pulse * 0.1), 13 * s * (0.95 + pulse * 0.1));
-  // Vertical light shaft
-  g.fillStyle(color, 0.05 + pulse * 0.07);
-  g.fillTriangle(sx - 5 * s, sy + 1, sx + 5 * s, sy + 1, sx, sy - 34 * s);
+  // Vertical light shaft — taller/brighter on higher tiers
+  g.fillStyle(color, (0.03 + pulse * 0.06) * aMul);
+  const shaftH = 28 + inv * 14;
+  g.fillTriangle(sx - 5 * s, sy + 1, sx + 5 * s, sy + 1, sx, sy - shaftH * s);
 }
 
 /**
@@ -1788,3 +1811,30 @@ export function drawPortalChargeRing(
   g.fillStyle(0xffe8a0, 0.5 + pulse * 0.3);
   g.fillCircle(sx, sy - 4 - c * 8, 3 + c * 2);
 }
+
+/** Compact "hold to enter" tip above a near portal pulse (screen space). */
+export function drawPortalEnterTip(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  tMs: number,
+  compact: boolean
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.01);
+  const y = sy - (compact ? 52 : 40) - pulse * 2;
+  const w = compact ? 52 : 58;
+  const h = compact ? 14 : 13;
+  g.fillStyle(0x0a0c0a, 0.72);
+  g.fillRect(sx - w / 2, y - h / 2, w, h);
+  g.lineStyle(1, 0xc9a227, 0.55 + pulse * 0.35);
+  g.strokeRect(sx - w / 2, y - h / 2, w, h);
+  // Tiny chevron / hold bars (reads without bitmap text)
+  const barY = y;
+  g.fillStyle(0xffe8a0, 0.85 + pulse * 0.15);
+  g.fillRect(sx - 14, barY - 2, 3, 4);
+  g.fillRect(sx - 9, barY - 2, 3, 4);
+  g.fillRect(sx - 4, barY - 2, 3, 4);
+  g.fillStyle(0xc9a227, 0.9);
+  g.fillTriangle(sx + 6, barY - 4, sx + 14, barY, sx + 6, barY + 4);
+}
+
