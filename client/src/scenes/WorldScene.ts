@@ -88,6 +88,8 @@ import {
   drawPortalChargeRing,
   drawPortalEnterTip,
   drawStickyTargetReticle,
+  drawRespawnBeacon,
+  drawMagnetSpark,
   buildGroundTiles,
   destroyGroundTiles,
   facing8FromWorldVel,
@@ -118,6 +120,12 @@ const ATTACK_RANGE = 5.5;
 const AUTO_PICKUP_RANGE = 4.0;
 /** Loot visually drifts toward the player inside this radius (render only). */
 const MAGNET_RANGE = 5.5;
+/** Soft entrance beacon after death revive (ms). */
+const RESPAWN_BEACON_MS = 2200;
+/** Travel time for auto-pickup magnet spark (ms). */
+const MAGNET_SPARK_MS = 380;
+/** Screen-edge margin (fraction of view) for sticky HP pip. */
+const STICKY_EDGE_FRAC = 0.14;
 const AUTO_PICKUP_RETRY_MS = 900;
 const MOBILE_ZOOM = 0.65;
 const MOBILE_ZOOM_TABLET = 0.72;
@@ -343,6 +351,14 @@ export class WorldScene extends Phaser.Scene {
   dmgPool: Phaser.GameObjects.Text[] = [];
   /** Epoch ms until which death etch/fade should not retrigger. */
   deathFxUntil = 0;
+  /** Entrance beacon after revive — world pos + expiry (animT ms). */
+  respawnBeaconUntil = 0;
+  respawnBeaconPos: { x: number; y: number } | null = null;
+  /** Loot magnet sparks traveling loot→player after auto-pickup. */
+  magnetSparks: {
+    x0: number; y0: number; x1: number; y1: number;
+    start: number; tint: number;
+  }[] = [];
 
   constructor() {
     super("world");
@@ -1242,6 +1258,7 @@ export class WorldScene extends Phaser.Scene {
           const soaked = Number(msg.soaked) || 0;
           if (soaked > 0 && msg.wardActive) {
             flashWardSoak();
+            this.showWardSoakCrumb(soaked);
           }
           if (msg.targetHp != null && msg.targetHp <= 0) {
             this.cameras.main.shake(280, 0.014);
@@ -1472,6 +1489,41 @@ export class WorldScene extends Phaser.Scene {
   showPlayerDamageNumber(dmg: number) {
     if (dmg == null) return;
     this.pushStackedDamage("you", dmg, true);
+  }
+
+  /** Tiny gold "−X" crumb when Ward soaks damage (not a full damage float). */
+  showWardSoakCrumb(soaked: number) {
+    const n = Math.max(1, Math.round(Number(soaked) || 0));
+    const compact = isCompactUi();
+    const t = this.acquireDmgText();
+    const cam = this.cameras.main;
+    const world = worldToScreen(this.renderYou.x, this.renderYou.y);
+    const sx = world.sx - cam.scrollX + (Math.random() - 0.5) * 10;
+    const sy = world.sy - cam.scrollY - (compact ? 96 : 88);
+    t.setText(`−${n}`)
+      .setPosition(sx, sy)
+      .setDepth(12050)
+      .setScrollFactor(0)
+      .setColor("#ffe8a0")
+      .setStroke("#3a2a08", 4)
+      .setFontSize(compact ? "18px" : "15px")
+      .setScale(1.15)
+      .setAlpha(1);
+    this.tweens.add({
+      targets: t,
+      scale: 0.95,
+      duration: 120,
+      ease: "Back.easeOut",
+    });
+    this.tweens.add({
+      targets: t,
+      y: sy - (compact ? 36 : 28),
+      alpha: 0,
+      duration: 720,
+      delay: 80,
+      ease: "Cubic.easeOut",
+      onComplete: () => this.releaseDmgText(t),
+    });
   }
 
   /** Floating damage number (gold by default) — pooled Text + crit flash; stacks multi-hits. */
@@ -2135,6 +2187,28 @@ export class WorldScene extends Phaser.Scene {
       g.fillEllipse(c.sx, c.sy, 180, 80);
     }
 
+    // Respawn entrance beacon — pulse where you woke
+    if (this.respawnBeaconPos && this.animT < this.respawnBeaconUntil) {
+      const life = (this.respawnBeaconUntil - this.animT) / RESPAWN_BEACON_MS;
+      const bp = worldToScreen(this.respawnBeaconPos.x, this.respawnBeaconPos.y);
+      drawRespawnBeacon(g, bp.sx, bp.sy, this.animT, life, compact);
+    } else if (this.respawnBeaconPos && this.animT >= this.respawnBeaconUntil) {
+      this.respawnBeaconPos = null;
+    }
+
+    // Loot magnet sparks traveling along auto-pickup lines
+    for (let i = this.magnetSparks.length - 1; i >= 0; i--) {
+      const s = this.magnetSparks[i];
+      const t01 = (this.animT - s.start) / MAGNET_SPARK_MS;
+      if (t01 >= 1) {
+        this.magnetSparks.splice(i, 1);
+        continue;
+      }
+      const a = worldToScreen(s.x0, s.y0);
+      const b = worldToScreen(s.x1, s.y1);
+      drawMagnetSpark(g, a.sx, a.sy - 4, b.sx, b.sy - 10, t01, s.tint, compact);
+    }
+
     // Nearest-interact pulse outline (drawn under entities)
     if (this.nearestInteract) {
       drawInteractPulse(
@@ -2262,7 +2336,17 @@ export class WorldScene extends Phaser.Scene {
           this.lastHitFoe.id === String(e.id) &&
           this.animT < this.lastHitFoe.until
         ) {
-          drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact);
+          const cam = this.cameras.main;
+          const nearEdge =
+            p.sx < cam.worldView.x + cam.worldView.width * STICKY_EDGE_FRAC ||
+            p.sx > cam.worldView.x + cam.worldView.width * (1 - STICKY_EDGE_FRAC) ||
+            p.sy < cam.worldView.y + cam.worldView.height * STICKY_EDGE_FRAC ||
+            p.sy > cam.worldView.y + cam.worldView.height * (1 - STICKY_EDGE_FRAC);
+          drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact, {
+            hp: Number(e.hp),
+            maxHp: Number(e.maxHp),
+            nearEdge,
+          });
         }
         drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.85 : 1.45) : compact ? 1.55 : 1.2);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, champion: Boolean(e.champion) });
@@ -2282,7 +2366,17 @@ export class WorldScene extends Phaser.Scene {
           this.lastHitFoe.id === String(e.id) &&
           this.animT < this.lastHitFoe.until
         ) {
-          drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact);
+          const cam = this.cameras.main;
+          const nearEdge =
+            p.sx < cam.worldView.x + cam.worldView.width * STICKY_EDGE_FRAC ||
+            p.sx > cam.worldView.x + cam.worldView.width * (1 - STICKY_EDGE_FRAC) ||
+            p.sy < cam.worldView.y + cam.worldView.height * STICKY_EDGE_FRAC ||
+            p.sy > cam.worldView.y + cam.worldView.height * (1 - STICKY_EDGE_FRAC);
+          drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact, {
+            hp: Number(e.hp),
+            maxHp: Number(e.maxHp),
+            nearEdge,
+          });
         }
         drawEntityPad(g, p.sx, p.sy, compact ? 2.7 : 2.1);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, boss: true });
@@ -2842,6 +2936,17 @@ export class WorldScene extends Phaser.Scene {
       const last = this.autoPickupSent.get(e.id) || 0;
       if (now - last < AUTO_PICKUP_RETRY_MS) continue;
       this.autoPickupSent.set(e.id, now);
+      // Spark travels loot → player along the magnet line
+      const tint = RARITY_COLOR[e.item?.rarity || "normal"] || 0xffe8a0;
+      this.magnetSparks.push({
+        x0: e.x,
+        y0: e.y,
+        x1: you.x,
+        y1: you.y,
+        start: this.animT,
+        tint,
+      });
+      if (this.magnetSparks.length > 12) this.magnetSparks.shift();
       this.socket.pickup(e.id);
     }
   }
@@ -2857,6 +2962,13 @@ export class WorldScene extends Phaser.Scene {
     cam.flash(160, 90, 18, 14, false);
     cam.fadeOut(140, 10, 4, 6);
     this.time.delayedCall(200, () => {
+      // Snap to entrance (server already moved us) and light a wake beacon
+      this.renderYou = { x: this.serverYou.x, y: this.serverYou.y };
+      this.velX = 0;
+      this.velY = 0;
+      this.moveTarget = null;
+      this.respawnBeaconPos = { x: this.serverYou.x, y: this.serverYou.y };
+      this.respawnBeaconUntil = this.animT + RESPAWN_BEACON_MS;
       cam.fadeIn(560, 10, 4, 6);
     });
   }
@@ -2995,12 +3107,16 @@ export class WorldScene extends Phaser.Scene {
         el.className = "compass-arrow";
         el.innerHTML =
           `<span class="compass-chevron" aria-hidden="true"></span>` +
-          `<span class="compass-label"></span>`;
+          `<span class="compass-label"></span>` +
+          `<span class="compass-dist"></span>`;
         layer.appendChild(el);
       }
       if (el.getAttribute("data-dest") !== w.dest) el.setAttribute("data-dest", w.dest);
       const lab = el.querySelector(".compass-label");
       if (lab && lab.textContent !== label) lab.textContent = label;
+      const distEl = el.querySelector(".compass-dist");
+      const distTxt = `${Math.max(1, Math.round(w.d))}u`;
+      if (distEl && distEl.textContent !== distTxt) distEl.textContent = distTxt;
       el.style.left = `${ex.toFixed(1)}px`;
       el.style.top = `${ey.toFixed(1)}px`;
       el.style.setProperty("--ang", `${ang.toFixed(1)}deg`);
