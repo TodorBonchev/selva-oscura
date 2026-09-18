@@ -635,6 +635,11 @@ export function isComboRiftShearMax(n: number): boolean {
   return n >= 300;
 }
 
+/** ×350+ horizon fold — brief letterbox + depth-sort flicker (no toast). */
+export function isComboHorizonFold(n: number): boolean {
+  return n >= 350;
+}
+
 export function getComboCount(): number {
   return comboCount;
 }
@@ -643,10 +648,14 @@ export function resetCombo() {
   if (comboCount <= 0) return;
   const wasShown = comboCount >= 2;
   const wasAbyss = comboCount >= 200;
+  const lastN = comboCount;
   comboCount = 0;
   comboLastAt = 0;
   syncComboPip(false, wasShown);
-  if (wasAbyss) pulseAbyssAfterimage();
+  if (wasAbyss) {
+    pulseAbyssAfterimage();
+    pulseComboVoidGhost(lastN);
+  }
 }
 
 function syncComboPip(bump = false, expire = false) {
@@ -878,6 +887,51 @@ export function pulseAbyssAfterimage() {
     document.body.classList.remove("abyss-afterimage-pulse");
     if (el) el.setAttribute("aria-hidden", "true");
   }, 640);
+}
+
+/** Brief letterbox horizon fold at combo ×350 (no toast). */
+export function pulseHorizonFold() {
+  const el = document.getElementById("horizon-fold");
+  document.body.classList.remove("horizon-fold-pulse");
+  void document.body.offsetWidth;
+  document.body.classList.add("horizon-fold-pulse");
+  if (el) el.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    document.body.classList.remove("horizon-fold-pulse");
+    if (el) el.setAttribute("aria-hidden", "true");
+  }, 580);
+}
+
+/** 1-frame void ghost numeral of the last × count when a ×200+ streak dies. */
+export function pulseComboVoidGhost(n: number) {
+  const el = document.getElementById("combo-void-ghost");
+  if (!el) return;
+  const shown = Math.min(99, Math.max(1, Math.floor(n)));
+  el.textContent = `×${shown}`;
+  document.body.classList.remove("combo-void-ghost-pulse");
+  void document.body.offsetWidth;
+  document.body.classList.add("combo-void-ghost-pulse");
+  el.setAttribute("aria-hidden", "false");
+  // Intentionally ~1 display frame then clear (plus tiny fade for readability)
+  window.setTimeout(() => {
+    document.body.classList.remove("combo-void-ghost-pulse");
+    el.setAttribute("aria-hidden", "true");
+    el.textContent = "";
+  }, 48);
+}
+
+/** Esc / drag-off cancel: brief red-rim flash then restore idle chrome. */
+export function flashSpellCancel(spellId?: string) {
+  const btn = spellId
+    ? document.getElementById(`btn-spell-${spellId}`)
+    : document.querySelector<HTMLElement>(".spell-btn.aiming");
+  if (!btn) return;
+  btn.classList.remove("aiming", "pressed", "spell-cancel-flash");
+  void (btn as HTMLElement).offsetWidth;
+  btn.classList.add("spell-cancel-flash");
+  window.setTimeout(() => {
+    btn.classList.remove("spell-cancel-flash");
+  }, 220);
 }
 
 function pingSpellReady(btn: HTMLElement) {

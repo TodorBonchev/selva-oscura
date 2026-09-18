@@ -24,6 +24,7 @@ import {
   isComboAbyss,
   isComboRiftShear,
   isComboRiftShearMax,
+  isComboHorizonFold,
   resetCombo,
   playDeathRevive,
   flashWardSoak,
@@ -32,6 +33,8 @@ import {
   pulseVoidCorona,
   pulseAbyssChroma,
   pulseRiftShear,
+  pulseHorizonFold,
+  flashSpellCancel,
   hapticInteractReady,
   hapticStickyRetarget,
   hapticPortalComplete,
@@ -111,6 +114,8 @@ import {
   drawPortalChargeRing,
   drawPortalEnterTip,
   drawStickyTargetReticle,
+  drawStickyGoldTrail,
+  drawJudgeCountdownShatter,
   drawRespawnBeacon,
   drawDeathAshTrail,
   drawMagnetSpark,
@@ -155,6 +160,14 @@ const MAGNET_FLASH_STAGGER_MS = 70;
 /** Rift-shear foe pad desync duration (ms). */
 const RIFT_SHEAR_MS = 520;
 const RIFT_SHEAR_MAX_MS = 720;
+/** Horizon-fold letterbox + depth flicker duration (ms). */
+const HORIZON_FOLD_MS = 580;
+/** Sticky release gold trail travel (ms). */
+const STICKY_GOLD_TRAIL_MS = 320;
+/** Judge countdown disc shatter into dust (ms). */
+const JUDGE_DISC_SHATTER_MS = 480;
+/** Soft spine ripple after staggered magnet flash lands (ms). */
+const MAGNET_SPINE_RIPPLE_MS = 420;
 /** Sticky chip: hold this long before cycling threats one-by-one (ms). */
 const STICKY_HOLD_MS = 280;
 /** Sticky chip: interval between successive threat cycles while held (ms). */
@@ -450,6 +463,19 @@ export class WorldScene extends Phaser.Scene {
   /** Rift-shear pad desync active until animT (0 = idle). */
   riftShearUntil = 0;
   riftShearEscalate = false;
+  /** Horizon-fold depth-sort flicker active until animT (0 = idle). */
+  horizonFoldUntil = 0;
+  /** Tiny gold trail chip → newly locked Gale sticky target. */
+  stickyGoldTrails: {
+    x0: number; y0: number; x1: number; y1: number;
+    start: number; until: number;
+  }[] = [];
+  /** Judge countdown disc shatter FX (screen space). */
+  judgeDiscShatter: {
+    sx: number; sy: number; start: number; until: number;
+  }[] = [];
+  /** Spine ripple start times keyed by loot tower spine key. */
+  magnetSpineRippleAt = new Map<string, number>();
   /**
    * Sticky edge chip hit zone for tap/hold retarget (screen space, last frame).
    * Tap → nearest threat; hold → cycle threat arrows one-by-one.
@@ -880,7 +906,9 @@ export class WorldScene extends Phaser.Scene {
     const btnId = `btn-spell-${spellId}`;
     this.clearSpellHoldListeners();
     this.spellHold = null;
-    document.getElementById(btnId)?.classList.remove("aiming");
+    document.getElementById(btnId)?.classList.remove("aiming", "pressed");
+    // Esc / drag-off: brief red-rim flash then restore idle chrome
+    flashSpellCancel(spellId);
     if (spellId === "gale_bolt" && heldMs >= GALE_HOLD_TOAST_MS) {
       showToast("Gale cancelled", "info");
     }
@@ -1247,6 +1275,17 @@ export class WorldScene extends Phaser.Scene {
     return amp;
   }
 
+  /** Horizon-fold depth-sort flicker offset (0 when idle). */
+  private horizonFoldDepthFlicker(seed: number): number {
+    if (this.animT >= this.horizonFoldUntil) return 0;
+    const left = this.horizonFoldUntil - this.animT;
+    const life = Math.max(0, Math.min(1, left / HORIZON_FOLD_MS));
+    // Rapid sign-flip so overlapping sprites briefly swap draw order
+    const flip = Math.sin(this.animT * 0.22 + seed * 2.7) > 0 ? 1 : -1;
+    const jitter = Math.sin(this.animT * 0.41 + seed) * 0.55;
+    return (1.8 + jitter) * flip * life * life;
+  }
+
   refreshInventoryUi() {
     const you = this.lastYouSnapshot;
     if (!you) return;
@@ -1503,6 +1542,20 @@ export class WorldScene extends Phaser.Scene {
             pulseRiftShear(true);
             this.riftShearUntil = this.animT + RIFT_SHEAR_MAX_MS;
             this.riftShearEscalate = true;
+            spawnEclipseEmberDrift(
+              this.particles,
+              this.renderYou.x,
+              this.renderYou.y,
+              isCompactUi()
+            );
+          }
+          if (isComboHorizonFold(streak) && (streak === 350 || (streak > 350 && streak % 350 === 0))) {
+            // ×350 horizon fold — brief letterbox + depth-sort flicker, no toast
+            this.punchComboVignette();
+            this.cameraPunch(0.09, 300);
+            this.cameras.main.shake(170, isCompactUi() ? 0.0075 : 0.0052);
+            pulseHorizonFold();
+            this.horizonFoldUntil = this.animT + HORIZON_FOLD_MS;
             spawnEclipseEmberDrift(
               this.particles,
               this.renderYou.x,
@@ -1969,8 +2022,29 @@ export class WorldScene extends Phaser.Scene {
 
   /** Apply sticky Gale target to a threat id + soft sticky haptic. */
   private applyStickyThreat(id: string) {
+    const prevId = this.lastHitFoe?.id;
     this.lastHitFoe = { id, until: this.animT + GALE_STICKY_MS };
     hapticStickyRetarget();
+    // Tiny gold trail from sticky chip → newly locked Gale target
+    if (prevId !== id && this.room) {
+      const chip = this.stickyChipHit;
+      const ent = this.room.entities.find(
+        (e: any) => String(e.id) === id && (e.kind === "mob" || e.kind === "boss")
+      );
+      if (chip && ent) {
+        const pos = this.entityRenderPos(ent);
+        const tp = worldToScreen(pos.x, pos.y);
+        this.stickyGoldTrails.push({
+          x0: chip.sx,
+          y0: chip.sy,
+          x1: tp.sx,
+          y1: tp.sy - (isCompactUi() ? 18 : 14),
+          start: this.animT,
+          until: this.animT + STICKY_GOLD_TRAIL_MS,
+        });
+        if (this.stickyGoldTrails.length > 4) this.stickyGoldTrails.shift();
+      }
+    }
   }
 
   /** Nearest threat-arrow foe from a list (world distance). */
@@ -2544,6 +2618,18 @@ export class WorldScene extends Phaser.Scene {
           start: this.animT,
           until: this.animT + JUDGE_SLAM_FX_MS,
         });
+        // Countdown disc cracks / shatters into dust on slam
+        {
+          const compactSlam = isCompactUi();
+          const pp = worldToScreen(t.x, t.y);
+          this.judgeDiscShatter.push({
+            sx: pp.sx,
+            sy: bossTelegraphPipY(pp.sy, compactSlam),
+            start: this.animT,
+            until: this.animT + JUDGE_DISC_SHATTER_MS,
+          });
+          if (this.judgeDiscShatter.length > 3) this.judgeDiscShatter.shift();
+        }
         this.cameras.main.flash(70, 255, 180, 120, false);
         this.cameras.main.shake(140, isCompactUi() ? 0.008 : 0.0055);
         // Crimson sting if inside; gold “just safe” rim if barely outside
@@ -2628,6 +2714,28 @@ export class WorldScene extends Phaser.Scene {
       const life = 1 - (this.animT - s.start) / Math.max(1, s.until - s.start);
       const p = worldToScreen(s.x, s.y);
       drawJudgeSlamImpact(g, p.sx, p.sy, life, s.radius, compact);
+    }
+
+    // Countdown disc shatter → dust on slam
+    for (let i = this.judgeDiscShatter.length - 1; i >= 0; i--) {
+      const s = this.judgeDiscShatter[i];
+      if (this.animT >= s.until) {
+        this.judgeDiscShatter.splice(i, 1);
+        continue;
+      }
+      const life = 1 - (this.animT - s.start) / Math.max(1, s.until - s.start);
+      drawJudgeCountdownShatter(g, s.sx, s.sy, life, compact);
+    }
+
+    // Sticky release gold trail chip → Gale target
+    for (let i = this.stickyGoldTrails.length - 1; i >= 0; i--) {
+      const s = this.stickyGoldTrails[i];
+      if (this.animT >= s.until) {
+        this.stickyGoldTrails.splice(i, 1);
+        continue;
+      }
+      const life = 1 - (this.animT - s.start) / Math.max(1, s.until - s.start);
+      drawStickyGoldTrail(g, s.x0, s.y0, s.x1, s.y1, life, compact);
     }
 
     // Gold “just safe” rim when barely outside slam at resolve
@@ -2968,7 +3076,10 @@ export class WorldScene extends Phaser.Scene {
         const drawSx = p.sx + lat;
         const hpSx = p.sx + lat * 1.35;
         // Depth-sort nudge: laterals also bump depth so sprites layer cleanly
-        const stackDepth = depth + (stack ? stack.slot * 0.02 : 0);
+        const stackDepth =
+          depth +
+          (stack ? stack.slot * 0.02 : 0) +
+          this.horizonFoldDepthFlicker(Number(e.id?.length ? e.id.charCodeAt(0) : 0) + (stack?.slot || 0));
         if (
           this.lastHitFoe &&
           this.lastHitFoe.id === String(e.id) &&
@@ -3161,7 +3272,8 @@ export class WorldScene extends Phaser.Scene {
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, boss: true });
         let topY = p.sy - 68;
         const bossScale = compact ? 1.1 : 1.05;
-        if (this.placeSprite(sid, DORE_KEYS.boss_judge, p.sx, p.sy, depth, { scale: bossScale })) {
+        const bossDepth = depth + this.horizonFoldDepthFlicker(17);
+        if (this.placeSprite(sid, DORE_KEYS.boss_judge, p.sx, p.sy, bossDepth, { scale: bossScale })) {
           seenSprites.add(sid);
           const b = this.spriteBase.get(sid);
           if (b) topY = p.sy - 4 - b.h * bossScale * 0.92 - (compact ? 16 : 10);
@@ -3202,8 +3314,29 @@ export class WorldScene extends Phaser.Scene {
             const stagger = this.magnetEnterBatchCount * MAGNET_FLASH_STAGGER_MS;
             this.magnetEnteredAt.set(lootIdEarly, this.animT + stagger);
           }
+          // Soft spine ripple when staggered flash lands (age crosses 0)
+          {
+            const entered = this.magnetEnteredAt.get(lootIdEarly);
+            if (
+              entered != null &&
+              this.animT >= entered &&
+              this.animT - entered < 32 &&
+              lstack?.tower &&
+              lstack.count > 1
+            ) {
+              const spineKey = `${Math.round(p.sx)}:${Math.round(p.sy)}:${lstack.count}`;
+              if (!this.magnetSpineRippleAt.has(spineKey)) {
+                this.magnetSpineRippleAt.set(spineKey, this.animT);
+              }
+            }
+          }
         } else {
           this.magnetEnteredAt.delete(lootIdEarly);
+          if (lstack?.tower && lstack.count > 1) {
+            this.magnetSpineRippleAt.delete(
+              `${Math.round(p.sx)}:${Math.round(p.sy)}:${lstack.count}`
+            );
+          }
         }
         // Visual rarity flash by tier on magnet / pickup start (no audio chime)
         {
@@ -3237,6 +3370,16 @@ export class WorldScene extends Phaser.Scene {
                 magnetPop = 1 - age / MAGNET_TICK_POP_MS;
               }
             }
+            let spineRipple = 0;
+            const ripAt = this.magnetSpineRippleAt.get(spineKey);
+            if (ripAt != null) {
+              const rage = this.animT - ripAt;
+              if (rage >= 0 && rage < MAGNET_SPINE_RIPPLE_MS) {
+                spineRipple = 1 - rage / MAGNET_SPINE_RIPPLE_MS;
+              } else if (rage >= MAGNET_SPINE_RIPPLE_MS) {
+                this.magnetSpineRippleAt.delete(spineKey);
+              }
+            }
             drawLootTowerSpine(
               g,
               p.sx,
@@ -3246,7 +3389,8 @@ export class WorldScene extends Phaser.Scene {
               compact,
               lstack.count,
               lstack.topPulse ?? pulse,
-              magnetPop
+              magnetPop,
+              spineRipple
             );
           }
         }
@@ -4058,6 +4202,19 @@ export class WorldScene extends Phaser.Scene {
         // Line stretches with fade; angle follows compass chevron
         wakeLine.style.opacity = (0.25 + fade * 0.55).toFixed(3);
         wakeLine.style.setProperty("--wake-len", `${(10 + fade * 14).toFixed(1)}px`);
+        // Corpse X glyph fades into the wake-line tip as life drains
+        let corpseX = el.querySelector<HTMLElement>(".compass-corpse-x");
+        if (!corpseX) {
+          corpseX = document.createElement("span");
+          corpseX.className = "compass-corpse-x";
+          corpseX.textContent = "✕";
+          corpseX.setAttribute("aria-hidden", "true");
+          el.appendChild(corpseX);
+        }
+        // Progress 0→1 along wake: starts at center, settles on tip as fade drops
+        const tipT = 1 - fade;
+        corpseX.style.setProperty("--corpse-x-t", tipT.toFixed(3));
+        corpseX.style.opacity = (0.15 + fade * 0.85).toFixed(3);
       } else {
         el.classList.remove("compass-corpse-wake", "compass-corpse-fade");
         el.style.removeProperty("--corpse-fade");
@@ -4067,6 +4224,7 @@ export class WorldScene extends Phaser.Scene {
           (d0 as HTMLElement).removeAttribute("title");
         }
         el.querySelector(".compass-wake-line")?.remove();
+        el.querySelector(".compass-corpse-x")?.remove();
         if (!ashTrail) el.classList.remove("compass-ash-pulse");
       }
     });
