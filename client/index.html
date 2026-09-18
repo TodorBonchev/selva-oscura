@@ -47,31 +47,35 @@
 
   <div id="modal-backdrop" class="hidden"></div>
   <div id="panels">
-    <aside id="inventory" class="panel modal hidden" aria-label="Inventory">
+    <aside id="inventory" class="panel modal inv-panel hidden" aria-label="Inventory">
       <div class="panel-head">
         <h2>Inventory</h2>
         <button type="button" class="btn-close" data-close="inventory" aria-label="Close inventory">✕</button>
       </div>
-      <div class="inv-layout">
-        <div id="equip-doll" class="equip-doll" aria-label="Equipment">
-          <button type="button" class="equip-slot" data-slot="Head" title="Head"><span class="equip-slot-label">Head</span><span class="equip-slot-body"></span></button>
-          <button type="button" class="equip-slot" data-slot="Chest" title="Chest"><span class="equip-slot-label">Chest</span><span class="equip-slot-body"></span></button>
-          <button type="button" class="equip-slot" data-slot="Hands" title="Hands"><span class="equip-slot-label">Hands</span><span class="equip-slot-body"></span></button>
-          <button type="button" class="equip-slot" data-slot="Feet" title="Feet"><span class="equip-slot-label">Feet</span><span class="equip-slot-body"></span></button>
-          <button type="button" class="equip-slot" data-slot="MainHand" title="Main Hand"><span class="equip-slot-label">Main</span><span class="equip-slot-body"></span></button>
-          <button type="button" class="equip-slot" data-slot="OffHand" title="Off Hand"><span class="equip-slot-label">Off</span><span class="equip-slot-body"></span></button>
-          <div id="equip-stats" class="equip-stats"></div>
+      <div class="inv-scroll">
+        <div class="inv-layout">
+          <div id="equip-doll" class="equip-doll" aria-label="Equipment">
+            <button type="button" class="equip-slot" data-slot="Head" title="Head"><span class="equip-slot-label">Head</span><span class="equip-slot-body"></span></button>
+            <button type="button" class="equip-slot" data-slot="Chest" title="Chest"><span class="equip-slot-label">Chest</span><span class="equip-slot-body"></span></button>
+            <button type="button" class="equip-slot" data-slot="Hands" title="Hands"><span class="equip-slot-label">Hands</span><span class="equip-slot-body"></span></button>
+            <button type="button" class="equip-slot" data-slot="Feet" title="Feet"><span class="equip-slot-label">Feet</span><span class="equip-slot-body"></span></button>
+            <button type="button" class="equip-slot" data-slot="MainHand" title="Main Hand"><span class="equip-slot-label">Main</span><span class="equip-slot-body"></span></button>
+            <button type="button" class="equip-slot" data-slot="OffHand" title="Off Hand"><span class="equip-slot-label">Off</span><span class="equip-slot-body"></span></button>
+            <div id="equip-stats" class="equip-stats"></div>
+          </div>
+          <div id="inv-grid" class="inv-grid"></div>
         </div>
-        <div id="inv-grid" class="inv-grid"></div>
       </div>
-      <div id="inv-detail" class="inv-detail">
-        <span class="inv-detail-name">Select an item to equip or list on the Auction House.</span>
-      </div>
-      <div class="row inv-actions">
-        <button id="btn-equip" type="button" class="btn-gold">Equip</button>
-        <button id="btn-unequip" type="button">Unequip</button>
-        <input id="list-price" type="number" min="1" step="1" inputmode="numeric" placeholder="Price (Ash)" />
-        <button id="btn-list" type="button">List AH</button>
+      <div class="inv-footer">
+        <div id="inv-detail" class="inv-detail">
+          <span class="inv-detail-name">Select an item to equip or list on the Auction House.</span>
+        </div>
+        <div class="row inv-actions">
+          <button id="btn-equip" type="button" class="btn-gold">Equip</button>
+          <button id="btn-unequip" type="button">Unequip</button>
+          <input id="list-price" type="number" min="1" step="1" inputmode="numeric" placeholder="Price (Ash)" />
+          <button id="btn-list" type="button">List AH</button>
+        </div>
       </div>
     </aside>
     <aside id="ah" class="panel modal hidden" aria-label="Auction House">

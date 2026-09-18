@@ -79,7 +79,7 @@ const MOBILE_ZOOM_TABLET = 0.72;
 const DESKTOP_ZOOM = 1;
 const ATTACK_HOLD_MS = 720;
 /** Local predicted move speed (world units / sec) — matches server feel. */
-const PREDICT_SPEED = 7.0;
+const PREDICT_SPEED = 8.0;
 const MOVE_ACCEL = 28;
 const MOVE_FRICTION = 18;
 const TAP_ARRIVE = 0.35;
@@ -145,6 +145,10 @@ export class WorldScene extends Phaser.Scene {
   velX = 0;
   velY = 0;
   facingLeft = false;
+  /** 0 = idle texture; 1/2 = walk A/B. */
+  walkFrame = 0;
+  walkAnimAcc = 0;
+  movingVisual = false;
   attackBusyUntil = 0;
   swipeFx: { until: number; dir: number; start: number } | null = null;
   lastYouSnapshot: any = null;
@@ -723,6 +727,26 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(bg);
   }
 
+
+  /** Idle vs 2-frame walk; slight bob while moving. */
+  private localPlayerVisual(): { key: string; bob: number } {
+    const moving = this.movingVisual || Math.hypot(this.velX, this.velY) > 0.4;
+    let key: string = DORE_KEYS.player;
+    let bob = 0;
+    if (moving) {
+      // Stride swap ~6 Hz
+      const frame = Math.floor(this.animT / 160) % 2;
+      key = frame === 0 ? DORE_KEYS.player_walk_a : DORE_KEYS.player_walk_b;
+      bob = Math.sin(this.animT * 0.02) * 2.2;
+    } else {
+      bob = Math.sin(this.animT * 0.004) * 0.8; // idle breathe
+    }
+    // Fall back to idle if walk textures missing
+    if (key !== DORE_KEYS.player && this.doreFailed.has(key)) key = DORE_KEYS.player;
+    if (key !== DORE_KEYS.player && !this.textures.exists(key)) key = DORE_KEYS.player;
+    return { key, bob };
+  }
+
   placeSprite(
     id: string,
     texKey: string,
@@ -1015,7 +1039,8 @@ export class WorldScene extends Phaser.Scene {
       const sid = "you";
       drawEntityPad(g, p.sx, p.sy, compact ? 1.6 : 1.2);
       let topY = p.sy - 42;
-      if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth, { flipX: this.facingLeft })) {
+      const vis = this.localPlayerVisual();
+      if (this.placeSprite(sid, vis.key, p.sx, p.sy, depth, { flipX: this.facingLeft, bob: vis.bob })) {
         seenSprites.add(sid);
         const b = this.spriteBase.get(sid);
         if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
@@ -1169,13 +1194,14 @@ export class WorldScene extends Phaser.Scene {
       }
     }
     if (this.velX === 0 && this.velY === 0) {
-      if (!driven) this.predicting = false;
+      if (!driven) { this.predicting = false; this.movingVisual = false; }
       return;
     }
     const nx = this.renderYou.x + this.velX * dtSec;
     const ny = this.renderYou.y + this.velY * dtSec;
     this.renderYou = this.clampToBounds(nx, ny);
     this.predicting = true;
+    this.movingVisual = true;
     this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
   }
 
@@ -1206,6 +1232,7 @@ export class WorldScene extends Phaser.Scene {
     let dx = 0;
     let dy = 0;
     this.predicting = false;
+    this.movingVisual = false;
 
     const stick = this.joystick?.getVector();
     if (stick && (stick.x !== 0 || stick.y !== 0)) {
