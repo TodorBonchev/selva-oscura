@@ -409,13 +409,34 @@ export function isCompactUi(): boolean {
 }
 
 /** Optional device vibrate — no-op when Vibration API is missing. */
-function hapticLight(ms = 10) {
+function hapticLight(pattern: number | number[] = 10) {
   try {
     const vib = (navigator as Navigator & { vibrate?: (n: number | number[]) => boolean }).vibrate;
     if (typeof vib !== "function") return;
-    vib.call(navigator, ms);
+    vib.call(navigator, pattern);
   } catch {
     /* ignore — skip real haptics if API unavailable */
+  }
+}
+
+/** Distinct patterns: soak (soft double), slam (heavy thud), mana deny (stutter). */
+export type HapticKind = "tap" | "soak" | "slam" | "mana";
+function haptic(kind: HapticKind = "tap") {
+  switch (kind) {
+    case "soak":
+      // Soft double tick — armor caught a hit
+      hapticLight([10, 36, 14]);
+      break;
+    case "slam":
+      // Heavy thud-pause-thud — Judge impact
+      hapticLight([28, 45, 55]);
+      break;
+    case "mana":
+      // Quick deny stutter
+      hapticLight([8, 32, 8, 32, 12]);
+      break;
+    default:
+      hapticLight(10);
   }
 }
 
@@ -445,6 +466,7 @@ export function noteWardBuff(durationSec: number) {
 
 /** Brief gold flash on the Ward pip when armor soaked part of a hit. */
 export function flashWardSoak() {
+  haptic("soak");
   const pip = document.getElementById("ward-pip");
   if (!pip) return;
   pip.classList.remove("hidden", "ward-soak");
@@ -561,6 +583,11 @@ export function isComboInfernoFringe(n: number): boolean {
   return n >= 75;
 }
 
+/** ×100+ eclipse pip + world ember drift threshold (no toast). */
+export function isComboEclipse(n: number): boolean {
+  return n >= 100;
+}
+
 export function getComboCount(): number {
   return comboCount;
 }
@@ -584,8 +611,11 @@ function syncComboPip(bump = false, expire = false) {
     void (pip as HTMLElement).offsetWidth;
     pip.classList.add("combo-decay");
     pip.setAttribute("aria-hidden", "false");
-    document.body.classList.remove("combo-heat");
-    if (heat) heat.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("combo-heat", "combo-eclipse-heat");
+    if (heat) {
+      heat.setAttribute("aria-hidden", "true");
+      heat.classList.remove("heat-eclipse");
+    }
     if (comboExpireTimer != null) window.clearTimeout(comboExpireTimer);
     comboExpireTimer = window.setTimeout(() => {
       comboExpireTimer = null;
@@ -598,7 +628,8 @@ function syncComboPip(bump = false, expire = false) {
           "combo-fever",
           "combo-fever-max",
           "combo-inferno",
-          "combo-inferno-fringe"
+          "combo-inferno-fringe",
+          "combo-eclipse"
         );
         pip.setAttribute("aria-hidden", "true");
       }
@@ -612,10 +643,13 @@ function syncComboPip(bump = false, expire = false) {
     pip.setAttribute("aria-hidden", "false");
     pip.classList.toggle("combo-fever", comboCount >= 15 && comboCount < 50);
     pip.classList.toggle("combo-fever-max", comboCount >= 20 && comboCount < 50);
-    pip.classList.toggle("combo-inferno", comboCount >= 50);
-    pip.classList.toggle("combo-inferno-fringe", comboCount >= 75);
-    document.body.classList.toggle("combo-heat", comboCount >= 75);
+    pip.classList.toggle("combo-inferno", comboCount >= 50 && comboCount < 100);
+    pip.classList.toggle("combo-inferno-fringe", comboCount >= 75 && comboCount < 100);
+    pip.classList.toggle("combo-eclipse", comboCount >= 100);
+    document.body.classList.toggle("combo-heat", comboCount >= 75 && comboCount < 100);
+    document.body.classList.toggle("combo-eclipse-heat", comboCount >= 100);
     if (heat) heat.setAttribute("aria-hidden", comboCount >= 75 ? "false" : "true");
+    if (heat) heat.classList.toggle("heat-eclipse", comboCount >= 100);
     if (bump) {
       pip.classList.remove("combo-bump");
       void (pip as HTMLElement).offsetWidth;
@@ -628,12 +662,16 @@ function syncComboPip(bump = false, expire = false) {
       "combo-fever",
       "combo-fever-max",
       "combo-inferno",
-      "combo-inferno-fringe"
+      "combo-inferno-fringe",
+      "combo-eclipse"
     );
     pip.setAttribute("aria-hidden", "true");
     pip.textContent = "1";
-    document.body.classList.remove("combo-heat");
-    if (heat) heat.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("combo-heat", "combo-eclipse-heat");
+    if (heat) {
+      heat.setAttribute("aria-hidden", "true");
+      heat.classList.remove("heat-eclipse");
+    }
   }
 }
 
@@ -676,7 +714,7 @@ export function pulseInvBag(rarity?: string) {
 }
 
 export function flashManaDeny(spellId?: string) {
-  hapticLight(14);
+  haptic("mana");
   const plate = document.getElementById("mp-plate");
   if (plate) {
     plate.classList.remove("mp-deny");
@@ -701,7 +739,7 @@ export function flashManaDeny(spellId?: string) {
 
 /** Brief screen-edge crimson sting when Judge slam hits the player. */
 export function flashSlamSting() {
-  hapticLight(22);
+  haptic("slam");
   const el = document.getElementById("slam-sting");
   if (!el) return;
   document.body.classList.remove("slam-sting", "slam-safe");

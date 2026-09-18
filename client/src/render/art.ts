@@ -1350,6 +1350,47 @@ export function drawLootGlow(
 }
 
 /**
+ * Soft rarity-colored glow spine for loot towers (vertical stack of gems).
+ * Drawn once at the pile anchor; height scales with stack count.
+ */
+export function drawLootTowerSpine(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  color: number,
+  t: number,
+  compact: boolean,
+  stackCount: number,
+  /** Highest rarity pulse intensity in the pile. */
+  intensity = 1
+) {
+  const n = Math.max(2, stackCount);
+  const pulse = 0.5 + 0.5 * Math.sin(t * 0.005 + sx * 0.02);
+  const inv = Math.max(0.35, intensity);
+  const step = compact ? 15 : 12;
+  const h = (n - 1) * step + (compact ? 22 : 18);
+  const w = (compact ? 7 : 5.5) * (0.85 + inv * 0.2);
+  const a = (0.12 + pulse * 0.14) * (0.55 + inv * 0.45);
+  // Soft outer wash
+  g.fillStyle(color, a * 0.45);
+  g.fillTriangle(sx - w * 1.6, sy + 2, sx + w * 1.6, sy + 2, sx, sy - h - 6);
+  // Core spine
+  g.fillStyle(color, a * 0.85);
+  g.fillTriangle(sx - w * 0.7, sy + 1, sx + w * 0.7, sy + 1, sx, sy - h);
+  // Bright filament
+  g.lineStyle(compact ? 2.2 : 1.6, 0xffe8a0, 0.25 + pulse * 0.35 * inv);
+  g.lineBetween(sx, sy, sx, sy - h);
+  // Soft beads along the spine (rarity ticks)
+  for (let i = 0; i < n; i++) {
+    const by = sy - i * step - 2;
+    g.fillStyle(color, 0.35 + pulse * 0.25);
+    g.fillCircle(sx, by, compact ? 2.4 : 1.9);
+    g.fillStyle(0xffe8a0, 0.45 + pulse * 0.2);
+    g.fillCircle(sx, by, compact ? 1.2 : 1);
+  }
+}
+
+/**
  * Lust foe underfoot + body rim: darken the busy red ground, then paint a
  * gold/crimson halo so whirl / champion / boss read at a glance on mobile.
  */
@@ -1420,6 +1461,28 @@ export function drawChampionCrownPip(
   g.fillCircle(sx, cy - 9 * s, compact ? 2.2 : 1.8);
   g.lineStyle(1.2, 0xfff6d0, 0.7 + pulse * 0.25);
   g.lineBetween(sx - 7 * s, cy + 2 * s, sx + 7 * s, cy + 2 * s);
+}
+
+/** Brief world ember drift around the player at combo ×100 eclipse (no toast). */
+export function spawnEclipseEmberDrift(particles: Particle[], wx: number, wy: number, compact = false) {
+  const n = compact ? 28 : 22;
+  for (let i = 0; i < n; i++) {
+    if (particles.length > 220) break;
+    const ang = (Math.PI * 2 * i) / n + Math.random() * 0.4;
+    const rad = 0.4 + Math.random() * 1.8;
+    const sp = 0.6 + Math.random() * 1.8;
+    particles.push({
+      x: wx + Math.cos(ang) * rad * 0.35,
+      y: wy + Math.sin(ang) * rad * 0.35,
+      vx: Math.cos(ang) * sp * 0.55 + (Math.random() - 0.5) * 0.4,
+      vy: Math.sin(ang) * sp * 0.35 - 0.5 - Math.random() * 1.2,
+      life: 0.7 + Math.random() * 0.9,
+      maxLife: 1.6,
+      size: 1.6 + Math.random() * 2.8,
+      color: i % 4 === 0 ? 0xc9a227 : i % 4 === 1 ? 0xff4422 : i % 4 === 2 ? 0x6a2040 : 0xffe08a,
+      kind: i % 5 === 0 ? "ash" : "ember",
+    });
+  }
 }
 
 export function spawnKillBurst(particles: Particle[], wx: number, wy: number, boss = false) {
@@ -1720,7 +1783,9 @@ export function drawBossTelegraph(
   radiusWorld: number,
   tMs: number,
   /** Compact (phone) pip size. */
-  compact = false
+  compact = false,
+  /** World units of just-safe band beyond slam radius (gold preview ring). */
+  safeBandWorld = 0
 ) {
   const c = Math.max(0, Math.min(1, charge));
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.025);
@@ -1737,6 +1802,28 @@ export function drawBossTelegraph(
   g.strokeEllipse(sx, sy + 4, r, r * 0.42);
   g.lineStyle(2, 0xffd078, 0.35 + c * 0.45 + pulse * 0.15);
   g.strokeEllipse(sx, sy + 4, r * 0.82, r * 0.34);
+  // Gold just-safe band ring — preview of the resolve safe zone during windup
+  if (safeBandWorld > 0) {
+    const hitPad = 0.35;
+    const chargeScale = 0.55 + c * 0.55;
+    const dangerRx = 16 * (radiusWorld + hitPad) * chargeScale;
+    const safeRx = 16 * (radiusWorld + hitPad + safeBandWorld) * chargeScale;
+    const safeRy = safeRx * 0.42;
+    // Soft gold wash between danger edge and safe outer
+    g.lineStyle(compact ? 4.2 : 3.4, 0xc9a227, 0.18 + c * 0.22 + pulse * 0.08);
+    g.strokeEllipse(sx, sy + 4, (dangerRx + safeRx) * 0.5, safeRy * (dangerRx / Math.max(1e-3, safeRx)));
+    g.lineStyle(compact ? 2.6 : 2.1, 0xffe8a0, 0.4 + c * 0.35 + pulse * 0.15);
+    g.strokeEllipse(sx, sy + 4, safeRx, safeRy);
+    g.lineStyle(1.4, 0xc9a227, 0.3 + c * 0.25);
+    g.strokeEllipse(sx, sy + 4, safeRx * 0.94, safeRy * 0.94);
+    // Tiny cardinal ticks on the safe ring
+    const tick = compact ? 6 : 4.5;
+    g.lineStyle(1.8, 0xffe8a0, 0.45 + c * 0.3 + pulse * 0.1);
+    g.lineBetween(sx, sy + 4 - safeRy * 0.5 - 1, sx, sy + 4 - safeRy * 0.5 - 1 - tick);
+    g.lineBetween(sx, sy + 4 + safeRy * 0.5 + 1, sx, sy + 4 + safeRy * 0.5 + 1 + tick);
+    g.lineBetween(sx - safeRx * 0.5 - 1, sy + 4, sx - safeRx * 0.5 - 1 - tick, sy + 4);
+    g.lineBetween(sx + safeRx * 0.5 + 1, sy + 4, sx + safeRx * 0.5 + 1 + tick, sy + 4);
+  }
   // Inner countdown ring
   const ir = r * (0.35 + (1 - c) * 0.45);
   g.lineStyle(2.5, 0xffe8a0, 0.55 + c * 0.35);
@@ -1993,6 +2080,8 @@ export function drawStickyTargetReticle(
     dist?: number;
     /** Optional short name under the edge HP chip. */
     shortName?: string;
+    /** Screen-space offsets to other edge threats (mini arrows). */
+    threatArrows?: { dx: number; dy: number }[];
   }
 ) {
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.014);
@@ -2071,6 +2160,37 @@ export function drawStickyTargetReticle(
         g.fillStyle(0xe8c86a, 0.85);
         g.fillTriangle(sx, ny - 3, sx + 3, ny, sx, ny + 3);
         g.fillTriangle(sx, ny - 3, sx - 3, ny, sx, ny + 3);
+      }
+    }
+    // Mini threat arrows toward other edge foes (multi-threat sticky chip)
+    const threats = opts.threatArrows;
+    if (threats && threats.length) {
+      const arrowY = by - (compact ? 8 : 6);
+      const maxShow = Math.min(3, threats.length);
+      for (let i = 0; i < maxShow; i++) {
+        const t = threats[i];
+        const len = Math.hypot(t.dx, t.dy) || 1;
+        const ux = t.dx / len;
+        const uy = t.dy / len;
+        // Fan arrows slightly when several
+        const fan = (i - (maxShow - 1) / 2) * (compact ? 11 : 9);
+        const px = -uy;
+        const py = ux;
+        const ax = sx + px * fan;
+        const ay = arrowY;
+        const tip = compact ? 9 : 7;
+        const spread = compact ? 3.2 : 2.6;
+        g.lineStyle(compact ? 2.1 : 1.7, 0xff6644, 0.75 + pulse * 0.2);
+        g.lineBetween(ax - ux * 2, ay - uy * 2, ax + ux * tip, ay + uy * tip);
+        g.fillStyle(0xffe08a, 0.9);
+        g.fillTriangle(
+          ax + ux * tip,
+          ay + uy * tip,
+          ax + ux * (tip - 4) + px * spread,
+          ay + uy * (tip - 4) + py * spread,
+          ax + ux * (tip - 4) - px * spread,
+          ay + uy * (tip - 4) - py * spread
+        );
       }
     }
   }
