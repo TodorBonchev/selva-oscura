@@ -1693,6 +1693,11 @@ export function drawBossTelegraph(
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.025);
   const scale = 16 * radiusWorld;
   const r = scale * (0.55 + c * 0.55);
+  // Floor shadow / darker danger disc under the ellipse (reads as slam footprint)
+  g.fillStyle(0x1a0404, 0.22 + c * 0.28 + pulse * 0.06);
+  g.fillEllipse(sx, sy + 6, r * 1.28, r * 0.58);
+  g.fillStyle(0x4a0808, 0.16 + c * 0.2);
+  g.fillEllipse(sx, sy + 5, r * 1.18, r * 0.52);
   g.fillStyle(0xff2200, 0.08 + c * 0.14 + pulse * 0.04);
   g.fillEllipse(sx, sy + 4, r * 1.1, r * 0.48);
   g.lineStyle(3.5, 0xff4422, 0.45 + c * 0.4);
@@ -1881,7 +1886,8 @@ export function drawStickyTargetReticle(
   sx: number,
   sy: number,
   tMs: number,
-  compact: boolean
+  compact: boolean,
+  opts?: { hp?: number; maxHp?: number; nearEdge?: boolean }
 ) {
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.014);
   const rw = (compact ? 28 : 20) + pulse * 3;
@@ -1900,5 +1906,70 @@ export function drawStickyTargetReticle(
   g.lineBetween(sx + rw + 2, cy, sx + rw + 2 + tick, cy);
   g.fillStyle(0xc9a227, 0.35 + pulse * 0.25);
   g.fillCircle(sx, cy, compact ? 2.5 : 2);
+
+  // Edge-of-screen HP pip — tiny sticky bar so last-hit foe reads when clipped
+  if (opts?.nearEdge && opts.maxHp != null && opts.maxHp > 0 && opts.hp != null) {
+    const ratio = Math.max(0, Math.min(1, opts.hp / opts.maxHp));
+    const bw = compact ? 34 : 26;
+    const bh = compact ? 5 : 4;
+    const bx = sx - bw / 2;
+    const by = cy - rh - (compact ? 14 : 11);
+    g.fillStyle(0x000000, 0.7);
+    g.fillRect(bx - 1.5, by - 1.5, bw + 3, bh + 3);
+    g.fillStyle(0x1a1610, 0.95);
+    g.fillRect(bx, by, bw, bh);
+    const fill = ratio > 0.3 ? 0xe83828 : 0xff6a3a;
+    g.fillStyle(fill, 1);
+    g.fillRect(bx, by, Math.max(0, bw * ratio), bh);
+    g.lineStyle(1, 0xe8c86a, 0.85);
+    g.strokeRect(bx, by, bw, bh);
+  }
+}
+
+/** Soft gold entrance beacon after respawn — pulse so you see where you woke. */
+export function drawRespawnBeacon(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  tMs: number,
+  life01: number,
+  compact: boolean
+) {
+  const life = Math.max(0, Math.min(1, life01));
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.012);
+  const a = life * (0.55 + pulse * 0.35);
+  const rx = (compact ? 36 : 28) * (0.85 + (1 - life) * 0.45 + pulse * 0.08);
+  const ry = rx * 0.42;
+  g.fillStyle(0xc9a227, 0.08 + a * 0.14);
+  g.fillEllipse(sx, sy + 4, rx * 1.15, ry * 1.15);
+  g.lineStyle(2.2, 0xffe8a0, a * 0.85);
+  g.strokeEllipse(sx, sy + 4, rx, ry);
+  g.lineStyle(1.4, 0x6a8cff, a * 0.55);
+  g.strokeEllipse(sx, sy + 4, rx * 0.72, ry * 0.72);
+  // Rising mote
+  const rise = ((tMs * 0.04) % 28);
+  g.fillStyle(0xffe8a0, a * 0.9);
+  g.fillCircle(sx, sy - 6 - rise, compact ? 2.6 : 2.1);
+}
+
+/** Spark bead traveling along a loot-magnet line (screen space). */
+export function drawMagnetSpark(
+  g: Phaser.GameObjects.Graphics,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  t01: number,
+  tint: number,
+  compact: boolean
+) {
+  const t = Math.max(0, Math.min(1, t01));
+  const x = x0 + (x1 - x0) * t;
+  const y = y0 + (y1 - y0) * t;
+  const r = (compact ? 3.2 : 2.4) * (0.7 + Math.sin(t * Math.PI) * 0.55);
+  g.fillStyle(tint, 0.35 + (1 - Math.abs(t - 0.5) * 2) * 0.45);
+  g.fillCircle(x, y, r + 1.5);
+  g.fillStyle(0xffe8a0, 0.9);
+  g.fillCircle(x, y, r * 0.65);
 }
 

@@ -138,13 +138,18 @@ export function updateStats(you: any, title: string) {
     mpPlate.setAttribute("aria-valuenow", String(Math.floor(curMp)));
     mpPlate.setAttribute("aria-valuemax", String(maxMp));
   }
-  // Low-mana blue/gold vignette (~25% and below) — mirrors low-HP style
-  const lowMana = mpRatio <= 0.25 && curMp > 0 && cur > 0;
+  // Low-mana vignette: intensity scales from full at 25% MP → 0 at empty (not binary)
+  const manaVig =
+    curMp > 0 && cur > 0 && mpRatio <= 0.25
+      ? Math.max(0, Math.min(1, (0.25 - mpRatio) / 0.25))
+      : 0;
+  const lowMana = manaVig > 0.02;
   document.body.classList.toggle("low-mana", lowMana);
-  document.getElementById("mana-vignette")?.setAttribute(
-    "aria-hidden",
-    lowMana ? "false" : "true"
-  );
+  const manaEl = document.getElementById("mana-vignette");
+  if (manaEl) {
+    manaEl.style.setProperty("--mana-vig", manaVig.toFixed(3));
+    manaEl.setAttribute("aria-hidden", lowMana ? "false" : "true");
+  }
   lastManaShown = curMp;
   syncWardPip(you);
   updateSpellButtons(curMp);
@@ -526,6 +531,11 @@ export function isComboMilestone(n: number): boolean {
   return n === 5 || n === 10;
 }
 
+/** ×15 / ×20 fever tint on the combo pip (no toast). */
+export function isComboFever(n: number): boolean {
+  return n >= 15;
+}
+
 export function resetCombo() {
   if (comboCount <= 0) return;
   const wasShown = comboCount >= 2;
@@ -548,7 +558,7 @@ function syncComboPip(bump = false, expire = false) {
       comboExpireTimer = null;
       if (comboCount < 2) {
         pip.classList.add("hidden");
-        pip.classList.remove("combo-expire", "combo-bump");
+        pip.classList.remove("combo-expire", "combo-bump", "combo-fever", "combo-fever-max");
         pip.setAttribute("aria-hidden", "true");
       }
     }, 420);
@@ -559,6 +569,8 @@ function syncComboPip(bump = false, expire = false) {
     pip.textContent = comboCount > 99 ? "99" : String(comboCount);
     pip.title = `Hit streak ×${comboCount}`;
     pip.setAttribute("aria-hidden", "false");
+    pip.classList.toggle("combo-fever", comboCount >= 15);
+    pip.classList.toggle("combo-fever-max", comboCount >= 20);
     if (bump) {
       pip.classList.remove("combo-bump");
       void (pip as HTMLElement).offsetWidth;
@@ -566,7 +578,7 @@ function syncComboPip(bump = false, expire = false) {
     }
   } else if (!pip.classList.contains("combo-expire")) {
     pip.classList.add("hidden");
-    pip.classList.remove("combo-bump");
+    pip.classList.remove("combo-bump", "combo-fever", "combo-fever-max");
     pip.setAttribute("aria-hidden", "true");
     pip.textContent = "1";
   }

@@ -1202,14 +1202,30 @@ button:disabled { opacity: 0.55; cursor: default; }
   opacity: 0.95;
 }
 .spell-btn.on-cooldown {
-  filter: saturate(0.55) brightness(0.85);
+  filter: saturate(0.35) brightness(0.62);
+  opacity: 0.78;
+  box-shadow: inset 0 0 0 1px #000e, inset 0 0 18px #000a;
+}
+.spell-btn.on-cooldown .action-label,
+.spell-btn.on-cooldown .spell-icon {
+  opacity: 0.55;
 }
 .spell-btn.no-mana {
-  filter: saturate(0.4) brightness(0.7);
+  filter: saturate(0.28) brightness(0.55);
+  opacity: 0.72;
+  box-shadow: inset 0 0 0 1px #4a1010aa, inset 0 0 14px #2a080866;
 }
 .spell-btn.no-mana .spell-cost {
-  color: var(--crimson-2);
+  color: #ff6a5a;
   opacity: 1;
+  font-weight: 700;
+  text-shadow: 0 0 6px #000, 0 1px 0 #000;
+}
+.action-btn:disabled,
+.action-btn.is-disabled,
+.action-btn.on-cooldown {
+  filter: saturate(0.4) brightness(0.65);
+  opacity: 0.75;
 }
 .spell-btn.mana-flash {
   animation: spell-mana-flash 0.5s ease-out;
@@ -1537,11 +1553,12 @@ body.has-modal #virtual-joystick { display: none; }
   .spell-ready, .ward-expire, .ward-soak, body.low-hp #danger-vignette,
   body.low-mana #mana-vignette, #btn-inv.inv-loot-glow,
   .combo-pip, .combo-pip.combo-bump, .combo-pip.combo-expire,
+  .combo-pip.combo-fever, .combo-pip.combo-fever-max,
   body.death-flash #death-flash, body.respawn-fade #death-flash,
   .ah-row.ah-loot-pulse, .compass-arrow { animation: none; }
   #toast.toast-show { opacity: 1; }
   body.low-hp #danger-vignette { opacity: 0.55; }
-  body.low-mana #mana-vignette { opacity: 0.5; }
+  body.low-mana #mana-vignette { opacity: calc(0.28 + var(--mana-vig, 1) * 0.4); animation: none; filter: none; }
   body.death-flash #death-flash, body.respawn-fade #death-flash { opacity: 0.55; }
 }
 
@@ -1850,7 +1867,9 @@ body.has-modal #virtual-joystick { display: none; }
   opacity: 0.95;
 }
 #btn-attack.on-cooldown {
-  filter: saturate(0.55) brightness(0.85);
+  filter: saturate(0.35) brightness(0.6);
+  opacity: 0.8;
+  box-shadow: inset 0 0 0 1px #000c, inset 0 0 16px #0009;
 }
 
 /* Ward pip remaining time + expiry flash */
@@ -2047,15 +2066,27 @@ body.respawn-fade #death-flash {
   text-shadow: 0 1px 0 #000, 0 0 6px #000;
   line-height: 1;
 }
+.compass-dist {
+  margin-top: 0.08rem;
+  font-size: 0.52rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: #c9b88a;
+  text-shadow: 0 1px 0 #000, 0 0 4px #000a;
+  line-height: 1;
+  opacity: 0.85;
+}
 .compass-arrow[data-dest="lust"] .compass-label { color: #ffc8b8; }
+.compass-arrow[data-dest="lust"] .compass-dist { color: #e8a090; }
 @media (max-width: 640px) {
-  .compass-arrow { width: 2.1rem; height: 2.1rem; margin: -1.05rem 0 0 -1.05rem; }
+  .compass-arrow { width: 2.1rem; height: 2.4rem; margin: -1.05rem 0 0 -1.05rem; }
   .compass-chevron {
     border-left-width: 7px;
     border-right-width: 7px;
     border-bottom-width: 12px;
   }
   .compass-label { font-size: 0.5rem; }
+  .compass-dist { font-size: 0.45rem; }
 }
 
 /* AH listing rarity pulse — matches world loot / Inv bag glow */
@@ -2111,17 +2142,19 @@ body.respawn-fade #death-flash {
   transition: opacity 0.35s ease;
 }
 body.low-mana #mana-vignette {
-  opacity: 1;
+  /* Scale 25%→0% MP via --mana-vig (0..1); pulse rides on top */
+  opacity: calc(0.22 + var(--mana-vig, 1) * 0.55);
   animation: mana-vignette-pulse 1.25s ease-in-out infinite alternate;
 }
 @keyframes mana-vignette-pulse {
-  from { opacity: 0.38; }
-  to { opacity: 0.72; }
+  from { filter: brightness(0.92); }
+  to { filter: brightness(1.08); }
 }
 /* Prefer HP danger when both; mana stays softer underneath */
 body.low-hp.low-mana #mana-vignette {
-  opacity: 0.35;
+  opacity: calc(0.12 + var(--mana-vig, 1) * 0.28);
   animation: none;
+  filter: none;
 }
 @media (max-width: 640px) {
   #mana-vignette {
@@ -2149,4 +2182,52 @@ body.low-hp.low-mana #mana-vignette {
     transform: scale(1);
     filter: none;
   }
+}
+
+/* ——— Polish r9 ——— */
+
+/* Combo fever tint at ×15 / ×20 (no toast) */
+.combo-pip.combo-fever {
+  background: radial-gradient(circle at 35% 30%, #ffe8a0, #e8a020 50%, #a84810);
+  border-color: #ffe08a;
+  box-shadow: 0 0 0 1px #000a, 0 0 14px #e8a020cc, inset 0 1px 0 #fff8;
+  color: #2a1008;
+  animation: combo-fever-pulse 0.85s ease-in-out infinite;
+}
+@keyframes combo-fever-pulse {
+  0%, 100% { transform: scale(1.05); box-shadow: 0 0 0 1px #000a, 0 0 12px #e8a020aa, inset 0 1px 0 #fff8; }
+  50% { transform: scale(1.18); box-shadow: 0 0 0 1px #000a, 0 0 20px #ffc040dd, inset 0 1px 0 #fff8; }
+}
+.combo-pip.combo-fever-max {
+  background: radial-gradient(circle at 35% 30%, #fff6d0, #ff6644 45%, #c9a227 75%, #6a1810);
+  border-color: #fff0c0;
+  box-shadow: 0 0 0 1px #000a, 0 0 18px #ff8844ee, 0 0 8px #c9a227, inset 0 1px 0 #fff;
+  animation: combo-fever-max-pulse 0.65s ease-in-out infinite;
+}
+@keyframes combo-fever-max-pulse {
+  0%, 100% { transform: scale(1.08); filter: brightness(1.05); }
+  50% { transform: scale(1.22); filter: brightness(1.25); }
+}
+
+/* Very narrow phones (~390): slightly larger spell/action taps */
+@media (max-width: 400px) {
+  :root {
+    --tap: 48px;
+  }
+  .spell-btn {
+    width: calc(var(--tap) + 6px);
+    min-width: calc(var(--tap) + 6px);
+  }
+  #btn-interact, #btn-attack {
+    width: calc(var(--tap) + 12px);
+    min-width: calc(var(--tap) + 12px);
+  }
+  .action-btn .action-label { font-size: 0.58rem; }
+  .spell-btn .action-label { font-size: 0.5rem; }
+  .spell-btn .spell-icon { width: 1.65rem; height: 1.65rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combo-pip.combo-fever,
+  .combo-pip.combo-fever-max { animation: none; transform: none; }
 }
