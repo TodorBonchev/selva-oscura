@@ -1563,7 +1563,7 @@ body.has-modal #virtual-joystick { display: none; }
   .spell-ready, .ward-expire, .ward-soak, body.low-hp #danger-vignette,
   body.low-mana #mana-vignette, #btn-inv.inv-loot-glow,
   .combo-pip, .combo-pip.combo-bump, .combo-pip.combo-expire,
-  .combo-pip.combo-fever, .combo-pip.combo-fever-max, .combo-pip.combo-inferno,
+  .combo-pip.combo-fever, .combo-pip.combo-fever-max, .combo-pip.combo-inferno, .combo-pip.combo-inferno-fringe, .combo-pip.combo-decay,
   body.death-flash #death-flash, body.respawn-fade #death-flash,
   .ah-row.ah-loot-pulse, .compass-arrow { animation: none; }
   #toast.toast-show { opacity: 1; }
@@ -2247,7 +2247,9 @@ body.low-hp.low-mana #mana-vignette {
 @media (prefers-reduced-motion: reduce) {
   .combo-pip.combo-fever,
   .combo-pip.combo-fever-max,
-  .combo-pip.combo-inferno { animation: none; transform: none; }
+  .combo-pip.combo-inferno,
+  .combo-pip.combo-inferno-fringe,
+  .combo-pip.combo-decay { animation: none; transform: none; }
 }
 
 /* ——— Polish r10 ——— */
@@ -2492,4 +2494,164 @@ body.slam-sting #slam-sting {
   .plate-mp.mp-deny { animation: none; }
   .spell-btn .spell-cost.cost-deny-flash { animation: none; }
   body.slam-sting #slam-sting { animation: none; opacity: 0.55; }
+}
+
+
+/* ——— Polish r12 ——— */
+
+/* Soft combo decay fade (replaces hard pip drop on streak expiry) */
+.combo-pip.combo-decay {
+  display: flex !important;
+  animation: combo-decay-fade 0.55s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes combo-decay-fade {
+  0% {
+    opacity: 1;
+    transform: scale(1.08);
+    filter: brightness(1.15) saturate(1.1);
+  }
+  55% {
+    opacity: 0.55;
+    transform: scale(0.96);
+    filter: brightness(0.95) saturate(0.85);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.78);
+    filter: brightness(0.7) saturate(0.55);
+  }
+}
+
+/* Combo ×75+ inferno fringe on the pip (still no toast) */
+.combo-pip.combo-inferno-fringe {
+  background: radial-gradient(circle at 28% 22%, #fff8e0 0%, #ff7744 32%, #ff2208 58%, #c9a227 78%, #2a0404 100%);
+  border-color: #ffd090;
+  box-shadow:
+    0 0 0 1px #000a,
+    0 0 28px #ff3311ff,
+    0 0 12px #ffe08acc,
+    0 0 4px #fff,
+    inset 0 1px 0 #fff8,
+    inset 0 -6px 10px #ff440066;
+  animation: combo-inferno-fringe-pulse 0.42s ease-in-out infinite;
+}
+@keyframes combo-inferno-fringe-pulse {
+  0%, 100% { transform: scale(1.14); filter: brightness(1.1) saturate(1.25) hue-rotate(-4deg); }
+  50% { transform: scale(1.34); filter: brightness(1.45) saturate(1.45) hue-rotate(6deg); }
+}
+
+/* Subtle heat-haze fringe at screen edges while ×75+ */
+#heat-haze {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse 110% 40% at 50% -5%, #ff662244 0%, transparent 55%),
+    radial-gradient(ellipse 40% 110% at -5% 50%, #ff442218 0%, transparent 50%),
+    radial-gradient(ellipse 40% 110% at 105% 50%, #ff662218 0%, transparent 50%),
+    radial-gradient(ellipse 110% 36% at 50% 105%, #c9a22722 0%, transparent 55%);
+  mix-blend-mode: screen;
+  transition: opacity 0.35s ease;
+}
+body.combo-heat #heat-haze {
+  opacity: 1;
+  animation: heat-haze-shimmer 1.8s ease-in-out infinite;
+}
+@keyframes heat-haze-shimmer {
+  0%, 100% {
+    opacity: 0.55;
+    filter: blur(0.4px) hue-rotate(0deg);
+    transform: scale(1.001);
+  }
+  50% {
+    opacity: 0.85;
+    filter: blur(1.1px) hue-rotate(8deg);
+    transform: scale(1.008);
+  }
+}
+
+/* Gold “just safe” rim overlay */
+#slam-safe {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 50%, transparent 48%, #c9a22733 72%, transparent 88%),
+    linear-gradient(90deg, #c9a22744 0%, transparent 12%, transparent 88%, #c9a22744 100%),
+    linear-gradient(0deg, #e8c86a33 0%, transparent 14%, transparent 86%, #e8c86a33 100%);
+  transition: opacity 0.08s ease-out;
+}
+body.slam-safe #slam-safe {
+  opacity: 1;
+  animation: slam-safe-flash 0.48s ease-out forwards;
+}
+@keyframes slam-safe-flash {
+  0% { opacity: 0.9; }
+  40% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+
+/* Attack icon — mirrors Inv/AH; label collapses on short/compact */
+#btn-attack .action-icon {
+  display: none;
+  width: 1.55rem;
+  height: 1.55rem;
+  object-fit: contain;
+  image-rendering: auto;
+  filter: drop-shadow(0 0 3px #d63a2a88);
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (max-width: 400px), (max-height: 520px) and (max-width: 900px) {
+  #btn-attack .action-label {
+    display: none;
+  }
+  #btn-attack .action-icon {
+    display: block;
+    width: 1.7rem;
+    height: 1.7rem;
+  }
+  #btn-attack {
+    padding: 0.35rem 0.18rem 0.28rem;
+  }
+}
+
+/* Ash-trail compass pulse toward wake beacon */
+#canto-compass.compass-ash-active {
+  animation: compass-ash-layer 0.7s ease-in-out infinite;
+}
+@keyframes compass-ash-layer {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.25); }
+}
+.compass-arrow.compass-ash-pulse {
+  animation: compass-ash-pulse 0.55s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px #c9a227cc) drop-shadow(0 1px 3px #000c);
+}
+.compass-arrow.compass-ash-pulse .compass-chevron {
+  border-bottom-color: #ffe8a0;
+}
+.compass-arrow.compass-ash-pulse .compass-label {
+  color: #ffe8a0;
+}
+.compass-arrow[data-dest="beacon"] .compass-chevron {
+  border-bottom-color: #e8c86a;
+}
+@keyframes compass-ash-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.18); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combo-pip.combo-decay { animation: none; opacity: 0.4; }
+  .combo-pip.combo-inferno-fringe { animation: none; transform: none; }
+  body.combo-heat #heat-haze { animation: none; opacity: 0.45; filter: none; }
+  body.slam-safe #slam-safe { animation: none; opacity: 0.45; }
+  .compass-arrow.compass-ash-pulse { animation: none; }
 }
