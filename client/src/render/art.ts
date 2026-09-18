@@ -1441,13 +1441,16 @@ export function drawLootTowerSpine(
   /** Highest rarity pulse intensity in the pile. */
   intensity = 1,
   /** 1→0 age of magnet-start rarity tick pop (0 = idle). */
-  magnetPop01 = 0
+  magnetPop01 = 0,
+  /** 1→0 soft spine ripple traveling down the tower (staggered flash land). */
+  spineRipple01 = 0
 ) {
   const n = Math.max(2, stackCount);
   const pulse = 0.5 + 0.5 * Math.sin(t * 0.005 + sx * 0.02);
   const inv = Math.max(0.35, intensity);
   const pop = Math.max(0, Math.min(1, magnetPop01));
   const popEase = pop * pop; // punch early then settle
+  const ripple = Math.max(0, Math.min(1, spineRipple01));
   const step = compact ? 15 : 12;
   const h = (n - 1) * step + (compact ? 22 : 18);
   const w = (compact ? 7 : 5.5) * (0.85 + inv * 0.2) * (1 + popEase * 0.35);
@@ -1461,20 +1464,33 @@ export function drawLootTowerSpine(
   // Bright filament
   g.lineStyle(compact ? 2.2 : 1.6, 0xffe8a0, 0.25 + pulse * 0.35 * inv + popEase * 0.35);
   g.lineBetween(sx, sy, sx, sy - h);
+  // Soft ripple band traveling top→bottom when staggered magnet flash lands
+  if (ripple > 0.02) {
+    const bandY = sy - h * (1 - (1 - ripple) * (1 - ripple));
+    const bandA = ripple * ripple * 0.55;
+    g.fillStyle(0xffe8a0, bandA * 0.35);
+    g.fillEllipse(sx, bandY, w * 2.8, compact ? 10 : 8);
+    g.lineStyle(compact ? 2.4 : 1.8, 0xffe8a0, bandA);
+    g.lineBetween(sx - w * 1.4, bandY, sx + w * 1.4, bandY);
+  }
   // Soft beads along the spine (rarity ticks) — pop scale when magnet starts
   for (let i = 0; i < n; i++) {
     const by = sy - i * step - 2;
     // Stagger pop so ticks cascade upward
     const tickPop = Math.max(0, Math.min(1, pop * 1.35 - i * 0.12));
     const tickEase = tickPop * tickPop;
-    const br = (compact ? 2.4 : 1.9) * (1 + tickEase * 1.55);
-    g.fillStyle(color, 0.35 + pulse * 0.25 + tickEase * 0.45);
+    // Ripple swell as the band passes each bead (top i=n-1 → bottom i=0)
+    const beadFrac = n <= 1 ? 0 : i / (n - 1);
+    const ripDist = Math.abs(beadFrac - (1 - ripple));
+    const ripBoost = ripple > 0.02 ? Math.max(0, 1 - ripDist * 3.2) * ripple : 0;
+    const br = (compact ? 2.4 : 1.9) * (1 + tickEase * 1.55 + ripBoost * 0.9);
+    g.fillStyle(color, 0.35 + pulse * 0.25 + tickEase * 0.45 + ripBoost * 0.35);
     g.fillCircle(sx, by, br);
-    g.fillStyle(0xffe8a0, 0.45 + pulse * 0.2 + tickEase * 0.4);
-    g.fillCircle(sx, by, (compact ? 1.2 : 1) * (1 + tickEase * 1.8));
-    if (tickEase > 0.05) {
-      g.lineStyle(1.2, 0xffe8a0, tickEase * 0.7);
-      g.strokeCircle(sx, by, br + 2 + tickEase * 3);
+    g.fillStyle(0xffe8a0, 0.45 + pulse * 0.2 + tickEase * 0.4 + ripBoost * 0.4);
+    g.fillCircle(sx, by, (compact ? 1.2 : 1) * (1 + tickEase * 1.8 + ripBoost * 1.2));
+    if (tickEase > 0.05 || ripBoost > 0.08) {
+      g.lineStyle(1.2, 0xffe8a0, Math.max(tickEase * 0.7, ripBoost * 0.65));
+      g.strokeCircle(sx, by, br + 2 + tickEase * 3 + ripBoost * 2);
     }
   }
 }
@@ -2057,6 +2073,58 @@ export function drawJudgeSlamImpact(
   }
 }
 
+/**
+ * Judge countdown disc cracks / shatters into dust on slam resolve (screen space).
+ * life01: 1 = just cracked, 0 = gone.
+ */
+export function drawJudgeCountdownShatter(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  life01: number,
+  compact: boolean
+) {
+  const life = Math.max(0, Math.min(1, life01));
+  const fade = life * life;
+  const pipR = (compact ? 13 : 11) * (0.9 + (1 - life) * 0.55);
+  // Cracked disc body (splits apart)
+  const split = (1 - life) * (compact ? 10 : 8);
+  const shards = 5;
+  for (let i = 0; i < shards; i++) {
+    const a = -Math.PI / 2 + (i / shards) * Math.PI * 2 + 0.15;
+    const ox = Math.cos(a) * split * (0.7 + (i % 2) * 0.4);
+    const oy = Math.sin(a) * split * (0.7 + (i % 2) * 0.4) - (1 - life) * 6;
+    const ang = a + (1 - life) * 0.8 * ((i % 2) * 2 - 1);
+    const sr = pipR * (0.35 + (i % 3) * 0.08);
+    g.fillStyle(0xc9a227, 0.7 * fade);
+    g.fillCircle(sx + ox, sy + oy, sr);
+    g.lineStyle(1.2, 0xffe8a0, 0.85 * fade);
+    g.strokeCircle(sx + ox, sy + oy, sr);
+    // Crack lines on shard
+    g.lineStyle(1.1, 0x1a0808, 0.55 * fade);
+    g.lineBetween(
+      sx + ox + Math.cos(ang) * sr * 0.2,
+      sy + oy + Math.sin(ang) * sr * 0.2,
+      sx + ox + Math.cos(ang) * sr * 0.95,
+      sy + oy + Math.sin(ang) * sr * 0.95
+    );
+  }
+  // Dust motes blooming outward
+  const dust = compact ? 14 : 11;
+  for (let i = 0; i < dust; i++) {
+    const a = (i / dust) * Math.PI * 2 + life * 1.2;
+    const rad = pipR * (0.6 + (1 - life) * (1.8 + (i % 3) * 0.35));
+    const dx = Math.cos(a) * rad;
+    const dy = Math.sin(a) * rad * 0.75 - (1 - life) * 12;
+    const dr = (compact ? 2.2 : 1.7) * (0.5 + life * 0.6) * (1 - (i % 4) * 0.08);
+    g.fillStyle(i % 3 === 0 ? 0xffe8a0 : i % 3 === 1 ? 0xc9a227 : 0xff8866, 0.55 * fade);
+    g.fillCircle(sx + dx, sy + dy, dr);
+  }
+  // Brief gold flash at epicenter
+  g.fillStyle(0xfff6d0, 0.35 * fade * life);
+  g.fillCircle(sx, sy, pipR * 0.45 * life);
+}
+
 
 
 /** Gale max-range iso ellipse + soft aim cone (screen space). */
@@ -2414,6 +2482,50 @@ export function drawRespawnBeacon(
   const rise = ((tMs * 0.04) % 28);
   g.fillStyle(0xffe8a0, a * 0.9);
   g.fillCircle(sx, sy - 6 - rise, compact ? 2.6 : 2.1);
+}
+
+/**
+ * Tiny gold trail from sticky chip → newly locked Gale target (screen space).
+ * life01: 1 = just released, 0 = gone.
+ */
+export function drawStickyGoldTrail(
+  g: Phaser.GameObjects.Graphics,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  life01: number,
+  compact: boolean
+) {
+  const life = Math.max(0, Math.min(1, life01));
+  const fade = life * life;
+  const headT = 1 - life * 0.15; // bead races toward target
+  const hx = x0 + (x1 - x0) * headT;
+  const hy = y0 + (y1 - y0) * headT;
+  // Soft ribbon
+  g.lineStyle(compact ? 3.2 : 2.4, 0xc9a227, 0.35 * fade);
+  g.lineBetween(x0, y0, hx, hy);
+  g.lineStyle(compact ? 1.6 : 1.2, 0xffe8a0, 0.7 * fade);
+  g.lineBetween(x0, y0, hx, hy);
+  // Bead + sparkles along the path
+  const beads = compact ? 6 : 5;
+  for (let i = 0; i < beads; i++) {
+    const t = (i / Math.max(1, beads - 1)) * headT;
+    const bx = x0 + (x1 - x0) * t;
+    const by = y0 + (y1 - y0) * t;
+    const age = 1 - Math.abs(t - headT * 0.85);
+    const a = fade * (0.35 + age * 0.55);
+    const r = (compact ? 2.6 : 2.1) * (0.6 + age * 0.7) * (0.7 + life * 0.3);
+    g.fillStyle(0xffe8a0, a);
+    g.fillCircle(bx, by, r);
+    g.fillStyle(0xc9a227, a * 0.7);
+    g.fillCircle(bx, by, r * 0.45);
+  }
+  // Tip bloom on the locked target
+  g.fillStyle(0xffe8a0, 0.45 * fade);
+  g.fillCircle(hx, hy, compact ? 5.5 : 4.5);
+  g.lineStyle(1.4, 0xffe8a0, 0.7 * fade);
+  g.strokeCircle(hx, hy, compact ? 8 : 6.5);
 }
 
 /** Spark bead traveling along a loot-magnet line (screen space). */
