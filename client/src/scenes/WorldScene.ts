@@ -14,6 +14,8 @@ import {
   noteSpellCast,
   flashManaDeny,
   noteWardBuff,
+  noteAttackCd,
+  pulseInvBag,
 } from "../ui/hud";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
@@ -79,6 +81,7 @@ import {
   drawOutOfRangeFoeMark,
   drawPortalChargeRing,
   drawPortalEnterTip,
+  drawStickyTargetReticle,
   buildGroundTiles,
   destroyGroundTiles,
   facing8FromWorldVel,
@@ -220,6 +223,8 @@ export class WorldScene extends Phaser.Scene {
   hubTipShown = false;
   nearExitToastAt = 0;
   seenLootIds = new Set<string>();
+  /** Inventory item ids from last snapshot — detect new loot for Inv bag glow. */
+  seenInvItemIds = new Set<string>();
   /** lootId -> last auto-pickup send time (ms) so we don't spam the server. */
   autoPickupSent = new Map<string, number>();
   lastAutoPickupScan = 0;
@@ -1000,7 +1005,9 @@ export class WorldScene extends Phaser.Scene {
   sendAttack(targetId: string) {
     const now = Date.now();
     if (now < this.attackBusyUntil) return;
-    this.attackBusyUntil = now + ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
+    const busyMs = ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
+    this.attackBusyUntil = now + busyMs;
+    noteAttackCd(busyMs / 1000);
     this.swipeFx = {
       start: this.animT,
       until: this.animT + ATTACK_SWIPE_MS,
@@ -1092,6 +1099,7 @@ export class WorldScene extends Phaser.Scene {
         updateStats(msg.room.you, msg.room.title);
         this.lastYouSnapshot = msg.room.you;
         this.refreshInventoryUi();
+        this.noteNewInventoryLoot(msg.room.you);
 
         const sx = msg.room.you.x as number;
         const sy = msg.room.you.y as number;
@@ -1114,6 +1122,7 @@ export class WorldScene extends Phaser.Scene {
           this.infernalShocks = [];
           this.remotePrev.clear();
           this.lastHitFoe = null;
+          this.seenInvItemIds.clear();
           this.centerOnYou(true);
           if (cantoChanged) this.playTravelTransition();
         }
@@ -2101,7 +2110,7 @@ export class WorldScene extends Phaser.Scene {
         if (e.poiKind === "portal") {
           const poiDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
           if (poiDist <= EXIT_TRAVEL_RANGE) {
-            drawPortalEnterTip(g, p.sx, p.sy, this.animT, compact);
+            drawPortalEnterTip(g, p.sx, p.sy, this.animT, compact, true);
           }
         }
         if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
@@ -2122,11 +2131,12 @@ export class WorldScene extends Phaser.Scene {
             { icon: "◆", farAlpha: 0.45 }
           );
           if (e.poiKind === "portal" && poiDist <= EXIT_TRAVEL_RANGE) {
+            const dest = this.portalDestName(e);
             this.addDistanceLabel(
               `poi-hold:${e.id}`,
               p.sx,
               p.sy - (compact ? 56 : 44),
-              "hold to enter",
+              `hold to enter ${dest}`,
               compact ? "11px" : "10px",
               poiDist,
               seenLabels,
@@ -2145,7 +2155,7 @@ export class WorldScene extends Phaser.Scene {
         {
           const exitDist0 = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
           if (exitDist0 <= EXIT_TRAVEL_RANGE) {
-            drawPortalEnterTip(g, p.sx, p.sy, this.animT, compact);
+            drawPortalEnterTip(g, p.sx, p.sy, this.animT, compact, true);
           }
         }
         if (this.placeSprite(sid, DORE_KEYS.exit_portal, p.sx, p.sy, depth)) {
@@ -2174,11 +2184,12 @@ export class WorldScene extends Phaser.Scene {
           }
         );
         if (exitDist <= EXIT_TRAVEL_RANGE) {
+          const dest = this.portalDestName(e);
           this.addDistanceLabel(
             `exit-hold:${e.id}`,
             p.sx,
             p.sy - (compact ? 102 : 78),
-            "hold to enter",
+            `hold to enter ${dest}`,
             compact ? "11px" : "10px",
             exitDist,
             seenLabels,
@@ -2191,6 +2202,13 @@ export class WorldScene extends Phaser.Scene {
           );
         }
       } else if (e.kind === "mob") {
+        if (
+          this.lastHitFoe &&
+          this.lastHitFoe.id === String(e.id) &&
+          this.animT < this.lastHitFoe.until
+        ) {
+          drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact);
+        }
         drawEntityPad(g, p.sx, p.sy, e.champion ? (compact ? 1.85 : 1.45) : compact ? 1.55 : 1.2);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, champion: Boolean(e.champion) });
         let topY = p.sy - (e.champion ? 40 : 32);
@@ -2204,6 +2222,13 @@ export class WorldScene extends Phaser.Scene {
         }
         drawFoeHpBar(g, p.sx, topY, e.hp, e.maxHp, e.champion ? 40 : 30, { compact });
       } else if (e.kind === "boss") {
+        if (
+          this.lastHitFoe &&
+          this.lastHitFoe.id === String(e.id) &&
+          this.animT < this.lastHitFoe.until
+        ) {
+          drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact);
+        }
         drawEntityPad(g, p.sx, p.sy, compact ? 2.7 : 2.1);
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, boss: true });
         let topY = p.sy - 68;
@@ -2332,7 +2357,15 @@ export class WorldScene extends Phaser.Scene {
       } else {
         drawPlayer(g, p.sx, p.sy, false);
       }
-      this.addLabel(`pl:${pl.id}`, p.sx, topY - (compact ? 14 : 10), pl.name, labelSize, seenLabels);
+      {
+        const nm = remoteStale ? `${pl.name} ·` : pl.name;
+        this.addLabel(`pl:${pl.id}`, p.sx, topY - (compact ? 14 : 10), nm, labelSize, seenLabels);
+        const lab = this.labels.get(`pl:${pl.id}`);
+        if (lab) {
+          lab.setAlpha(remoteStale ? 0.38 : 0.62);
+          lab.setColor(remoteStale ? "#6a7888" : "#b0a88c");
+        }
+      }
       drawFoeHpBar(g, p.sx, topY, pl.hp, pl.maxHp, 28, { compact, ally: true });
     }
 
@@ -2635,6 +2668,51 @@ export class WorldScene extends Phaser.Scene {
       if (best.kind === "poi" && best.poiKind !== "portal") return;
       showToast(`${ctx.full} — ready`, "info");
     }
+  }
+
+
+  /** Glow Inv bag when new items appear (rarity of the newest). */
+  noteNewInventoryLoot(you: any) {
+    const items: any[] = you?.inventory || [];
+    const ids = new Set<string>(items.map((it: any) => String(it.id)));
+    if (this.seenInvItemIds.size === 0) {
+      this.seenInvItemIds = ids;
+      return;
+    }
+    let bestRarity = "normal";
+    let found = false;
+    const rank: Record<string, number> = {
+      normal: 0,
+      magic: 1,
+      rare: 2,
+      set: 3,
+      unique: 4,
+      canto_unique: 5,
+    };
+    for (const it of items) {
+      const id = String(it.id);
+      if (!this.seenInvItemIds.has(id)) {
+        found = true;
+        const r = String(it.rarity || "normal");
+        if ((rank[r] ?? 0) >= (rank[bestRarity] ?? 0)) bestRarity = r;
+      }
+    }
+    this.seenInvItemIds = ids;
+    if (found) pulseInvBag(bestRarity);
+  }
+
+  /** Short destination name for portal hold tips. */
+  portalDestName(e: any): string {
+    if (!e) return "portal";
+    if (e.toCanto === "inferno_05") return "Lust";
+    if (e.toCanto === "inferno_01") return "Dark Wood";
+    const label = String(e.label || e.name || "");
+    const toward = label.match(/Toward\s+([^→]+)/i);
+    if (toward) return toward[1].replace(/[→\s]+$/g, "").trim();
+    const ret = label.match(/Return to\s+(.+)/i);
+    if (ret) return ret[1].replace(/[→\s]+$/g, "").trim();
+    const cleaned = label.replace(/[→]/g, "").trim();
+    return cleaned || "portal";
   }
 
   /** Contextual Interact button copy: Enter Lust / Pick up / Open AH / … */

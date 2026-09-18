@@ -1818,11 +1818,13 @@ export function drawPortalEnterTip(
   sx: number,
   sy: number,
   tMs: number,
-  compact: boolean
+  compact: boolean,
+  /** Wider tip when naming a destination (e.g. Lust). */
+  wide = false
 ) {
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.01);
   const y = sy - (compact ? 52 : 40) - pulse * 2;
-  const w = compact ? 52 : 58;
+  const w = wide ? (compact ? 64 : 72) : compact ? 52 : 58;
   const h = compact ? 14 : 13;
   g.fillStyle(0x0a0c0a, 0.72);
   g.fillRect(sx - w / 2, y - h / 2, w, h);
@@ -1830,11 +1832,41 @@ export function drawPortalEnterTip(
   g.strokeRect(sx - w / 2, y - h / 2, w, h);
   // Tiny chevron / hold bars (reads without bitmap text)
   const barY = y;
+  const ox = wide ? -4 : 0;
   g.fillStyle(0xffe8a0, 0.85 + pulse * 0.15);
-  g.fillRect(sx - 14, barY - 2, 3, 4);
-  g.fillRect(sx - 9, barY - 2, 3, 4);
-  g.fillRect(sx - 4, barY - 2, 3, 4);
+  g.fillRect(sx - 14 + ox, barY - 2, 3, 4);
+  g.fillRect(sx - 9 + ox, barY - 2, 3, 4);
+  g.fillRect(sx - 4 + ox, barY - 2, 3, 4);
   g.fillStyle(0xc9a227, 0.9);
-  g.fillTriangle(sx + 6, barY - 4, sx + 14, barY, sx + 6, barY + 4);
+  g.fillTriangle(sx + 6 + ox, barY - 4, sx + 14 + ox, barY, sx + 6 + ox, barY + 4);
+}
+
+/**
+ * Soft gold reticle under the last-hit / sticky Gale target (ground ellipse + ticks).
+ */
+export function drawStickyTargetReticle(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  tMs: number,
+  compact: boolean
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.014);
+  const rw = (compact ? 28 : 20) + pulse * 3;
+  const rh = (compact ? 12 : 9) + pulse * 1.5;
+  const cy = sy + (compact ? 6 : 4);
+  g.lineStyle(2, 0xe8c86a, 0.35 + pulse * 0.4);
+  g.strokeEllipse(sx, cy, rw * 2, rh * 2);
+  g.lineStyle(1.5, 0xffe8a0, 0.55 + pulse * 0.35);
+  g.strokeEllipse(sx, cy, rw * 1.35, rh * 1.35);
+  // Cardinal ticks
+  const tick = compact ? 6 : 4;
+  g.lineStyle(2, 0xffe8a0, 0.75 + pulse * 0.2);
+  g.lineBetween(sx, cy - rh - 2, sx, cy - rh - 2 - tick);
+  g.lineBetween(sx, cy + rh + 2, sx, cy + rh + 2 + tick);
+  g.lineBetween(sx - rw - 2, cy, sx - rw - 2 - tick, cy);
+  g.lineBetween(sx + rw + 2, cy, sx + rw + 2 + tick, cy);
+  g.fillStyle(0xc9a227, 0.35 + pulse * 0.25);
+  g.fillCircle(sx, cy, compact ? 2.5 : 2);
 }
 
