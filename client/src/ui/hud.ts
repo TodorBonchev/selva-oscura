@@ -420,7 +420,7 @@ function hapticLight(pattern: number | number[] = 10) {
 }
 
 /** Distinct patterns: soak (soft double), slam (heavy thud), mana deny (stutter). */
-export type HapticKind = "tap" | "soak" | "slam" | "mana" | "ready" | "portal";
+export type HapticKind = "tap" | "soak" | "slam" | "mana" | "ready" | "portal" | "sticky";
 function haptic(kind: HapticKind = "tap") {
   switch (kind) {
     case "soak":
@@ -443,6 +443,10 @@ function haptic(kind: HapticKind = "tap") {
       // Soft confirm double — portal charge complete
       hapticLight([14, 40, 18]);
       break;
+    case "sticky":
+      // Soft triple micro-pulse — sticky retarget / threat cycle (distinct from interact-ready)
+      hapticLight([5, 22, 5, 22, 8]);
+      break;
     default:
       hapticLight(10);
   }
@@ -451,6 +455,11 @@ function haptic(kind: HapticKind = "tap") {
 /** Light haptic when Interact becomes ready (no-op if vibrate unavailable). */
 export function hapticInteractReady() {
   haptic("ready");
+}
+
+/** Soft distinct haptic when sticky chip retargets / cycles a threat. */
+export function hapticStickyRetarget() {
+  haptic("sticky");
 }
 
 /** Light haptic when portal hold-to-travel charge completes. */
@@ -608,7 +617,12 @@ export function isComboEclipse(n: number): boolean {
 
 /** ×150+ void corona — brief screen desat pulse (no toast). */
 export function isComboVoidCorona(n: number): boolean {
-  return n >= 150;
+  return n >= 150 && n < 200;
+}
+
+/** ×200+ abyss — brief chroma fringe + camera breathe (no toast). */
+export function isComboAbyss(n: number): boolean {
+  return n >= 200;
 }
 
 export function getComboCount(): number {
@@ -634,10 +648,10 @@ function syncComboPip(bump = false, expire = false) {
     void (pip as HTMLElement).offsetWidth;
     pip.classList.add("combo-decay");
     pip.setAttribute("aria-hidden", "false");
-    document.body.classList.remove("combo-heat", "combo-eclipse-heat", "combo-void-heat");
+    document.body.classList.remove("combo-heat", "combo-eclipse-heat", "combo-void-heat", "combo-abyss-heat");
     if (heat) {
       heat.setAttribute("aria-hidden", "true");
-      heat.classList.remove("heat-eclipse", "heat-void");
+      heat.classList.remove("heat-eclipse", "heat-void", "heat-abyss");
     }
     if (comboExpireTimer != null) window.clearTimeout(comboExpireTimer);
     comboExpireTimer = window.setTimeout(() => {
@@ -653,7 +667,8 @@ function syncComboPip(bump = false, expire = false) {
           "combo-inferno",
           "combo-inferno-fringe",
           "combo-eclipse",
-          "combo-void"
+          "combo-void",
+          "combo-abyss"
         );
         pip.setAttribute("aria-hidden", "true");
       }
@@ -670,14 +685,17 @@ function syncComboPip(bump = false, expire = false) {
     pip.classList.toggle("combo-inferno", comboCount >= 50 && comboCount < 100);
     pip.classList.toggle("combo-inferno-fringe", comboCount >= 75 && comboCount < 100);
     pip.classList.toggle("combo-eclipse", comboCount >= 100 && comboCount < 150);
-    pip.classList.toggle("combo-void", comboCount >= 150);
+    pip.classList.toggle("combo-void", comboCount >= 150 && comboCount < 200);
+    pip.classList.toggle("combo-abyss", comboCount >= 200);
     document.body.classList.toggle("combo-heat", comboCount >= 75 && comboCount < 100);
     document.body.classList.toggle("combo-eclipse-heat", comboCount >= 100 && comboCount < 150);
-    document.body.classList.toggle("combo-void-heat", comboCount >= 150);
+    document.body.classList.toggle("combo-void-heat", comboCount >= 150 && comboCount < 200);
+    document.body.classList.toggle("combo-abyss-heat", comboCount >= 200);
     if (heat) heat.setAttribute("aria-hidden", comboCount >= 75 ? "false" : "true");
     if (heat) {
       heat.classList.toggle("heat-eclipse", comboCount >= 100 && comboCount < 150);
-      heat.classList.toggle("heat-void", comboCount >= 150);
+      heat.classList.toggle("heat-void", comboCount >= 150 && comboCount < 200);
+      heat.classList.toggle("heat-abyss", comboCount >= 200);
     }
     if (bump) {
       pip.classList.remove("combo-bump");
@@ -693,14 +711,15 @@ function syncComboPip(bump = false, expire = false) {
       "combo-inferno",
       "combo-inferno-fringe",
       "combo-eclipse",
-      "combo-void"
+      "combo-void",
+      "combo-abyss"
     );
     pip.setAttribute("aria-hidden", "true");
     pip.textContent = "1";
-    document.body.classList.remove("combo-heat", "combo-eclipse-heat", "combo-void-heat");
+    document.body.classList.remove("combo-heat", "combo-eclipse-heat", "combo-void-heat", "combo-abyss-heat");
     if (heat) {
       heat.setAttribute("aria-hidden", "true");
-      heat.classList.remove("heat-eclipse", "heat-void");
+      heat.classList.remove("heat-eclipse", "heat-void", "heat-abyss");
     }
   }
 }
@@ -807,6 +826,19 @@ export function pulseVoidCorona() {
     document.body.classList.remove("void-corona-pulse");
     if (el) el.setAttribute("aria-hidden", "true");
   }, 520);
+}
+
+/** Brief chroma fringe at combo ×200 abyss (no toast). */
+export function pulseAbyssChroma() {
+  const el = document.getElementById("abyss-chroma");
+  document.body.classList.remove("abyss-chroma-pulse");
+  void document.body.offsetWidth;
+  document.body.classList.add("abyss-chroma-pulse");
+  if (el) el.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    document.body.classList.remove("abyss-chroma-pulse");
+    if (el) el.setAttribute("aria-hidden", "true");
+  }, 580);
 }
 
 function pingSpellReady(btn: HTMLElement) {

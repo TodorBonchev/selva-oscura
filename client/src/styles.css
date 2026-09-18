@@ -1563,7 +1563,7 @@ body.has-modal #virtual-joystick { display: none; }
   .spell-ready, .ward-expire, .ward-soak, body.low-hp #danger-vignette,
   body.low-mana #mana-vignette, #btn-inv.inv-loot-glow,
   .combo-pip, .combo-pip.combo-bump, .combo-pip.combo-expire,
-  .combo-pip.combo-fever, .combo-pip.combo-fever-max, .combo-pip.combo-inferno, .combo-pip.combo-inferno-fringe, .combo-pip.combo-eclipse, .combo-pip.combo-void, .combo-pip.combo-decay,
+  .combo-pip.combo-fever, .combo-pip.combo-fever-max, .combo-pip.combo-inferno, .combo-pip.combo-inferno-fringe, .combo-pip.combo-eclipse, .combo-pip.combo-void, .combo-pip.combo-abyss, .combo-pip.combo-decay,
   body.death-flash #death-flash, body.respawn-fade #death-flash,
   .ah-row.ah-loot-pulse, .compass-arrow { animation: none; }
   #toast.toast-show { opacity: 1; }
@@ -1772,17 +1772,31 @@ body.has-modal #virtual-joystick { display: none; }
   .combo-pip { left: -0.2rem; right: auto; }
 }
 
-/* Spell hold-to-confirm — button glow while aiming / charging */
-.spell-btn.aiming {
-  box-shadow: 0 0 0 2px #e8c86a, 0 0 18px #ff884466;
-  filter: brightness(1.15);
+/* Spell hold-to-confirm — shared gold rim with Attack / spell ready */
+.spell-btn.aiming,
+.spell-btn.aiming[data-spell="whirl_ward"],
+.spell-btn.aiming[data-spell="infernal_burst"],
+.spell-btn.aiming[data-spell="gale_bolt"] {
+  filter: brightness(1.28) saturate(1.12);
   transform: translateY(1px) scale(0.98);
+  box-shadow:
+    inset 0 0 0 1px #000e,
+    inset 0 0 0 2px #ffe8a0cc,
+    inset 0 0 0 3px #c9a22788,
+    0 0 16px #c9a227bb,
+    0 0 7px #ffe8a077,
+    0 0 3px #ffe8a044;
 }
-.spell-btn[data-spell="whirl_ward"].aiming {
-  box-shadow: 0 0 0 2px #e8c86a, 0 0 16px #c9a22766;
-}
-.spell-btn[data-spell="infernal_burst"].aiming {
-  box-shadow: 0 0 0 2px #ff6644, 0 0 18px #ff442266;
+.spell-btn.aiming::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1.5px #ffe8a0aa,
+    inset 0 0 10px #c9a22744;
+  opacity: 0.9;
 }
 
 /* Portal hold-to-travel charge on Interact — Ward timer disc language */
@@ -2948,4 +2962,137 @@ body.combo-void-heat #heat-haze,
   body.combo-void-heat #heat-haze,
   #heat-haze.heat-void { animation: none; opacity: 0.4; filter: none; }
   #btn-attack.spell-ready { animation: none; }
+}
+
+/* ——— Polish r15 ——— */
+
+/* Combo ×200 abyss pip (no toast) — deep chroma over void */
+.combo-pip.combo-abyss {
+  background: radial-gradient(circle at 35% 28%, #f0e8ff, #2a1848 42%, #06040c 72%, #ff4488 100%);
+  border-color: #c070ff;
+  color: #fff6ff;
+  box-shadow:
+    0 0 0 1px #000c,
+    0 0 16px #a040e0aa,
+    0 0 8px #44e0ff66,
+    0 0 4px #ff448866,
+    inset 0 0 10px #12082088;
+  animation: combo-abyss-pulse 0.36s ease-in-out infinite;
+  transform: scale(1.28);
+}
+@keyframes combo-abyss-pulse {
+  0%, 100% { transform: scale(1.22); filter: brightness(1.08) hue-rotate(-6deg) saturate(1.15); }
+  50% { transform: scale(1.46); filter: brightness(1.32) hue-rotate(10deg) saturate(1.35); }
+}
+
+/* Brief chroma fringe at ×200 abyss (no toast) */
+#abyss-chroma {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+  opacity: 0;
+  background:
+    linear-gradient(90deg, #ff228822 0%, transparent 14%, transparent 86%, #22e8ff22 100%),
+    linear-gradient(0deg, #c040ff18 0%, transparent 18%, transparent 82%, #ff448818 100%),
+    radial-gradient(ellipse 95% 75% at 50% 48%, transparent 40%, #1a083088 100%);
+  mix-blend-mode: screen;
+}
+body.abyss-chroma-pulse #abyss-chroma {
+  animation: abyss-chroma-fringe 0.58s ease-out forwards;
+}
+body.abyss-chroma-pulse #game-root {
+  animation: abyss-chroma-shift 0.58s ease-out;
+}
+@keyframes abyss-chroma-fringe {
+  0% { opacity: 0; filter: none; }
+  16% { opacity: 0.95; filter: hue-rotate(-12deg) saturate(1.4); }
+  55% { opacity: 0.55; filter: hue-rotate(8deg) saturate(1.2); }
+  100% { opacity: 0; filter: none; }
+}
+@keyframes abyss-chroma-shift {
+  0% { filter: none; }
+  18% { filter: saturate(1.35) contrast(1.06) hue-rotate(-4deg); }
+  100% { filter: none; }
+}
+
+body.combo-abyss-heat #heat-haze,
+#heat-haze.heat-abyss {
+  background:
+    radial-gradient(ellipse 110% 42% at 50% -5%, #3a1860bb 0%, transparent 55%),
+    radial-gradient(ellipse 42% 110% at -5% 50%, #ff448828 0%, transparent 50%),
+    radial-gradient(ellipse 42% 110% at 105% 50%, #22e8ff22 0%, transparent 50%),
+    radial-gradient(ellipse 110% 38% at 50% 105%, #0a0614cc 0%, transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 1;
+  animation: heat-abyss-shimmer 1.15s ease-in-out infinite;
+}
+@keyframes heat-abyss-shimmer {
+  0%, 100% { opacity: 0.5; filter: blur(0.7px) hue-rotate(-8deg) saturate(1.1); }
+  50% { opacity: 0.9; filter: blur(1.5px) hue-rotate(14deg) saturate(1.3); }
+}
+
+/* Death mini-compass pulse synced with corpse X fade (--corpse-fade) */
+.compass-arrow.compass-corpse-wake {
+  --corpse-fade: 1;
+}
+.compass-arrow.compass-corpse-wake .compass-chevron {
+  opacity: calc(0.45 + var(--corpse-fade) * 0.55);
+  filter: drop-shadow(0 0 calc(2px + var(--corpse-fade) * 6px) #c9a227aa);
+}
+.compass-arrow.compass-corpse-wake.compass-corpse-fade {
+  animation: compass-corpse-sync 0.55s ease-in-out infinite;
+}
+@keyframes compass-corpse-sync {
+  0%, 100% { transform: scale(calc(0.94 + var(--corpse-fade) * 0.06)); filter: brightness(calc(0.9 + var(--corpse-fade) * 0.25)); }
+  50% { transform: scale(calc(1.04 + var(--corpse-fade) * 0.1)); filter: brightness(calc(1.05 + var(--corpse-fade) * 0.35)); }
+}
+.compass-arrow.compass-corpse-wake .compass-dist.compass-corpse-crumb {
+  opacity: calc(0.4 + var(--corpse-fade) * 0.6) !important;
+}
+
+/* Ultra-narrow: Attack CD disc aligns with under-icon cost row spacing */
+@media (max-width: 360px) {
+  #btn-attack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.28rem 0.12rem 0.22rem;
+    gap: 0.08rem;
+  }
+  #btn-attack .action-icon {
+    width: 1.65rem;
+    height: 1.65rem;
+    margin: 0;
+  }
+  #btn-attack .action-label {
+    display: none;
+  }
+  #btn-attack .spell-cd,
+  #btn-attack .attack-cd {
+    /* Match spell-btn .spell-cd inset under icon + cost row gap */
+    inset: 3px 3px calc(3px + 0.52rem) 3px;
+    border-radius: 50%;
+    font-size: 0.72rem;
+    box-shadow: inset 0 0 0 1px #d63a2a55, inset 0 0 10px #0009;
+  }
+  #btn-attack .spell-cd::before,
+  #btn-attack .attack-cd::before {
+    border-radius: 50%;
+  }
+  /* Keep 2-row right mobile layout intact */
+  #action-bar {
+    --action-bar-h: calc(6.05rem + var(--safe-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combo-pip.combo-abyss { animation: none; transform: none; }
+  body.abyss-chroma-pulse #abyss-chroma { animation: none; opacity: 0.5; }
+  body.abyss-chroma-pulse #game-root { animation: none; filter: saturate(1.15); }
+  body.combo-abyss-heat #heat-haze,
+  #heat-haze.heat-abyss { animation: none; opacity: 0.45; filter: none; }
+  .compass-arrow.compass-corpse-wake.compass-corpse-fade { animation: none; }
+  .spell-btn.aiming { transform: none; }
 }
