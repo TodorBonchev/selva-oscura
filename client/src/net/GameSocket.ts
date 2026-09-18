@@ -77,6 +77,14 @@ export class GameSocket {
   attack(targetId: string) {
     this.send({ type: "attack", targetId });
   }
+  cast(spellId: string, aim?: { x?: number; y?: number }) {
+    this.send({
+      type: "cast",
+      spellId,
+      aimX: aim?.x,
+      aimY: aim?.y,
+    });
+  }
   interact(targetId: string) {
     this.send({ type: "interact", targetId });
   }

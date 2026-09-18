@@ -144,6 +144,17 @@ async function handleMessage(ws, meta, msg) {
       room.handleAttack(playerId, String(msg.targetId));
       break;
     }
+    case "cast": {
+      const room = world.getRoom(playerId);
+      if (!room) return;
+      room.handleCast(
+        playerId,
+        String(msg.spellId || ""),
+        msg.aimX != null ? Number(msg.aimX) : undefined,
+        msg.aimY != null ? Number(msg.aimY) : undefined
+      );
+      break;
+    }
     case "interact": {
       const room = world.getRoom(playerId);
       if (!room) return;

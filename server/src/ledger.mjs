@@ -353,6 +353,8 @@ export function snapshotPlayer(p, pos) {
     y: pos.y,
     hp: pos.hp,
     maxHp: pos.maxHp,
+    mana: pos.mana ?? 0,
+    maxMana: pos.maxMana ?? 0,
     cantoId: pos.cantoId,
     ash: p.ash,
     pendingAsh: p.pendingAsh,

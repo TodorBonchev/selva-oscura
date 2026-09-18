@@ -162,6 +162,8 @@ export interface PlayerSnapshot {
   y: number;
   hp: number;
   maxHp: number;
+  mana: number;
+  maxMana: number;
   cantoId: CantoId;
   ash: number;
   pendingAsh: number;

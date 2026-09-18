@@ -11,7 +11,10 @@ import {
   setPanelOpen,
   wireHud,
   isCompactUi,
+  noteSpellCast,
+  flashManaDeny,
 } from "../ui/hud";
+import { SPELLS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
 import {
   SmoothStore,
@@ -56,6 +59,12 @@ import {
   ensureVignetteTexture,
   drawKillRing,
   spawnLootSparkle,
+  spawnGaleTrail,
+  spawnWardRing,
+  spawnInfernalBloom,
+  drawGaleBoltArc,
+  drawWardRingGfx,
+  drawInfernalShock,
   buildGroundTiles,
   destroyGroundTiles,
   type GroundTiles,
@@ -176,6 +185,15 @@ export class WorldScene extends Phaser.Scene {
   walkBackView = false;
   /** Expanding kill rings (screen px) drawn in redraw(). */
   killFx: { sx: number; sy: number; start: number; boss: boolean }[] = [];
+  /** In-flight gale bolt arcs (world → screen in redraw). */
+  galeBolts: { x0: number; y0: number; x1: number; y1: number; start: number; dur: number }[] = [];
+  /** Active whirl ward rings keyed by caster id. */
+  wardRings = new Map<string, { until: number; x: number; y: number }>();
+  /** Infernal burst shockwaves. */
+  infernalShocks: { x: number; y: number; start: number; dur: number; radius: number }[] = [];
+  /** Aim vector from last move / facing for spells. */
+  aimX = 1;
+  aimY = 0;
   /** Camera-following soft vignette so the arena edges fall into dark. */
   vignette: Phaser.GameObjects.Image | null = null;
   /** Remote player last render pos + moving timestamp so they stride too. */
@@ -233,12 +251,18 @@ export class WorldScene extends Phaser.Scene {
         E: kb.addKey("E"),
         I: kb.addKey("I"),
         H: kb.addKey("H"),
+        ONE: kb.addKey("ONE"),
+        TWO: kb.addKey("TWO"),
+        THREE: kb.addKey("THREE"),
       };
       this.keys.I.on("down", () => togglePanel("inventory"));
       this.keys.H.on("down", () => {
         togglePanel("ah");
         this.socket.ahBrowse();
       });
+      this.keys.ONE.on("down", () => this.castSpell("gale_bolt"));
+      this.keys.TWO.on("down", () => this.castSpell("whirl_ward"));
+      this.keys.THREE.on("down", () => this.castSpell("infernal_burst"));
     }
 
     this.input.addPointer(2);
@@ -337,7 +361,55 @@ export class WorldScene extends Phaser.Scene {
         }
         this.socket.unequip({ itemId: String(id) });
       },
+      castSpell: (spellId) => this.castSpell(spellId),
     });
+  }
+
+  castSpell(spellId: SpellId) {
+    if (!this.room) return;
+    const def = SPELLS[spellId];
+    if (!def) return;
+    const mana = Number(this.room.you?.mana) || 0;
+    if (mana < def.manaCost) {
+      flashManaDeny(spellId);
+      showToast(`Not enough mana for ${def.name} (${def.manaCost})`, "warn");
+      return;
+    }
+    // Prefer aim toward nearest foe when casting gale
+    let ax = this.aimX;
+    let ay = this.aimY;
+    if (spellId === "gale_bolt") {
+      const you = this.youPos();
+      let best: any = null;
+      let bestD = 9.5;
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob" && e.kind !== "boss") continue;
+        const pos = this.entityRenderPos(e);
+        const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+        if (d < bestD) {
+          bestD = d;
+          best = { pos };
+        }
+      }
+      if (best) {
+        ax = best.pos.x - you.x;
+        ay = best.pos.y - you.y;
+      } else if (this.facingLeft) {
+        ax = -1;
+        ay = 0;
+      }
+    }
+    const len = Math.hypot(ax, ay) || 1;
+    this.socket.cast(spellId, { x: ax / len, y: ay / len });
+    noteSpellCast(spellId, def.cooldown);
+    // Optimistic cast flourish on self
+    if (spellId === "whirl_ward") {
+      this.punch("you", { dur: 280, punch: 0.1, tint: 0xffe8a0, ox: 0, oy: -4 });
+    } else if (spellId === "infernal_burst") {
+      this.punch("you", { dur: 320, punch: 0.18, tint: 0xff6644, ox: 0, oy: -6 });
+    } else {
+      this.punch("you", { dur: 180, punch: 0.12, tint: 0xffd078, ox: this.facingLeft ? -6 : 6, oy: -4 });
+    }
   }
 
   startAttackHold() {
@@ -518,6 +590,9 @@ export class WorldScene extends Phaser.Scene {
           this.autoPickupSent.clear();
           this.pruneSprites(new Set());
           this.killFx = [];
+          this.galeBolts = [];
+          this.wardRings.clear();
+          this.infernalShocks = [];
           this.remotePrev.clear();
           this.centerOnYou(true);
           if (cantoChanged) this.cameras.main.fadeIn(420, 0, 0, 0);
@@ -614,6 +689,10 @@ export class WorldScene extends Phaser.Scene {
           this.cameras.main.shake(70, isCompactUi() ? 0.0035 : 0.0025);
           this.showDamageNumber(ent, msg.damage);
         }
+        break;
+      }
+      case "spell_fx": {
+        this.onSpellFx(msg);
         break;
       }
       case "entity_removed": {
@@ -1012,6 +1091,72 @@ export class WorldScene extends Phaser.Scene {
     return { x: pos.x + dx * pull, y: pos.y + dy * pull };
   }
 
+  onSpellFx(msg: any) {
+    const spellId = String(msg.spellId || "");
+    if (spellId === "mana_deny") {
+      flashManaDeny();
+      return;
+    }
+    const x = Number(msg.x) || 0;
+    const y = Number(msg.y) || 0;
+    const casterId = String(msg.casterId || "");
+
+    if (spellId === "gale_bolt") {
+      const tx = msg.tx != null ? Number(msg.tx) : x + this.aimX * 6;
+      const ty = msg.ty != null ? Number(msg.ty) : y + this.aimY * 6;
+      spawnGaleTrail(this.particles, x, y, tx, ty);
+      this.galeBolts.push({
+        x0: x,
+        y0: y,
+        x1: tx,
+        y1: ty,
+        start: this.animT,
+        dur: 280,
+      });
+      this.cameras.main.shake(55, isCompactUi() ? 0.0025 : 0.0018);
+      return;
+    }
+
+    if (spellId === "whirl_ward") {
+      const durMs = (Number(msg.duration) || 4.5) * 1000;
+      spawnWardRing(this.particles, x, y);
+      this.wardRings.set(casterId || "local", {
+        until: this.animT + durMs,
+        x,
+        y,
+      });
+      if (casterId === this.room?.you?.id || casterId === this.socket.playerId) {
+        this.wardRings.set("you", { until: this.animT + durMs, x, y });
+      }
+      return;
+    }
+
+    if (spellId === "infernal_burst") {
+      const radius = Number(msg.radius) || 4.2;
+      spawnInfernalBloom(this.particles, x, y, radius);
+      this.infernalShocks.push({
+        x,
+        y,
+        start: this.animT,
+        dur: 520,
+        radius,
+      });
+      this.cameras.main.shake(220, isCompactUi() ? 0.012 : 0.009);
+      this.cameras.main.flash(120, 180, 40, 20, false);
+      const cam = this.cameras.main;
+      const z0 = cam.zoom;
+      cam.setZoom(z0 * 1.06);
+      this.tweens.add({
+        targets: cam,
+        zoom: z0,
+        duration: 280,
+        ease: "Cubic.easeOut",
+      });
+      return;
+    }
+  }
+
+
   redraw() {
     if (!this.room) return;
     const g = this.graphics;
@@ -1037,6 +1182,48 @@ export class WorldScene extends Phaser.Scene {
         continue;
       }
       drawKillRing(g, k.sx, k.sy, prog, k.boss);
+    }
+
+    // Gale bolt arcs
+    for (let i = this.galeBolts.length - 1; i >= 0; i--) {
+      const b = this.galeBolts[i];
+      const prog = (this.animT - b.start) / b.dur;
+      if (prog >= 1) {
+        this.galeBolts.splice(i, 1);
+        continue;
+      }
+      const a0 = worldToScreen(b.x0, b.y0);
+      const a1 = worldToScreen(b.x1, b.y1);
+      drawGaleBoltArc(g, a0.sx, a0.sy - 18, a1.sx, a1.sy - 18, Math.min(1, prog * 1.35));
+    }
+
+    // Infernal shockwaves
+    for (let i = this.infernalShocks.length - 1; i >= 0; i--) {
+      const s = this.infernalShocks[i];
+      const prog = (this.animT - s.start) / s.dur;
+      if (prog >= 1) {
+        this.infernalShocks.splice(i, 1);
+        continue;
+      }
+      const p = worldToScreen(s.x, s.y);
+      drawInfernalShock(g, p.sx, p.sy, prog, s.radius);
+    }
+
+    // Whirl ward rings (follow local player if keyed "you")
+    for (const [id, w] of [...this.wardRings.entries()]) {
+      if (this.animT > w.until) {
+        this.wardRings.delete(id);
+        continue;
+      }
+      let wx = w.x;
+      let wy = w.y;
+      if (id === "you") {
+        wx = this.renderYou.x;
+        wy = this.renderYou.y;
+      }
+      const fade = Math.min(1, (w.until - this.animT) / 600);
+      const p = worldToScreen(wx, wy);
+      drawWardRingGfx(g, p.sx, p.sy, this.animT, 0.55 + fade * 0.45);
     }
 
     // Live hub decor pulse (lightweight vignette trees already stamped on ground)
@@ -1338,6 +1525,10 @@ export class WorldScene extends Phaser.Scene {
       // Facing from screen-ish: iso x+y grows down-right; prefer dx screen = dy_iso+dx_iso roughly
       const screenDx = nx - ny; // rough: D/A horizontal feel
       if (Math.abs(screenDx) > 0.15) this.facingLeft = screenDx < 0;
+      if (mag > 0.2) {
+        this.aimX = nx;
+        this.aimY = ny;
+      }
       this.moveTarget = null;
     }
     this.integrateVelocity(dtSec, true);
@@ -1364,6 +1555,8 @@ export class WorldScene extends Phaser.Scene {
       this.velY = (this.velY / sp) * PREDICT_SPEED;
     }
     if (Math.abs(dx - dy) > 0.01) this.facingLeft = dx - dy < 0;
+    this.aimX = dx / d;
+    this.aimY = dy / d;
     this.integrateVelocity(dtSec, true);
     this.sendMoveThrottled(this.moveTarget.x, this.moveTarget.y);
   }

@@ -28,6 +28,14 @@
             <span id="hp">HP —</span>
           </div>
         </div>
+        <!-- Mana: bone-gold fill -->
+        <div id="mp-plate" class="plate plate-mp" role="meter" aria-label="Mana">
+          <div id="mp-bar">
+            <div id="mp-fill"></div>
+            <div class="mp-ticks" aria-hidden="true"></div>
+            <span id="mp">MP —</span>
+          </div>
+        </div>
         <!-- Ash / STELLE plate -->
         <div id="ash-plate" class="plate plate-ash">
           <span class="ash-sigil" aria-hidden="true">✦</span>
@@ -37,10 +45,10 @@
       </div>
     </header>
     <div id="help" class="help-desktop">
-      Click ground to move · Click foe to attack · E / click POI to interact · I inventory · H AH
+      Click ground to move · Click foe to attack · 1/2/3 spells · E interact · I inventory · H AH
     </div>
     <div id="help-mobile" class="help-mobile">
-      Stick moves · Tap foe / hold Attack · Tap POI / Use
+      Stick moves · Tap foe / hold Attack · Spell icons · Tap POI / Use
     </div>
   </div>
   <!-- Toast lives outside #hud so it can stack above open modals -->
@@ -102,6 +110,29 @@
       <span class="action-label">AH</span>
       <span class="action-hint" aria-hidden="true">H</span>
     </button>
+    <div id="spell-bar" class="spell-bar" role="group" aria-label="Spells">
+      <button type="button" class="action-btn spell-btn" data-spell="gale_bolt" id="btn-spell-gale_bolt" title="Gale Bolt (1)">
+        <img class="spell-icon" src="/assets/spells/spell_gale_bolt.png" alt="" draggable="false" />
+        <span class="spell-cd" hidden></span>
+        <span class="action-label" data-short="Gale">Gale</span>
+        <span class="action-hint" aria-hidden="true">1</span>
+        <span class="spell-cost">18</span>
+      </button>
+      <button type="button" class="action-btn spell-btn" data-spell="whirl_ward" id="btn-spell-whirl_ward" title="Whirl Ward (2)">
+        <img class="spell-icon" src="/assets/spells/spell_whirl_ward.png" alt="" draggable="false" />
+        <span class="spell-cd" hidden></span>
+        <span class="action-label" data-short="Ward">Ward</span>
+        <span class="action-hint" aria-hidden="true">2</span>
+        <span class="spell-cost">28</span>
+      </button>
+      <button type="button" class="action-btn spell-btn" data-spell="infernal_burst" id="btn-spell-infernal_burst" title="Infernal Burst (3)">
+        <img class="spell-icon" src="/assets/spells/spell_infernal_burst.png" alt="" draggable="false" />
+        <span class="spell-cd" hidden></span>
+        <span class="action-label" data-short="Burst">Burst</span>
+        <span class="action-hint" aria-hidden="true">3</span>
+        <span class="spell-cost">48</span>
+      </button>
+    </div>
     <button type="button" id="btn-interact" class="action-btn action-primary">
       <span class="action-label" data-short="Use">Interact</span>
       <span class="action-hint" aria-hidden="true">E</span>
