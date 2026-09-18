@@ -21,13 +21,16 @@ import {
   isComboInfernoFringe,
   isComboEclipse,
   isComboVoidCorona,
+  isComboAbyss,
   resetCombo,
   playDeathRevive,
   flashWardSoak,
   flashSlamSting,
   flashSlamSafeRim,
   pulseVoidCorona,
+  pulseAbyssChroma,
   hapticInteractReady,
+  hapticStickyRetarget,
   hapticPortalComplete,
 } from "../ui/hud";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
@@ -82,6 +85,8 @@ import {
   drawPlayerFootprintGhost,
   drawCorpseXMarker,
   spawnFootstepDust,
+  spawnTelegraphFootstepDust,
+  drawLootMagnetRarityFlash,
   spawnDissolveAsh,
   drawInteractPulse,
   ensureVignetteTexture,
@@ -142,6 +147,12 @@ const RESPAWN_BEACON_MS = 2200;
 const DEATH_ASH_TRAIL_MS = 1600;
 /** Rarity-tick pop duration when loot first enters magnet range (ms). */
 const MAGNET_TICK_POP_MS = 420;
+/** Sticky chip: hold this long before cycling threats one-by-one (ms). */
+const STICKY_HOLD_MS = 280;
+/** Sticky chip: interval between successive threat cycles while held (ms). */
+const STICKY_CYCLE_MS = 380;
+/** Judge windup: cadence for safe/danger footstep dust under player (ms). */
+const JUDGE_TELE_DUST_MS = 160;
 /** Loot piles within this world distance share a tile and get staggered. */
 const LOOT_STACK_RANGE = 0.85;
 /** Travel time for auto-pickup magnet spark (ms). */
@@ -426,8 +437,8 @@ export class WorldScene extends Phaser.Scene {
   /** When each loot id first entered magnet range (animT) — drives spine tick pop. */
   magnetEnteredAt = new Map<string, number>();
   /**
-   * Sticky edge chip hit zone for tap-to-retarget (screen space, last frame).
-   * Tap chip → sticky Gale target = nearest threat-arrow foe.
+   * Sticky edge chip hit zone for tap/hold retarget (screen space, last frame).
+   * Tap → nearest threat; hold → cycle threat arrows one-by-one.
    */
   stickyChipHit: {
     sx: number;
@@ -435,6 +446,20 @@ export class WorldScene extends Phaser.Scene {
     r: number;
     threatIds: string[];
   } | null = null;
+  /** Active sticky-chip hold cycle (pointer tracking). */
+  stickyHold: {
+    pointerId: number;
+    startMs: number;
+    lastCycleMs: number;
+    index: number;
+    threatIds: string[];
+    cycled: boolean;
+    onUp: ((e: PointerEvent) => void) | null;
+  } | null = null;
+  /** Highlighted threat-arrow index while hold-cycling (−1 = none). */
+  stickyActiveThreatIndex = -1;
+  /** Last animT we puffed Judge telegraph dust under the player. */
+  lastJudgeTeleDustAt = 0;
 
   constructor() {
     super("world");
@@ -538,8 +563,8 @@ export class WorldScene extends Phaser.Scene {
       }
       const sx = pointer.worldX;
       const sy = pointer.worldY;
-      // Sticky chip: tap to retarget Gale sticky onto nearest threat-arrow foe
-      if (this.tryStickyChipRetarget(sx, sy)) return;
+      // Sticky chip: tap nearest / hold to cycle threat arrows
+      if (this.tryStickyChipPointerDown(sx, sy, pointer.id)) return;
       const hit = this.pickEntity(sx, sy);
       if (hit) {
         if (hit.kind === "mob" || hit.kind === "boss") {
@@ -1181,6 +1206,22 @@ export class WorldScene extends Phaser.Scene {
     });
   }
 
+  /** Soft zoom breathe in→out (combo ×200 abyss) — gentler than a punch. */
+  cameraBreathe(amount = 0.045, dur = 520) {
+    const cam = this.cameras.main;
+    const z0 = cam.zoom;
+    this.tweens.add({
+      targets: cam,
+      zoom: z0 * (1 + amount),
+      duration: Math.max(80, dur * 0.38),
+      ease: "Sine.easeInOut",
+      yoyo: true,
+      onComplete: () => {
+        cam.setZoom(z0);
+      },
+    });
+  }
+
   refreshInventoryUi() {
     const you = this.lastYouSnapshot;
     if (!you) return;
@@ -1388,12 +1429,25 @@ export class WorldScene extends Phaser.Scene {
               isCompactUi()
             );
           }
-          if (isComboVoidCorona(streak) && (streak === 150 || streak % 150 === 0)) {
+          if (isComboVoidCorona(streak) && (streak === 150 || streak % 150 === 0) && streak < 200) {
             // ×150 void corona — brief screen desat pulse, no toast
             this.punchComboVignette();
             this.cameraPunch(0.13, 400);
             this.cameras.main.shake(180, isCompactUi() ? 0.0085 : 0.0055);
             pulseVoidCorona();
+            spawnEclipseEmberDrift(
+              this.particles,
+              this.renderYou.x,
+              this.renderYou.y,
+              isCompactUi()
+            );
+          }
+          if (isComboAbyss(streak) && (streak === 200 || streak % 200 === 0)) {
+            // ×200 abyss — brief chroma fringe + camera breathe, no toast
+            this.punchComboVignette();
+            this.cameraBreathe(0.055, 560);
+            this.cameras.main.shake(120, isCompactUi() ? 0.0055 : 0.0038);
+            pulseAbyssChroma();
             spawnEclipseEmberDrift(
               this.particles,
               this.renderYou.x,
@@ -1829,18 +1883,48 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * Tap sticky edge chip → retarget Gale sticky to nearest threat-arrow foe.
-   * Returns true if the tap was consumed.
+   * Sticky edge chip pointerdown — tap nearest on quick release;
+   * hold cycles threat arrows one-by-one.
    */
-  private tryStickyChipRetarget(sx: number, sy: number): boolean {
+  private tryStickyChipPointerDown(sx: number, sy: number, pointerId: number): boolean {
     const chip = this.stickyChipHit;
     if (!chip || !chip.threatIds.length || !this.room) return false;
     const d = Phaser.Math.Distance.Between(sx, sy, chip.sx, chip.sy);
     if (d > chip.r) return false;
+    this.cancelStickyHold();
+    const threatIds = chip.threatIds.slice();
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== pointerId) return;
+      this.finishStickyHold();
+    };
+    this.stickyHold = {
+      pointerId,
+      startMs: performance.now(),
+      lastCycleMs: 0,
+      index: -1,
+      threatIds,
+      cycled: false,
+      onUp,
+    };
+    this.stickyActiveThreatIndex = -1;
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return true;
+  }
+
+  /** Apply sticky Gale target to a threat id + soft sticky haptic. */
+  private applyStickyThreat(id: string) {
+    this.lastHitFoe = { id, until: this.animT + GALE_STICKY_MS };
+    hapticStickyRetarget();
+  }
+
+  /** Nearest threat-arrow foe from a list (world distance). */
+  private nearestStickyThreatId(threatIds: string[]): string | null {
+    if (!this.room || !threatIds.length) return null;
     const you = this.renderYou;
     let bestId: string | null = null;
     let bestD = Infinity;
-    for (const id of chip.threatIds) {
+    for (const id of threatIds) {
       const ent = this.room.entities.find(
         (e: any) => String(e.id) === id && (e.kind === "mob" || e.kind === "boss")
       );
@@ -1852,10 +1936,65 @@ export class WorldScene extends Phaser.Scene {
         bestId = id;
       }
     }
-    if (!bestId) return false;
-    this.lastHitFoe = { id: bestId, until: this.animT + GALE_STICKY_MS };
-    hapticInteractReady();
-    return true;
+    return bestId;
+  }
+
+  /** Advance sticky hold cycle to the next threat arrow. */
+  private cycleStickyThreat() {
+    const h = this.stickyHold;
+    if (!h || !h.threatIds.length) return;
+    h.index = (h.index + 1) % h.threatIds.length;
+    h.lastCycleMs = performance.now();
+    h.cycled = true;
+    this.stickyActiveThreatIndex = h.index;
+    const id = h.threatIds[h.index];
+    if (id) this.applyStickyThreat(id);
+  }
+
+  /** Tick sticky hold: after STICKY_HOLD_MS, cycle one-by-one while held. */
+  private tickStickyHold() {
+    const h = this.stickyHold;
+    if (!h) return;
+    // Refresh threat list from live chip when possible
+    if (this.stickyChipHit?.threatIds?.length) {
+      h.threatIds = this.stickyChipHit.threatIds.slice();
+    }
+    if (!h.threatIds.length) return;
+    const now = performance.now();
+    const held = now - h.startMs;
+    if (!h.cycled) {
+      if (held >= STICKY_HOLD_MS) this.cycleStickyThreat();
+      return;
+    }
+    if (now - h.lastCycleMs >= STICKY_CYCLE_MS) this.cycleStickyThreat();
+  }
+
+  /** Pointer released on sticky chip — tap = nearest; hold already cycled. */
+  private finishStickyHold() {
+    const h = this.stickyHold;
+    if (!h) return;
+    const cycled = h.cycled;
+    const threatIds = h.threatIds;
+    this.cancelStickyHold(false);
+    if (!cycled) {
+      const best = this.nearestStickyThreatId(threatIds);
+      if (best) this.applyStickyThreat(best);
+    }
+    // Clear highlight shortly after release
+    window.setTimeout(() => {
+      if (!this.stickyHold) this.stickyActiveThreatIndex = -1;
+    }, 420);
+  }
+
+  private cancelStickyHold(clearHighlight = true) {
+    const h = this.stickyHold;
+    if (!h) return;
+    if (h.onUp) {
+      window.removeEventListener("pointerup", h.onUp);
+      window.removeEventListener("pointercancel", h.onUp);
+    }
+    this.stickyHold = null;
+    if (clearHighlight) this.stickyActiveThreatIndex = -1;
   }
 
   pickEntity(sx: number, sy: number): any | null {
@@ -2377,7 +2516,7 @@ export class WorldScene extends Phaser.Scene {
       const charge = Math.min(1, (this.animT - t.start) / Math.max(1, t.until - t.start));
       const p = worldToScreen(t.x, t.y);
       drawBossTelegraph(g, p.sx, p.sy, charge, t.radius, this.animT, compact, JUDGE_SLAM_SAFE_BAND);
-      // Player footprint ghost: danger vs safe-band during windup
+      // Player footprint ghost + zone-colored footstep dust during windup
       {
         const dx = this.renderYou.x - t.x;
         const dy = this.renderYou.y - t.y;
@@ -2385,15 +2524,26 @@ export class WorldScene extends Phaser.Scene {
         const hitR = t.radius + 0.35;
         const safeOuter = hitR + JUDGE_SLAM_SAFE_BAND;
         if (dist <= safeOuter) {
+          const zone = dist <= hitR ? "danger" : "safe";
           const youP = worldToScreen(this.renderYou.x, this.renderYou.y);
           drawPlayerFootprintGhost(
             g,
             youP.sx,
             youP.sy,
-            dist <= hitR ? "danger" : "safe",
+            zone,
             this.animT,
             compact
           );
+          // Gold (safe-band) vs crimson (danger) dust puffs under feet
+          if (this.animT - this.lastJudgeTeleDustAt >= JUDGE_TELE_DUST_MS) {
+            this.lastJudgeTeleDustAt = this.animT;
+            spawnTelegraphFootstepDust(
+              this.particles,
+              this.renderYou.x,
+              this.renderYou.y,
+              zone
+            );
+          }
         }
       }
       const left = Math.max(0, (t.until - this.animT) / 1000);
@@ -2767,6 +2917,7 @@ export class WorldScene extends Phaser.Scene {
             dist: foeDist,
             shortName: short,
             threatArrows,
+            activeThreatIndex: threatFoes.length ? this.stickyActiveThreatIndex : undefined,
           });
           if (nearEdge) {
             this.stickyChipHit = {
@@ -2840,6 +2991,7 @@ export class WorldScene extends Phaser.Scene {
             dist: bossDist,
             shortName: String(e.name || "Judge").slice(0, 8),
             threatArrows,
+            activeThreatIndex: threatFoes.length ? this.stickyActiveThreatIndex : undefined,
           });
           if (nearEdge) {
             this.stickyChipHit = {
@@ -2904,6 +3056,25 @@ export class WorldScene extends Phaser.Scene {
           }
         } else {
           this.magnetEnteredAt.delete(lootIdEarly);
+        }
+        // Visual rarity flash by tier on magnet / pickup start (no audio chime)
+        {
+          const entered = this.magnetEnteredAt.get(lootIdEarly);
+          if (entered != null) {
+            const age = this.animT - entered;
+            if (age >= 0 && age < MAGNET_TICK_POP_MS) {
+              const magnetPop = 1 - age / MAGNET_TICK_POP_MS;
+              drawLootMagnetRarityFlash(
+                g,
+                lsx,
+                lsy,
+                tint,
+                magnetPop,
+                compact,
+                pulse
+              );
+            }
+          }
         }
         // Soft rarity-colored stack glow spine for vertical towers
         if (lstack?.tower && lstack.count > 1 && lstack.slot === 0) {
@@ -3707,7 +3878,14 @@ export class WorldScene extends Phaser.Scene {
       if (isAsh) {
         if (lab) lab.textContent = "Wake";
         el.setAttribute("data-dest", "beacon");
-        el.style.opacity = Math.max(alpha, 0.9).toFixed(3);
+        // Sync mini-compass pulse with corpse X fade (same life01)
+        const life =
+          1 -
+          (this.animT - ashTrail!.start) /
+            Math.max(1, ashTrail!.until - ashTrail!.start);
+        const fade = Math.max(0, Math.min(1, life * life));
+        el.style.setProperty("--corpse-fade", fade.toFixed(3));
+        el.style.opacity = Math.max(alpha, 0.55 + fade * 0.4).toFixed(3);
         // Brief corpse → wake distance crumb on the compass
         const toWake = Math.hypot(ashTrail!.x1 - you.x, ashTrail!.y1 - you.y);
         const corpseSpan = Math.hypot(ashTrail!.x1 - ashTrail!.x0, ashTrail!.y1 - ashTrail!.y0);
@@ -3716,10 +3894,13 @@ export class WorldScene extends Phaser.Scene {
           distEl.textContent = `${crumbU}u`;
           distEl.classList.add("compass-corpse-crumb");
           distEl.title = "corpse → wake";
+          distEl.style.opacity = (0.55 + fade * 0.45).toFixed(3);
         }
         el.classList.add("compass-corpse-wake");
+        el.classList.toggle("compass-corpse-fade", fade < 0.85);
       } else {
-        el.classList.remove("compass-corpse-wake");
+        el.classList.remove("compass-corpse-wake", "compass-corpse-fade");
+        el.style.removeProperty("--corpse-fade");
         const d0 = el.querySelector(".compass-dist");
         if (d0) {
           d0.classList.remove("compass-corpse-crumb");
@@ -3736,6 +3917,7 @@ export class WorldScene extends Phaser.Scene {
     const dtSec = Math.min(0.05, dtMs / 1000);
     this.lastDtSec = dtSec;
     this.animT += dtMs;
+    this.tickStickyHold();
     const keys = this.keys;
 
     let dx = 0;

@@ -1083,6 +1083,35 @@ export function spawnFootstepDust(particles: Particle[], wx: number, wy: number)
   }
 }
 
+/**
+ * Judge slam windup dust under the player feet.
+ * Gold in the just-safe band; crimson inside the danger disc.
+ */
+export function spawnTelegraphFootstepDust(
+  particles: Particle[],
+  wx: number,
+  wy: number,
+  zone: "danger" | "safe"
+) {
+  const danger = zone === "danger";
+  const a = danger ? 0xff4422 : 0xc9a227;
+  const b = danger ? 0xff8866 : 0xffe8a0;
+  for (let i = 0; i < 5; i++) {
+    if (particles.length > 120) break;
+    particles.push({
+      x: wx + (Math.random() - 0.5) * 0.42,
+      y: wy + (Math.random() - 0.5) * 0.3,
+      vx: (Math.random() - 0.5) * 1.05,
+      vy: -0.2 - Math.random() * 0.45,
+      life: 0.32 + Math.random() * 0.28,
+      maxLife: 0.62,
+      size: 2.4 + Math.random() * 2.8,
+      color: Math.random() > 0.45 ? a : b,
+      kind: "dust",
+    });
+  }
+}
+
 /** Extra ash flecks when a foe dissolves on death. */
 export function spawnDissolveAsh(particles: Particle[], wx: number, wy: number, boss = false) {
   const n = boss ? 48 : 14;
@@ -1347,6 +1376,39 @@ export function drawLootGlow(
   g.fillStyle(color, (0.03 + pulse * 0.06) * aMul);
   const shaftH = 28 + inv * 14;
   g.fillTriangle(sx - 5 * s, sy + 1, sx + 5 * s, sy + 1, sx, sy - shaftH * s);
+}
+
+/**
+ * Brief rarity-tier flash when loot first enters magnet / pickup start (visual only, no chime).
+ * pop01: 1 at start → 0 when settled.
+ */
+export function drawLootMagnetRarityFlash(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  color: number,
+  pop01: number,
+  compact: boolean,
+  intensity = 0.5
+) {
+  const pop = Math.max(0, Math.min(1, pop01));
+  if (pop <= 0.02) return;
+  const ease = pop * pop;
+  const inv = Math.max(0.25, intensity);
+  const s = (compact ? 1.55 : 1.15) * (0.9 + inv * 0.4);
+  const ring = (22 + inv * 14) * (1 + ease * 0.85);
+  g.fillStyle(color, 0.12 + ease * 0.38 * inv);
+  g.fillEllipse(sx, sy + 2, ring * 2.1 * s, ring * 0.9 * s);
+  g.lineStyle(compact ? 2.6 : 2.0, color, 0.35 + ease * 0.55);
+  g.strokeEllipse(sx, sy + 2, ring * 1.55 * s, ring * 0.65 * s);
+  g.lineStyle(1.4, 0xffe8a0, 0.25 + ease * 0.55);
+  g.strokeEllipse(sx, sy + 2, ring * 1.15 * s, ring * 0.48 * s);
+  // Rising rarity mote
+  const rise = (1 - ease) * (compact ? 18 : 14);
+  g.fillStyle(color, 0.55 + ease * 0.4);
+  g.fillCircle(sx, sy - 4 - rise, (compact ? 3.2 : 2.5) * (0.7 + ease * 0.9));
+  g.fillStyle(0xffe8a0, 0.7 * ease);
+  g.fillCircle(sx, sy - 4 - rise, (compact ? 1.6 : 1.2) * (0.8 + ease));
 }
 
 /**
@@ -2156,6 +2218,8 @@ export function drawStickyTargetReticle(
     shortName?: string;
     /** Screen-space offsets to other edge threats (mini arrows). */
     threatArrows?: { dx: number; dy: number }[];
+    /** Which threat arrow is currently selected while hold-cycling (0-based). */
+    activeThreatIndex?: number;
   }
 ) {
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.014);
@@ -2241,6 +2305,10 @@ export function drawStickyTargetReticle(
     if (threats && threats.length) {
       const arrowY = by - (compact ? 8 : 6);
       const maxShow = Math.min(3, threats.length);
+      const active =
+        opts.activeThreatIndex != null && opts.activeThreatIndex >= 0
+          ? opts.activeThreatIndex % maxShow
+          : -1;
       for (let i = 0; i < maxShow; i++) {
         const t = threats[i];
         const len = Math.hypot(t.dx, t.dy) || 1;
@@ -2254,9 +2322,14 @@ export function drawStickyTargetReticle(
         const ay = arrowY;
         const tip = compact ? 9 : 7;
         const spread = compact ? 3.2 : 2.6;
-        g.lineStyle(compact ? 2.1 : 1.7, 0xff6644, 0.75 + pulse * 0.2);
+        const lit = i === active;
+        g.lineStyle(
+          compact ? (lit ? 2.8 : 2.1) : lit ? 2.3 : 1.7,
+          lit ? 0xffe8a0 : 0xff6644,
+          lit ? 0.95 : 0.75 + pulse * 0.2
+        );
         g.lineBetween(ax - ux * 2, ay - uy * 2, ax + ux * tip, ay + uy * tip);
-        g.fillStyle(0xffe08a, 0.9);
+        g.fillStyle(lit ? 0xffe8a0 : 0xffe08a, lit ? 1 : 0.9);
         g.fillTriangle(
           ax + ux * tip,
           ay + uy * tip,
@@ -2265,6 +2338,10 @@ export function drawStickyTargetReticle(
           ax + ux * (tip - 4) - px * spread,
           ay + uy * (tip - 4) - py * spread
         );
+        if (lit) {
+          g.lineStyle(1.2, 0xc9a227, 0.85);
+          g.strokeCircle(ax + ux * (tip * 0.35), ay + uy * (tip * 0.35), compact ? 5.5 : 4.5);
+        }
       }
     }
   }
