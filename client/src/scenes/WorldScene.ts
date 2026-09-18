@@ -19,6 +19,7 @@ import {
   noteComboHit,
   isComboMilestone,
   isComboInfernoFringe,
+  isComboEclipse,
   resetCombo,
   playDeathRevive,
   flashWardSoak,
@@ -69,9 +70,11 @@ import {
   drawJudgeSlamImpact,
   drawJudgeSlamSafeRim,
   drawLootGlow,
+  drawLootTowerSpine,
   lootRarityPulse,
   spawnHitBurst,
   spawnKillBurst,
+  spawnEclipseEmberDrift,
   spawnFootstepDust,
   spawnDissolveAsh,
   drawInteractPulse,
@@ -1344,11 +1347,23 @@ export class WorldScene extends Phaser.Scene {
             this.cameraPunch(0.075, 280);
             this.cameras.main.shake(120, isCompactUi() ? 0.0055 : 0.0038);
           }
-          if (isComboInfernoFringe(streak) && (streak === 75 || streak % 75 === 0)) {
+          if (isComboInfernoFringe(streak) && (streak === 75 || streak % 75 === 0) && streak < 100) {
             // ×75+ inferno fringe / heat haze — still no toast
             this.punchComboVignette();
             this.cameraPunch(0.09, 320);
             this.cameras.main.shake(140, isCompactUi() ? 0.0065 : 0.0045);
+          }
+          if (isComboEclipse(streak) && (streak === 100 || streak % 100 === 0)) {
+            // ×100 eclipse pip + brief world ember drift — still no toast
+            this.punchComboVignette();
+            this.cameraPunch(0.11, 360);
+            this.cameras.main.shake(160, isCompactUi() ? 0.0075 : 0.005);
+            spawnEclipseEmberDrift(
+              this.particles,
+              this.renderYou.x,
+              this.renderYou.y,
+              isCompactUi()
+            );
           }
         }
         if (ent) {
@@ -2295,7 +2310,7 @@ export class WorldScene extends Phaser.Scene {
       }
       const charge = Math.min(1, (this.animT - t.start) / Math.max(1, t.until - t.start));
       const p = worldToScreen(t.x, t.y);
-      drawBossTelegraph(g, p.sx, p.sy, charge, t.radius, this.animT, compact);
+      drawBossTelegraph(g, p.sx, p.sy, charge, t.radius, this.animT, compact, JUDGE_SLAM_SAFE_BAND);
       const left = Math.max(0, (t.until - this.animT) / 1000);
       const num = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
       const pipY = bossTelegraphPipY(p.sy, compact);
@@ -2426,7 +2441,18 @@ export class WorldScene extends Phaser.Scene {
     }
 
     // Stacked loot piles: stagger when many drops share a tile
-    const lootStackInfo = new Map<string, { count: number; slot: number; ox: number; oy: number }>();
+    const lootStackInfo = new Map<
+      string,
+      {
+        count: number;
+        slot: number;
+        ox: number;
+        oy: number;
+        tower?: boolean;
+        topColor?: number;
+        topPulse?: number;
+      }
+    >();
     {
       const drops = ents.filter((e) => e.kind === "loot");
       const assigned = new Set<string>();
@@ -2464,6 +2490,7 @@ export class WorldScene extends Phaser.Scene {
         );
         // Unique / canto piles: taller vertical rarity tower (less lateral sprawl)
         const tower = maxRank >= 4;
+        const topRarity = cluster[cluster.length - 1]?.rarity || "normal";
         cluster.forEach((c, i) => {
           const id = String(c.e.id);
           assigned.add(id);
@@ -2475,7 +2502,15 @@ export class WorldScene extends Phaser.Scene {
             const stepY = compact ? 15 : 12;
             const ox = ((i % 2) - 0.5) * (compact ? 5 : 4) * (i > 0 ? 1 : 0);
             const oy = -i * stepY - (rank[c.rarity] ?? 0) * 1.2;
-            lootStackInfo.set(id, { count: n, slot: i, ox, oy });
+            lootStackInfo.set(id, {
+              count: n,
+              slot: i,
+              ox,
+              oy,
+              tower: true,
+              topColor: RARITY_COLOR[topRarity] || 0xc9a227,
+              topPulse: lootRarityPulse(topRarity),
+            });
             return;
           }
           const step = compact ? 11 : 9;
@@ -2485,6 +2520,24 @@ export class WorldScene extends Phaser.Scene {
         });
       }
     }
+
+    // Edge-of-screen foes for sticky multi-threat arrows
+    const camEdge = this.cameras.main;
+    const edgeFoes: { id: string; sx: number; sy: number }[] = [];
+    for (const fe of ents) {
+      if (fe.kind !== "mob" && fe.kind !== "boss") continue;
+      const fpos = this.entityRenderPos(fe);
+      const fp = worldToScreen(fpos.x, fpos.y);
+      const near =
+        fp.sx < camEdge.worldView.x + camEdge.worldView.width * STICKY_EDGE_FRAC ||
+        fp.sx > camEdge.worldView.x + camEdge.worldView.width * (1 - STICKY_EDGE_FRAC) ||
+        fp.sy < camEdge.worldView.y + camEdge.worldView.height * STICKY_EDGE_FRAC ||
+        fp.sy > camEdge.worldView.y + camEdge.worldView.height * (1 - STICKY_EDGE_FRAC);
+      if (near) edgeFoes.push({ id: String(fe.id), sx: fp.sx, sy: fp.sy });
+    }
+
+    // Spine drawn once per loot tower (track anchors already painted)
+    const towerSpineDrawn = new Set<string>();
 
     for (const e of ents) {
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
@@ -2611,6 +2664,13 @@ export class WorldScene extends Phaser.Scene {
           const foeDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
           const short =
             e.champion ? "Champ" : String(e.name || e.label || "Foe").split(" ")[0].slice(0, 8);
+          const threatArrows =
+            nearEdge && edgeFoes.length > 1
+              ? edgeFoes
+                  .filter((f) => f.id !== String(e.id))
+                  .slice(0, 3)
+                  .map((f) => ({ dx: f.sx - drawSx, dy: f.sy - p.sy }))
+              : undefined;
           drawStickyTargetReticle(g, drawSx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
@@ -2618,6 +2678,7 @@ export class WorldScene extends Phaser.Scene {
             champion: Boolean(e.champion),
             dist: foeDist,
             shortName: short,
+            threatArrows,
           });
           if (nearEdge) {
             this.addLabel(
@@ -2671,12 +2732,20 @@ export class WorldScene extends Phaser.Scene {
             p.sy < cam.worldView.y + cam.worldView.height * STICKY_EDGE_FRAC ||
             p.sy > cam.worldView.y + cam.worldView.height * (1 - STICKY_EDGE_FRAC);
           const bossDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+          const threatArrows =
+            nearEdge && edgeFoes.length > 1
+              ? edgeFoes
+                  .filter((f) => f.id !== String(e.id))
+                  .slice(0, 3)
+                  .map((f) => ({ dx: f.sx - p.sx, dy: f.sy - p.sy }))
+              : undefined;
           drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
             nearEdge,
             dist: bossDist,
             shortName: String(e.name || "Judge").slice(0, 8),
+            threatArrows,
           });
           if (nearEdge) {
             this.addLabel(
@@ -2727,6 +2796,23 @@ export class WorldScene extends Phaser.Scene {
         const lsx = p.sx + (lstack?.ox || 0);
         const lsy = p.sy + (lstack?.oy || 0);
         const ldepth = depth + (lstack ? lstack.slot * 0.015 : 0);
+        // Soft rarity-colored stack glow spine for vertical towers
+        if (lstack?.tower && lstack.count > 1 && lstack.slot === 0) {
+          const spineKey = `${Math.round(p.sx)}:${Math.round(p.sy)}:${lstack.count}`;
+          if (!towerSpineDrawn.has(spineKey)) {
+            towerSpineDrawn.add(spineKey);
+            drawLootTowerSpine(
+              g,
+              p.sx,
+              p.sy,
+              lstack.topColor || tint,
+              this.animT,
+              compact,
+              lstack.count,
+              lstack.topPulse ?? pulse
+            );
+          }
+        }
         drawLootGlow(g, lsx, lsy, tint, this.animT, compact, pulse);
         const bob = Math.sin(this.animT * 0.004 + lsx * 0.01) * (compact ? 3 : 2);
         const lootKey = lootTextureKey(e.item);
@@ -3503,9 +3589,24 @@ export class WorldScene extends Phaser.Scene {
         if (lab) lab.textContent = "Wake";
         el.setAttribute("data-dest", "beacon");
         el.style.opacity = Math.max(alpha, 0.9).toFixed(3);
-        if (distEl) distEl.textContent = "ash";
-      } else if (!ashTrail) {
-        el.classList.remove("compass-ash-pulse");
+        // Brief corpse → wake distance crumb on the compass
+        const toWake = Math.hypot(ashTrail!.x1 - you.x, ashTrail!.y1 - you.y);
+        const corpseSpan = Math.hypot(ashTrail!.x1 - ashTrail!.x0, ashTrail!.y1 - ashTrail!.y0);
+        const crumbU = Math.max(1, Math.round(toWake > 0.4 ? toWake : corpseSpan));
+        if (distEl) {
+          distEl.textContent = `${crumbU}u`;
+          distEl.classList.add("compass-corpse-crumb");
+          distEl.title = "corpse → wake";
+        }
+        el.classList.add("compass-corpse-wake");
+      } else {
+        el.classList.remove("compass-corpse-wake");
+        const d0 = el.querySelector(".compass-dist");
+        if (d0) {
+          d0.classList.remove("compass-corpse-crumb");
+          (d0 as HTMLElement).removeAttribute("title");
+        }
+        if (!ashTrail) el.classList.remove("compass-ash-pulse");
       }
     });
     for (let i = wanted.length; i < existing.length; i++) existing[i].remove();

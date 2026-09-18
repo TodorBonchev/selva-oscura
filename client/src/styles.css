@@ -1563,7 +1563,7 @@ body.has-modal #virtual-joystick { display: none; }
   .spell-ready, .ward-expire, .ward-soak, body.low-hp #danger-vignette,
   body.low-mana #mana-vignette, #btn-inv.inv-loot-glow,
   .combo-pip, .combo-pip.combo-bump, .combo-pip.combo-expire,
-  .combo-pip.combo-fever, .combo-pip.combo-fever-max, .combo-pip.combo-inferno, .combo-pip.combo-inferno-fringe, .combo-pip.combo-decay,
+  .combo-pip.combo-fever, .combo-pip.combo-fever-max, .combo-pip.combo-inferno, .combo-pip.combo-inferno-fringe, .combo-pip.combo-eclipse, .combo-pip.combo-decay,
   body.death-flash #death-flash, body.respawn-fade #death-flash,
   .ah-row.ah-loot-pulse, .compass-arrow { animation: none; }
   #toast.toast-show { opacity: 1; }
@@ -2651,7 +2651,138 @@ body.slam-safe #slam-safe {
 @media (prefers-reduced-motion: reduce) {
   .combo-pip.combo-decay { animation: none; opacity: 0.4; }
   .combo-pip.combo-inferno-fringe { animation: none; transform: none; }
-  body.combo-heat #heat-haze { animation: none; opacity: 0.45; filter: none; }
+  .combo-pip.combo-eclipse { animation: none; transform: none; }
+  body.combo-heat #heat-haze,
+  body.combo-eclipse-heat #heat-haze { animation: none; opacity: 0.45; filter: none; }
   body.slam-safe #slam-safe { animation: none; opacity: 0.45; }
   .compass-arrow.compass-ash-pulse { animation: none; }
+}
+
+
+/* ——— Polish r13 ——— */
+
+/* Combo ×100 eclipse pip (no toast) — dark corona over inferno */
+.combo-pip.combo-eclipse {
+  background: radial-gradient(circle at 32% 28%, #fff6d0 0%, #ffe08a 12%, #ff5533 28%, #4a0818 48%, #0a0408 72%, #c9a227 100%);
+  border-color: #ffe8a0;
+  box-shadow:
+    0 0 0 1px #000c,
+    0 0 32px #ff2208ee,
+    0 0 14px #c9a227cc,
+    0 0 4px #fff,
+    inset 0 1px 0 #fff6,
+    inset 0 -8px 14px #200408aa;
+  color: #fff4d0;
+  text-shadow: 0 0 6px #000, 0 0 10px #ff442288;
+  animation: combo-eclipse-pulse 0.48s ease-in-out infinite;
+}
+@keyframes combo-eclipse-pulse {
+  0%, 100% { transform: scale(1.18); filter: brightness(1.05) saturate(1.2) contrast(1.05); }
+  50% { transform: scale(1.38); filter: brightness(1.35) saturate(1.4) contrast(1.12); }
+}
+
+/* Eclipse heat haze — cooler dark corona at screen edges */
+body.combo-eclipse-heat #heat-haze,
+#heat-haze.heat-eclipse {
+  background:
+    radial-gradient(ellipse 110% 42% at 50% -5%, #2a0818aa 0%, transparent 55%),
+    radial-gradient(ellipse 42% 110% at -5% 50%, #ff220822 0%, transparent 50%),
+    radial-gradient(ellipse 42% 110% at 105% 50%, #c9a22722 0%, transparent 50%),
+    radial-gradient(ellipse 110% 38% at 50% 105%, #1a0408cc 0%, transparent 55%);
+  mix-blend-mode: screen;
+}
+body.combo-eclipse-heat #heat-haze {
+  opacity: 1;
+  animation: heat-eclipse-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes heat-eclipse-shimmer {
+  0%, 100% {
+    opacity: 0.5;
+    filter: blur(0.5px) hue-rotate(-8deg);
+    transform: scale(1.002);
+  }
+  50% {
+    opacity: 0.88;
+    filter: blur(1.3px) hue-rotate(12deg);
+    transform: scale(1.012);
+  }
+}
+
+/* Attack CD sweep sits over the sword glyph (icon-mode), like spell seals */
+#btn-attack .action-icon {
+  z-index: 1;
+}
+#btn-attack .spell-cd,
+#btn-attack .attack-cd {
+  z-index: 3;
+  border-radius: 4px;
+}
+#btn-attack.on-cooldown .action-icon {
+  opacity: 0.5;
+  filter: brightness(0.7) saturate(0.45) drop-shadow(0 0 2px #000a);
+}
+/* Icon-only: circular CD disc centered on the sword */
+@media (max-width: 400px), (max-height: 520px) and (max-width: 900px) {
+  #btn-attack .spell-cd,
+  #btn-attack .attack-cd {
+    inset: 6px;
+    border-radius: 50%;
+    font-size: 0.78rem;
+    box-shadow: inset 0 0 0 1px #d63a2a55, inset 0 0 10px #0009;
+  }
+  #btn-attack .spell-cd::before,
+  #btn-attack .attack-cd::before {
+    border-radius: 50%;
+  }
+}
+
+/* Interact icon — mirrors Inv/AH; label collapses on ultra-narrow / short */
+#btn-interact .action-icon {
+  display: none;
+  width: 1.55rem;
+  height: 1.55rem;
+  object-fit: contain;
+  image-rendering: auto;
+  filter: drop-shadow(0 0 3px #c9a22766);
+  pointer-events: none;
+  z-index: 1;
+}
+@media (max-width: 400px), (max-height: 520px) and (max-width: 900px) {
+  #btn-interact .action-label {
+    display: none;
+  }
+  #btn-interact .action-icon {
+    display: block;
+    width: 1.7rem;
+    height: 1.7rem;
+  }
+  #btn-interact {
+    padding: 0.35rem 0.18rem 0.28rem;
+  }
+  #btn-interact.interact-ready .action-icon {
+    filter: drop-shadow(0 0 6px #c9a227aa) brightness(1.15);
+  }
+}
+
+/* Death compass: corpse → wake distance crumb */
+.compass-arrow.compass-corpse-wake .compass-label {
+  color: #ffe8a0;
+  letter-spacing: 0.02em;
+}
+.compass-arrow.compass-corpse-wake .compass-dist.compass-corpse-crumb {
+  color: #e8c86a;
+  font-weight: 700;
+  text-shadow: 0 0 6px #c9a22788, 0 1px 2px #000c;
+  opacity: 1 !important;
+}
+.compass-arrow.compass-corpse-wake .compass-dist.compass-corpse-crumb::before {
+  content: "→ ";
+  opacity: 0.75;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combo-pip.combo-eclipse { animation: none; transform: none; }
+  body.combo-eclipse-heat #heat-haze { animation: none; opacity: 0.45; filter: none; }
+  .compass-arrow.compass-corpse-wake .compass-dist { opacity: 0.9 !important; }
 }
