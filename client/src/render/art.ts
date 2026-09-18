@@ -67,6 +67,15 @@ export const DORE_DISPLAY: Record<string, { h: number }> = {
 };
 
 /**
+ * Keys whose display size is pinned to another key's, so texture swaps never
+ * change the on-screen quad (walk frames must match the idle player exactly).
+ */
+export const DORE_DISPLAY_AS: Record<string, string> = {
+  [DORE_KEYS.player_walk_a]: DORE_KEYS.player,
+  [DORE_KEYS.player_walk_b]: DORE_KEYS.player,
+};
+
+/**
  * Sub-rect of the texture to show (texture px). poi_guide ships as a 5-figure
  * strip — show the centre hooded figure only.
  */
@@ -103,8 +112,9 @@ export function doreDisplaySize(
   texKey: string,
   compact: boolean
 ): { w: number; h: number } {
-  const base = DORE_DISPLAY[texKey] || { h: 48 };
-  const frame = doreFrameSize(scene, texKey);
+  const refKey = DORE_DISPLAY_AS[texKey] ?? texKey;
+  const base = DORE_DISPLAY[refKey] || { h: 48 };
+  const frame = doreFrameSize(scene, scene.textures.exists(refKey) ? refKey : texKey);
   const h = compact ? base.h * DORE_COMPACT_SCALE : base.h;
   const w = h * (frame.w / frame.h);
   return { w: Math.round(w), h: Math.round(h) };

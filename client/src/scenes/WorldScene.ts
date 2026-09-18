@@ -19,6 +19,7 @@ import {
   CAM_LERP_MOBILE,
   CAM_LERP_DESKTOP,
   reconcileLocal,
+  expAlpha,
   type Vec2,
 } from "../render/smoothing";
 import {
@@ -78,6 +79,10 @@ const MOBILE_ZOOM = 0.65;
 const MOBILE_ZOOM_TABLET = 0.72;
 const DESKTOP_ZOOM = 1;
 const ATTACK_HOLD_MS = 720;
+/** Walk-cycle stride swap period (ms) ~9 Hz; bob/bounce share the 2-frame phase. */
+const WALK_FRAME_MS = 110;
+const WALK_BOB_PX = 4.5;
+const WALK_BOUNCE = 0.04;
 /** Local predicted move speed (world units / sec) — matches server feel. */
 const PREDICT_SPEED = 8.0;
 const MOVE_ACCEL = 28;
@@ -110,7 +115,10 @@ export class WorldScene extends Phaser.Scene {
   lastSnapAt = 0;
   joystick: VirtualJoystick | null = null;
   attackHoldTimer: number | null = null;
-  camFollowLerp = 1;
+  /** Camera follow rate (per second); applied as a dt-based exponential approach. */
+  camFollowRate = CAM_LERP_DESKTOP;
+  /** Last frame dt (sec) so camera follow is frame-rate independent. */
+  lastDtSec = 1 / 60;
 
   /** Authoritative last-known local position from server. */
   serverYou: Vec2 = { x: 0, y: 0 };
@@ -325,7 +333,7 @@ export class WorldScene extends Phaser.Scene {
       zoom = window.innerWidth < 420 ? MOBILE_ZOOM : MOBILE_ZOOM_TABLET;
     }
     this.cameras.main.setZoom(zoom);
-    this.camFollowLerp = isCompactUi() ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
+    this.camFollowRate = isCompactUi() ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
   }
 
   hitRadius(): number {
@@ -678,18 +686,20 @@ export class WorldScene extends Phaser.Scene {
     return best;
   }
 
+  /** Snap only on spawn / canto change / resize; otherwise soft dt-based follow. */
   centerOnYou(snap = false) {
     if (!this.room) return;
     const p = worldToScreen(this.renderYou.x, this.renderYou.y);
     const cam = this.cameras.main;
-    if (snap || this.camFollowLerp >= 0.99) {
+    if (snap) {
       cam.centerOn(p.sx, p.sy);
       return;
     }
+    const a = expAlpha(this.camFollowRate, this.lastDtSec);
     const curX = cam.scrollX + cam.width * 0.5;
     const curY = cam.scrollY + cam.height * 0.5;
-    const nx = curX + (p.sx - curX) * this.camFollowLerp;
-    const ny = curY + (p.sy - curY) * this.camFollowLerp;
+    const nx = curX + (p.sx - curX) * a;
+    const ny = curY + (p.sy - curY) * a;
     cam.centerOn(nx, ny);
   }
 
@@ -728,23 +738,26 @@ export class WorldScene extends Phaser.Scene {
   }
 
 
-  /** Idle vs 2-frame walk; slight bob while moving. */
-  private localPlayerVisual(): { key: string; bob: number } {
+  /** Idle vs 2-frame walk; bob + scale bounce while moving. */
+  private localPlayerVisual(): { key: string; bob: number; scale: number } {
     const moving = this.movingVisual || Math.hypot(this.velX, this.velY) > 0.4;
     let key: string = DORE_KEYS.player;
     let bob = 0;
+    let scale = 1;
     if (moving) {
-      // Stride swap ~6 Hz
-      const frame = Math.floor(this.animT / 160) % 2;
+      // Stride swap ~9 Hz; bob / bounce complete one cycle per A→B pair.
+      const frame = Math.floor(this.animT / WALK_FRAME_MS) % 2;
       key = frame === 0 ? DORE_KEYS.player_walk_a : DORE_KEYS.player_walk_b;
-      bob = Math.sin(this.animT * 0.02) * 2.2;
+      const phase = Math.sin((this.animT * Math.PI) / WALK_FRAME_MS);
+      bob = phase * WALK_BOB_PX;
+      scale = 1 + WALK_BOUNCE * phase;
     } else {
       bob = Math.sin(this.animT * 0.004) * 0.8; // idle breathe
     }
     // Fall back to idle if walk textures missing
     if (key !== DORE_KEYS.player && this.doreFailed.has(key)) key = DORE_KEYS.player;
     if (key !== DORE_KEYS.player && !this.textures.exists(key)) key = DORE_KEYS.player;
-    return { key, bob };
+    return { key, bob, scale };
   }
 
   placeSprite(
@@ -753,7 +766,7 @@ export class WorldScene extends Phaser.Scene {
     sx: number,
     sy: number,
     depth: number,
-    opts?: { tint?: number; bob?: number; flipX?: boolean }
+    opts?: { tint?: number; bob?: number; flipX?: boolean; scale?: number }
   ): boolean {
     if (!this.doreOk(texKey)) {
       this.hideSprite(id);
@@ -781,7 +794,7 @@ export class WorldScene extends Phaser.Scene {
     const fx = this.hitFx.get(id);
     let ox = 0;
     let oy = 0;
-    let scaleMul = 1;
+    let scaleMul = opts?.scale ?? 1;
     let fxActive = false;
     if (fx) {
       if (this.animT > fx.until) this.hitFx.delete(id);
@@ -791,7 +804,7 @@ export class WorldScene extends Phaser.Scene {
         const env = Math.sin(Math.min(1, prog) * Math.PI); // 0 → 1 → 0
         ox = fx.ox * env;
         oy = fx.oy * env;
-        scaleMul = 1 + fx.punch * env;
+        scaleMul *= 1 + fx.punch * env;
         if (fx.tint != null) img.setTint(fx.tint);
       }
     }
@@ -1040,7 +1053,13 @@ export class WorldScene extends Phaser.Scene {
       drawEntityPad(g, p.sx, p.sy, compact ? 1.6 : 1.2);
       let topY = p.sy - 42;
       const vis = this.localPlayerVisual();
-      if (this.placeSprite(sid, vis.key, p.sx, p.sy, depth, { flipX: this.facingLeft, bob: vis.bob })) {
+      if (
+        this.placeSprite(sid, vis.key, p.sx, p.sy, depth, {
+          flipX: this.facingLeft,
+          bob: vis.bob,
+          scale: vis.scale,
+        })
+      ) {
         seenSprites.add(sid);
         const b = this.spriteBase.get(sid);
         if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
@@ -1226,6 +1245,7 @@ export class WorldScene extends Phaser.Scene {
   update(_t: number, dtMs: number) {
     if (!this.room) return;
     const dtSec = Math.min(0.05, dtMs / 1000);
+    this.lastDtSec = dtSec;
     this.animT += dtMs;
     const keys = this.keys;
 
@@ -1275,7 +1295,8 @@ export class WorldScene extends Phaser.Scene {
       this.renderYou,
       this.serverYou,
       dtSec,
-      this.predicting
+      this.predicting,
+      { x: this.velX, y: this.velY }
     );
 
     // Interpolate remotes / mobs toward latest snapshot coords

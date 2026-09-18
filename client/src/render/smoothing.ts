@@ -7,14 +7,16 @@ export const MOVE_SEND_MS = 50;
 /** World units — hard snap only on large desync (was 3.2; caused teleports). */
 export const SNAP_ERROR = 5.5;
 /** Soft correction toward server while predicting (per second) — keep gentle. */
-export const RECONCILE_PREDICT = 2.2;
+export const RECONCILE_PREDICT = 1.2;
+/** While predicting, correction that opposes local velocity is scaled by this. */
+export const RECONCILE_OPPOSE_MUL = 0.35;
 /** Stronger correction when idle (per second). */
 export const RECONCILE_IDLE = 9;
 /** Remote / mob exponential smooth rate (per second). */
 export const REMOTE_SMOOTH = 12;
-/** Soft camera follow (mobile). Desktop snaps harder. */
-export const CAM_LERP_MOBILE = 0.09;
-export const CAM_LERP_DESKTOP = 0.18;
+/** Camera follow rate (per second, dt-based exponential approach). Desktop is a bit tighter. */
+export const CAM_LERP_MOBILE = 5;
+export const CAM_LERP_DESKTOP = 8;
 
 export function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -35,20 +37,38 @@ export function expAlpha(rate: number, dtSec: number): number {
 
 /**
  * Nudge render toward server. Hard-snaps only on large error.
- * While predicting, correction is soft so local motion stays smooth.
+ * While predicting, correction is soft so local motion stays smooth, and the
+ * part of the pull that opposes local velocity is damped so prediction and
+ * reconcile never visibly fight (no backwards stutter mid-stride).
  */
 export function reconcileLocal(
   render: Vec2,
   server: Vec2,
   dtSec: number,
-  predicting: boolean
+  predicting: boolean,
+  vel?: Vec2
 ): Vec2 {
   const err = dist(render, server);
   if (err > SNAP_ERROR) return { x: server.x, y: server.y };
-  if (err < 0.02) return { x: server.x, y: server.y };
+  if (!predicting && err < 0.02) return { x: server.x, y: server.y };
   const rate = predicting ? RECONCILE_PREDICT : RECONCILE_IDLE;
   const a = expAlpha(rate, dtSec);
-  return lerpVec(render, server, a);
+  let cx = (server.x - render.x) * a;
+  let cy = (server.y - render.y) * a;
+  if (predicting && vel) {
+    const sp = Math.hypot(vel.x, vel.y);
+    if (sp > 0.01) {
+      const ux = vel.x / sp;
+      const uy = vel.y / sp;
+      const along = cx * ux + cy * uy;
+      if (along < 0) {
+        // Keep the perpendicular part; soften the backwards part.
+        cx += ux * along * (RECONCILE_OPPOSE_MUL - 1);
+        cy += uy * along * (RECONCILE_OPPOSE_MUL - 1);
+      }
+    }
+  }
+  return { x: render.x + cx, y: render.y + cy };
 }
 
 /** Smooth remote entity toward last known server pos. */
