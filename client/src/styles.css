@@ -423,6 +423,24 @@ body.has-modal #toast.toast-show {
 }
 
 /* Interact button pulses when a POI/exit/loot is in highlight range */
+/* polish-r2: contextual Interact label */
+#btn-interact .action-label {
+  max-width: 6.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#btn-interact.interact-ready .action-label {
+  color: #f0e0a8;
+  letter-spacing: 0.02em;
+}
+@media (max-width: 480px) {
+  #btn-interact .action-label {
+    max-width: 4.6rem;
+    font-size: 0.58rem;
+  }
+}
+
 #btn-interact.interact-ready {
   --ab-edge: #c9a227;
   --ab-line: #e8c86a99;
