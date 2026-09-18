@@ -254,15 +254,19 @@ class CantoRoom {
       bounds: this.canto.geo.bounds,
       entities,
       players: playerSnaps,
-      you: snapshotPlayer(ledger, {
-        x: youSess.x,
-        y: youSess.y,
-        hp: youSess.hp,
-        maxHp: youSess.maxHp,
-        mana: youSess.mana,
-        maxMana: youSess.maxMana,
-        cantoId: this.cantoId,
-      }),
+      you: {
+        ...snapshotPlayer(ledger, {
+          x: youSess.x,
+          y: youSess.y,
+          hp: youSess.hp,
+          maxHp: youSess.maxHp,
+          mana: youSess.mana,
+          maxMana: youSess.maxMana,
+          cantoId: this.cantoId,
+        }),
+        armorBuff: youSess.armorBuff || 0,
+        wardUntil: youSess.wardUntil || 0,
+      },
     };
   }
 

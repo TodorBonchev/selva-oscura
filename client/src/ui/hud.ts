@@ -133,6 +133,7 @@ export function updateStats(you: any, title: string) {
     mpPlate.setAttribute("aria-valuemax", String(maxMp));
   }
   lastManaShown = curMp;
+  syncWardPip(you);
   updateSpellButtons(curMp);
 
   if (pending) {
@@ -390,6 +391,38 @@ function wirePressed(btn: HTMLElement) {
 }
 
 
+
+/** Local optimistic ward buff end (ms). Server `armorBuff`/`wardUntil` overrides when present. */
+let wardBuffUntilMs = 0;
+
+/** Call when Whirl Ward fx starts so the HUD pip lights immediately. */
+export function noteWardBuff(durationSec: number) {
+  const ms = Math.max(0, Number(durationSec) || 0) * 1000;
+  wardBuffUntilMs = Date.now() + ms;
+  syncWardPip(null);
+  kickSpellCdLoop();
+}
+
+function syncWardPip(you: any | null) {
+  const pip = document.getElementById("ward-pip");
+  if (!pip) return;
+  let active = false;
+  if (you) {
+    const armor = Number(you.armorBuff) || 0;
+    const until = Number(you.wardUntil) || 0;
+    if (armor > 0 && until > 0) {
+      active = true;
+      wardBuffUntilMs = Math.max(wardBuffUntilMs, Date.now() + until * 1000);
+    } else if (armor > 0) {
+      active = true;
+    }
+  }
+  if (!active && wardBuffUntilMs > Date.now()) active = true;
+  if (wardBuffUntilMs > 0 && wardBuffUntilMs <= Date.now()) wardBuffUntilMs = 0;
+  pip.classList.toggle("hidden", !active);
+  pip.setAttribute("aria-hidden", active ? "false" : "true");
+}
+
 /** Client-side cooldown deadlines (ms epoch) keyed by spell id — optimistic UI. */
 const spellCdUntil = new Map<string, number>();
 let spellCdRaf = 0;
@@ -436,6 +469,7 @@ function updateSpellButtons(mana: number) {
         cdEl.textContent = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
         const frac = Math.max(0, Math.min(1, (until - now) / (def.cooldown * 1000)));
         cdEl.style.setProperty("--cd-frac", String(frac));
+        cdEl.style.setProperty("--cd-deg", `${(frac * 360).toFixed(1)}deg`);
       } else {
         cdEl.hidden = true;
         cdEl.textContent = "";
@@ -452,6 +486,7 @@ function kickSpellCdLoop() {
     const m = manaTxt.match(/^(\d+)/);
     const mana = m ? Number(m[1]) : 0;
     updateSpellButtons(mana);
+    syncWardPip(null);
     const now = Date.now();
     let any = false;
     for (const until of spellCdUntil.values()) {
@@ -460,6 +495,7 @@ function kickSpellCdLoop() {
         break;
       }
     }
+    if (!any && wardBuffUntilMs > now) any = true;
     if (any) {
       spellCdRaf = window.requestAnimationFrame(tick);
     }

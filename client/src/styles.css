@@ -1170,10 +1170,36 @@ button:disabled { opacity: 0.55; cursor: default; }
   font-variant-numeric: tabular-nums;
   color: #fff4d0;
   text-shadow: 0 1px 2px #000;
+  /* Radial sweep: remaining CD is the dark wedge; clears clockwise as ready */
   background:
-    conic-gradient(from 0deg, #000c calc(var(--cd-frac, 1) * 360deg), #0004 0);
+    conic-gradient(
+      from -90deg,
+      rgba(8, 6, 4, 0.82) 0deg,
+      rgba(8, 6, 4, 0.82) var(--cd-deg, 360deg),
+      rgba(201, 162, 39, 0.18) var(--cd-deg, 360deg),
+      rgba(0, 0, 0, 0.12) 360deg
+    );
   border-radius: 2px;
   pointer-events: none;
+  box-shadow: inset 0 0 0 1px #c9a22733;
+}
+.spell-btn .spell-cd::before {
+  /* Sweep leading edge tick */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(
+    from -90deg,
+    transparent 0deg,
+    transparent calc(var(--cd-deg, 360deg) - 4deg),
+    #ffe8a0 calc(var(--cd-deg, 360deg) - 2deg),
+    #ffe8a0 var(--cd-deg, 360deg),
+    transparent calc(var(--cd-deg, 360deg) + 0.1deg),
+    transparent 360deg
+  );
+  pointer-events: none;
+  opacity: 0.95;
 }
 .spell-btn.on-cooldown {
   filter: saturate(0.55) brightness(0.85);
@@ -1507,7 +1533,7 @@ body.has-modal #virtual-joystick { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #hp-fill.low, .plate-hp.hp-hurt, #toast.toast-show { animation: none; }
+  #hp-fill.low, .plate-hp.hp-hurt, #toast.toast-show, .ward-pip { animation: none; }
   #toast.toast-show { opacity: 1; }
 }
 
@@ -1667,6 +1693,44 @@ body.has-modal #virtual-joystick { display: none; }
   .inv-detail { min-height: 0; }
 }
 
+
+
+/* Ward active buff pip on HP plate */
+.plate-hp {
+  position: relative;
+}
+.buff-pip {
+  position: absolute;
+  top: -0.28rem;
+  right: -0.28rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 4;
+}
+.buff-pip.hidden { display: none; }
+.ward-pip {
+  color: #1a1408;
+  background: radial-gradient(circle at 35% 30%, #ffe8a0, #c9a227 55%, #8a7020);
+  border: 1px solid #ffe8a0;
+  box-shadow: 0 0 0 1px #000a, 0 0 10px #c9a227aa, inset 0 1px 0 #fff6;
+  animation: ward-pip-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ward-pip-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px #000a, 0 0 8px #c9a22788, inset 0 1px 0 #fff6; transform: scale(1); }
+  50% { box-shadow: 0 0 0 1px #000a, 0 0 14px #ffe8a0cc, inset 0 1px 0 #fff6; transform: scale(1.08); }
+}
+@media (max-width: 640px) {
+  .buff-pip { width: 1.05rem; height: 1.05rem; font-size: 0.52rem; top: -0.2rem; right: -0.2rem; }
+}
 
 /* Spell hold-to-confirm — button glow while aiming / charging */
 .spell-btn.aiming {
