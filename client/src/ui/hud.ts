@@ -420,7 +420,7 @@ function hapticLight(pattern: number | number[] = 10) {
 }
 
 /** Distinct patterns: soak (soft double), slam (heavy thud), mana deny (stutter). */
-export type HapticKind = "tap" | "soak" | "slam" | "mana";
+export type HapticKind = "tap" | "soak" | "slam" | "mana" | "ready" | "portal";
 function haptic(kind: HapticKind = "tap") {
   switch (kind) {
     case "soak":
@@ -435,9 +435,27 @@ function haptic(kind: HapticKind = "tap") {
       // Quick deny stutter
       hapticLight([8, 32, 8, 32, 12]);
       break;
+    case "ready":
+      // Light single tick — interact / target ready
+      hapticLight(12);
+      break;
+    case "portal":
+      // Soft confirm double — portal charge complete
+      hapticLight([14, 40, 18]);
+      break;
     default:
       hapticLight(10);
   }
+}
+
+/** Light haptic when Interact becomes ready (no-op if vibrate unavailable). */
+export function hapticInteractReady() {
+  haptic("ready");
+}
+
+/** Light haptic when portal hold-to-travel charge completes. */
+export function hapticPortalComplete() {
+  haptic("portal");
 }
 
 /** Pressed-state helper for the gothic action buttons (mouse + touch). */
@@ -588,6 +606,11 @@ export function isComboEclipse(n: number): boolean {
   return n >= 100;
 }
 
+/** ×150+ void corona — brief screen desat pulse (no toast). */
+export function isComboVoidCorona(n: number): boolean {
+  return n >= 150;
+}
+
 export function getComboCount(): number {
   return comboCount;
 }
@@ -611,10 +634,10 @@ function syncComboPip(bump = false, expire = false) {
     void (pip as HTMLElement).offsetWidth;
     pip.classList.add("combo-decay");
     pip.setAttribute("aria-hidden", "false");
-    document.body.classList.remove("combo-heat", "combo-eclipse-heat");
+    document.body.classList.remove("combo-heat", "combo-eclipse-heat", "combo-void-heat");
     if (heat) {
       heat.setAttribute("aria-hidden", "true");
-      heat.classList.remove("heat-eclipse");
+      heat.classList.remove("heat-eclipse", "heat-void");
     }
     if (comboExpireTimer != null) window.clearTimeout(comboExpireTimer);
     comboExpireTimer = window.setTimeout(() => {
@@ -629,7 +652,8 @@ function syncComboPip(bump = false, expire = false) {
           "combo-fever-max",
           "combo-inferno",
           "combo-inferno-fringe",
-          "combo-eclipse"
+          "combo-eclipse",
+          "combo-void"
         );
         pip.setAttribute("aria-hidden", "true");
       }
@@ -645,11 +669,16 @@ function syncComboPip(bump = false, expire = false) {
     pip.classList.toggle("combo-fever-max", comboCount >= 20 && comboCount < 50);
     pip.classList.toggle("combo-inferno", comboCount >= 50 && comboCount < 100);
     pip.classList.toggle("combo-inferno-fringe", comboCount >= 75 && comboCount < 100);
-    pip.classList.toggle("combo-eclipse", comboCount >= 100);
+    pip.classList.toggle("combo-eclipse", comboCount >= 100 && comboCount < 150);
+    pip.classList.toggle("combo-void", comboCount >= 150);
     document.body.classList.toggle("combo-heat", comboCount >= 75 && comboCount < 100);
-    document.body.classList.toggle("combo-eclipse-heat", comboCount >= 100);
+    document.body.classList.toggle("combo-eclipse-heat", comboCount >= 100 && comboCount < 150);
+    document.body.classList.toggle("combo-void-heat", comboCount >= 150);
     if (heat) heat.setAttribute("aria-hidden", comboCount >= 75 ? "false" : "true");
-    if (heat) heat.classList.toggle("heat-eclipse", comboCount >= 100);
+    if (heat) {
+      heat.classList.toggle("heat-eclipse", comboCount >= 100 && comboCount < 150);
+      heat.classList.toggle("heat-void", comboCount >= 150);
+    }
     if (bump) {
       pip.classList.remove("combo-bump");
       void (pip as HTMLElement).offsetWidth;
@@ -663,14 +692,15 @@ function syncComboPip(bump = false, expire = false) {
       "combo-fever-max",
       "combo-inferno",
       "combo-inferno-fringe",
-      "combo-eclipse"
+      "combo-eclipse",
+      "combo-void"
     );
     pip.setAttribute("aria-hidden", "true");
     pip.textContent = "1";
-    document.body.classList.remove("combo-heat", "combo-eclipse-heat");
+    document.body.classList.remove("combo-heat", "combo-eclipse-heat", "combo-void-heat");
     if (heat) {
       heat.setAttribute("aria-hidden", "true");
-      heat.classList.remove("heat-eclipse");
+      heat.classList.remove("heat-eclipse", "heat-void");
     }
   }
 }
@@ -764,6 +794,19 @@ export function flashSlamSafeRim() {
     document.body.classList.remove("slam-safe");
     el.setAttribute("aria-hidden", "true");
   }, 480);
+}
+
+/** Brief fullscreen desat pulse at combo ×150 void corona (no toast). */
+export function pulseVoidCorona() {
+  const el = document.getElementById("void-corona");
+  document.body.classList.remove("void-corona-pulse");
+  void document.body.offsetWidth;
+  document.body.classList.add("void-corona-pulse");
+  if (el) el.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    document.body.classList.remove("void-corona-pulse");
+    if (el) el.setAttribute("aria-hidden", "true");
+  }, 520);
 }
 
 function pingSpellReady(btn: HTMLElement) {

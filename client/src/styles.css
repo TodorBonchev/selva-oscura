@@ -1563,7 +1563,7 @@ body.has-modal #virtual-joystick { display: none; }
   .spell-ready, .ward-expire, .ward-soak, body.low-hp #danger-vignette,
   body.low-mana #mana-vignette, #btn-inv.inv-loot-glow,
   .combo-pip, .combo-pip.combo-bump, .combo-pip.combo-expire,
-  .combo-pip.combo-fever, .combo-pip.combo-fever-max, .combo-pip.combo-inferno, .combo-pip.combo-inferno-fringe, .combo-pip.combo-eclipse, .combo-pip.combo-decay,
+  .combo-pip.combo-fever, .combo-pip.combo-fever-max, .combo-pip.combo-inferno, .combo-pip.combo-inferno-fringe, .combo-pip.combo-eclipse, .combo-pip.combo-void, .combo-pip.combo-decay,
   body.death-flash #death-flash, body.respawn-fade #death-flash,
   .ah-row.ah-loot-pulse, .compass-arrow { animation: none; }
   #toast.toast-show { opacity: 1; }
@@ -2652,8 +2652,10 @@ body.slam-safe #slam-safe {
   .combo-pip.combo-decay { animation: none; opacity: 0.4; }
   .combo-pip.combo-inferno-fringe { animation: none; transform: none; }
   .combo-pip.combo-eclipse { animation: none; transform: none; }
+  .combo-pip.combo-void { animation: none; transform: none; }
   body.combo-heat #heat-haze,
-  body.combo-eclipse-heat #heat-haze { animation: none; opacity: 0.45; filter: none; }
+  body.combo-eclipse-heat #heat-haze,
+  body.combo-void-heat #heat-haze { animation: none; opacity: 0.45; filter: none; }
   body.slam-safe #slam-safe { animation: none; opacity: 0.45; }
   .compass-arrow.compass-ash-pulse { animation: none; }
 }
@@ -2783,6 +2785,167 @@ body.combo-eclipse-heat #heat-haze {
 
 @media (prefers-reduced-motion: reduce) {
   .combo-pip.combo-eclipse { animation: none; transform: none; }
+  .combo-pip.combo-void { animation: none; transform: none; }
   body.combo-eclipse-heat #heat-haze { animation: none; opacity: 0.45; filter: none; }
+  body.combo-void-heat #heat-haze { animation: none; opacity: 0.4; filter: none; }
   .compass-arrow.compass-corpse-wake .compass-dist { opacity: 0.9 !important; }
+}
+
+/* ——— Polish r14 ——— */
+
+/* Combo ×150 void corona pip (no toast) — colder desat over eclipse */
+.combo-pip.combo-void {
+  background: radial-gradient(circle at 35% 30%, #e8e0f0, #4a3060 45%, #120818 78%, #c9a227 100%);
+  border-color: #a090c0;
+  color: #f4f0ff;
+  box-shadow:
+    0 0 0 1px #000c,
+    0 0 14px #6a4090aa,
+    0 0 6px #c9a22766,
+    inset 0 0 8px #1a082288;
+  animation: combo-void-pulse 0.4s ease-in-out infinite;
+  transform: scale(1.22);
+}
+@keyframes combo-void-pulse {
+  0%, 100% { transform: scale(1.18); filter: brightness(1.05) saturate(0.85) contrast(1.08); }
+  50% { transform: scale(1.4); filter: brightness(1.25) saturate(0.7) contrast(1.15); }
+}
+
+/* Brief fullscreen desat pulse at ×150 (no toast) */
+#void-corona {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 24;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 45%, #1a102888 0%, transparent 62%),
+    linear-gradient(180deg, #0a0614aa 0%, transparent 35%, transparent 65%, #0a0614aa 100%);
+  mix-blend-mode: saturation;
+}
+body.void-corona-pulse #void-corona {
+  animation: void-corona-desat 0.52s ease-out forwards;
+}
+body.void-corona-pulse #game-root,
+body.void-corona-pulse #hud {
+  animation: void-corona-world-desat 0.52s ease-out;
+}
+@keyframes void-corona-desat {
+  0% { opacity: 0; }
+  18% { opacity: 0.92; }
+  100% { opacity: 0; }
+}
+@keyframes void-corona-world-desat {
+  0% { filter: none; }
+  20% { filter: saturate(0.25) brightness(0.88) contrast(1.08); }
+  100% { filter: none; }
+}
+
+body.combo-void-heat #heat-haze,
+#heat-haze.heat-void {
+  background:
+    radial-gradient(ellipse 110% 42% at 50% -5%, #2a1838bb 0%, transparent 55%),
+    radial-gradient(ellipse 42% 110% at -5% 50%, #6040a022 0%, transparent 50%),
+    radial-gradient(ellipse 42% 110% at 105% 50%, #c9a22718 0%, transparent 50%),
+    radial-gradient(ellipse 110% 38% at 50% 105%, #0a0614cc 0%, transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 1;
+  animation: heat-void-shimmer 1.35s ease-in-out infinite;
+}
+@keyframes heat-void-shimmer {
+  0%, 100% { opacity: 0.45; filter: blur(0.6px) saturate(0.7); }
+  50% { opacity: 0.82; filter: blur(1.4px) saturate(0.55); }
+}
+
+/* Unify Attack ready gold rim with spell ready-chime intensity */
+.spell-btn.spell-ready,
+#btn-attack.spell-ready {
+  animation: spell-ready-ping 0.55s ease-out;
+}
+#btn-attack.spell-ready {
+  /* Force same gold rim intensity as spells (override crimson attack chrome) */
+  animation: attack-ready-gold-ping 0.55s ease-out;
+}
+@keyframes attack-ready-gold-ping {
+  0% {
+    filter: brightness(1.55) saturate(1.2);
+    box-shadow:
+      inset 0 0 0 1px #000e,
+      inset 0 0 0 2px #ffe8a0cc,
+      inset 0 0 0 3px #c9a22788,
+      0 0 18px #c9a227cc,
+      0 0 8px #ffe8a088,
+      0 0 4px #ffe8a044;
+  }
+  55% {
+    filter: brightness(1.25) saturate(1.1);
+    box-shadow:
+      inset 0 0 0 1px #000e,
+      inset 0 0 0 2px #ffe8a0aa,
+      0 0 14px #c9a227aa,
+      0 0 6px #ffe8a066;
+  }
+  100% {
+    filter: none;
+    box-shadow:
+      inset 0 0 0 1px #000e,
+      inset 0 0 0 2px var(--ab-line),
+      inset 0 0 0 3px #000a,
+      inset 0 -7px 12px #0008,
+      0 2px 6px #000d,
+      0 0 0 1px #000a;
+  }
+}
+
+/* Ultra-narrow: spell cost pip relocates under icon cleanly */
+@media (max-width: 360px) {
+  .spell-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.28rem 0.12rem 0.22rem;
+    gap: 0.08rem;
+  }
+  .spell-btn .spell-icon {
+    width: 1.65rem;
+    height: 1.65rem;
+    margin: 0;
+  }
+  .spell-btn .spell-cost {
+    position: static;
+    top: auto;
+    left: auto;
+    order: 3;
+    margin-top: 0.02rem;
+    font-size: 0.44rem;
+    padding: 0.05rem 0.18rem;
+    line-height: 1;
+    opacity: 0.95;
+  }
+  .spell-btn .action-label {
+    display: none;
+  }
+  .spell-btn .action-hint {
+    top: 2px;
+    right: 3px;
+    font-size: 0.48rem;
+  }
+  .spell-btn .spell-cd {
+    inset: 3px;
+  }
+  /* Keep 2-row right mobile layout intact */
+  #action-bar {
+    --action-bar-h: calc(6.05rem + var(--safe-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combo-pip.combo-void { animation: none; transform: none; }
+  body.void-corona-pulse #void-corona { animation: none; opacity: 0.55; }
+  body.void-corona-pulse #game-root,
+  body.void-corona-pulse #hud { animation: none; filter: saturate(0.45); }
+  body.combo-void-heat #heat-haze,
+  #heat-haze.heat-void { animation: none; opacity: 0.4; filter: none; }
+  #btn-attack.spell-ready { animation: none; }
 }
