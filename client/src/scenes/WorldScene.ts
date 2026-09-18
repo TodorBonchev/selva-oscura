@@ -53,6 +53,8 @@ import {
   drawLootGlow,
   spawnHitBurst,
   spawnKillBurst,
+  ensureVignetteTexture,
+  drawKillRing,
   spawnLootSparkle,
   buildGroundTiles,
   destroyGroundTiles,
@@ -79,10 +81,18 @@ const MOBILE_ZOOM = 0.65;
 const MOBILE_ZOOM_TABLET = 0.72;
 const DESKTOP_ZOOM = 1;
 const ATTACK_HOLD_MS = 720;
-/** Walk-cycle stride swap period (ms) ~9 Hz; bob/bounce share the 2-frame phase. */
-const WALK_FRAME_MS = 110;
-const WALK_BOB_PX = 4.5;
-const WALK_BOUNCE = 0.04;
+/**
+ * Walk cycle: contact → passing frames at ~8 Hz (one step = 2 frames). Bob,
+ * bounce and lean are deliberately big so the stride reads at 74 px on a phone.
+ */
+const WALK_FRAME_MS = 120;
+const WALK_BOB_PX = 7;
+const WALK_BOUNCE = 0.07;
+/** Forward lean (deg) while striding, plus a per-step sway of the same size. */
+const WALK_LEAN_DEG = 3;
+/** Idle breathe: vertical drift (px) + a tiny scaleY swell so standing isn't frozen. */
+const IDLE_BOB_PX = 1.6;
+const IDLE_SWELL = 0.018;
 /** Local predicted move speed (world units / sec) — matches server feel. */
 const PREDICT_SPEED = 8.0;
 const MOVE_ACCEL = 28;
@@ -90,7 +100,9 @@ const MOVE_FRICTION = 18;
 const TAP_ARRIVE = 0.35;
 const ATTACK_WINDUP_MS = 140;
 const ATTACK_RECOVERY_MS = 380;
-const ATTACK_SWIPE_MS = 220;
+const ATTACK_SWIPE_MS = 340;
+/** Kill ring / ghost-fade duration (ms). */
+const KILL_FX_MS = 420;
 
 type HitFx = {
   start: number;
@@ -160,6 +172,14 @@ export class WorldScene extends Phaser.Scene {
   attackBusyUntil = 0;
   swipeFx: { until: number; dir: number; start: number } | null = null;
   lastYouSnapshot: any = null;
+  /** Show the back-view stride while walking "up" the screen (hysteresis). */
+  walkBackView = false;
+  /** Expanding kill rings (screen px) drawn in redraw(). */
+  killFx: { sx: number; sy: number; start: number; boss: boolean }[] = [];
+  /** Camera-following soft vignette so the arena edges fall into dark. */
+  vignette: Phaser.GameObjects.Image | null = null;
+  /** Remote player last render pos + moving timestamp so they stride too. */
+  remotePrev = new Map<string, { x: number; y: number; movedAt: number }>();
 
   constructor() {
     super("world");
@@ -195,6 +215,13 @@ export class WorldScene extends Phaser.Scene {
     // ?debug exposes the scene for console poking / headless smoke tests
     if (new URLSearchParams(location.search).has("debug")) (window as any).__scene = this;
     this.applyViewportZoom();
+    {
+      const vk = ensureVignetteTexture(this);
+      if (hasTexture(this, vk)) {
+        this.vignette = this.add.image(0, 0, vk).setDepth(8900).setAlpha(0.7);
+        this.layoutVignette();
+      }
+    }
 
     const kb = this.input.keyboard;
     if (kb) {
@@ -268,6 +295,7 @@ export class WorldScene extends Phaser.Scene {
       this.joystick?.syncVisibility();
       this.applyViewportZoom();
       this.centerOnYou(true);
+      this.layoutVignette();
     });
 
     this.socket.on((msg) => this.onNet(msg));
@@ -426,10 +454,10 @@ export class WorldScene extends Phaser.Scene {
       until: this.animT + ATTACK_SWIPE_MS,
       dir: this.facingLeft ? -1 : 1,
     };
-    this.punch("you", { dur: ATTACK_WINDUP_MS + 40, punch: 0.16, tint: 0xffe8a0, ox: this.facingLeft ? -6 : 6, oy: -4 });
+    this.punch("you", { dur: ATTACK_WINDUP_MS + 40, punch: 0.2, tint: 0xffe8a0, ox: this.facingLeft ? -8 : 8, oy: -5 });
     this.time.delayedCall(ATTACK_WINDUP_MS, () => {
       this.socket.attack(targetId);
-      this.punch("you", { dur: 120, punch: 0.1, tint: null, ox: this.facingLeft ? -4 : 4, oy: -2 });
+      this.punch("you", { dur: 140, punch: 0.12, tint: null, ox: this.facingLeft ? -6 : 6, oy: -2 });
     });
   }
 
@@ -489,6 +517,8 @@ export class WorldScene extends Phaser.Scene {
           this.groundCantoId = null;
           this.autoPickupSent.clear();
           this.pruneSprites(new Set());
+          this.killFx = [];
+          this.remotePrev.clear();
           this.centerOnYou(true);
           if (cantoChanged) this.cameras.main.fadeIn(420, 0, 0, 0);
         }
@@ -571,14 +601,17 @@ export class WorldScene extends Phaser.Scene {
         const ent = this.room?.entities?.find((e: any) => String(e.id) === tid);
         if (ent) {
           const sid = `${ent.kind}:${ent.id}`;
+          // Hit flash (white) + big punch + knockback away from us + tiny screen kick
+          const away = Math.sign(ent.x + ent.y - (this.renderYou.x + this.renderYou.y)) || 1;
           this.punch(sid, {
-            dur: 190,
-            punch: ent.kind === "boss" ? 0.1 : 0.2,
-            tint: 0xfff0c0,
-            ox: (Math.random() - 0.5) * 10,
-            oy: -4 - Math.random() * 6,
+            dur: 220,
+            punch: ent.kind === "boss" ? 0.14 : 0.32,
+            tint: 0xffffff,
+            ox: away * (6 + Math.random() * 8) * (this.facingLeft ? -1 : 1),
+            oy: -6 - Math.random() * 6,
           });
           spawnHitBurst(this.particles, ent.x, ent.y);
+          this.cameras.main.shake(70, isCompactUi() ? 0.0035 : 0.0025);
           this.showDamageNumber(ent, msg.damage);
         }
         break;
@@ -588,13 +621,54 @@ export class WorldScene extends Phaser.Scene {
         const ent = this.room?.entities?.find((e: any) => e.id === rid);
         if (ent && (ent.kind === "mob" || ent.kind === "boss")) {
           const boss = ent.kind === "boss";
-          spawnKillBurst(this.particles, ent.x, ent.y, boss);
-          this.cameras.main.shake(boss ? 320 : 120, boss ? 0.012 : 0.004);
+          const pos = this.entityRenderPos(ent);
+          const p = worldToScreen(pos.x, pos.y);
+          spawnKillBurst(this.particles, pos.x, pos.y, boss);
+          this.killFx.push({ sx: p.sx, sy: p.sy, start: this.animT, boss });
+          this.ghostFadeSprite(`${ent.kind}:${ent.id}`, boss);
+          this.cameras.main.shake(boss ? 340 : 160, boss ? 0.014 : 0.007);
           if (boss) this.cameras.main.flash(260, 201, 162, 39, false);
+          else this.cameras.main.flash(60, 120, 60, 30, false);
         }
         break;
       }
     }
+  }
+
+  /**
+   * On death, leave a crimson afterimage that lifts, stretches and fades so the
+   * foe doesn't just blink out of existence.
+   */
+  ghostFadeSprite(sid: string, boss: boolean) {
+    const src = this.entitySprites.get(sid);
+    if (!src || !src.visible) return;
+    const ghost = this.add.image(src.x, src.y, src.texture.key);
+    ghost.setOrigin(src.originX, src.originY);
+    ghost.setScale(src.scaleX, src.scaleY);
+    ghost.setFlipX(src.flipX);
+    ghost.setDepth(src.depth + 0.5);
+    ghost.setTint(0xff6a4a);
+    ghost.setAlpha(0.9);
+    ghost.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      y: ghost.y - (boss ? 34 : 22),
+      scaleX: ghost.scaleX * 1.25,
+      scaleY: ghost.scaleY * 1.45,
+      duration: KILL_FX_MS,
+      ease: "Cubic.easeOut",
+      onComplete: () => ghost.destroy(),
+    });
+  }
+
+  /** Keep the vignette glued to the camera view at any zoom / resize. */
+  layoutVignette() {
+    if (!this.vignette) return;
+    const cam = this.cameras.main;
+    const z = Math.max(0.05, cam.zoom);
+    this.vignette.setDisplaySize((cam.width / z) * 1.02, (cam.height / z) * 1.02);
+    this.vignette.setPosition(cam.scrollX + cam.width * 0.5, cam.scrollY + cam.height * 0.5);
   }
 
   /** Crimson float above local player — camera-locked so flash/shake cannot hide it. */
@@ -608,19 +682,24 @@ export class WorldScene extends Phaser.Scene {
     const t = this.add
       .text(sx, sy, String(dmg), {
         fontFamily: "Georgia, serif",
-        fontSize: compact ? "26px" : "20px",
+        fontSize: compact ? "34px" : "24px",
+        fontStyle: "bold",
         color: "#ff6b5a",
         stroke: "#1a0a06",
-        strokeThickness: 5,
+        strokeThickness: 6,
+        shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 6, fill: true },
       })
       .setOrigin(0.5)
       .setDepth(12000)
-      .setScrollFactor(0);
+      .setScrollFactor(0)
+      .setScale(1.5);
+    this.tweens.add({ targets: t, scale: 1, duration: 140, ease: "Back.easeOut" });
     this.tweens.add({
       targets: t,
-      y: sy - 42,
+      y: sy - 54,
       alpha: 0,
-      duration: 780,
+      duration: 900,
+      delay: 120,
       ease: "Cubic.easeOut",
       onComplete: () => t.destroy(),
     });
@@ -639,21 +718,28 @@ export class WorldScene extends Phaser.Scene {
       p = worldToScreen(pos.x, pos.y);
     }
     const compact = isCompactUi();
+    const drift = (Math.random() - 0.5) * 22;
     const t = this.add
-      .text(p.sx + (Math.random() - 0.5) * 16, p.sy - (ent.kind === "boss" ? 90 : 56), String(dmg), {
+      .text(p.sx + drift, p.sy - (ent.kind === "boss" ? 96 : 62), String(dmg), {
         fontFamily: "Georgia, serif",
-        fontSize: compact ? "20px" : "15px",
-        color: o?.color || "#f2d777",
+        fontSize: compact ? "30px" : "20px",
+        fontStyle: "bold",
+        color: o?.color || "#ffd966",
         stroke: "#1a0a06",
-        strokeThickness: 4,
+        strokeThickness: 6,
+        shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 6, fill: true },
       })
       .setOrigin(0.5)
-      .setDepth(9500);
+      .setDepth(9500)
+      .setScale(1.6);
+    this.tweens.add({ targets: t, scale: 1, duration: 150, ease: "Back.easeOut" });
     this.tweens.add({
       targets: t,
-      y: t.y - 30,
+      x: t.x + drift * 0.8,
+      y: t.y - (compact ? 44 : 34),
       alpha: 0,
-      duration: 620,
+      duration: 820,
+      delay: 140,
       ease: "Cubic.easeOut",
       onComplete: () => t.destroy(),
     });
@@ -738,26 +824,50 @@ export class WorldScene extends Phaser.Scene {
   }
 
 
-  /** Idle vs 2-frame walk; bob + scale bounce while moving. */
-  private localPlayerVisual(): { key: string; bob: number; scale: number } {
-    const moving = this.movingVisual || Math.hypot(this.velX, this.velY) > 0.4;
-    let key: string = DORE_KEYS.player;
-    let bob = 0;
-    let scale = 1;
+  /**
+   * Walk pose for any walker: contact (stride) ↔ passing (legs together) at
+   * WALK_FRAME_MS, with bob, bounce, forward lean + sway. Front view when
+   * walking down the screen, back view when walking up. `t` is animT (ms).
+   */
+  private walkVisual(t: number, backView: boolean, compact: boolean, facingLeft: boolean) {
+    const contact = backView ? DORE_KEYS.player_walk_b : DORE_KEYS.player_walk_a;
+    const passing = backView ? DORE_KEYS.player_walk_b2 : DORE_KEYS.player_walk_a2;
+    const frame = Math.floor(t / WALK_FRAME_MS) % 2;
+    let key: string = frame === 0 ? contact : passing;
+    // Contact = low, passing = high: bob peaks on the legs-together frame.
+    const phase = -Math.cos((t * Math.PI) / WALK_FRAME_MS); // -1 → 1 → -1 per step
+    const step = Math.sin((t * Math.PI) / (WALK_FRAME_MS * 2)); // ±1 alternating steps
+    const mul = compact ? 1.3 : 1;
+    const bob = -(phase * 0.5 + 0.5) * WALK_BOB_PX * mul;
+    const scale = 1 + WALK_BOUNCE * phase;
+    // Squash on contact, stretch on passing (scaleX/scaleY asymmetry).
+    const squash = -phase * 0.035;
+    const dir = facingLeft ? -1 : 1;
+    const rot = Phaser.Math.DegToRad(dir * (WALK_LEAN_DEG + step * WALK_LEAN_DEG * 0.8));
+    if (!this.doreOk(key)) key = this.doreOk(contact) ? contact : DORE_KEYS.player;
+    return { key, bob, scale, squash, rot };
+  }
+
+  /** Idle breathe vs walk cycle for the local (predicted) player. */
+  private localPlayerVisual(): { key: string; bob: number; scale: number; squash: number; rot: number } {
+    const sp = Math.hypot(this.velX, this.velY);
+    const moving = this.movingVisual || sp > 0.4;
+    const compact = isCompactUi();
     if (moving) {
-      // Stride swap ~9 Hz; bob / bounce complete one cycle per A→B pair.
-      const frame = Math.floor(this.animT / WALK_FRAME_MS) % 2;
-      key = frame === 0 ? DORE_KEYS.player_walk_a : DORE_KEYS.player_walk_b;
-      const phase = Math.sin((this.animT * Math.PI) / WALK_FRAME_MS);
-      bob = phase * WALK_BOB_PX;
-      scale = 1 + WALK_BOUNCE * phase;
-    } else {
-      bob = Math.sin(this.animT * 0.004) * 0.8; // idle breathe
+      // Screen-vertical component of travel picks front/back view (hysteresis).
+      const up = this.velX + this.velY;
+      if (up < -1.2) this.walkBackView = true;
+      else if (up > 1.2) this.walkBackView = false;
+      return this.walkVisual(this.animT, this.walkBackView, compact, this.facingLeft);
     }
-    // Fall back to idle if walk textures missing
-    if (key !== DORE_KEYS.player && this.doreFailed.has(key)) key = DORE_KEYS.player;
-    if (key !== DORE_KEYS.player && !this.textures.exists(key)) key = DORE_KEYS.player;
-    return { key, bob, scale };
+    const breathe = Math.sin(this.animT * 0.0035);
+    return {
+      key: DORE_KEYS.player,
+      bob: breathe * IDLE_BOB_PX * (compact ? 1.3 : 1),
+      scale: 1,
+      squash: breathe * IDLE_SWELL,
+      rot: 0,
+    };
   }
 
   placeSprite(
@@ -766,7 +876,7 @@ export class WorldScene extends Phaser.Scene {
     sx: number,
     sy: number,
     depth: number,
-    opts?: { tint?: number; bob?: number; flipX?: boolean; scale?: number }
+    opts?: { tint?: number; bob?: number; flipX?: boolean; scale?: number; squash?: number; rot?: number }
   ): boolean {
     if (!this.doreOk(texKey)) {
       this.hideSprite(id);
@@ -808,7 +918,9 @@ export class WorldScene extends Phaser.Scene {
         if (fx.tint != null) img.setTint(fx.tint);
       }
     }
-    img.setScale(base.sx * scaleMul, base.sy * scaleMul);
+    const sq = opts?.squash ?? 0;
+    img.setScale(base.sx * scaleMul * (1 - sq), base.sy * scaleMul * (1 + sq));
+    img.setRotation(opts?.rot ?? 0);
     if (opts?.flipX != null) img.setFlipX(opts.flipX);
     img.setPosition(sx + ox, sy - 4 + bob + oy);
     img.setDepth(depth);
@@ -909,7 +1021,7 @@ export class WorldScene extends Phaser.Scene {
     const isHub =
       this.room.role === "hub" || this.room.cantoId === "inferno_01";
     const compact = isCompactUi();
-    const labelSize = compact ? "14px" : "11px";
+    const labelSize = compact ? "12px" : "11px";
     const seenLabels = new Set<string>();
     const seenSprites = new Set<string>();
 
@@ -917,6 +1029,15 @@ export class WorldScene extends Phaser.Scene {
       this.refreshGround();
     }
     drawParticles(g, this.particles);
+    for (let i = this.killFx.length - 1; i >= 0; i--) {
+      const k = this.killFx[i];
+      const prog = (this.animT - k.start) / KILL_FX_MS;
+      if (prog >= 1) {
+        this.killFx.splice(i, 1);
+        continue;
+      }
+      drawKillRing(g, k.sx, k.sy, prog, k.boss);
+    }
 
     // Live hub decor pulse (lightweight vignette trees already stamped on ground)
     if (isHub) {
@@ -1035,7 +1156,36 @@ export class WorldScene extends Phaser.Scene {
       const depth = 100 + pos.x + pos.y;
       const sid = `pl:${pl.id}`;
       let topY = p.sy - 42;
-      if (this.placeSprite(sid, DORE_KEYS.player, p.sx, p.sy, depth, { tint: 0x9ab0a0 })) {
+      // Stride when the smoothed position is actually changing.
+      const prev = this.remotePrev.get(sid);
+      const now = this.animT;
+      let movedAt = prev?.movedAt ?? -Infinity;
+      let facingLeft = false;
+      let backView = false;
+      if (prev) {
+        const ddx = pos.x - prev.x;
+        const ddy = pos.y - prev.y;
+        if (Math.hypot(ddx, ddy) > 0.015) {
+          movedAt = now;
+          if (Math.abs(ddx - ddy) > 0.005) facingLeft = ddx - ddy < 0;
+          backView = ddx + ddy < 0;
+        }
+      }
+      this.remotePrev.set(sid, { x: pos.x, y: pos.y, movedAt });
+      const walking = now - movedAt < 140;
+      const rv = walking
+        ? this.walkVisual(now, backView, compact, facingLeft)
+        : { key: DORE_KEYS.player, bob: Math.sin(now * 0.0035 + p.sx) * IDLE_BOB_PX, scale: 1, squash: 0, rot: 0 };
+      if (
+        this.placeSprite(sid, rv.key, p.sx, p.sy, depth, {
+          tint: 0x9ab0a0,
+          bob: rv.bob,
+          scale: rv.scale,
+          squash: rv.squash,
+          rot: rv.rot,
+          flipX: walking ? facingLeft : undefined,
+        })
+      ) {
         seenSprites.add(sid);
         const b = this.spriteBase.get(sid);
         if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
@@ -1048,7 +1198,8 @@ export class WorldScene extends Phaser.Scene {
 
     {
       const p = worldToScreen(this.renderYou.x, this.renderYou.y);
-      const depth = 100 + this.renderYou.x + this.renderYou.y;
+      // Small depth bias so a swarming pack on the same row never buries us.
+      const depth = 100 + this.renderYou.x + this.renderYou.y + 1.2;
       const sid = "you";
       drawEntityPad(g, p.sx, p.sy, compact ? 1.6 : 1.2);
       let topY = p.sy - 42;
@@ -1058,6 +1209,8 @@ export class WorldScene extends Phaser.Scene {
           flipX: this.facingLeft,
           bob: vis.bob,
           scale: vis.scale,
+          squash: vis.squash,
+          rot: vis.rot,
         })
       ) {
         seenSprites.add(sid);
@@ -1070,19 +1223,34 @@ export class WorldScene extends Phaser.Scene {
       if (this.swipeFx && this.animT <= this.swipeFx.until) {
         const prog = (this.animT - this.swipeFx.start) / Math.max(1, this.swipeFx.until - this.swipeFx.start);
         const ang = (this.swipeFx.dir > 0 ? -0.9 : Math.PI + 0.9) + prog * this.swipeFx.dir * 1.6;
-        const reach = compact ? 42 : 32;
-        g.lineStyle(3, 0xffe08a, 0.75 * (1 - prog));
+        const reach = compact ? 84 : 52;
+        const fade = 1 - prog * prog;
+        const cy = p.sy - (compact ? 44 : 28);
+        const d = this.swipeFx.dir;
+        // Crescent sweeps across the front of the figure: wide soft glow, gold
+        // blade, white-hot core; the trailing edge stretches as it fades.
+        const trail = 0.9 + prog * 0.9;
+        g.lineStyle(compact ? 22 : 14, 0xc9a227, 0.2 * fade);
         g.beginPath();
-        g.arc(p.sx, p.sy - 18, reach, ang - 0.35, ang + 0.35, false);
+        g.arc(p.sx, cy, reach, ang - d * trail, ang + d * 0.35, d < 0);
         g.strokePath();
-        g.lineStyle(1.5, 0xffffff, 0.35 * (1 - prog));
+        g.lineStyle(compact ? 9 : 6, 0xffe08a, 0.95 * fade);
         g.beginPath();
-        g.arc(p.sx, p.sy - 18, reach * 0.85, ang - 0.2, ang + 0.2, false);
+        g.arc(p.sx, cy, reach, ang - d * trail, ang + d * 0.3, d < 0);
         g.strokePath();
+        g.lineStyle(compact ? 3 : 2, 0xffffff, 0.85 * fade);
+        g.beginPath();
+        g.arc(p.sx, cy, reach * 0.9, ang - d * trail * 0.6, ang + d * 0.2, d < 0);
+        g.strokePath();
+        // Leading spark
+        const tipX = p.sx + Math.cos(ang + d * 0.3) * reach;
+        const tipY = cy + Math.sin(ang + d * 0.3) * reach;
+        g.fillStyle(0xfff6d0, 0.9 * fade);
+        g.fillCircle(tipX, tipY, compact ? 6 : 4);
       } else if (this.swipeFx && this.animT > this.swipeFx.until) {
         this.swipeFx = null;
       }
-      this.addLabel("you", p.sx, topY - (compact ? 14 : 10), "You", labelSize, seenLabels);
+      // No "You" nameplate: the ally-styled HP bar over the head already marks us.
       const you = this.room.you;
       drawFoeHpBar(g, p.sx, topY, you.hp, you.maxHp, 30, { compact, ally: true });
     }
@@ -1107,11 +1275,12 @@ export class WorldScene extends Phaser.Scene {
         .text(x, y, text, {
           fontFamily: "Georgia, serif",
           fontSize,
-          color: "#d9cfae",
+          color: "#c8bfa2",
           stroke: "#0b0f0c",
           strokeThickness: 3,
         })
         .setOrigin(0.5)
+        .setAlpha(0.82)
         .setDepth(9000);
       this.labels.set(key, t);
       this.labelGroup.add(t);
@@ -1350,5 +1519,6 @@ export class WorldScene extends Phaser.Scene {
 
     this.redraw();
     this.centerOnYou(false);
+    this.layoutVignette();
   }
 }

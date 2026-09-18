@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { worldToScreen, TILE_W, TILE_H } from "../util/iso";
+import { assetUrl } from "../items/icons";
 
 
 /** Doré Slice-1 kit under public/assets/dore/ */
@@ -11,6 +12,9 @@ export const DORE_KEYS = {
   player: "dore_player",
   player_walk_a: "dore_player_walk_a",
   player_walk_b: "dore_player_walk_b",
+  /** Passing (legs-together) frames synthesized by tools/sprite_fix.py. */
+  player_walk_a2: "dore_player_walk_a2",
+  player_walk_b2: "dore_player_walk_b2",
   poi_guide: "dore_poi_guide",
   poi_stash: "dore_poi_stash",
   poi_ah: "dore_poi_ah",
@@ -28,6 +32,8 @@ export const DORE_FILES: Record<keyof typeof DORE_KEYS, string> = {
   player: "player.png",
   player_walk_a: "player_walk_a.png",
   player_walk_b: "player_walk_b.png",
+  player_walk_a2: "player_walk_a2.png",
+  player_walk_b2: "player_walk_b2.png",
   poi_guide: "poi_guide.png",
   poi_stash: "poi_stash.png",
   poi_ah: "poi_ah.png",
@@ -48,6 +54,8 @@ export const DORE_DISPLAY: Record<string, { h: number }> = {
   [DORE_KEYS.player]: { h: 74 },
   [DORE_KEYS.player_walk_a]: { h: 74 },
   [DORE_KEYS.player_walk_b]: { h: 74 },
+  [DORE_KEYS.player_walk_a2]: { h: 74 },
+  [DORE_KEYS.player_walk_b2]: { h: 74 },
   [DORE_KEYS.poi_guide]: { h: 66 },
   [DORE_KEYS.poi_stash]: { h: 54 },
   [DORE_KEYS.poi_ah]: { h: 60 },
@@ -73,6 +81,8 @@ export const DORE_DISPLAY: Record<string, { h: number }> = {
 export const DORE_DISPLAY_AS: Record<string, string> = {
   [DORE_KEYS.player_walk_a]: DORE_KEYS.player,
   [DORE_KEYS.player_walk_b]: DORE_KEYS.player,
+  [DORE_KEYS.player_walk_a2]: DORE_KEYS.player,
+  [DORE_KEYS.player_walk_b2]: DORE_KEYS.player,
 };
 
 /**
@@ -171,7 +181,7 @@ export function preloadDoreKit(scene: Phaser.Scene): string[] {
   for (const id of Object.keys(DORE_KEYS) as (keyof typeof DORE_KEYS)[]) {
     const key = DORE_KEYS[id];
     const file = DORE_FILES[id];
-    scene.load.image(key, `${DORE_PATH}/${file}`);
+    scene.load.image(key, assetUrl(`${DORE_PATH}/${file}`));
     keys.push(key);
   }
   return keys;
@@ -203,7 +213,7 @@ export function preloadItemIcons(scene: Phaser.Scene): string[] {
   for (const [base, key] of Object.entries(ITEM_ICON_KEYS)) {
     const file = ITEM_ICON_FILES[base];
     if (!file) continue;
-    scene.load.image(key, `assets/items/${file}`);
+    scene.load.image(key, assetUrl(`assets/items/${file}`));
     keys.push(key);
   }
   return keys;
@@ -789,6 +799,44 @@ export function drawExitSpotlight(
   g.fillTriangle(sx, ay - 2, sx + 5, ay + 6, sx - 5, ay + 6);
 }
 
+/** Camera-sized radial vignette texture (drawn once, reused). */
+export function ensureVignetteTexture(scene: Phaser.Scene, key = "tex_vignette"): string {
+  if (scene.textures.exists(key)) return key;
+  const size = 256;
+  const canvasTex = scene.textures.createCanvas(key, size, size);
+  const ctx = canvasTex?.getContext();
+  if (!ctx || !canvasTex) return key;
+  const grad = ctx.createRadialGradient(size / 2, size / 2, size * 0.28, size / 2, size / 2, size * 0.72);
+  grad.addColorStop(0, "rgba(0,0,0,0)");
+  grad.addColorStop(0.6, "rgba(0,0,0,0.35)");
+  grad.addColorStop(1, "rgba(0,0,0,0.85)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  canvasTex.refresh();
+  return key;
+}
+
+/** Expanding kill ring + flash so a death is a beat, not a vanish. */
+export function drawKillRing(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  prog: number,
+  boss: boolean
+) {
+  const t = Math.max(0, Math.min(1, prog));
+  const r = (boss ? 26 : 16) + t * (boss ? 70 : 44);
+  const a = (1 - t) * (1 - t);
+  g.lineStyle(boss ? 5 : 3, 0xffd27a, 0.9 * a);
+  g.strokeEllipse(sx, sy - 6, r * 2, r);
+  g.lineStyle(1.5, 0xffffff, 0.6 * a);
+  g.strokeEllipse(sx, sy - 6, r * 1.5, r * 0.75);
+  if (t < 0.35) {
+    g.fillStyle(0xfff0c0, 0.55 * (1 - t / 0.35));
+    g.fillEllipse(sx, sy - 14, (boss ? 60 : 36) * (1 + t), (boss ? 44 : 26) * (1 + t));
+  }
+}
+
 export function spawnHitBurst(particles: Particle[], wx: number, wy: number) {
   for (let i = 0; i < 8; i++) {
     if (particles.length > 64) break;
@@ -882,11 +930,21 @@ export function buildGroundTiles(
   maskGfx.fillPath();
   const mask = maskGfx.createGeometryMask();
 
-  const tint = isHub ? 0xc6d0c4 : 0xd4b4b0;
-  const alpha = isHub ? 0.95 : 0.92;
+  const tint = isHub ? 0xc6d0c4 : 0xb89c98;
+  const alpha = isHub ? 0.95 : 0.9;
   const root = scene.add.container(0, 0);
   root.setDepth(0);
   root.setMask(mask);
+  // Solid iso diamond under the stamp so no seam / transparent texel ever
+  // shows the camera background as a black void between tiles.
+  const under = scene.make.graphics({ x: 0, y: 0 }, false);
+  under.fillStyle(isHub ? 0x11160f : 0x1a0806, 1);
+  under.beginPath();
+  under.moveTo(corners[0].sx, corners[0].sy);
+  for (let i = 1; i < corners.length; i++) under.lineTo(corners[i].sx, corners[i].sy);
+  under.closePath();
+  under.fillPath();
+  root.add(under);
   const images: Phaser.GameObjects.Image[] = [];
   const cols = Math.ceil((maxX - minX) / tw) + 1;
   const rows = Math.ceil((maxY - minY) / th) + 1;
@@ -1003,11 +1061,11 @@ export function drawFoeGlow(
 }
 
 export function spawnKillBurst(particles: Particle[], wx: number, wy: number, boss = false) {
-  const n = boss ? 22 : 12;
+  const n = boss ? 30 : 20;
   for (let i = 0; i < n; i++) {
-    if (particles.length > 96) break;
+    if (particles.length > 120) break;
     const ang = (Math.PI * 2 * i) / n + Math.random() * 0.5;
-    const sp = 2 + Math.random() * (boss ? 3 : 2);
+    const sp = 2.6 + Math.random() * (boss ? 3.5 : 2.6);
     particles.push({
       x: wx,
       y: wy,
@@ -1015,7 +1073,7 @@ export function spawnKillBurst(particles: Particle[], wx: number, wy: number, bo
       vy: Math.sin(ang) * sp - 0.6,
       life: 0.5 + Math.random() * 0.4,
       maxLife: 0.9,
-      size: 1.5 + Math.random() * (boss ? 3 : 2),
+      size: 2 + Math.random() * (boss ? 3.5 : 2.5),
       color: i % 3 === 0 ? 0xc9a227 : i % 3 === 1 ? 0xff5533 : 0xd9cfae,
       kind: i % 4 === 0 ? "ash" : "ember",
     });
