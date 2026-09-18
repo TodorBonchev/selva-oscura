@@ -686,7 +686,7 @@ body.has-modal #toast.toast-show {
   border: 0;
   outline: 0;
   box-shadow: none;
-  filter: drop-shadow(0 1px 1px #000c);
+  filter: drop-shadow(0 1px 2px #000d) brightness(1.28) contrast(1.12) saturate(1.08);
 }
 .inv-slot .inv-glyph { display: none; }
 .inv-actions { flex-wrap: wrap; gap: 0.35rem; }
@@ -1662,3 +1662,13 @@ body.has-modal #virtual-joystick { display: none; }
   .inv-panel { max-height: calc(100dvh - var(--action-bar-h) - 0.5rem); }
   .inv-detail { min-height: 0; }
 }
+
+
+/* Gale Bolt hold-to-aim — button glow while aiming */
+.spell-btn.aiming,
+.spell-btn[data-spell="gale_bolt"].aiming {
+  box-shadow: 0 0 0 2px #e8c86a, 0 0 18px #ff884466;
+  filter: brightness(1.15);
+  transform: translateY(1px) scale(0.98);
+}
+

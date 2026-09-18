@@ -18,6 +18,8 @@ export class GameSocket {
   private url: string;
   private name: string;
   private reconnectTimer: number | null = null;
+  /** True after the first successful open — used to toast drops / reconnects only. */
+  private everConnected = false;
 
   constructor(httpBase: string, name: string) {
     this.url = toWsUrl(httpBase);
@@ -31,7 +33,12 @@ export class GameSocket {
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.onopen = () => {
+      const wasConnected = this.everConnected;
+      this.everConnected = true;
       this.send({ type: "hello", name: this.name, protocol: 1 });
+      if (wasConnected) {
+        for (const h of this.handlers) h({ type: "net", state: "reconnected" });
+      }
     };
     ws.onmessage = (ev) => {
       let msg: any;
@@ -45,6 +52,9 @@ export class GameSocket {
       for (const h of this.handlers) h(msg);
     };
     ws.onclose = () => {
+      if (this.everConnected) {
+        for (const h of this.handlers) h({ type: "net", state: "disconnected" });
+      }
       this.scheduleReconnect();
     };
     ws.onerror = () => {
