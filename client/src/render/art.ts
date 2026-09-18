@@ -10,9 +10,17 @@ export const DORE_KEYS = {
   hub_ground: "dore_hub_ground",
   lust_ground: "dore_lust_ground",
   player: "dore_player",
+  /** 8-dir idle / walk-A plates (west dirs = flipX of E/NE/SE). */
+  player_n: "dore_player_n",
+  player_ne: "dore_player_ne",
+  player_e: "dore_player_e",
+  player_se: "dore_player_se",
+  player_s: "dore_player_s",
+  player_e_walkb: "dore_player_e_walkb",
+  player_s_walkb: "dore_player_s_walkb",
+  /** Legacy 2-dir walk frames (fallback only). */
   player_walk_a: "dore_player_walk_a",
   player_walk_b: "dore_player_walk_b",
-  /** Passing (legs-together) frames synthesized by tools/sprite_fix.py. */
   player_walk_a2: "dore_player_walk_a2",
   player_walk_b2: "dore_player_walk_b2",
   poi_guide: "dore_poi_guide",
@@ -30,6 +38,13 @@ export const DORE_FILES: Record<keyof typeof DORE_KEYS, string> = {
   hub_ground: "hub_ground.png",
   lust_ground: "lust_ground.png",
   player: "player.png",
+  player_n: "player_n.png",
+  player_ne: "player_ne.png",
+  player_e: "player_e.png",
+  player_se: "player_se.png",
+  player_s: "player_s.png",
+  player_e_walkb: "player_e_walkb.png",
+  player_s_walkb: "player_s_walkb.png",
   player_walk_a: "player_walk_a.png",
   player_walk_b: "player_walk_b.png",
   player_walk_a2: "player_walk_a2.png",
@@ -51,20 +66,27 @@ export const DORE_FILES: Record<keyof typeof DORE_KEYS, string> = {
  * Textures are 2× nearest-upscaled; heights here are ~1.1× the old kit.
  */
 export const DORE_DISPLAY: Record<string, { h: number }> = {
-  [DORE_KEYS.player]: { h: 74 },
-  [DORE_KEYS.player_walk_a]: { h: 74 },
-  [DORE_KEYS.player_walk_b]: { h: 74 },
-  [DORE_KEYS.player_walk_a2]: { h: 74 },
-  [DORE_KEYS.player_walk_b2]: { h: 74 },
-  [DORE_KEYS.poi_guide]: { h: 66 },
-  [DORE_KEYS.poi_stash]: { h: 54 },
-  [DORE_KEYS.poi_ah]: { h: 60 },
-  [DORE_KEYS.poi_quest]: { h: 60 },
-  [DORE_KEYS.exit_portal]: { h: 100 },
-  [DORE_KEYS.mob_whirl]: { h: 60 },
-  [DORE_KEYS.mob_champion]: { h: 70 },
-  [DORE_KEYS.boss_judge]: { h: 112 },
-  [DORE_KEYS.loot_gem]: { h: 36 },
+  [DORE_KEYS.player]: { h: 78 },
+  [DORE_KEYS.player_n]: { h: 78 },
+  [DORE_KEYS.player_ne]: { h: 78 },
+  [DORE_KEYS.player_e]: { h: 78 },
+  [DORE_KEYS.player_se]: { h: 78 },
+  [DORE_KEYS.player_s]: { h: 78 },
+  [DORE_KEYS.player_e_walkb]: { h: 78 },
+  [DORE_KEYS.player_s_walkb]: { h: 78 },
+  [DORE_KEYS.player_walk_a]: { h: 78 },
+  [DORE_KEYS.player_walk_b]: { h: 78 },
+  [DORE_KEYS.player_walk_a2]: { h: 78 },
+  [DORE_KEYS.player_walk_b2]: { h: 78 },
+  [DORE_KEYS.poi_guide]: { h: 74 },
+  [DORE_KEYS.poi_stash]: { h: 60 },
+  [DORE_KEYS.poi_ah]: { h: 68 },
+  [DORE_KEYS.poi_quest]: { h: 68 },
+  [DORE_KEYS.exit_portal]: { h: 110 },
+  [DORE_KEYS.mob_whirl]: { h: 68 },
+  [DORE_KEYS.mob_champion]: { h: 80 },
+  [DORE_KEYS.boss_judge]: { h: 124 },
+  [DORE_KEYS.loot_gem]: { h: 38 },
   item_ashen_club: { h: 34 },
   item_torn_cape: { h: 34 },
   item_ash_helm: { h: 34 },
@@ -79,6 +101,13 @@ export const DORE_DISPLAY: Record<string, { h: number }> = {
  * change the on-screen quad (walk frames must match the idle player exactly).
  */
 export const DORE_DISPLAY_AS: Record<string, string> = {
+  [DORE_KEYS.player_n]: DORE_KEYS.player,
+  [DORE_KEYS.player_ne]: DORE_KEYS.player,
+  [DORE_KEYS.player_e]: DORE_KEYS.player,
+  [DORE_KEYS.player_se]: DORE_KEYS.player,
+  [DORE_KEYS.player_s]: DORE_KEYS.player,
+  [DORE_KEYS.player_e_walkb]: DORE_KEYS.player,
+  [DORE_KEYS.player_s_walkb]: DORE_KEYS.player,
   [DORE_KEYS.player_walk_a]: DORE_KEYS.player,
   [DORE_KEYS.player_walk_b]: DORE_KEYS.player,
   [DORE_KEYS.player_walk_a2]: DORE_KEYS.player,
@@ -105,6 +134,94 @@ export const DORE_BLEND: Record<string, number> = {
 
 /** Extra scale on compact / phone UI for mobile readability (≈1.5× old). */
 export const DORE_COMPACT_SCALE = 1.7;
+
+/* ————————————————————————————————————————————————————————————————————————
+ *  8-direction player facing
+ * ———————————————————————————————————————————————————————————————————————— */
+
+export type Facing8 = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+
+/** atan2(screenDy, screenDx) buckets: 0=E … clockwise to NE. */
+const FACING8_ORDER: Facing8[] = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
+
+/**
+ * Map each facing to a real texture base (N/NE/E/SE/S) + whether to flipX.
+ * West / NW / SW are mirrors of E / NE / SE — never flip one sprite for all dirs.
+ */
+const FACING_TEX: Record<Facing8, { base: "n" | "ne" | "e" | "se" | "s"; flipX: boolean }> = {
+  n: { base: "n", flipX: false },
+  ne: { base: "ne", flipX: false },
+  e: { base: "e", flipX: false },
+  se: { base: "se", flipX: false },
+  s: { base: "s", flipX: false },
+  sw: { base: "se", flipX: true },
+  w: { base: "e", flipX: true },
+  nw: { base: "ne", flipX: true },
+};
+
+const PLAYER_DIR_KEY: Record<"n" | "ne" | "e" | "se" | "s", string> = {
+  n: DORE_KEYS.player_n,
+  ne: DORE_KEYS.player_ne,
+  e: DORE_KEYS.player_e,
+  se: DORE_KEYS.player_se,
+  s: DORE_KEYS.player_s,
+};
+
+const PLAYER_WALKB_KEY: Partial<Record<"n" | "ne" | "e" | "se" | "s", string>> = {
+  e: DORE_KEYS.player_e_walkb,
+  s: DORE_KEYS.player_s_walkb,
+};
+
+/**
+ * World velocity → 8-way facing via screen-space atan2 (iso: sx∝x−y, sy∝x+y).
+ * Returns null when speed is below `minSp` so callers keep last facing / aim.
+ */
+export function facing8FromWorldVel(vx: number, vy: number, minSp = 0.12): Facing8 | null {
+  const sx = vx - vy;
+  const sy = vx + vy;
+  if (Math.hypot(sx, sy) < minSp) return null;
+  const ang = Math.atan2(sy, sx);
+  const sector = Math.round(ang / (Math.PI / 4));
+  const idx = ((sector % 8) + 8) % 8;
+  return FACING8_ORDER[idx];
+}
+
+export function facing8FromAim(aimX: number, aimY: number): Facing8 {
+  return facing8FromWorldVel(aimX, aimY, 0.001) ?? "s";
+}
+
+export function facing8FlipX(dir: Facing8): boolean {
+  return FACING_TEX[dir].flipX;
+}
+
+/** True when the figure faces screen-left (west half) — for attack swipe / punch. */
+export function facing8IsLeft(dir: Facing8): boolean {
+  return dir === "w" || dir === "nw" || dir === "sw";
+}
+
+/**
+ * Texture key + flipX for a facing. `walkB` picks the stride-B plate when one
+ * exists for that base dir; otherwise reuses the idle/A plate (bob still animates).
+ */
+export function playerFacingVisual(
+  dir: Facing8,
+  walkB: boolean,
+  hasTex: (key: string) => boolean
+): { key: string; flipX: boolean } {
+  const { base, flipX } = FACING_TEX[dir];
+  let key = PLAYER_DIR_KEY[base];
+  if (walkB) {
+    const wb = PLAYER_WALKB_KEY[base];
+    if (wb && hasTex(wb)) key = wb;
+  }
+  if (!hasTex(key)) {
+    // Fall back to south / legacy idle so a missing dir never blanks the player.
+    if (hasTex(DORE_KEYS.player_s)) key = DORE_KEYS.player_s;
+    else if (hasTex(DORE_KEYS.player)) key = DORE_KEYS.player;
+  }
+  return { key, flipX };
+}
+
 
 /** Native pixel size of the visible part of a Doré texture (crop-aware). */
 export function doreFrameSize(scene: Phaser.Scene, texKey: string): { w: number; h: number } {
@@ -258,11 +375,15 @@ export type Particle = {
 export function ensureArtTextures(scene: Phaser.Scene) {
   if (scene.textures.exists("tex_shadow")) return;
 
-  // Soft elliptical shadow
+  // Soft elliptical shadow (layered falloff)
   const sh = scene.make.graphics({ x: 0, y: 0 });
-  sh.fillStyle(0x000000, 0.35);
-  sh.fillEllipse(16, 8, 28, 12);
-  sh.generateTexture("tex_shadow", 32, 16);
+  sh.fillStyle(0x000000, 0.18);
+  sh.fillEllipse(24, 12, 44, 20);
+  sh.fillStyle(0x000000, 0.28);
+  sh.fillEllipse(24, 12, 34, 14);
+  sh.fillStyle(0x000000, 0.4);
+  sh.fillEllipse(24, 12, 22, 9);
+  sh.generateTexture("tex_shadow", 48, 24);
   sh.destroy();
 
   // Bone/gold player token (etched disk)
@@ -613,7 +734,7 @@ export function spawnParticles(
   count: number
 ) {
   for (let i = 0; i < count; i++) {
-    if (particles.length > 48) break;
+    if (particles.length > 72) break;
     const x = Math.random() * bounds.width;
     const y = Math.random() * bounds.height;
     if (isHub) {
@@ -806,10 +927,11 @@ export function ensureVignetteTexture(scene: Phaser.Scene, key = "tex_vignette")
   const canvasTex = scene.textures.createCanvas(key, size, size);
   const ctx = canvasTex?.getContext();
   if (!ctx || !canvasTex) return key;
-  const grad = ctx.createRadialGradient(size / 2, size / 2, size * 0.28, size / 2, size / 2, size * 0.72);
+  const grad = ctx.createRadialGradient(size / 2, size / 2, size * 0.22, size / 2, size / 2, size * 0.78);
   grad.addColorStop(0, "rgba(0,0,0,0)");
-  grad.addColorStop(0.6, "rgba(0,0,0,0.35)");
-  grad.addColorStop(1, "rgba(0,0,0,0.85)");
+  grad.addColorStop(0.45, "rgba(0,0,0,0.22)");
+  grad.addColorStop(0.72, "rgba(0,0,0,0.55)");
+  grad.addColorStop(1, "rgba(0,0,0,0.92)");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   canvasTex.refresh();
@@ -930,15 +1052,16 @@ export function buildGroundTiles(
   maskGfx.fillPath();
   const mask = maskGfx.createGeometryMask();
 
-  const tint = isHub ? 0xc6d0c4 : 0xb89c98;
-  const alpha = isHub ? 0.95 : 0.9;
+  // Softer plate tint so etching reads without harsh checker seams.
+  const tint = isHub ? 0xb8c4b4 : 0xa88884;
+  const alpha = isHub ? 0.92 : 0.88;
   const root = scene.add.container(0, 0);
   root.setDepth(0);
   root.setMask(mask);
   // Solid iso diamond under the stamp so no seam / transparent texel ever
   // shows the camera background as a black void between tiles.
   const under = scene.make.graphics({ x: 0, y: 0 }, false);
-  under.fillStyle(isHub ? 0x11160f : 0x1a0806, 1);
+  under.fillStyle(isHub ? 0x12180f : 0x1c0a08, 1);
   under.beginPath();
   under.moveTo(corners[0].sx, corners[0].sy);
   for (let i = 1; i < corners.length; i++) under.lineTo(corners[i].sx, corners[i].sy);
@@ -946,12 +1069,15 @@ export function buildGroundTiles(
   under.fillPath();
   root.add(under);
   const images: Phaser.GameObjects.Image[] = [];
-  const cols = Math.ceil((maxX - minX) / tw) + 1;
-  const rows = Math.ceil((maxY - minY) / th) + 1;
+  // Overlap tiles ~2.5% so mirror seams blur instead of flashing a hairline.
+  const stepX = tw * 0.975;
+  const stepY = th * 0.975;
+  const cols = Math.ceil((maxX - minX) / stepX) + 1;
+  const rows = Math.ceil((maxY - minY) / stepY) + 1;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const x = minX + c * tw;
-      const y = minY + r * th;
+      const x = minX + c * stepX;
+      const y = minY + r * stepY;
       if (x > maxX || y > maxY) continue;
       const img = scene.make.image({ x, y, key: texKey }, false);
       img.setOrigin(0, 0);
@@ -1054,10 +1180,12 @@ export function drawFoeGlow(
   const pulse = 0.5 + 0.5 * Math.sin(t * 0.004 + sx * 0.03);
   const s = (opts.compact ? 1.5 : 1) * (opts.boss ? 2.1 : opts.champion ? 1.35 : 1);
   const col = opts.boss ? 0xd63a2a : opts.champion ? 0xff7a3a : 0xc0402a;
-  g.fillStyle(col, 0.06 + pulse * 0.06);
-  g.fillEllipse(sx, sy + 3, 46 * s, 20 * s);
-  g.lineStyle(1.5, col, 0.18 + pulse * 0.24);
-  g.strokeEllipse(sx, sy + 3, 34 * s, 14 * s);
+  g.fillStyle(col, 0.10 + pulse * 0.10);
+  g.fillEllipse(sx, sy + 3, 52 * s, 22 * s);
+  g.fillStyle(col, 0.08 + pulse * 0.08);
+  g.fillEllipse(sx, sy + 2, 28 * s, 12 * s);
+  g.lineStyle(1.5, col, 0.28 + pulse * 0.3);
+  g.strokeEllipse(sx, sy + 3, 38 * s, 15 * s);
 }
 
 export function spawnKillBurst(particles: Particle[], wx: number, wy: number, boss = false) {

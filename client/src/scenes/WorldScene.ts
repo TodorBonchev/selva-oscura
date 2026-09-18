@@ -67,6 +67,10 @@ import {
   drawInfernalShock,
   buildGroundTiles,
   destroyGroundTiles,
+  facing8FromWorldVel,
+  facing8IsLeft,
+  playerFacingVisual,
+  type Facing8,
   type GroundTiles,
   type Particle,
 } from "../render/art";
@@ -173,7 +177,8 @@ export class WorldScene extends Phaser.Scene {
   /** Damped local velocity (world units / sec). */
   velX = 0;
   velY = 0;
-  facingLeft = false;
+  /** 8-way facing from velocity / aim (west dirs use flipX of E/NE/SE). */
+  facing8: Facing8 = "s";
   /** 0 = idle texture; 1/2 = walk A/B. */
   walkFrame = 0;
   walkAnimAcc = 0;
@@ -181,8 +186,6 @@ export class WorldScene extends Phaser.Scene {
   attackBusyUntil = 0;
   swipeFx: { until: number; dir: number; start: number } | null = null;
   lastYouSnapshot: any = null;
-  /** Show the back-view stride while walking "up" the screen (hysteresis). */
-  walkBackView = false;
   /** Expanding kill rings (screen px) drawn in redraw(). */
   killFx: { sx: number; sy: number; start: number; boss: boolean }[] = [];
   /** In-flight gale bolt arcs (world → screen in redraw). */
@@ -197,7 +200,7 @@ export class WorldScene extends Phaser.Scene {
   /** Camera-following soft vignette so the arena edges fall into dark. */
   vignette: Phaser.GameObjects.Image | null = null;
   /** Remote player last render pos + moving timestamp so they stride too. */
-  remotePrev = new Map<string, { x: number; y: number; movedAt: number }>();
+  remotePrev = new Map<string, { x: number; y: number; movedAt: number; facing: Facing8 }>();
 
   constructor() {
     super("world");
@@ -236,7 +239,7 @@ export class WorldScene extends Phaser.Scene {
     {
       const vk = ensureVignetteTexture(this);
       if (hasTexture(this, vk)) {
-        this.vignette = this.add.image(0, 0, vk).setDepth(8900).setAlpha(0.7);
+        this.vignette = this.add.image(0, 0, vk).setDepth(8900).setAlpha(0.84);
         this.layoutVignette();
       }
     }
@@ -394,13 +397,14 @@ export class WorldScene extends Phaser.Scene {
       if (best) {
         ax = best.pos.x - you.x;
         ay = best.pos.y - you.y;
-      } else if (this.facingLeft) {
-        ax = -1;
-        ay = 0;
+        const f = facing8FromWorldVel(ax, ay, 0.01);
+        if (f) this.facing8 = f;
       }
     }
     const len = Math.hypot(ax, ay) || 1;
-    this.socket.cast(spellId, { x: ax / len, y: ay / len });
+    this.aimX = ax / len;
+    this.aimY = ay / len;
+    this.socket.cast(spellId, { x: this.aimX, y: this.aimY });
     noteSpellCast(spellId, def.cooldown);
     // Optimistic cast flourish on self
     if (spellId === "whirl_ward") {
@@ -408,7 +412,7 @@ export class WorldScene extends Phaser.Scene {
     } else if (spellId === "infernal_burst") {
       this.punch("you", { dur: 320, punch: 0.18, tint: 0xff6644, ox: 0, oy: -6 });
     } else {
-      this.punch("you", { dur: 180, punch: 0.12, tint: 0xffd078, ox: this.facingLeft ? -6 : 6, oy: -4 });
+      this.punch("you", { dur: 180, punch: 0.12, tint: 0xffd078, ox: facing8IsLeft(this.facing8) ? -6 : 6, oy: -4 });
     }
   }
 
@@ -524,12 +528,12 @@ export class WorldScene extends Phaser.Scene {
     this.swipeFx = {
       start: this.animT,
       until: this.animT + ATTACK_SWIPE_MS,
-      dir: this.facingLeft ? -1 : 1,
+      dir: facing8IsLeft(this.facing8) ? -1 : 1,
     };
-    this.punch("you", { dur: ATTACK_WINDUP_MS + 40, punch: 0.2, tint: 0xffe8a0, ox: this.facingLeft ? -8 : 8, oy: -5 });
+    this.punch("you", { dur: ATTACK_WINDUP_MS + 40, punch: 0.2, tint: 0xffe8a0, ox: facing8IsLeft(this.facing8) ? -8 : 8, oy: -5 });
     this.time.delayedCall(ATTACK_WINDUP_MS, () => {
       this.socket.attack(targetId);
-      this.punch("you", { dur: 140, punch: 0.12, tint: null, ox: this.facingLeft ? -6 : 6, oy: -2 });
+      this.punch("you", { dur: 140, punch: 0.12, tint: null, ox: facing8IsLeft(this.facing8) ? -6 : 6, oy: -2 });
     });
   }
 
@@ -682,7 +686,7 @@ export class WorldScene extends Phaser.Scene {
             dur: 220,
             punch: ent.kind === "boss" ? 0.14 : 0.32,
             tint: 0xffffff,
-            ox: away * (6 + Math.random() * 8) * (this.facingLeft ? -1 : 1),
+            ox: away * (6 + Math.random() * 8) * (facing8IsLeft(this.facing8) ? -1 : 1),
             oy: -6 - Math.random() * 6,
           });
           spawnHitBurst(this.particles, ent.x, ent.y);
@@ -904,44 +908,43 @@ export class WorldScene extends Phaser.Scene {
 
 
   /**
-   * Walk pose for any walker: contact (stride) ↔ passing (legs together) at
-   * WALK_FRAME_MS, with bob, bounce, forward lean + sway. Front view when
-   * walking down the screen, back view when walking up. `t` is animT (ms).
+   * 8-dir walk pose: alternate idle/A ↔ walk-B (when present) at WALK_FRAME_MS,
+   * with bob, bounce, lean. West dirs flipX the E/NE/SE plates.
    */
-  private walkVisual(t: number, backView: boolean, compact: boolean, facingLeft: boolean) {
-    const contact = backView ? DORE_KEYS.player_walk_b : DORE_KEYS.player_walk_a;
-    const passing = backView ? DORE_KEYS.player_walk_b2 : DORE_KEYS.player_walk_a2;
+  private walkVisual(t: number, facing: Facing8, compact: boolean) {
     const frame = Math.floor(t / WALK_FRAME_MS) % 2;
-    let key: string = frame === 0 ? contact : passing;
-    // Contact = low, passing = high: bob peaks on the legs-together frame.
+    const vis = playerFacingVisual(facing, frame === 1, (k) => this.doreOk(k));
     const phase = -Math.cos((t * Math.PI) / WALK_FRAME_MS); // -1 → 1 → -1 per step
     const step = Math.sin((t * Math.PI) / (WALK_FRAME_MS * 2)); // ±1 alternating steps
     const mul = compact ? 1.3 : 1;
     const bob = -(phase * 0.5 + 0.5) * WALK_BOB_PX * mul;
     const scale = 1 + WALK_BOUNCE * phase;
-    // Squash on contact, stretch on passing (scaleX/scaleY asymmetry).
     const squash = -phase * 0.035;
-    const dir = facingLeft ? -1 : 1;
-    const rot = Phaser.Math.DegToRad(dir * (WALK_LEAN_DEG + step * WALK_LEAN_DEG * 0.8));
-    if (!this.doreOk(key)) key = this.doreOk(contact) ? contact : DORE_KEYS.player;
-    return { key, bob, scale, squash, rot };
+    const leanDir = facing8IsLeft(facing) ? -1 : 1;
+    const rot = Phaser.Math.DegToRad(leanDir * (WALK_LEAN_DEG + step * WALK_LEAN_DEG * 0.8));
+    return { key: vis.key, flipX: vis.flipX, bob, scale, squash, rot };
   }
 
   /** Idle breathe vs walk cycle for the local (predicted) player. */
-  private localPlayerVisual(): { key: string; bob: number; scale: number; squash: number; rot: number } {
+  private localPlayerVisual(): {
+    key: string;
+    flipX: boolean;
+    bob: number;
+    scale: number;
+    squash: number;
+    rot: number;
+  } {
     const sp = Math.hypot(this.velX, this.velY);
     const moving = this.movingVisual || sp > 0.4;
     const compact = isCompactUi();
     if (moving) {
-      // Screen-vertical component of travel picks front/back view (hysteresis).
-      const up = this.velX + this.velY;
-      if (up < -1.2) this.walkBackView = true;
-      else if (up > 1.2) this.walkBackView = false;
-      return this.walkVisual(this.animT, this.walkBackView, compact, this.facingLeft);
+      return this.walkVisual(this.animT, this.facing8, compact);
     }
     const breathe = Math.sin(this.animT * 0.0035);
+    const idle = playerFacingVisual(this.facing8, false, (k) => this.doreOk(k));
     return {
-      key: DORE_KEYS.player,
+      key: idle.key,
+      flipX: idle.flipX,
       bob: breathe * IDLE_BOB_PX * (compact ? 1.3 : 1),
       scale: 1,
       squash: breathe * IDLE_SWELL,
@@ -966,7 +969,7 @@ export class WorldScene extends Phaser.Scene {
     let base = this.spriteBase.get(id);
     if (!img) {
       img = this.add.image(sx, sy, texKey);
-      img.setOrigin(0.5, 0.88);
+      img.setOrigin(0.5, 0.92);
       this.applySpriteTexture(id, img, texKey, compact);
       base = this.spriteBase.get(id);
       // Ensure no debug / bounds stroke leftover from textures
@@ -1009,20 +1012,21 @@ export class WorldScene extends Phaser.Scene {
       else img.clearTint();
     }
 
-    // Soft shadow under sprite
+    // Soft drop shadow under sprite (slightly larger / darker for pop)
     let sh = this.shadowSprites.get(id);
     if (!sh) {
       if (hasTexture(this, "tex_shadow")) {
-        sh = this.add.image(sx, sy + 2, "tex_shadow");
-        sh.setAlpha(0.45);
+        sh = this.add.image(sx, sy + 3, "tex_shadow");
+        sh.setAlpha(0.58);
         this.shadowSprites.set(id, sh);
       }
     }
     if (sh) {
-      sh.setPosition(sx, sy + 2);
-      sh.setDisplaySize(Math.max(22, base.w * 0.55), compact ? 16 : 12);
+      sh.setPosition(sx, sy + 3);
+      sh.setDisplaySize(Math.max(28, base.w * 0.62), compact ? 18 : 14);
       sh.setDepth(depth - 0.1);
       sh.setVisible(true);
+      sh.setAlpha(0.58);
     }
     return true;
   }
@@ -1049,9 +1053,9 @@ export class WorldScene extends Phaser.Scene {
       // Crop keeps the full-frame origin; shift so the visible frame is centred on the feet.
       const fullW = img.width;
       const fullH = img.height;
-      img.setOrigin((crop.x + crop.w / 2) / fullW, (crop.y + crop.h * 0.88) / fullH);
+      img.setOrigin((crop.x + crop.w / 2) / fullW, (crop.y + crop.h * 0.92) / fullH);
     } else {
-      img.setOrigin(0.5, 0.88);
+      img.setOrigin(0.5, 0.92);
     }
     this.spriteBase.set(id, { sx, sy, w: sz.w, h: sz.h });
   }
@@ -1286,7 +1290,7 @@ export class WorldScene extends Phaser.Scene {
         if (this.placeSprite(sid, tex!, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
           const b = this.spriteBase.get(sid);
-          if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
+          if (b) topY = p.sy - 4 - b.h * 0.92 - (compact ? 10 : 6);
         } else {
           drawMob(g, p.sx, p.sy, Boolean(e.champion));
         }
@@ -1298,7 +1302,7 @@ export class WorldScene extends Phaser.Scene {
         if (this.placeSprite(sid, DORE_KEYS.boss_judge, p.sx, p.sy, depth)) {
           seenSprites.add(sid);
           const b = this.spriteBase.get(sid);
-          if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 14 : 8);
+          if (b) topY = p.sy - 4 - b.h * 0.92 - (compact ? 14 : 8);
         } else {
           drawBoss(g, p.sx, p.sy);
         }
@@ -1347,22 +1351,33 @@ export class WorldScene extends Phaser.Scene {
       const prev = this.remotePrev.get(sid);
       const now = this.animT;
       let movedAt = prev?.movedAt ?? -Infinity;
-      let facingLeft = false;
-      let backView = false;
+      let facing: Facing8 = prev?.facing ?? "s";
       if (prev) {
         const ddx = pos.x - prev.x;
         const ddy = pos.y - prev.y;
         if (Math.hypot(ddx, ddy) > 0.015) {
           movedAt = now;
-          if (Math.abs(ddx - ddy) > 0.005) facingLeft = ddx - ddy < 0;
-          backView = ddx + ddy < 0;
+          const f = facing8FromWorldVel(ddx, ddy, 0.005);
+          if (f) facing = f;
+        } else {
+          facing = prev.facing;
         }
       }
-      this.remotePrev.set(sid, { x: pos.x, y: pos.y, movedAt });
+      this.remotePrev.set(sid, { x: pos.x, y: pos.y, movedAt, facing });
       const walking = now - movedAt < 140;
       const rv = walking
-        ? this.walkVisual(now, backView, compact, facingLeft)
-        : { key: DORE_KEYS.player, bob: Math.sin(now * 0.0035 + p.sx) * IDLE_BOB_PX, scale: 1, squash: 0, rot: 0 };
+        ? this.walkVisual(now, facing, compact)
+        : (() => {
+            const idle = playerFacingVisual(facing, false, (k) => this.doreOk(k));
+            return {
+              key: idle.key,
+              flipX: idle.flipX,
+              bob: Math.sin(now * 0.0035 + p.sx) * IDLE_BOB_PX,
+              scale: 1,
+              squash: 0,
+              rot: 0,
+            };
+          })();
       if (
         this.placeSprite(sid, rv.key, p.sx, p.sy, depth, {
           tint: 0x9ab0a0,
@@ -1370,12 +1385,12 @@ export class WorldScene extends Phaser.Scene {
           scale: rv.scale,
           squash: rv.squash,
           rot: rv.rot,
-          flipX: walking ? facingLeft : undefined,
+          flipX: rv.flipX,
         })
       ) {
         seenSprites.add(sid);
         const b = this.spriteBase.get(sid);
-        if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
+        if (b) topY = p.sy - 4 - b.h * 0.92 - (compact ? 10 : 6);
       } else {
         drawPlayer(g, p.sx, p.sy, false);
       }
@@ -1393,7 +1408,7 @@ export class WorldScene extends Phaser.Scene {
       const vis = this.localPlayerVisual();
       if (
         this.placeSprite(sid, vis.key, p.sx, p.sy, depth, {
-          flipX: this.facingLeft,
+          flipX: vis.flipX,
           bob: vis.bob,
           scale: vis.scale,
           squash: vis.squash,
@@ -1402,7 +1417,7 @@ export class WorldScene extends Phaser.Scene {
       ) {
         seenSprites.add(sid);
         const b = this.spriteBase.get(sid);
-        if (b) topY = p.sy - 4 - b.h * 0.88 - (compact ? 10 : 6);
+        if (b) topY = p.sy - 4 - b.h * 0.92 - (compact ? 10 : 6);
       } else {
         drawPlayer(g, p.sx, p.sy, true);
       }
@@ -1522,9 +1537,8 @@ export class WorldScene extends Phaser.Scene {
         this.velX = (this.velX / sp) * maxSp;
         this.velY = (this.velY / sp) * maxSp;
       }
-      // Facing from screen-ish: iso x+y grows down-right; prefer dx screen = dy_iso+dx_iso roughly
-      const screenDx = nx - ny; // rough: D/A horizontal feel
-      if (Math.abs(screenDx) > 0.15) this.facingLeft = screenDx < 0;
+      const f = facing8FromWorldVel(nx, ny, 0.15);
+      if (f) this.facing8 = f;
       if (mag > 0.2) {
         this.aimX = nx;
         this.aimY = ny;
@@ -1554,7 +1568,10 @@ export class WorldScene extends Phaser.Scene {
       this.velX = (this.velX / sp) * PREDICT_SPEED;
       this.velY = (this.velY / sp) * PREDICT_SPEED;
     }
-    if (Math.abs(dx - dy) > 0.01) this.facingLeft = dx - dy < 0;
+    {
+      const f = facing8FromWorldVel(dx, dy, 0.01);
+      if (f) this.facing8 = f;
+    }
     this.aimX = dx / d;
     this.aimY = dy / d;
     this.integrateVelocity(dtSec, true);
@@ -1675,9 +1692,9 @@ export class WorldScene extends Phaser.Scene {
     // Particles (sparse)
     const isHub = this.room.role === "hub";
     this.particleAcc += dtSec;
-    if (this.particleAcc > 0.35) {
+    if (this.particleAcc > 0.22) {
       this.particleAcc = 0;
-      spawnParticles(this.particles, isHub, this.room.bounds, isHub ? 2 : 3);
+      spawnParticles(this.particles, isHub, this.room.bounds, isHub ? 3 : 5);
     }
     tickParticles(this.particles, dtSec);
 
