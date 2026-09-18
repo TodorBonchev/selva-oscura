@@ -22,6 +22,8 @@ import {
   isComboEclipse,
   isComboVoidCorona,
   isComboAbyss,
+  isComboRiftShear,
+  isComboRiftShearMax,
   resetCombo,
   playDeathRevive,
   flashWardSoak,
@@ -29,6 +31,7 @@ import {
   flashSlamSafeRim,
   pulseVoidCorona,
   pulseAbyssChroma,
+  pulseRiftShear,
   hapticInteractReady,
   hapticStickyRetarget,
   hapticPortalComplete,
@@ -147,6 +150,11 @@ const RESPAWN_BEACON_MS = 2200;
 const DEATH_ASH_TRAIL_MS = 1600;
 /** Rarity-tick pop duration when loot first enters magnet range (ms). */
 const MAGNET_TICK_POP_MS = 420;
+/** Stagger between multi-pile magnet flashes in the same frame (ms). */
+const MAGNET_FLASH_STAGGER_MS = 70;
+/** Rift-shear foe pad desync duration (ms). */
+const RIFT_SHEAR_MS = 520;
+const RIFT_SHEAR_MAX_MS = 720;
 /** Sticky chip: hold this long before cycling threats one-by-one (ms). */
 const STICKY_HOLD_MS = 280;
 /** Sticky chip: interval between successive threat cycles while held (ms). */
@@ -436,6 +444,12 @@ export class WorldScene extends Phaser.Scene {
   }[] = [];
   /** When each loot id first entered magnet range (animT) — drives spine tick pop. */
   magnetEnteredAt = new Map<string, number>();
+  /** Same-frame magnet enter batch — stagger flash start times. */
+  magnetEnterBatchAt = -1;
+  magnetEnterBatchCount = 0;
+  /** Rift-shear pad desync active until animT (0 = idle). */
+  riftShearUntil = 0;
+  riftShearEscalate = false;
   /**
    * Sticky edge chip hit zone for tap/hold retarget (screen space, last frame).
    * Tap → nearest threat; hold → cycle threat arrows one-by-one.
@@ -1222,6 +1236,17 @@ export class WorldScene extends Phaser.Scene {
     });
   }
 
+  /** Rift-shear foe pad desync amplitude in px (0 when idle). */
+  private riftShearPadDesync(): number {
+    if (this.animT >= this.riftShearUntil) return 0;
+    const dur = this.riftShearEscalate ? RIFT_SHEAR_MAX_MS : RIFT_SHEAR_MS;
+    const left = this.riftShearUntil - this.animT;
+    const life = Math.max(0, Math.min(1, left / Math.max(1, dur)));
+    const wobble = 0.55 + 0.45 * Math.sin(this.animT * 0.09);
+    const amp = (this.riftShearEscalate ? 5.5 : 3.6) * life * wobble;
+    return amp;
+  }
+
   refreshInventoryUi() {
     const you = this.lastYouSnapshot;
     if (!you) return;
@@ -1442,12 +1467,42 @@ export class WorldScene extends Phaser.Scene {
               isCompactUi()
             );
           }
-          if (isComboAbyss(streak) && (streak === 200 || streak % 200 === 0)) {
+          if (isComboAbyss(streak) && (streak === 200 || (streak > 200 && streak % 200 === 0))) {
             // ×200 abyss — brief chroma fringe + camera breathe, no toast
             this.punchComboVignette();
             this.cameraBreathe(0.055, 560);
             this.cameras.main.shake(120, isCompactUi() ? 0.0055 : 0.0038);
             pulseAbyssChroma();
+            spawnEclipseEmberDrift(
+              this.particles,
+              this.renderYou.x,
+              this.renderYou.y,
+              isCompactUi()
+            );
+          }
+          if (isComboRiftShear(streak) && (streak === 250 || (streak > 250 && streak % 250 === 0 && !isComboRiftShearMax(streak)))) {
+            // ×250 rift shear — brief screen tear + foe pad desync, no toast
+            this.punchComboVignette();
+            this.cameraPunch(0.08, 280);
+            this.cameras.main.shake(160, isCompactUi() ? 0.007 : 0.0048);
+            pulseRiftShear(false);
+            this.riftShearUntil = this.animT + RIFT_SHEAR_MS;
+            this.riftShearEscalate = false;
+            spawnEclipseEmberDrift(
+              this.particles,
+              this.renderYou.x,
+              this.renderYou.y,
+              isCompactUi()
+            );
+          }
+          if (isComboRiftShearMax(streak) && (streak === 300 || streak % 300 === 0)) {
+            // ×300 rift shear escalate — stronger tear / desync, still no toast
+            this.punchComboVignette();
+            this.cameraPunch(0.1, 340);
+            this.cameras.main.shake(200, isCompactUi() ? 0.0085 : 0.006);
+            pulseRiftShear(true);
+            this.riftShearUntil = this.animT + RIFT_SHEAR_MAX_MS;
+            this.riftShearEscalate = true;
             spawnEclipseEmberDrift(
               this.particles,
               this.renderYou.x,
@@ -2556,6 +2611,10 @@ export class WorldScene extends Phaser.Scene {
         lab.setAlpha(0.98);
         lab.setStroke("#ffe8a0", compact ? 3 : 2);
         lab.setDepth(9500);
+        // Soft heartbeat scale pulse on countdown digits
+        const hb = 0.5 + 0.5 * Math.sin(this.animT * 0.011);
+        const beat = 1 + hb * hb * 0.14; // soft double-bump feel
+        lab.setScale(beat);
       }
     }
 
@@ -2761,7 +2820,14 @@ export class WorldScene extends Phaser.Scene {
     // Edge-of-screen foes for sticky multi-threat arrows
     this.stickyChipHit = null;
     const camEdge = this.cameras.main;
-    const edgeFoes: { id: string; sx: number; sy: number; wx: number; wy: number }[] = [];
+    const edgeFoes: {
+      id: string;
+      sx: number;
+      sy: number;
+      wx: number;
+      wy: number;
+      shortName: string;
+    }[] = [];
     for (const fe of ents) {
       if (fe.kind !== "mob" && fe.kind !== "boss") continue;
       const fpos = this.entityRenderPos(fe);
@@ -2771,7 +2837,22 @@ export class WorldScene extends Phaser.Scene {
         fp.sx > camEdge.worldView.x + camEdge.worldView.width * (1 - STICKY_EDGE_FRAC) ||
         fp.sy < camEdge.worldView.y + camEdge.worldView.height * STICKY_EDGE_FRAC ||
         fp.sy > camEdge.worldView.y + camEdge.worldView.height * (1 - STICKY_EDGE_FRAC);
-      if (near) edgeFoes.push({ id: String(fe.id), sx: fp.sx, sy: fp.sy, wx: fpos.x, wy: fpos.y });
+      if (near) {
+        const shortName =
+          fe.kind === "boss"
+            ? String(fe.name || "Judge").slice(0, 8)
+            : fe.champion
+              ? "Champ"
+              : String(fe.name || fe.label || "Foe").split(" ")[0].slice(0, 8);
+        edgeFoes.push({
+          id: String(fe.id),
+          sx: fp.sx,
+          sy: fp.sy,
+          wx: fpos.x,
+          wy: fpos.y,
+          shortName,
+        });
+      }
     }
 
     // Spine drawn once per loot tower (track anchors already painted)
@@ -2907,8 +2988,16 @@ export class WorldScene extends Phaser.Scene {
               ? edgeFoes.filter((f) => f.id !== String(e.id)).slice(0, 3)
               : [];
           const threatArrows = threatFoes.length
-            ? threatFoes.map((f) => ({ dx: f.sx - drawSx, dy: f.sy - p.sy }))
+            ? threatFoes.map((f) => ({
+                dx: f.sx - drawSx,
+                dy: f.sy - p.sy,
+                shortName: f.shortName,
+              }))
             : undefined;
+          const activeTi =
+            threatFoes.length && this.stickyActiveThreatIndex >= 0
+              ? this.stickyActiveThreatIndex % Math.min(3, threatFoes.length)
+              : -1;
           drawStickyTargetReticle(g, drawSx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
@@ -2941,10 +3030,32 @@ export class WorldScene extends Phaser.Scene {
               crumb.setStroke("#0a0806", 3);
               crumb.setDepth(9600);
             }
+            // Short name crumb on the *active* threat arrow while hold-cycling
+            if (activeTi >= 0 && threatFoes[activeTi]) {
+              const tf = threatFoes[activeTi];
+              const nm = (tf.shortName || "Foe").slice(0, 6);
+              const ax = drawSx + (tf.sx - drawSx) * 0.35;
+              const ay = p.sy - (compact ? 28 : 22) + (tf.sy - p.sy) * 0.15;
+              this.addLabel(
+                `sticky-threat-name:${tf.id}`,
+                ax,
+                ay,
+                nm,
+                compact ? "9px" : "8px",
+                seenLabels
+              );
+              const tn = this.labels.get(`sticky-threat-name:${tf.id}`);
+              if (tn) {
+                tn.setColor("#ffe8a0");
+                tn.setAlpha(0.95);
+                tn.setStroke("#0a0806", 3);
+                tn.setDepth(9650);
+              }
+            }
           }
         }
         const champ = Boolean(e.champion);
-        drawEntityPad(g, drawSx, p.sy, champ ? (compact ? 2.05 : 1.65) : compact ? 1.55 : 1.2);
+        drawEntityPad(g, drawSx, p.sy, champ ? (compact ? 2.05 : 1.65) : compact ? 1.55 : 1.2, this.riftShearPadDesync());
         drawFoeGlow(g, drawSx, p.sy, this.animT, {
           compact,
           champion: champ,
@@ -2982,8 +3093,16 @@ export class WorldScene extends Phaser.Scene {
               ? edgeFoes.filter((f) => f.id !== String(e.id)).slice(0, 3)
               : [];
           const threatArrows = threatFoes.length
-            ? threatFoes.map((f) => ({ dx: f.sx - p.sx, dy: f.sy - p.sy }))
+            ? threatFoes.map((f) => ({
+                dx: f.sx - p.sx,
+                dy: f.sy - p.sy,
+                shortName: f.shortName,
+              }))
             : undefined;
+          const activeTi =
+            threatFoes.length && this.stickyActiveThreatIndex >= 0
+              ? this.stickyActiveThreatIndex % Math.min(3, threatFoes.length)
+              : -1;
           drawStickyTargetReticle(g, p.sx, p.sy, this.animT, compact, {
             hp: Number(e.hp),
             maxHp: Number(e.maxHp),
@@ -3015,9 +3134,30 @@ export class WorldScene extends Phaser.Scene {
               crumb.setStroke("#0a0806", 3);
               crumb.setDepth(9600);
             }
+            if (activeTi >= 0 && threatFoes[activeTi]) {
+              const tf = threatFoes[activeTi];
+              const nm = (tf.shortName || "Foe").slice(0, 6);
+              const ax = p.sx + (tf.sx - p.sx) * 0.35;
+              const ay = p.sy - (compact ? 28 : 22) + (tf.sy - p.sy) * 0.15;
+              this.addLabel(
+                `sticky-threat-name:${tf.id}`,
+                ax,
+                ay,
+                nm,
+                compact ? "9px" : "8px",
+                seenLabels
+              );
+              const tn = this.labels.get(`sticky-threat-name:${tf.id}`);
+              if (tn) {
+                tn.setColor("#ffe8a0");
+                tn.setAlpha(0.95);
+                tn.setStroke("#0a0806", 3);
+                tn.setDepth(9650);
+              }
+            }
           }
         }
-        drawEntityPad(g, p.sx, p.sy, compact ? 2.7 : 2.1);
+        drawEntityPad(g, p.sx, p.sy, compact ? 2.7 : 2.1, this.riftShearPadDesync());
         drawFoeGlow(g, p.sx, p.sy, this.animT, { compact, boss: true });
         let topY = p.sy - 68;
         const bossScale = compact ? 1.1 : 1.05;
@@ -3052,7 +3192,15 @@ export class WorldScene extends Phaser.Scene {
         const lootIdEarly = String(e.id);
         if (lootDistEarly < MAGNET_RANGE && lootDistEarly > 0.15) {
           if (!this.magnetEnteredAt.has(lootIdEarly)) {
-            this.magnetEnteredAt.set(lootIdEarly, this.animT);
+            // Stagger flash when multiple piles enter range same frame
+            if (Math.abs(this.animT - this.magnetEnterBatchAt) > 2) {
+              this.magnetEnterBatchAt = this.animT;
+              this.magnetEnterBatchCount = 0;
+            } else {
+              this.magnetEnterBatchCount += 1;
+            }
+            const stagger = this.magnetEnterBatchCount * MAGNET_FLASH_STAGGER_MS;
+            this.magnetEnteredAt.set(lootIdEarly, this.animT + stagger);
           }
         } else {
           this.magnetEnteredAt.delete(lootIdEarly);
@@ -3330,6 +3478,7 @@ export class WorldScene extends Phaser.Scene {
       if (t.text !== text) t.setText(text);
       if (t.style.fontSize !== fontSize) t.setFontSize(fontSize);
       t.setAlpha(0.62);
+      t.setScale(1);
     }
   }
 
@@ -3898,6 +4047,17 @@ export class WorldScene extends Phaser.Scene {
         }
         el.classList.add("compass-corpse-wake");
         el.classList.toggle("compass-corpse-fade", fade < 0.85);
+        // Faint corpse→wake line on the mini compass itself
+        let wakeLine = el.querySelector<HTMLElement>(".compass-wake-line");
+        if (!wakeLine) {
+          wakeLine = document.createElement("span");
+          wakeLine.className = "compass-wake-line";
+          wakeLine.setAttribute("aria-hidden", "true");
+          el.appendChild(wakeLine);
+        }
+        // Line stretches with fade; angle follows compass chevron
+        wakeLine.style.opacity = (0.25 + fade * 0.55).toFixed(3);
+        wakeLine.style.setProperty("--wake-len", `${(10 + fade * 14).toFixed(1)}px`);
       } else {
         el.classList.remove("compass-corpse-wake", "compass-corpse-fade");
         el.style.removeProperty("--corpse-fade");
@@ -3906,6 +4066,7 @@ export class WorldScene extends Phaser.Scene {
           d0.classList.remove("compass-corpse-crumb");
           (d0 as HTMLElement).removeAttribute("title");
         }
+        el.querySelector(".compass-wake-line")?.remove();
         if (!ashTrail) el.classList.remove("compass-ash-pulse");
       }
     });

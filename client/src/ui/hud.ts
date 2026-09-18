@@ -625,6 +625,16 @@ export function isComboAbyss(n: number): boolean {
   return n >= 200;
 }
 
+/** ×250+ rift shear — brief screen tear / foe pad desync (no toast). */
+export function isComboRiftShear(n: number): boolean {
+  return n >= 250;
+}
+
+/** ×300+ rift shear escalate (stronger tear, same language). */
+export function isComboRiftShearMax(n: number): boolean {
+  return n >= 300;
+}
+
 export function getComboCount(): number {
   return comboCount;
 }
@@ -632,9 +642,11 @@ export function getComboCount(): number {
 export function resetCombo() {
   if (comboCount <= 0) return;
   const wasShown = comboCount >= 2;
+  const wasAbyss = comboCount >= 200;
   comboCount = 0;
   comboLastAt = 0;
   syncComboPip(false, wasShown);
+  if (wasAbyss) pulseAbyssAfterimage();
 }
 
 function syncComboPip(bump = false, expire = false) {
@@ -839,6 +851,33 @@ export function pulseAbyssChroma() {
     document.body.classList.remove("abyss-chroma-pulse");
     if (el) el.setAttribute("aria-hidden", "true");
   }, 580);
+}
+
+/** Brief screen tear / rift shear at combo ×250 (+ escalate at ×300). No toast. */
+export function pulseRiftShear(escalate = false) {
+  const el = document.getElementById("rift-shear");
+  document.body.classList.remove("rift-shear-pulse", "rift-shear-max");
+  void document.body.offsetWidth;
+  document.body.classList.add("rift-shear-pulse");
+  if (escalate) document.body.classList.add("rift-shear-max");
+  if (el) el.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    document.body.classList.remove("rift-shear-pulse", "rift-shear-max");
+    if (el) el.setAttribute("aria-hidden", "true");
+  }, escalate ? 720 : 520);
+}
+
+/** Soft abyss afterimage when a ×200+ streak dies (decay, no toast). */
+export function pulseAbyssAfterimage() {
+  const el = document.getElementById("abyss-afterimage");
+  document.body.classList.remove("abyss-afterimage-pulse");
+  void document.body.offsetWidth;
+  document.body.classList.add("abyss-afterimage-pulse");
+  if (el) el.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    document.body.classList.remove("abyss-afterimage-pulse");
+    if (el) el.setAttribute("aria-hidden", "true");
+  }, 640);
 }
 
 function pingSpellReady(btn: HTMLElement) {

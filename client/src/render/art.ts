@@ -886,8 +886,23 @@ export function drawEntityPad(
   g: Phaser.GameObjects.Graphics,
   sx: number,
   sy: number,
-  scale = 1
+  scale = 1,
+  /** Rift-shear pad desync: brief RGB-fringe offset (px). */
+  shearDesyncPx = 0
 ) {
+  const d = shearDesyncPx;
+  if (d > 0.15) {
+    // Split pads: cyan / magenta fringe + core (screen-tear language)
+    g.fillStyle(0x22e0ff, 0.22);
+    g.fillEllipse(sx - d, sy + 3, 34 * scale, 15 * scale);
+    g.fillStyle(0xff2a88, 0.22);
+    g.fillEllipse(sx + d, sy + 3, 34 * scale, 15 * scale);
+    g.fillStyle(0x000000, 0.5);
+    g.fillEllipse(sx, sy + 3 + d * 0.35, 34 * scale, 15 * scale);
+    g.fillStyle(0x050308, 0.28);
+    g.fillEllipse(sx, sy + 3, 52 * scale, 24 * scale);
+    return;
+  }
   g.fillStyle(0x000000, 0.55);
   g.fillEllipse(sx, sy + 3, 34 * scale, 15 * scale);
   g.fillStyle(0x050308, 0.32);
@@ -2217,7 +2232,7 @@ export function drawStickyTargetReticle(
     /** Optional short name under the edge HP chip. */
     shortName?: string;
     /** Screen-space offsets to other edge threats (mini arrows). */
-    threatArrows?: { dx: number; dy: number }[];
+    threatArrows?: { dx: number; dy: number; shortName?: string }[];
     /** Which threat arrow is currently selected while hold-cycling (0-based). */
     activeThreatIndex?: number;
   }
@@ -2341,6 +2356,34 @@ export function drawStickyTargetReticle(
         if (lit) {
           g.lineStyle(1.2, 0xc9a227, 0.85);
           g.strokeCircle(ax + ux * (tip * 0.35), ay + uy * (tip * 0.35), compact ? 5.5 : 4.5);
+          // Short name crumb on the *active* threat arrow while hold-cycling
+          const nm = (t.shortName || "").trim();
+          if (nm) {
+            const sn = nm.length > 6 ? nm.slice(0, 5) + "…" : nm;
+            const nx = ax + ux * (tip + (compact ? 10 : 8));
+            const ny = ay + uy * (tip + (compact ? 10 : 8));
+            const cw = Math.min(compact ? 40 : 34, 5 + sn.length * (compact ? 4.0 : 3.4));
+            const ch = compact ? 9 : 8;
+            g.fillStyle(0x0a0806, 0.78);
+            g.fillRoundedRect(nx - cw / 2, ny - ch / 2, cw, ch, 2);
+            g.lineStyle(1, 0xffe8a0, 0.7);
+            g.strokeRoundedRect(nx - cw / 2, ny - ch / 2, cw, ch, 2);
+            // Name pip diamond (Text label drawn by caller when present)
+            g.fillStyle(0xe8c86a, 0.95);
+            g.fillTriangle(nx, ny - 2.5, nx + 2.5, ny, nx, ny + 2.5);
+            g.fillTriangle(nx, ny - 2.5, nx - 2.5, ny, nx, ny + 2.5);
+            // Store crumb anchor via tiny hash marks for glyph feel
+            const marks = Math.min(4, Math.max(1, sn.length - 1));
+            const mw = compact ? 2.8 : 2.2;
+            const gap = 1.5;
+            const totalW = marks * mw + (marks - 1) * gap;
+            let mx = nx - totalW / 2;
+            for (let m = 0; m < marks; m++) {
+              g.fillStyle(m === marks - 1 ? 0xffe8a0 : 0xc9a227, 0.85);
+              g.fillRect(mx, ny + (compact ? 5 : 4), mw, compact ? 2.4 : 2);
+              mx += mw + gap;
+            }
+          }
         }
       }
     }
