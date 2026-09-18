@@ -1047,8 +1047,9 @@ button:disabled { opacity: 0.55; cursor: default; }
   flex: 1 1 0;
   max-width: 4.4rem;
   min-width: 3.2rem;
-  padding: 0.28rem 0.28rem 0.32rem;
-  gap: 0.02rem;
+  justify-content: flex-end;
+  padding: 0.55rem 0.28rem 0.32rem;
+  gap: 0.08rem;
   overflow: hidden;
 }
 .spell-btn .spell-icon {
@@ -1061,8 +1062,12 @@ button:disabled { opacity: 0.55; cursor: default; }
   z-index: 1;
 }
 .spell-btn .action-label {
+  max-width: 100%;
+  padding: 0 0.1rem;
   font-size: 0.62rem;
   letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
   z-index: 1;
 }
 .spell-btn .action-hint {
@@ -1076,14 +1081,19 @@ button:disabled { opacity: 0.55; cursor: default; }
 }
 .spell-btn .spell-cost {
   position: absolute;
-  bottom: 3px;
-  left: 5px;
+  top: 3px;
+  left: 4px;
+  padding: 0.08rem 0.2rem;
+  border: 1px solid #c9a22766;
+  border-radius: 999px;
+  background: #0b0d0ccc;
   font-size: 0.52rem;
+  line-height: 1;
   color: #e8d9a0;
   letter-spacing: 0.04em;
   z-index: 2;
   text-shadow: 0 1px 0 #000;
-  opacity: 0.85;
+  opacity: 0.9;
 }
 .spell-btn .spell-cd {
   position: absolute;
@@ -1306,10 +1316,10 @@ body.has-modal #virtual-joystick { display: none; }
     width: calc(var(--tap) + 4px);
     min-width: calc(var(--tap) + 4px);
     max-width: none;
-    padding: 0.18rem;
+    padding: 0.55rem 0.18rem 0.18rem;
   }
   .spell-btn .spell-icon { width: 1.55rem; height: 1.55rem; }
-  .spell-btn .spell-cost { font-size: 0.48rem; }
+  .spell-btn .spell-cost { top: 3px; left: 4px; font-size: 0.48rem; }
   .spell-btn .action-label { font-size: 0.52rem; }
   /* Short label on phones ("Use" for Interact) so nothing clips */
   .action-btn .action-label[data-short] { font-size: 0; }
