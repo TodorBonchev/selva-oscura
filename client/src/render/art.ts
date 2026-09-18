@@ -1685,7 +1685,9 @@ export function drawBossTelegraph(
   sy: number,
   charge: number,
   radiusWorld: number,
-  tMs: number
+  tMs: number,
+  /** Compact (phone) pip size. */
+  compact = false
 ) {
   const c = Math.max(0, Math.min(1, charge));
   const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.025);
@@ -1701,6 +1703,36 @@ export function drawBossTelegraph(
   const ir = r * (0.35 + (1 - c) * 0.45);
   g.lineStyle(2.5, 0xffe8a0, 0.55 + c * 0.35);
   g.strokeEllipse(sx, sy + 4, ir, ir * 0.42);
+
+  // Ward-pip style countdown disc + remaining arc (number is Phaser Text)
+  const pipR = compact ? 13 : 11;
+  const pipY = sy - (compact ? 28 : 24);
+  g.fillStyle(0x1a0808, 0.9);
+  g.fillCircle(sx, pipY, pipR + 2);
+  g.fillStyle(0xc9a227, 0.94);
+  g.fillCircle(sx, pipY, pipR);
+  g.lineStyle(1.4, 0xffe8a0, 0.95);
+  g.strokeCircle(sx, pipY, pipR);
+  const remain = 1 - c;
+  const segs = 20;
+  const ringR = pipR + 4;
+  const drawn = Math.max(1, Math.ceil(segs * remain));
+  for (let i = 0; i < drawn; i++) {
+    const a0 = -Math.PI / 2 + (i / segs) * Math.PI * 2;
+    const a1 = -Math.PI / 2 + ((i + 1) / segs) * Math.PI * 2;
+    g.lineStyle(2.4, i === 0 ? 0xfff6d0 : 0xffe08a, 0.95);
+    g.lineBetween(
+      sx + Math.cos(a0) * ringR,
+      pipY + Math.sin(a0) * ringR,
+      sx + Math.cos(a1) * ringR,
+      pipY + Math.sin(a1) * ringR
+    );
+  }
+}
+
+/** Screen Y offset of the Judge countdown pip so the number sits in the disc. */
+export function bossTelegraphPipY(sy: number, compact: boolean): number {
+  return sy - (compact ? 28 : 24);
 }
 
 
