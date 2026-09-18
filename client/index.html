@@ -36,13 +36,16 @@
         </div>
       </div>
     </header>
-    <div id="toast" aria-live="polite"></div>
     <div id="help" class="help-desktop">
       Click ground to move · Click foe to attack · E / click POI to interact · I inventory · H AH
     </div>
     <div id="help-mobile" class="help-mobile">
-      Left stick to move · Tap foe or hold Attack · Tap POI or Interact · Inv / AH
+      Stick moves · Tap foe / hold Attack · Tap POI / Use
     </div>
+  </div>
+  <!-- Toast lives outside #hud so it can stack above open modals -->
+  <div id="toast-layer" aria-live="polite">
+    <div id="toast"></div>
   </div>
 
   <div id="modal-backdrop" class="hidden"></div>
@@ -68,7 +71,7 @@
       </div>
       <div class="inv-footer">
         <div id="inv-detail" class="inv-detail">
-          <span class="inv-detail-name">Select an item to equip or list on the Auction House.</span>
+          <span class="inv-detail-name muted">Select an item to equip or list on the Auction House.</span>
         </div>
         <div class="row inv-actions">
           <button id="btn-equip" type="button" class="btn-gold">Equip</button>

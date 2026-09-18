@@ -10,6 +10,10 @@ import { formatItemStats, itemStatBonus, itemStatsHtml, slotLabelForItem } from 
 let selectedItemId: string | null = null;
 let toastTimer: number | null = null;
 let lastHpShown: number | null = null;
+let helpFadeTimer: number | null = null;
+
+/** Instructional overlay fades out after this long (any input re-arms nothing; it's a one-shot). */
+const HELP_FADE_MS = 10_000;
 
 /** Server cap is 40; grid shows a fixed PoE-style slab of slots. */
 const INV_COLS = 6;
@@ -43,6 +47,7 @@ function rarityClass(r: string | undefined): string {
 export function showToast(text: string, level = "info") {
   const el = document.getElementById("toast");
   if (!el) return;
+  placeToastLayer();
   el.textContent = text;
   el.className = "";
   // Restart CSS animation even if the same class is re-applied
@@ -54,6 +59,26 @@ export function showToast(text: string, level = "info") {
     el.classList.remove("toast-show");
     el.classList.add("toast-fade");
   }, hold);
+}
+
+/** #toast-layer is fixed (above modals); pin it just under the HUD plates so it reads like part of the HUD. */
+function placeToastLayer() {
+  const layer = document.getElementById("toast-layer");
+  const top = document.getElementById("hud-top");
+  if (!layer || !top) return;
+  const r = top.getBoundingClientRect();
+  layer.style.top = `${Math.round(r.bottom + 6)}px`;
+}
+
+/** Fade the "how to play" tip overlay after a short grace period; call once on boot. */
+export function armHelpFade(ms = HELP_FADE_MS) {
+  if (helpFadeTimer != null) window.clearTimeout(helpFadeTimer);
+  helpFadeTimer = window.setTimeout(() => {
+    helpFadeTimer = null;
+    for (const id of ["help", "help-mobile"]) {
+      document.getElementById(id)?.classList.add("help-fade");
+    }
+  }, ms);
 }
 
 export function updateStats(you: any, title: string) {
@@ -205,7 +230,11 @@ export function renderInventory(
   const statsEl = document.getElementById("equip-stats");
   if (statsEl) {
     const g = opts?.gearStats || {};
-    statsEl.textContent = `Gear  +${g.dmg || 0} dmg · +${g.maxHp || 0} HP · +${g.armor || 0} arm`;
+    statsEl.innerHTML =
+      `<i>Gear</i>` +
+      `<span class="stat-dmg">+${g.dmg || 0} dmg</span>` +
+      `<span class="stat-hp">+${g.maxHp || 0} HP</span>` +
+      `<span class="stat-armor">+${g.armor || 0} armor</span>`;
   }
 
   const detail = document.getElementById("inv-detail");
@@ -216,10 +245,15 @@ export function renderInventory(
     if (sel) {
       const wear = slotLabelForItem(sel);
       const st = itemStatBonus(sel);
+      const worn = Object.values(equipped).some((it: any) => it?.id === sel.id);
       detail.className = `inv-detail ${rarityClass(sel.rarity)}`;
       detail.innerHTML =
+        `<div class="inv-detail-head">` +
         `<span class="inv-detail-name">${escapeHtml(sel.name)}</span>` +
-        `<span class="inv-detail-rarity">${RARITY_LABEL[sel.rarity] || escapeHtml(sel.rarity)} · ${escapeHtml(wear)}</span>` +
+        `<span class="inv-detail-rarity">${RARITY_LABEL[sel.rarity] || escapeHtml(sel.rarity)} · ${escapeHtml(wear)}` +
+        (worn ? `<b class="inv-detail-worn">Worn</b>` : "") +
+        `</span>` +
+        `</div>` +
         `<div class="inv-detail-stats">${itemStatsHtml(st)}</div>`;
     } else {
       detail.className = "inv-detail";
@@ -418,4 +452,10 @@ export function wireHud(api: {
     document.querySelectorAll<HTMLElement>(".panel.modal").forEach((p) => p.classList.add("hidden"));
     syncModalState();
   });
+
+  // Keep the toast anchored under the HUD as plates wrap/resize
+  placeToastLayer();
+  window.addEventListener("resize", placeToastLayer);
+
+  armHelpFade();
 }
