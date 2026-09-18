@@ -442,7 +442,7 @@ export type Particle = {
   maxLife: number;
   size: number;
   color: number;
-  kind: "ember" | "mist" | "ash";
+  kind: "ember" | "mist" | "ash" | "dust";
 };
 
 /** Runtime textures (tiny) registered once on the scene. */
@@ -845,6 +845,9 @@ export function tickParticles(particles: Particle[], dtSec: number) {
     p.y += p.vy * dtSec;
     if (p.kind === "mist") {
       p.vx += (Math.random() - 0.5) * 0.2 * dtSec;
+    } else if (p.kind === "dust") {
+      p.vx *= 1 - 1.8 * dtSec;
+      p.vy += 0.6 * dtSec;
     }
     p.life -= dtSec;
     if (p.life <= 0) particles.splice(i, 1);
@@ -863,6 +866,9 @@ export function drawParticles(g: Phaser.GameObjects.Graphics, particles: Particl
       g.fillCircle(scr.sx, scr.sy - 8, p.size);
       g.fillStyle(0xffcc66, 0.25 * a);
       g.fillCircle(scr.sx, scr.sy - 8, p.size * 0.45);
+    } else if (p.kind === "dust") {
+      g.fillStyle(p.color, 0.18 + a * 0.35);
+      g.fillEllipse(scr.sx, scr.sy + 2, p.size * 2.4, p.size * 1.1);
     } else {
       g.fillStyle(p.color, 0.2 + a * 0.35);
       g.fillCircle(scr.sx, scr.sy - 6, p.size);
@@ -1019,33 +1025,96 @@ export function drawKillRing(
   boss: boolean
 ) {
   const t = Math.max(0, Math.min(1, prog));
-  const r = (boss ? 26 : 16) + t * (boss ? 70 : 44);
+  const r = (boss ? 28 : 18) + t * (boss ? 82 : 54);
   const a = (1 - t) * (1 - t);
-  g.lineStyle(boss ? 5 : 3, 0xffd27a, 0.9 * a);
+  g.lineStyle(boss ? 6 : 4, 0xffd27a, 0.95 * a);
   g.strokeEllipse(sx, sy - 6, r * 2, r);
-  g.lineStyle(1.5, 0xffffff, 0.6 * a);
-  g.strokeEllipse(sx, sy - 6, r * 1.5, r * 0.75);
-  if (t < 0.35) {
-    g.fillStyle(0xfff0c0, 0.55 * (1 - t / 0.35));
-    g.fillEllipse(sx, sy - 14, (boss ? 60 : 36) * (1 + t), (boss ? 44 : 26) * (1 + t));
+  g.lineStyle(2, 0xff6644, 0.55 * a);
+  g.strokeEllipse(sx, sy - 6, r * 1.75, r * 0.88);
+  g.lineStyle(1.5, 0xffffff, 0.7 * a);
+  g.strokeEllipse(sx, sy - 6, r * 1.45, r * 0.72);
+  if (t < 0.4) {
+    g.fillStyle(0xfff0c0, 0.62 * (1 - t / 0.4));
+    g.fillEllipse(sx, sy - 14, (boss ? 68 : 42) * (1 + t), (boss ? 50 : 30) * (1 + t));
   }
 }
 
 export function spawnHitBurst(particles: Particle[], wx: number, wy: number) {
-  for (let i = 0; i < 8; i++) {
-    if (particles.length > 64) break;
-    const ang = (Math.PI * 2 * i) / 8 + Math.random() * 0.4;
+  for (let i = 0; i < 12; i++) {
+    if (particles.length > 90) break;
+    const ang = (Math.PI * 2 * i) / 12 + Math.random() * 0.35;
     particles.push({
       x: wx,
       y: wy,
-      vx: Math.cos(ang) * (1.5 + Math.random()),
-      vy: Math.sin(ang) * (1.5 + Math.random()),
-      life: 0.35 + Math.random() * 0.25,
-      maxLife: 0.6,
-      size: 1.5 + Math.random() * 2,
+      vx: Math.cos(ang) * (1.8 + Math.random() * 1.4),
+      vy: Math.sin(ang) * (1.8 + Math.random() * 1.4) - 0.3,
+      life: 0.4 + Math.random() * 0.3,
+      maxLife: 0.7,
+      size: 1.8 + Math.random() * 2.4,
       color: Math.random() > 0.4 ? 0xffcc66 : 0xff6644,
       kind: "ember",
     });
+  }
+}
+
+/** Soft ground puffs under a walking foot. */
+export function spawnFootstepDust(particles: Particle[], wx: number, wy: number) {
+  for (let i = 0; i < 4; i++) {
+    if (particles.length > 100) break;
+    particles.push({
+      x: wx + (Math.random() - 0.5) * 0.35,
+      y: wy + (Math.random() - 0.5) * 0.25,
+      vx: (Math.random() - 0.5) * 0.9,
+      vy: -0.15 - Math.random() * 0.35,
+      life: 0.28 + Math.random() * 0.22,
+      maxLife: 0.5,
+      size: 2.2 + Math.random() * 2.5,
+      color: Math.random() > 0.5 ? 0x8a7a58 : 0x6a5a40,
+      kind: "dust",
+    });
+  }
+}
+
+/** Extra ash flecks when a foe dissolves on death. */
+export function spawnDissolveAsh(particles: Particle[], wx: number, wy: number, boss = false) {
+  const n = boss ? 22 : 14;
+  for (let i = 0; i < n; i++) {
+    if (particles.length > 140) break;
+    particles.push({
+      x: wx + (Math.random() - 0.5) * 0.8,
+      y: wy + (Math.random() - 0.5) * 0.6,
+      vx: (Math.random() - 0.5) * 1.6,
+      vy: -0.8 - Math.random() * 1.8,
+      life: 0.55 + Math.random() * 0.45,
+      maxLife: 1.0,
+      size: 1.4 + Math.random() * (boss ? 3 : 2.2),
+      color: i % 2 === 0 ? 0xff6644 : 0xc9a227,
+      kind: i % 3 === 0 ? "ash" : "ember",
+    });
+  }
+}
+
+/** Pulsing gold outline under the nearest interactable (POI / exit / loot). */
+export function drawInteractPulse(
+  g: Phaser.GameObjects.Graphics,
+  sx: number,
+  sy: number,
+  tMs: number,
+  compact: boolean,
+  kind: "poi" | "exit" | "loot" | string
+) {
+  const pulse = 0.5 + 0.5 * Math.sin(tMs * 0.008);
+  const base = kind === "exit" ? (compact ? 38 : 28) : kind === "loot" ? (compact ? 22 : 16) : compact ? 30 : 22;
+  const rw = base + pulse * (compact ? 6 : 4);
+  const rh = rw * 0.42;
+  const gold = kind === "loot" ? 0xffe08a : 0xc9a227;
+  g.lineStyle(compact ? 3.5 : 2.5, gold, 0.35 + pulse * 0.45);
+  g.strokeEllipse(sx, sy + 4, rw * 2, rh * 2);
+  g.lineStyle(1.25, 0xfff6d0, 0.25 + pulse * 0.35);
+  g.strokeEllipse(sx, sy + 4, rw * 1.55, rh * 1.55);
+  if (pulse > 0.7) {
+    g.fillStyle(gold, 0.08 + (pulse - 0.7) * 0.2);
+    g.fillEllipse(sx, sy + 4, rw * 1.2, rh * 1.2);
   }
 }
 
@@ -1289,23 +1358,24 @@ export function drawFoeGlow(
 }
 
 export function spawnKillBurst(particles: Particle[], wx: number, wy: number, boss = false) {
-  const n = boss ? 30 : 20;
+  const n = boss ? 36 : 24;
   for (let i = 0; i < n; i++) {
-    if (particles.length > 120) break;
+    if (particles.length > 140) break;
     const ang = (Math.PI * 2 * i) / n + Math.random() * 0.5;
-    const sp = 2.6 + Math.random() * (boss ? 3.5 : 2.6);
+    const sp = 2.8 + Math.random() * (boss ? 4.0 : 3.0);
     particles.push({
       x: wx,
       y: wy,
       vx: Math.cos(ang) * sp,
-      vy: Math.sin(ang) * sp - 0.6,
-      life: 0.5 + Math.random() * 0.4,
-      maxLife: 0.9,
-      size: 2 + Math.random() * (boss ? 3.5 : 2.5),
+      vy: Math.sin(ang) * sp - 0.8,
+      life: 0.55 + Math.random() * 0.45,
+      maxLife: 1.0,
+      size: 2.2 + Math.random() * (boss ? 3.8 : 2.8),
       color: i % 3 === 0 ? 0xc9a227 : i % 3 === 1 ? 0xff5533 : 0xd9cfae,
       kind: i % 4 === 0 ? "ash" : "ember",
     });
   }
+  spawnDissolveAsh(particles, wx, wy, boss);
 }
 
 /* ————————————————————————————————————————————————————————————————————————
