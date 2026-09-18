@@ -479,6 +479,10 @@ export function wireHud(api: {
   equipSelected?: () => void;
   unequipSelected?: () => void;
   castSpell?: (spellId: SpellId) => void;
+  /** Gale Bolt hold-to-aim (pointer). Other spells stay tap-to-cast. */
+  onGaleAimStart?: (ev: PointerEvent) => void;
+  onGaleAimMove?: (ev: PointerEvent) => void;
+  onGaleAimEnd?: (ev: PointerEvent, cast: boolean) => void;
 }) {
   document.getElementById("btn-list")?.addEventListener("click", () => {
     const price = Number((document.getElementById("list-price") as HTMLInputElement)?.value);
@@ -539,6 +543,51 @@ export function wireHud(api: {
 
   document.querySelectorAll<HTMLButtonElement>(".spell-btn[data-spell]").forEach((btn) => {
     wirePressed(btn);
+    const spellId = btn.getAttribute("data-spell") as SpellId | null;
+    if (spellId === "gale_bolt" && api.onGaleAimStart) {
+      // Hold-to-aim: scene owns move/up via window listeners; cancel if released off-button before aim.
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          btn.setPointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+        btn.classList.add("pressed", "aiming");
+        hapticLight();
+        api.onGaleAimStart?.(e);
+      });
+      btn.addEventListener("pointermove", (e) => {
+        if (!btn.classList.contains("aiming")) return;
+        api.onGaleAimMove?.(e);
+      });
+      const endGale = (e: PointerEvent, cast: boolean) => {
+        if (!btn.classList.contains("aiming") && !cast) return;
+        btn.classList.remove("pressed", "aiming");
+        try {
+          btn.releasePointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+        api.onGaleAimEnd?.(e, cast);
+      };
+      btn.addEventListener("pointerup", (e) => {
+        e.preventDefault();
+        endGale(e, true);
+      });
+      btn.addEventListener("pointercancel", (e) => {
+        e.preventDefault();
+        endGale(e, false);
+      });
+      // Drag-off before aim locks is handled in the scene; keep leave as soft cancel hint only if not aiming.
+      btn.addEventListener("pointerleave", (e) => {
+        // Don't cancel here — scene decides via drag distance; leaving while aimed continues aim.
+        api.onGaleAimMove?.(e);
+      });
+      btn.addEventListener("click", (e) => e.preventDefault());
+      return;
+    }
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       const id = btn.getAttribute("data-spell") as SpellId | null;

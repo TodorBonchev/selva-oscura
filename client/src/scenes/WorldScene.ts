@@ -140,6 +140,16 @@ const LABEL_FAR_RANGE = 16;
 /** Brief combat freeze on solid hits (ms wall-clock). */
 const HIT_STOP_MS = 58;
 const HIT_STOP_KILL_MS = 90;
+/** Gale Bolt: hold past this → aim mode; shorter = tap nearest-foe cast. */
+const GALE_HOLD_AIM_MS = 200;
+/** Finger/mouse must leave button center by this many CSS px to count as aimed. */
+const GALE_DRAG_AIM_PX = 26;
+/** Damage ≥ this gets crit-style flash (scale punch + white flash). */
+const CRIT_DMG_FLASH = 36;
+/** Soft vignette punch alpha during canto travel. */
+const TRAVEL_VIGNETTE_PEAK = 0.98;
+/** Max pooled floating damage texts. */
+const DMG_POOL_MAX = 28;
 
 type HitFx = {
   start: number;
@@ -247,8 +257,29 @@ export class WorldScene extends Phaser.Scene {
   }[] = [];
   /** Camera-following soft vignette so the arena edges fall into dark. */
   vignette: Phaser.GameObjects.Image | null = null;
+  /** Soft vignette alpha tween target during canto travel flash. */
+  travelVignetteUntil = 0;
+  travelVignettePeak = 0;
   /** Remote player last render pos + moving timestamp so they stride too. */
   remotePrev = new Map<string, { x: number; y: number; movedAt: number; facing: Facing8 }>();
+  /**
+   * Gale Bolt hold-to-aim. Tap = nearest foe; hold shows aim line; release casts;
+   * Esc / drag-off-before-aim cancels.
+   */
+  galeAim: {
+    fromKey: boolean;
+    pointerId: number | null;
+    startMs: number;
+    aimX: number;
+    aimY: number;
+    aimed: boolean;
+    btnEl: HTMLElement | null;
+    /** Document listeners while pointer aim is active. */
+    onMove: ((e: PointerEvent) => void) | null;
+    onUp: ((e: PointerEvent) => void) | null;
+  } | null = null;
+  /** Reused floating damage Text objects. */
+  dmgPool: Phaser.GameObjects.Text[] = [];
 
   constructor() {
     super("world");
@@ -313,9 +344,12 @@ export class WorldScene extends Phaser.Scene {
         togglePanel("ah");
         this.socket.ahBrowse();
       });
-      this.keys.ONE.on("down", () => this.castSpell("gale_bolt"));
+      this.keys.ONE.on("down", () => this.beginGaleAim({ fromKey: true }));
+      this.keys.ONE.on("up", () => this.releaseGaleAim(true));
       this.keys.TWO.on("down", () => this.castSpell("whirl_ward"));
       this.keys.THREE.on("down", () => this.castSpell("infernal_burst"));
+      const esc = kb.addKey("ESC");
+      esc.on("down", () => this.cancelGaleAim());
     }
 
     this.input.addPointer(2);
@@ -415,10 +449,16 @@ export class WorldScene extends Phaser.Scene {
         this.socket.unequip({ itemId: String(id) });
       },
       castSpell: (spellId) => this.castSpell(spellId),
+      onGaleAimStart: (ev) => this.beginGaleAim({ fromKey: false, pointer: ev }),
+      onGaleAimMove: (ev) => this.updateGaleAimPointer(ev),
+      onGaleAimEnd: (ev, cast) => {
+        if (!cast) this.cancelGaleAim();
+        else this.releaseGaleAim(true, ev);
+      },
     });
   }
 
-  castSpell(spellId: SpellId) {
+  castSpell(spellId: SpellId, opts?: { aimX?: number; aimY?: number; preferNearest?: boolean }) {
     if (!this.room) return;
     if (this.pendingCast) return;
     const def = SPELLS[spellId];
@@ -429,10 +469,11 @@ export class WorldScene extends Phaser.Scene {
       showToast(`Not enough mana for ${def.name} (${def.manaCost})`, "warn");
       return;
     }
-    // Prefer aim toward nearest foe when casting gale
-    let ax = this.aimX;
-    let ay = this.aimY;
-    if (spellId === "gale_bolt") {
+    // Prefer aim toward nearest foe when casting gale (tap / no override)
+    let ax = opts?.aimX ?? this.aimX;
+    let ay = opts?.aimY ?? this.aimY;
+    const preferNearest = opts?.preferNearest !== false && opts?.aimX == null;
+    if (spellId === "gale_bolt" && preferNearest) {
       const you = this.youPos();
       let best: any = null;
       let bestD = 9.5;
@@ -455,6 +496,10 @@ export class WorldScene extends Phaser.Scene {
     const len = Math.hypot(ax, ay) || 1;
     this.aimX = ax / len;
     this.aimY = ay / len;
+    if (spellId === "gale_bolt") {
+      const f = facing8FromWorldVel(this.aimX, this.aimY, 0.01);
+      if (f) this.facing8 = f;
+    }
     const wind = SPELL_TELEGRAPH_MS[spellId] ?? 220;
     this.pendingCast = {
       spellId,
@@ -463,6 +508,160 @@ export class WorldScene extends Phaser.Scene {
       start: this.animT,
       until: this.animT + wind,
     };
+  }
+
+  /** Seed gale aim toward nearest foe (or current facing). */
+  private nearestGaleAim(): { x: number; y: number } {
+    const you = this.youPos();
+    let best: { x: number; y: number } | null = null;
+    let bestD = 9.5;
+    if (this.room) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob" && e.kind !== "boss") continue;
+        const pos = this.entityRenderPos(e);
+        const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+        if (d < bestD) {
+          bestD = d;
+          best = { x: pos.x - you.x, y: pos.y - you.y };
+        }
+      }
+    }
+    if (best) {
+      const len = Math.hypot(best.x, best.y) || 1;
+      return { x: best.x / len, y: best.y / len };
+    }
+    const len = Math.hypot(this.aimX, this.aimY) || 1;
+    return { x: this.aimX / len, y: this.aimY / len };
+  }
+
+  beginGaleAim(o: { fromKey: boolean; pointer?: PointerEvent }) {
+    if (!this.room || this.pendingCast) return;
+    if (this.galeAim) this.cancelGaleAim();
+    const seed = this.nearestGaleAim();
+    const btn = document.getElementById("btn-spell-gale_bolt");
+    this.galeAim = {
+      fromKey: o.fromKey,
+      pointerId: o.pointer?.pointerId ?? null,
+      startMs: performance.now(),
+      aimX: seed.x,
+      aimY: seed.y,
+      aimed: false,
+      btnEl: btn,
+      onMove: null,
+      onUp: null,
+    };
+    btn?.classList.add("aiming");
+    if (!o.fromKey && o.pointer) {
+      const onMove = (e: PointerEvent) => this.updateGaleAimPointer(e);
+      const onUp = (e: PointerEvent) => {
+        if (this.galeAim?.pointerId != null && e.pointerId !== this.galeAim.pointerId) return;
+        this.releaseGaleAim(true, e);
+      };
+      this.galeAim.onMove = onMove;
+      this.galeAim.onUp = onUp;
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    }
+  }
+
+  updateGaleAimPointer(ev: PointerEvent) {
+    const g = this.galeAim;
+    if (!g || g.fromKey) return;
+    if (g.pointerId != null && ev.pointerId !== g.pointerId) return;
+    // Drag-off cancel before aim locks: pointer left the button without enough drag
+    if (!g.aimed && g.btnEl) {
+      const r = g.btnEl.getBoundingClientRect();
+      const pad = 10;
+      const inside =
+        ev.clientX >= r.left - pad &&
+        ev.clientX <= r.right + pad &&
+        ev.clientY >= r.top - pad &&
+        ev.clientY <= r.bottom + pad;
+      const cx = (r.left + r.right) / 2;
+      const cy = (r.top + r.bottom) / 2;
+      const drag = Math.hypot(ev.clientX - cx, ev.clientY - cy);
+      if (!inside && drag < GALE_DRAG_AIM_PX) {
+        this.cancelGaleAim();
+        return;
+      }
+      if (drag >= GALE_DRAG_AIM_PX) g.aimed = true;
+    }
+    this.setGaleAimFromClient(ev.clientX, ev.clientY);
+  }
+
+  /** Aim gale from screen client coords → world direction from player. */
+  private setGaleAimFromClient(clientX: number, clientY: number) {
+    if (!this.galeAim) return;
+    const canvas = this.game.canvas;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    const px = ((clientX - rect.left) / rect.width) * this.scale.width;
+    const py = ((clientY - rect.top) / rect.height) * this.scale.height;
+    const worldPt = this.cameras.main.getWorldPoint(px, py);
+    const w = screenToWorld(worldPt.x, worldPt.y);
+    const you = this.youPos();
+    let ax = w.x - you.x;
+    let ay = w.y - you.y;
+    const len = Math.hypot(ax, ay);
+    if (len < 0.15) return;
+    this.galeAim.aimX = ax / len;
+    this.galeAim.aimY = ay / len;
+    this.galeAim.aimed = true;
+    const f = facing8FromWorldVel(this.galeAim.aimX, this.galeAim.aimY, 0.01);
+    if (f) this.facing8 = f;
+  }
+
+  /** While key-hold aiming, track mouse over the canvas. */
+  private tickGaleKeyAim() {
+    const g = this.galeAim;
+    if (!g || !g.fromKey) return;
+    const ptr = this.input.activePointer;
+    if (!ptr) return;
+    const heldLong = performance.now() - g.startMs >= GALE_HOLD_AIM_MS;
+    if (!heldLong) return;
+    const canvas = this.game.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = rect.left + (ptr.x / this.scale.width) * rect.width;
+    const clientY = rect.top + (ptr.y / this.scale.height) * rect.height;
+    this.setGaleAimFromClient(clientX, clientY);
+  }
+
+  releaseGaleAim(cast: boolean, ev?: PointerEvent) {
+    const g = this.galeAim;
+    if (!g) return;
+    if (ev && g.pointerId != null && ev.pointerId !== g.pointerId) return;
+    const heldMs = performance.now() - g.startMs;
+    const aimX = g.aimX;
+    const aimY = g.aimY;
+    const aimed = g.aimed || heldMs >= GALE_HOLD_AIM_MS;
+    this.clearGaleAimListeners();
+    this.galeAim = null;
+    document.getElementById("btn-spell-gale_bolt")?.classList.remove("aiming");
+    if (!cast) return;
+    if (aimed) {
+      this.castSpell("gale_bolt", { aimX, aimY, preferNearest: false });
+    } else {
+      // Quick tap — nearest foe
+      this.castSpell("gale_bolt", { preferNearest: true });
+    }
+  }
+
+  cancelGaleAim() {
+    if (!this.galeAim) return;
+    this.clearGaleAimListeners();
+    this.galeAim = null;
+    document.getElementById("btn-spell-gale_bolt")?.classList.remove("aiming");
+  }
+
+  private clearGaleAimListeners() {
+    const g = this.galeAim;
+    if (!g) return;
+    if (g.onMove) window.removeEventListener("pointermove", g.onMove);
+    if (g.onUp) {
+      window.removeEventListener("pointerup", g.onUp);
+      window.removeEventListener("pointercancel", g.onUp);
+    }
   }
 
   /** Fire the pending cast once the telegraph windup completes. */
@@ -530,9 +729,11 @@ export class WorldScene extends Phaser.Scene {
   doInteract(hit: any) {
     this.socket.interact(hit.id);
     if (hit.kind === "exit" && hit.toCanto) {
+      this.beginTravelFade();
       this.time.delayedCall(50, () => this.socket.travel(hit.toCanto));
     }
     if (hit.poiKind === "portal" && hit.toCanto) {
+      this.beginTravelFade();
       this.time.delayedCall(50, () => this.socket.travel(hit.toCanto));
     }
     if (hit.poiKind === "ah") {
@@ -737,7 +938,7 @@ export class WorldScene extends Phaser.Scene {
           this.infernalShocks = [];
           this.remotePrev.clear();
           this.centerOnYou(true);
-          if (cantoChanged) this.cameras.main.fadeIn(420, 0, 0, 0);
+          if (cantoChanged) this.playTravelTransition();
         }
 
         // Seed / refresh remote targets from snapshot (smoothed in update)
@@ -780,6 +981,13 @@ export class WorldScene extends Phaser.Scene {
 
         break;
       }
+      case "net":
+        if (msg.state === "disconnected") {
+          showToast("Connection lost — reconnecting…", "warn");
+        } else if (msg.state === "reconnected") {
+          showToast("Reconnected", "info");
+        }
+        break;
       case "toast":
         showToast(msg.text, msg.level);
         break;
@@ -956,6 +1164,69 @@ export class WorldScene extends Phaser.Scene {
     const z = Math.max(0.05, cam.zoom);
     this.vignette.setDisplaySize((cam.width / z) * 1.02, (cam.height / z) * 1.02);
     this.vignette.setPosition(cam.scrollX + cam.width * 0.5, cam.scrollY + cam.height * 0.5);
+    // Soft travel flash: briefly deepen vignette while animT is inside the window
+    if (this.travelVignetteUntil > this.animT && this.travelVignettePeak > 0) {
+      const left = this.travelVignetteUntil - this.animT;
+      const pulse = Math.min(1, left / 400);
+      const base = 0.84;
+      this.vignette.setAlpha(base + (this.travelVignettePeak - base) * pulse * 0.5);
+    }
+  }
+
+  /** Soft room fade + vignette punch when changing cantos. */
+  playTravelTransition() {
+    this.cameras.main.fadeIn(520, 6, 4, 10);
+    this.travelVignetteUntil = this.animT + 700;
+    this.travelVignettePeak = TRAVEL_VIGNETTE_PEAK;
+    if (this.vignette) {
+      const base = Number(this.vignette.alpha) || 0.84;
+      this.tweens.add({
+        targets: this.vignette,
+        alpha: Math.min(1, Math.max(base, TRAVEL_VIGNETTE_PEAK)),
+        duration: 140,
+        yoyo: true,
+        hold: 90,
+        ease: "Sine.easeInOut",
+        onComplete: () => {
+          if (this.vignette) this.vignette.setAlpha(base);
+        },
+      });
+    }
+  }
+
+  /** Brief fade-out when stepping into a portal (before the next snapshot). */
+  beginTravelFade() {
+    this.cameras.main.fadeOut(160, 4, 2, 6);
+    this.travelVignetteUntil = this.animT + 400;
+    this.travelVignettePeak = TRAVEL_VIGNETTE_PEAK;
+  }
+
+  /** Acquire a pooled floating damage Text (or create one). */
+  private acquireDmgText(): Phaser.GameObjects.Text {
+    const t = this.dmgPool.pop();
+    if (t) {
+      t.setActive(true).setVisible(true).setAlpha(1).setScale(1);
+      return t;
+    }
+    return this.add
+      .text(0, 0, "", {
+        fontFamily: "Georgia, serif",
+        fontSize: "24px",
+        fontStyle: "bold",
+        color: "#ffe08a",
+        stroke: "#1a0a06",
+        strokeThickness: 7,
+        shadow: { offsetX: 0, offsetY: 3, color: "#000", blur: 8, fill: true },
+      })
+      .setOrigin(0.5)
+      .setDepth(9500);
+  }
+
+  private releaseDmgText(t: Phaser.GameObjects.Text) {
+    this.tweens.killTweensOf(t);
+    t.setVisible(false).setActive(false).setAlpha(1).setScale(1);
+    if (this.dmgPool.length < DMG_POOL_MAX) this.dmgPool.push(t);
+    else t.destroy();
   }
 
   /** Crimson float above local player — camera-locked so flash/shake cannot hide it. */
@@ -966,33 +1237,35 @@ export class WorldScene extends Phaser.Scene {
     const sx = world.sx - cam.scrollX + (Math.random() - 0.5) * 16;
     const sy = world.sy - cam.scrollY - 78;
     const compact = isCompactUi();
-    const t = this.add
-      .text(sx, sy, String(dmg), {
-        fontFamily: "Georgia, serif",
-        fontSize: compact ? "38px" : "28px",
-        fontStyle: "bold",
-        color: "#ff7a68",
-        stroke: "#2a0806",
-        strokeThickness: 7,
-        shadow: { offsetX: 0, offsetY: 3, color: "#000", blur: 8, fill: true },
-      })
-      .setOrigin(0.5)
+    const crit = dmg >= CRIT_DMG_FLASH;
+    const t = this.acquireDmgText();
+    t.setText(String(dmg))
+      .setPosition(sx, sy)
       .setDepth(12000)
       .setScrollFactor(0)
-      .setScale(1.7);
-    this.tweens.add({ targets: t, scale: 1, duration: 150, ease: "Back.easeOut" });
+      .setColor(crit ? "#fff6e8" : "#ff7a68")
+      .setStroke(crit ? "#4a1808" : "#2a0806", 7)
+      .setFontSize(compact ? (crit ? "44px" : "38px") : crit ? "34px" : "28px")
+      .setScale(crit ? 2.15 : 1.7);
+    if (crit) this.cameras.main.flash(55, 255, 230, 180, false);
     this.tweens.add({
       targets: t,
-      y: sy - 60,
+      scale: crit ? 1.15 : 1,
+      duration: crit ? 180 : 150,
+      ease: "Back.easeOut",
+    });
+    this.tweens.add({
+      targets: t,
+      y: sy - (crit ? 72 : 60),
       alpha: 0,
-      duration: 980,
+      duration: crit ? 1100 : 980,
       delay: 130,
       ease: "Cubic.easeOut",
-      onComplete: () => t.destroy(),
+      onComplete: () => this.releaseDmgText(t),
     });
   }
 
-  /** Floating damage number (gold by default, rises + fades) — cheap Text tween. */
+  /** Floating damage number (gold by default) — pooled Text + crit flash on big hits. */
   showDamageNumber(
     ent: { x: number; y: number; kind: string },
     dmg: number,
@@ -1006,29 +1279,35 @@ export class WorldScene extends Phaser.Scene {
     }
     const compact = isCompactUi();
     const drift = (Math.random() - 0.5) * 26;
-    const t = this.add
-      .text(p.sx + drift, p.sy - (ent.kind === "boss" ? 102 : 68), String(dmg), {
-        fontFamily: "Georgia, serif",
-        fontSize: compact ? "34px" : "24px",
-        fontStyle: "bold",
-        color: o?.color || "#ffe08a",
-        stroke: "#1a0a06",
-        strokeThickness: 7,
-        shadow: { offsetX: 0, offsetY: 3, color: "#000", blur: 8, fill: true },
-      })
-      .setOrigin(0.5)
+    const crit = dmg >= CRIT_DMG_FLASH;
+    const t = this.acquireDmgText();
+    t.setText(String(dmg))
+      .setPosition(p.sx + drift, p.sy - (ent.kind === "boss" ? 102 : 68))
       .setDepth(9500)
-      .setScale(1.75);
-    this.tweens.add({ targets: t, scale: 1, duration: 160, ease: "Back.easeOut" });
+      .setScrollFactor(1)
+      .setColor(crit ? "#fff8e0" : o?.color || "#ffe08a")
+      .setStroke(crit ? "#5a2a08" : "#1a0a06", crit ? 8 : 7)
+      .setFontSize(compact ? (crit ? "40px" : "34px") : crit ? "30px" : "24px")
+      .setScale(crit ? 2.2 : 1.75);
+    if (crit) {
+      this.cameras.main.flash(48, 255, 240, 200, false);
+      this.cameraPunch(0.035, 120);
+    }
+    this.tweens.add({
+      targets: t,
+      scale: crit ? 1.2 : 1,
+      duration: crit ? 180 : 160,
+      ease: "Back.easeOut",
+    });
     this.tweens.add({
       targets: t,
       x: t.x + drift * 0.85,
-      y: t.y - (compact ? 52 : 40),
+      y: t.y - (compact ? (crit ? 64 : 52) : crit ? 52 : 40),
       alpha: 0,
-      duration: 900,
+      duration: crit ? 1050 : 900,
       delay: 150,
       ease: "Cubic.easeOut",
-      onComplete: () => t.destroy(),
+      onComplete: () => this.releaseDmgText(t),
     });
   }
 
@@ -1428,6 +1707,27 @@ export class WorldScene extends Phaser.Scene {
       drawWardRingGfx(g, p.sx, p.sy, this.animT, 0.55 + fade * 0.45);
     }
 
+    // Gale hold-to-aim line (before cast windup)
+    if (this.galeAim) {
+      const held = performance.now() - this.galeAim.startMs;
+      const charge = Math.min(1, held / Math.max(1, GALE_HOLD_AIM_MS));
+      const you = worldToScreen(this.renderYou.x, this.renderYou.y);
+      const reach = 7.2;
+      const tip = worldToScreen(
+        this.renderYou.x + this.galeAim.aimX * reach,
+        this.renderYou.y + this.galeAim.aimY * reach
+      );
+      // Dim line until hold locks into aim mode, then full telegraph
+      drawGaleAimTelegraph(
+        g,
+        you.sx,
+        you.sy - 10,
+        tip.sx,
+        tip.sy - 10,
+        this.galeAim.aimed || held >= GALE_HOLD_AIM_MS ? Math.max(0.45, charge) : 0.22 + charge * 0.25
+      );
+    }
+
     // Spell cast telegraphs (aim line / ward charge / burst ground circle)
     if (this.pendingCast) {
       const pc = this.pendingCast;
@@ -1595,8 +1895,10 @@ export class WorldScene extends Phaser.Scene {
         } else {
           drawLoot(g, p.sx, p.sy, e.item?.rarity, compact, this.animT);
         }
-        if (strong) {
+        // Rarity dots always visible when far; full name only in magnet/near range
+        {
           const lootDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+          const hex = "#" + tint.toString(16).padStart(6, "0");
           this.addDistanceLabel(
             `loot:${e.id}`,
             p.sx,
@@ -1606,10 +1908,13 @@ export class WorldScene extends Phaser.Scene {
             lootDist,
             seenLabels,
             {
-              icon: "✦",
-              farAlpha: 0.4,
-              nearColor: "#" + tint.toString(16).padStart(6, "0"),
-              nearRange: 6.5,
+              icon: strong ? "✦" : "●",
+              farAlpha: strong ? 0.85 : 0.7,
+              nearAlpha: 0.92,
+              nearColor: hex,
+              farColor: hex,
+              nearRange: MAGNET_RANGE,
+              farRange: 999, // always-on rarity dots at any distance
             }
           );
         }
@@ -1795,6 +2100,7 @@ export class WorldScene extends Phaser.Scene {
       farAlpha?: number;
       nearAlpha?: number;
       nearColor?: string;
+      farColor?: string;
       nearRange?: number;
       farRange?: number;
     }
@@ -1804,13 +2110,13 @@ export class WorldScene extends Phaser.Scene {
     if (dist > farR) return;
     const near = dist <= nearR;
     const text = near ? fullText : opts?.icon || "•";
-    const size = near ? fontSize : "10px";
+    const size = near ? fontSize : opts?.icon === "✦" || opts?.icon === "●" ? "14px" : "10px";
     this.addLabel(key, x, y, text, size, seen);
     const lab = this.labels.get(key);
     if (!lab) return;
     lab.setAlpha(near ? (opts?.nearAlpha ?? 0.72) : (opts?.farAlpha ?? 0.42));
     if (near && opts?.nearColor) lab.setColor(opts.nearColor);
-    else if (!near) lab.setColor("#9a9078");
+    else if (!near) lab.setColor(opts?.farColor || "#9a9078");
   }
 
   pruneLabels(seen: Set<string>) {
@@ -2145,6 +2451,7 @@ export class WorldScene extends Phaser.Scene {
       }
     }
 
+    this.tickGaleKeyAim();
     this.redraw();
     this.centerOnYou(false);
     this.layoutVignette();
