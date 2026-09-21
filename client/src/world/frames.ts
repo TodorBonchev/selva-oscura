@@ -17,8 +17,8 @@ export const UP = new THREE.Vector3(0, 1, 0);
 /** Camera offset in world units. Pulled back on compact UI. */
 export const CAM_BACK_DESKTOP = 10.5;
 export const CAM_HEIGHT_DESKTOP = 7.6;
-export const CAM_BACK_MOBILE = 13;
-export const CAM_HEIGHT_MOBILE = 9.5;
+export const CAM_BACK_MOBILE = 11.2;
+export const CAM_HEIGHT_MOBILE = 8.2;
 
 /** Local Object3D forward. */
 export const LOCAL_FWD = new THREE.Vector3(0, 0, -1);
