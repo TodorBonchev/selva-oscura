@@ -641,6 +641,34 @@ export function makeForestRock(mats: MatKit, seed: number): THREE.Group {
   return g;
 }
 
+export function makeBrazier(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "brazier";
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.18, 0.22, 10), mats.bronze);
+  bowl.position.y = 0.55;
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.12, 0.5, 8), mats.stone);
+  stem.position.y = 0.25;
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.42, 7), mats.ember);
+  flame.position.y = 0.85;
+  flame.name = "ember";
+  const light = new THREE.PointLight(0xff6622, 2.4, 8, 2);
+  light.position.y = 0.9;
+  g.add(discShadow(mats, 0.32), stem, bowl, flame, light);
+  return g;
+}
+
+export function makeGaleRibbon(mats: MatKit, len = 8): THREE.Mesh {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(len, 1.15, 1, 1),
+    mats.gale.clone()
+  );
+  m.rotation.x = Math.PI * 0.08;
+  m.position.y = 1.1;
+  m.name = "galeRibbon";
+  m.renderOrder = 2;
+  return m;
+}
+
 export function makeRuinObelisk(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.45, 2.8, 0.45), mats.stone);
