@@ -32,65 +32,97 @@ function discShadow(mats: MatKit, r: number) {
   return s;
 }
 
-/** Hooded pilgrim — the local player / remotes. −z face. */
+function lambert(color: number, emissive = 0x000000, em = 0) {
+  return new THREE.MeshLambertMaterial({ color, emissive, emissiveIntensity: em });
+}
+
+/** Hooded pilgrim — pale bone cloak, gold trim, readable upright silhouette. −z face. */
 export function makeWanderer(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "wanderer";
+  const cloakM = lambert(0xf3e6c4, 0x4a3c22, 0.22);
+  const hoodM = lambert(0xe8d7a8, 0x3a2c14, 0.18);
+  const skinM = lambert(0xf0d8bc, 0x5a4030, 0.12);
+  const goldM = lambert(0xffe27a, 0xc9a227, 0.7);
+  const bootM = lambert(0x5a4630);
+  const steelM = lambert(0xe8dcc0, 0x8a7a50, 0.25);
 
-  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.28), mats.bronze);
-  bootL.position.set(-0.12, 0.07, 0.02);
+  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.32), bootM);
+  bootL.position.set(-0.13, 0.08, 0.04);
   const bootR = bootL.clone();
-  bootR.position.x = 0.12;
-  const shinL = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.46, 8), mats.cloth);
-  shinL.position.set(-0.12, 0.34, 0);
+  bootR.position.x = 0.13;
+  const shinL = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.52, 8), cloakM);
+  shinL.position.set(-0.13, 0.38, 0);
   const shinR = shinL.clone();
-  shinR.position.x = 0.12;
+  shinR.position.x = 0.13;
 
-  const hips = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), mats.cloth);
-  hips.position.y = 0.78;
-  hips.scale.set(1.15, 0.72, 0.9);
+  const hips = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), cloakM);
+  hips.position.y = 0.82;
+  hips.scale.set(1.05, 0.7, 0.85);
 
-  const pts = [
-    new THREE.Vector2(0.12, 0),
-    new THREE.Vector2(0.38, 0.2),
-    new THREE.Vector2(0.48, 0.7),
-    new THREE.Vector2(0.42, 1.15),
-    new THREE.Vector2(0.22, 1.38),
-  ];
-  const cloak = new THREE.Mesh(new THREE.LatheGeometry(pts, 20), mats.cloth);
-  cloak.position.y = 0.42;
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.62, 12), cloakM);
+  torso.position.y = 1.22;
 
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.5, 12), mats.cloth);
-  torso.position.y = 1.18;
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.035, 8, 20), goldM);
+  sash.position.y = 0.98;
+  sash.rotation.x = Math.PI / 2;
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 12), mats.bone);
-  head.position.set(0, 1.62, 0.02);
-
-  const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.24, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
-    mats.cloth
+  const cloak = new THREE.Mesh(
+    new THREE.LatheGeometry(
+      [
+        new THREE.Vector2(0.18, 0),
+        new THREE.Vector2(0.42, 0.15),
+        new THREE.Vector2(0.5, 0.55),
+        new THREE.Vector2(0.38, 1.05),
+        new THREE.Vector2(0.22, 1.28),
+      ],
+      18
+    ),
+    cloakM
   );
-  hood.position.set(0, 1.66, -0.02);
-  hood.rotation.x = 0.35;
+  cloak.position.set(0, 0.35, 0.08);
+  cloak.rotation.x = 0.12;
 
-  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.55, 8), mats.cloth);
-  armL.position.set(-0.32, 1.18, 0.02);
-  armL.rotation.z = 0.35;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 12), skinM);
+  head.position.set(0, 1.68, 0.02);
+  const hood = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
+    hoodM
+  );
+  hood.position.set(0, 1.78, 0.04);
+  hood.rotation.x = -0.55;
+
+  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.58, 8), cloakM);
+  armL.position.set(-0.34, 1.2, 0.02);
+  armL.rotation.z = 0.28;
   const armR = armL.clone();
-  armR.position.x = 0.32;
-  armR.rotation.z = -0.45;
+  armR.position.x = 0.34;
+  armR.rotation.z = -0.55;
 
-  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.18, 8), mats.gold);
-  hilt.position.set(0.42, 0.95, -0.05);
-  hilt.rotation.z = 0.15;
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.72, 0.09), mats.bronze);
-  blade.position.set(0.48, 0.55, -0.08);
-  blade.rotation.z = 0.12;
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.08), mats.gold);
-  guard.position.set(0.45, 0.92, -0.06);
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.85, 0.1), steelM);
+  blade.position.set(0.52, 0.62, -0.06);
+  blade.rotation.z = 0.18;
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 0.09), goldM);
+  guard.position.set(0.48, 1.02, -0.05);
+  const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), goldM);
+  lantern.position.set(-0.38, 0.95, 0.12);
+  lantern.name = "ember";
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.38, 0.5, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0xe8c86a,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.04;
 
   g.add(
-    discShadow(mats, 0.42),
+    ring,
     bootL,
     bootR,
     shinL,
@@ -98,14 +130,15 @@ export function makeWanderer(mats: MatKit): THREE.Group {
     hips,
     cloak,
     torso,
+    sash,
     head,
     hood,
     armL,
     armR,
-    hilt,
     blade,
     guard,
-    nose(mats, 1.6, -0.14)
+    lantern,
+    nose(mats, 1.66, -0.15)
   );
   shadow(g);
   return g;
