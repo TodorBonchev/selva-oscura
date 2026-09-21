@@ -48,24 +48,30 @@ import {
 } from "../render/smoothing";
 import { camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from "./frames";
 import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
-import { makeByKind, makeSlashArc, modelFrontWorld, resolveKind, type KindKey } from "./meshes";
+import { makeByKind, modelFrontWorld, resolveKind, type KindKey } from "./meshes";
 import { buildGround, type GroundRig } from "./ground";
 import {
   AshField,
   makeBolt,
   makeBurst,
+  makeHitFlash,
+  makeImpactRing,
   makeLootBeam,
+  makeSlashTrail,
   makeTelegraph,
   makeWardRing,
   placeBolt,
   spawnSparks,
+  tickImpact,
   tickSparks,
   type Bolt,
+  type ImpactRing,
   type SparkBurst,
 } from "./fx";
 import { tickHumanoid, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import type { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
 type RoomSnap = any;
 
@@ -124,6 +130,8 @@ export class WorldApp {
   heroLight = new THREE.PointLight(0xffc878, 4.2, 12, 1.6);
   clickMark: THREE.Mesh | null = null;
   composer: EffectComposer | null = null;
+  gradePass: ShaderPass | null = null;
+  hitLight = makeHitFlash();
 
   room: RoomSnap | null = null;
   joystick: VirtualJoystick;
@@ -147,6 +155,8 @@ export class WorldApp {
   camFollow = new THREE.Vector3();
   camPunch = 0;
   camShake = 0;
+  camFovKick = 0;
+  hitFlashAmt = 0;
   netOffline = false;
   hubTipShown = false;
   nearExitToastAt = 0;
@@ -189,6 +199,7 @@ export class WorldApp {
   slash: THREE.Mesh | null = null;
   slashUntil = 0;
   sparks: SparkBurst[] = [];
+  impacts: ImpactRing[] = [];
   hitStopUntil = 0;
   raycaster = new THREE.Raycaster();
   groundPlane = new THREE.Plane(UP, 0);
@@ -232,6 +243,7 @@ export class WorldApp {
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
     this.scene.add(this.portalLight);
+    this.scene.add(this.hitLight);
 
     const amb = new THREE.AmbientLight(0x8a7a62, 0.48);
     this.scene.add(amb);
@@ -284,7 +296,7 @@ export class WorldApp {
     this.clickMark.rotation.x = -Math.PI / 2;
     this.clickMark.visible = false;
     this.scene.add(this.clickMark);
-    this.slash = makeSlashArc(this.mats);
+    this.slash = makeSlashTrail();
     this.slash.visible = false;
     this.youGroup.add(this.slash);
 
@@ -353,8 +365,12 @@ export class WorldApp {
       );
       this.scene.add(sky);
     }
-    this.composer = makeComposer(this.renderer, this.scene, this.camera);
-    this.composer.setSize(this.root.clientWidth || window.innerWidth, this.root.clientHeight || window.innerHeight);
+    {
+      const rig = makeComposer(this.renderer, this.scene, this.camera);
+      this.composer = rig.composer;
+      this.gradePass = rig.grade;
+      this.composer.setSize(this.root.clientWidth || window.innerWidth, this.root.clientHeight || window.innerHeight);
+    }
     this.running = true;
     this.clock.start();
     this.loop();
@@ -681,16 +697,28 @@ export class WorldApp {
     this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
     placeFollowCamera(this.camera, this.camFollow, compact, 1.55);
     if (this.camPunch > 0.001) {
-      this.camera.position.addScaledVector(UP, this.camPunch * 0.35);
-      const punchFwd = new THREE.Vector3();
-      this.camera.getWorldDirection(punchFwd);
-      this.camera.position.addScaledVector(punchFwd, -this.camPunch * 1.15);
-      this.camPunch *= Math.exp(-dt * 7);
+      this.camera.position.addScaledVector(UP, this.camPunch * 0.42);
+      this.camera.getWorldDirection(this.tmp);
+      this.camera.position.addScaledVector(this.tmp, -this.camPunch * 1.45);
+      this.camPunch *= Math.exp(-dt * 7.2);
     }
     if (this.camShake > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.camShake;
-      this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.4;
+      this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.45;
       this.camShake *= Math.exp(-dt * 10);
+    }
+    if (Math.abs(this.camFovKick) > 0.02) {
+      this.camera.fov = 50 + this.camFovKick;
+      this.camera.updateProjectionMatrix();
+      this.camFovKick *= Math.exp(-dt * 9);
+    } else if (this.camera.fov !== 50) {
+      this.camera.fov = 50;
+      this.camera.updateProjectionMatrix();
+      this.camFovKick = 0;
+    }
+    if (this.gradePass) {
+      this.gradePass.uniforms.hitFlash.value = this.hitFlashAmt;
+      this.hitFlashAmt *= Math.exp(-dt * 8.5);
     }
 
     this.sun.position.set(this.camFollow.x + 14, 22, this.camFollow.z + 8);
@@ -700,16 +728,22 @@ export class WorldApp {
 
     if (this.slash && this.slashUntil > this.animT) {
       this.slash.visible = true;
-      this.slash.rotation.y = ((this.slashUntil - this.animT) / 400) * Math.PI;
+      const left = this.slashUntil - this.animT;
+      const u = 1 - left / 400;
+      this.slash.rotation.y = (1 - u) * Math.PI * 0.95;
+      this.slash.rotation.z = 0.28 + u * 0.55;
+      const sm = this.slash.material as THREE.MeshBasicMaterial;
+      sm.opacity = 0.95 * (1 - u * u);
+      this.slash.scale.setScalar(0.85 + u * 0.55);
     } else if (this.slash) this.slash.visible = false;
 
-    this.tickFx();
+    this.tickFx(dt);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
   }
 
-  tickFx() {
+  tickFx(dt: number) {
     for (const b of this.bolts) placeBolt(b, this.animT);
     this.bolts = this.bolts.filter((b) => {
       if (this.animT > b.start + b.dur) {
@@ -747,6 +781,18 @@ export class WorldApp {
       }
       return true;
     });
+    this.impacts = this.impacts.filter((r) => {
+      tickImpact(r, this.animT);
+      if (this.animT - r.start > r.dur) {
+        this.scene.remove(r.mesh);
+        r.mesh.geometry.dispose();
+        (r.mesh.material as THREE.Material).dispose();
+        return false;
+      }
+      return true;
+    });
+    if (this.hitLight.intensity > 0.05) this.hitLight.intensity *= Math.exp(-dt * 14);
+    else this.hitLight.intensity = 0;
     this.teles = this.teles.filter((t) => {
       const left = t.until - this.animT;
       const mat = t.mesh.material as THREE.MeshBasicMaterial;
@@ -1049,13 +1095,12 @@ export class WorldApp {
         const rid = String(msg.id);
         const ent = this.room?.entities?.find((e: any) => e.id === rid);
         if (ent && (ent.kind === "mob" || ent.kind === "boss")) {
-          this.camShake = ent.kind === "boss" ? 0.55 : 0.22;
-          this.camPunch = ent.kind === "boss" ? 0.8 : 0.35;
+          const heavy = ent.kind === "boss";
+          this.camShake = Math.max(this.camShake, heavy ? 0.55 : 0.24);
+          this.camPunch = Math.max(this.camPunch, heavy ? 0.85 : 0.42);
+          this.camFovKick = Math.max(this.camFovKick, heavy ? 3.6 : 2.1);
           const pos = this.entityRenderPos(ent);
-          const burst = spawnSparks(pos.x, pos.y, 1.2, ent.kind === "boss" ? 0xffd078 : 0xff8844, this.animT);
-          burst.dur = 620;
-          this.scene.add(burst.points);
-          this.sparks.push(burst);
+          this.spawnHitFx(pos, heavy ? 0xffd078 : 0xff8844, heavy);
         }
         break;
       }
@@ -1068,9 +1113,12 @@ export class WorldApp {
     const sockId = this.socket.playerId != null ? String(this.socket.playerId) : "";
     const hitSelf = Boolean(tid) && (tid === youId || tid === sockId);
     if (hitSelf) {
-      this.camShake = 0.28;
-      this.camPunch = 0.25;
-      this.hitStopUntil = performance.now() + HIT_STOP_MS;
+      this.camShake = Math.max(this.camShake, 0.38);
+      this.camPunch = Math.max(this.camPunch, 0.58);
+      this.camFovKick = Math.min(this.camFovKick, -3.2);
+      this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.38);
+      this.hitStopUntil = performance.now() + HIT_STOP_MS + 20;
+      this.spawnHitFx(this.renderYou, 0xff6644, true);
       this.floatDmg(this.renderYou, msg.damage, true);
       const soaked = Number(msg.soaked) || 0;
       if (soaked > 0 && msg.wardActive) flashWardSoak();
@@ -1080,12 +1128,13 @@ export class WorldApp {
     const ent = this.room?.entities?.find((e: any) => String(e.id) === tid);
     const attacker = String(msg.attackerId ?? "");
     const weHit = Boolean(attacker) && (attacker === youId || attacker === sockId);
+    let comboBoost = 0;
     if (weHit && ent && (ent.kind === "mob" || ent.kind === "boss")) {
       this.lastHitFoe = { id: String(ent.id), until: this.animT + GALE_STICKY_MS };
       const streak = noteComboHit();
-      if (isComboMilestone(streak)) this.camPunch = 0.35;
-      if (isComboInfernoFringe(streak)) this.camPunch = 0.5;
-      if (isComboEclipse(streak)) this.camPunch = 0.6;
+      if (isComboMilestone(streak)) comboBoost = 0.12;
+      if (isComboInfernoFringe(streak)) comboBoost = 0.22;
+      if (isComboEclipse(streak)) comboBoost = 0.32;
       if (isComboVoidCorona(streak)) pulseVoidCorona();
       if (isComboAbyss(streak)) pulseAbyssChroma();
       if (isComboRiftShear(streak)) pulseRiftShear(false);
@@ -1093,16 +1142,37 @@ export class WorldApp {
       if (isComboHorizonFold(streak)) pulseHorizonFold();
     }
     if (ent) {
-      this.camShake = 0.18;
+      const heavy = ent.kind === "boss";
+      this.camShake = Math.max(this.camShake, 0.2 + comboBoost);
+      this.camPunch = Math.max(this.camPunch, (weHit ? 0.36 : 0.22) + comboBoost + (heavy ? 0.2 : 0));
+      this.camFovKick = Math.max(this.camFovKick, (weHit ? 2.4 : 1.2) + comboBoost * 4);
+      if (weHit) this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.16 + comboBoost);
       this.hitStopUntil = performance.now() + HIT_STOP_MS;
       const pos = this.entityRenderPos(ent);
       this.floatDmg(pos, msg.damage, false);
       const rec = this.nodes.get(String(ent.id));
-      if (rec) rec.group.scale.setScalar(1.16);
-      const burst = spawnSparks(pos.x, pos.y, 1.1, 0xffe8a0, this.animT);
-      this.scene.add(burst.points);
-      this.sparks.push(burst);
+      if (rec) rec.group.scale.setScalar(heavy ? 1.28 : 1.2);
+      this.spawnHitFx(pos, heavy ? 0xffd078 : 0xffe8a0, heavy || comboBoost > 0.2);
     }
+  }
+
+  spawnHitFx(pos: Vec2, color: number, heavy = false) {
+    const ring = makeImpactRing(color);
+    setPlanar(ring.position, pos.x, pos.y, 0.07);
+    this.scene.add(ring);
+    this.impacts.push({ mesh: ring, start: this.animT, dur: heavy ? 560 : 360 });
+    const core = makeImpactRing(0xfff1c4);
+    setPlanar(core.position, pos.x, pos.y, 0.08);
+    core.scale.setScalar(0.55);
+    this.scene.add(core);
+    this.impacts.push({ mesh: core, start: this.animT, dur: heavy ? 280 : 180 });
+    const burst = spawnSparks(pos.x, pos.y, heavy ? 1.35 : 1.1, color, this.animT);
+    burst.dur = heavy ? 640 : 420;
+    this.scene.add(burst.points);
+    this.sparks.push(burst);
+    this.hitLight.color.setHex(color);
+    this.hitLight.intensity = heavy ? 14 : 8.5;
+    setPlanar(this.hitLight.position, pos.x, pos.y, 1.2);
   }
 
   onSpellFx(msg: any) {
@@ -1128,7 +1198,9 @@ export class WorldApp {
       noteWardBuff(8);
     } else if (id === "infernal_burst") {
       const mesh = makeBurst(this.mats!);
-      setPlanar(mesh.position, Number(msg.x) || this.renderYou.x, Number(msg.y) || this.renderYou.y, 0.4);
+      const bx = Number(msg.x) || this.renderYou.x;
+      const by = Number(msg.y) || this.renderYou.y;
+      setPlanar(mesh.position, bx, by, 0.4);
       this.scene.add(mesh);
       this.bursts.push({
         mesh,
@@ -1136,7 +1208,9 @@ export class WorldApp {
         dur: 520,
         r: Number(msg.radius) || BURST_RADIUS,
       });
-      this.camPunch = 0.55;
+      this.camPunch = Math.max(this.camPunch, 0.62);
+      this.camFovKick = Math.max(this.camFovKick, 3.1);
+      this.spawnHitFx({ x: bx, y: by }, 0xff5533, true);
     }
   }
 
@@ -1279,6 +1353,8 @@ export class WorldApp {
     this.attackBusyUntil = now + ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
     noteAttackCd((ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS) / 1000);
     this.slashUntil = this.animT + 400;
+    this.camPunch = Math.max(this.camPunch, 0.16);
+    this.camFovKick = Math.max(this.camFovKick, 1.1);
     window.setTimeout(() => this.socket.attack(targetId), ATTACK_WINDUP_MS);
   }
 
