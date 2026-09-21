@@ -301,7 +301,7 @@ export function makeWhirlShade(mats: MatKit): THREE.Group {
 }
 
 export function makeChampion(mats: MatKit): THREE.Group {
-  const g = makeShadeBody(mats, 1.45, true);
+  const g = makeShadeBody(mats, 1.72, true);
   g.name = "champion";
   const crown = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.42, 6), mats.gold);
   crown.position.set(0, 2.15, 0);
