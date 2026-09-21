@@ -116,3 +116,72 @@ export function makeHitFlash(): THREE.PointLight {
   const l = new THREE.PointLight(0xffcc88, 0, 8, 2);
   return l;
 }
+
+export type SparkBurst = {
+  points: THREE.Points;
+  vel: Float32Array;
+  start: number;
+  dur: number;
+};
+
+export function spawnSparks(x: number, z: number, y: number, color: number, t: number): SparkBurst {
+  const n = 22;
+  const pos = new Float32Array(n * 3);
+  const vel = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    pos[i * 3] = x;
+    pos[i * 3 + 1] = y;
+    pos[i * 3 + 2] = z;
+    const a = Math.random() * Math.PI * 2;
+    const sp = 1.6 + Math.random() * 3.4;
+    vel[i * 3] = Math.cos(a) * sp;
+    vel[i * 3 + 1] = 2.2 + Math.random() * 4.2;
+    vel[i * 3 + 2] = Math.sin(a) * sp;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const points = new THREE.Points(
+    geo,
+    new THREE.PointsMaterial({
+      color,
+      size: 0.14,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    })
+  );
+  return { points, vel, start: t, dur: 420 };
+}
+
+export function tickSparks(b: SparkBurst, t: number) {
+  const u = (t - b.start) / b.dur;
+  const pos = b.points.geometry.attributes.position as THREE.BufferAttribute;
+  const dt = 0.016;
+  for (let i = 0; i < b.vel.length / 3; i++) {
+    const o = i * 3;
+    b.vel[o + 1] -= 9 * dt;
+    pos.array[o] += b.vel[o] * dt;
+    pos.array[o + 1] += b.vel[o + 1] * dt;
+    pos.array[o + 2] += b.vel[o + 2] * dt;
+  }
+  pos.needsUpdate = true;
+  (b.points.material as THREE.PointsMaterial).opacity = Math.max(0, 1 - u);
+}
+
+export function makeLootBeam(color: number): THREE.Mesh {
+  const m = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.09, 4.2, 8),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  m.position.y = 2.2;
+  m.name = "lootBeam";
+  return m;
+}

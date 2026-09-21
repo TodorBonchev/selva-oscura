@@ -50,7 +50,19 @@ import { camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from 
 import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
 import { makeByKind, makeSlashArc, modelFrontWorld, resolveKind, type KindKey } from "./meshes";
 import { buildGround, type GroundRig } from "./ground";
-import { AshField, makeBolt, makeBurst, makeTelegraph, makeWardRing, placeBolt, type Bolt } from "./fx";
+import {
+  AshField,
+  makeBolt,
+  makeBurst,
+  makeLootBeam,
+  makeTelegraph,
+  makeWardRing,
+  placeBolt,
+  spawnSparks,
+  tickSparks,
+  type Bolt,
+  type SparkBurst,
+} from "./fx";
 import { tickHumanoid, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -176,6 +188,7 @@ export class WorldApp {
   teles: { mesh: THREE.Mesh; until: number; r: number }[] = [];
   slash: THREE.Mesh | null = null;
   slashUntil = 0;
+  sparks: SparkBurst[] = [];
   hitStopUntil = 0;
   raycaster = new THREE.Raycaster();
   groundPlane = new THREE.Plane(UP, 0);
@@ -721,6 +734,16 @@ export class WorldApp {
       }
       return true;
     });
+    this.sparks = this.sparks.filter((s) => {
+      tickSparks(s, this.animT);
+      if (this.animT - s.start > s.dur) {
+        this.scene.remove(s.points);
+        s.points.geometry.dispose();
+        (s.points.material as THREE.Material).dispose();
+        return false;
+      }
+      return true;
+    });
     this.teles = this.teles.filter((t) => {
       const left = t.until - this.animT;
       const mat = t.mesh.material as THREE.MeshBasicMaterial;
@@ -737,7 +760,34 @@ export class WorldApp {
       const ribbon = n.group.getObjectByName("ribbon");
       if (ribbon) ribbon.rotation.y = this.animT * 0.003;
       const disc = n.group.getObjectByName("galeDisc");
-      if (disc) (disc as THREE.Mesh).rotation.z = this.animT * 0.0015;
+      if (disc) {
+        (disc as THREE.Mesh).rotation.z = this.animT * 0.0015;
+        const s = 1 + Math.sin(this.animT * 0.004) * 0.04;
+        disc.scale.set(s, s, 1);
+      }
+      const galeRing = n.group.getObjectByName("galeRing");
+      if (galeRing) galeRing.rotation.z = -this.animT * 0.0022;
+      const inner = n.group.getObjectByName("portalInner");
+      if (inner) inner.rotation.y = this.animT * 0.003;
+      const ps = n.group.getObjectByName("portalSparks") as THREE.Points | undefined;
+      if (ps) {
+        const arr = (ps.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+        for (let i = 0; i < arr.length / 3; i++) {
+          arr[i * 3 + 1] += 0.018;
+          if (arr[i * 3 + 1] > 3.6) arr[i * 3 + 1] = 0.35;
+        }
+        (ps.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      }
+      const beam = n.group.getObjectByName("lootBeam");
+      if (beam) {
+        beam.rotation.y = this.animT * 0.002;
+        const mat = (beam as THREE.Mesh).material as THREE.MeshBasicMaterial;
+        mat.opacity = 0.28 + Math.sin(this.animT * 0.006) * 0.12;
+      }
+      if (n.group.scale.x > 1.001) {
+        const s = 1 + (n.group.scale.x - 1) * 0.82;
+        n.group.scale.setScalar(s);
+      }
       const gem = n.group.getObjectByName("gem");
       if (gem) {
         gem.rotation.y = this.animT * 0.004;
@@ -800,6 +850,11 @@ export class WorldApp {
     const label = new CSS2DObject(wrap);
     label.center.set(0.5, 1);
     label.position.set(0, kind === "judge" ? 4.6 : kind === "portal" ? 3.4 : 2.05, 0);
+    if (kind === "loot") {
+      const rarity = String(e?.item?.rarity || "normal");
+      group.add(makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a));
+    }
+    if (kind === "portal") label.position.set(0, 4.1, 0);
     group.add(label);
     this.scene.add(group);
     const rec: NodeRec = { id, kind, group, label, hpEl: wrap };
@@ -981,6 +1036,11 @@ export class WorldApp {
         if (ent && (ent.kind === "mob" || ent.kind === "boss")) {
           this.camShake = ent.kind === "boss" ? 0.55 : 0.22;
           this.camPunch = ent.kind === "boss" ? 0.8 : 0.35;
+          const pos = this.entityRenderPos(ent);
+          const burst = spawnSparks(pos.x, pos.y, 1.2, ent.kind === "boss" ? 0xffd078 : 0xff8844, this.animT);
+          burst.dur = 620;
+          this.scene.add(burst.points);
+          this.sparks.push(burst);
         }
         break;
       }
@@ -1023,7 +1083,10 @@ export class WorldApp {
       const pos = this.entityRenderPos(ent);
       this.floatDmg(pos, msg.damage, false);
       const rec = this.nodes.get(String(ent.id));
-      if (rec) rec.group.scale.setScalar(1.12);
+      if (rec) rec.group.scale.setScalar(1.16);
+      const burst = spawnSparks(pos.x, pos.y, 1.1, 0xffe8a0, this.animT);
+      this.scene.add(burst.points);
+      this.sparks.push(burst);
     }
   }
 

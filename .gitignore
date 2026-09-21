@@ -10,6 +10,8 @@ target/
 .anchor/
 test-ledger/
 .vercel
+.tmp-shots/
+so-play.mjs
 
 # local secrets
 secrets/

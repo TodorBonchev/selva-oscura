@@ -378,19 +378,53 @@ export function makeWrit(mats: MatKit): THREE.Group {
 export function makePortal(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "portal";
-  const colL = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 3.2, 10), mats.stone);
-  colL.position.set(-1.05, 1.6, 0);
+  const colL = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 3.6, 12), mats.stone);
+  colL.position.set(-1.15, 1.8, 0);
   const colR = colL.clone();
-  colR.position.x = 1.05;
-  const arch = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.16, 10, 24, Math.PI), mats.stone);
-  arch.position.y = 3.15;
+  colR.position.x = 1.15;
+  const capL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.42), mats.gold);
+  capL.position.set(-1.15, 3.62, 0);
+  const capR = capL.clone();
+  capR.position.x = 1.15;
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.14, 10, 28, Math.PI), mats.stone);
+  arch.position.y = 3.55;
   arch.rotation.z = Math.PI;
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.95, 24), mats.gale);
-  disc.position.set(0, 1.85, 0);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(1.05, 32), mats.gale);
+  disc.position.set(0, 2.05, 0);
   disc.name = "galeDisc";
-  const trim = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.045, 8, 24), mats.gold);
-  trim.position.y = 1.85;
-  g.add(discShadow(mats, 1.3), colL, colR, arch, disc, trim, nose(mats, 1.8, -0.2));
+  const disc2 = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.95, 28), mats.gale);
+  disc2.position.set(0, 2.05, 0.02);
+  disc2.name = "galeRing";
+  const trim = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.05, 8, 32), mats.gold);
+  trim.position.y = 2.05;
+  const inner = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.03, 8, 24), mats.gold);
+  inner.position.y = 2.05;
+  inner.name = "portalInner";
+  const glow = new THREE.PointLight(0xff6633, 6.5, 14, 1.6);
+  glow.position.set(0, 2.1, 0.2);
+  const n = 48;
+  const pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    pos[i * 3] = Math.cos(a) * (0.25 + (i % 5) * 0.12);
+    pos[i * 3 + 1] = 0.4 + (i % 7) * 0.38;
+    pos[i * 3 + 2] = Math.sin(a) * (0.25 + (i % 4) * 0.1);
+  }
+  const pgeo = new THREE.BufferGeometry();
+  pgeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const sparks = new THREE.Points(
+    pgeo,
+    new THREE.PointsMaterial({
+      color: 0xff8844,
+      size: 0.11,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  sparks.name = "portalSparks";
+  g.add(discShadow(mats, 1.45), colL, colR, capL, capR, arch, disc, disc2, trim, inner, glow, sparks, nose(mats, 2.0, -0.2));
   shadow(g);
   return g;
 }
