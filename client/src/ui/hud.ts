@@ -467,6 +467,49 @@ export function hapticPortalComplete() {
   haptic("portal");
 }
 
+/** D4-style hold-to-travel: radial fill on Interact + bottom prompt. `frac` null hides. */
+export function setPortalHoldUi(frac: number | null, dest = "portal") {
+  const btn = document.getElementById("btn-interact");
+  const cd = btn?.querySelector<HTMLElement>(".interact-cd");
+  const label = btn?.querySelector<HTMLElement>(".action-label");
+  const prompt = document.getElementById("portal-hold-prompt");
+  const bar = prompt?.querySelector<HTMLElement>(".php-bar i");
+  const destEl = prompt?.querySelector<HTMLElement>(".php-dest");
+  if (frac == null) {
+    btn?.classList.remove("charging");
+    btn?.style.removeProperty("--portal-charge-deg");
+    if (cd) {
+      cd.hidden = true;
+      cd.style.removeProperty("--portal-charge-deg");
+    }
+    if (label && label.dataset.charging === "1") {
+      label.textContent = label.dataset.idleLabel || "Interact";
+      delete label.dataset.charging;
+    }
+    prompt?.classList.add("hidden");
+    prompt?.setAttribute("aria-hidden", "true");
+    if (bar) bar.style.width = "0%";
+    return;
+  }
+  const u = Math.max(0, Math.min(1, frac));
+  const deg = `${(u * 360).toFixed(1)}deg`;
+  btn?.classList.add("charging");
+  btn?.style.setProperty("--portal-charge-deg", deg);
+  if (cd) {
+    cd.hidden = false;
+    cd.style.setProperty("--portal-charge-deg", deg);
+  }
+  if (label) {
+    if (!label.dataset.idleLabel) label.dataset.idleLabel = label.textContent || "Interact";
+    label.dataset.charging = "1";
+    label.textContent = "Enter";
+  }
+  if (destEl) destEl.textContent = dest;
+  if (bar) bar.style.width = `${(u * 100).toFixed(1)}%`;
+  prompt?.classList.remove("hidden");
+  prompt?.setAttribute("aria-hidden", "false");
+}
+
 /** Pressed-state helper for the gothic action buttons (mouse + touch). */
 function wirePressed(btn: HTMLElement) {
   const off = () => btn.classList.remove("pressed");

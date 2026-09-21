@@ -266,6 +266,112 @@ export function tickImpact(ring: ImpactRing, t: number) {
   (ring.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - u) * (1 - u) * 0.95);
 }
 
+/** Pilgrim-foot channel ring while holding Interact to travel a portal. */
+export type PortalHoldFx = {
+  group: THREE.Group;
+  fill: THREE.Mesh;
+  rim: THREE.Mesh;
+  sweep: THREE.Mesh;
+  column: THREE.Mesh;
+  light: THREE.PointLight;
+};
+
+function portalHoldMat(color: number, opacity: number): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+}
+
+export function makePortalHoldFx(): PortalHoldFx {
+  const group = new THREE.Group();
+  group.name = "portalHold";
+  group.visible = false;
+
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(1.15, 48), portalHoldMat(0xc9a227, 0.18));
+  fill.rotation.x = -Math.PI / 2;
+  fill.name = "portalHoldFill";
+  fill.renderOrder = 2;
+
+  const sweep = new THREE.Mesh(new THREE.CircleGeometry(1.15, 48), portalHoldMat(0xffe8a0, 0.34));
+  sweep.rotation.x = -Math.PI / 2;
+  sweep.position.y = 0.02;
+  sweep.scale.setScalar(0.06);
+  sweep.name = "portalHoldSweep";
+  sweep.renderOrder = 3;
+
+  const rim = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.2, 48), portalHoldMat(0xffe08a, 0.92));
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.y = 0.03;
+  rim.name = "portalHoldRim";
+  rim.renderOrder = 4;
+
+  const glow = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.45, 48), portalHoldMat(0xff8844, 0.28));
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = 0.025;
+  glow.name = "portalHoldGlow";
+  glow.renderOrder = 3;
+
+  const tickMat = portalHoldMat(0xffe8a0, 0.8);
+  const tickGeo = new THREE.PlaneGeometry(0.14, 0.035);
+  for (let i = 0; i < 12; i++) {
+    const tick = new THREE.Mesh(tickGeo, tickMat);
+    const a = (i / 12) * Math.PI * 2;
+    tick.position.set(Math.cos(a) * 1.11, 0.035, Math.sin(a) * 1.11);
+    tick.rotation.set(-Math.PI / 2, -a, 0);
+    tick.name = "portalHoldTick";
+    tick.renderOrder = 5;
+    group.add(tick);
+  }
+
+  const column = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.38, 1, 18, 1, true),
+    portalHoldMat(0xffd090, 0.2)
+  );
+  column.position.y = 0.55;
+  column.name = "portalHoldColumn";
+  column.renderOrder = 3;
+
+  const light = new THREE.PointLight(0xffc878, 0, 8, 2);
+  light.position.y = 0.95;
+  light.name = "portalHoldLight";
+
+  group.add(fill, sweep, rim, glow, column, light);
+  return { group, fill, rim, sweep, column, light };
+}
+
+export function tickPortalHoldFx(fx: PortalHoldFx, u: number) {
+  const t = Math.min(1, Math.max(0, u));
+  fx.group.visible = true;
+  fx.sweep.scale.setScalar(0.08 + t * 0.92);
+  const fillMat = fx.fill.material as THREE.MeshBasicMaterial;
+  const rimMat = fx.rim.material as THREE.MeshBasicMaterial;
+  const sweepMat = fx.sweep.material as THREE.MeshBasicMaterial;
+  fillMat.opacity = 0.12 + t * 0.22;
+  sweepMat.opacity = 0.2 + t * 0.32;
+  rimMat.opacity = 0.62 + 0.3 * Math.abs(Math.sin(t * Math.PI));
+  fx.column.scale.set(1, 0.35 + t * 2.1, 1);
+  fx.column.position.y = (0.35 + t * 2.1) * 0.5;
+  (fx.column.material as THREE.MeshBasicMaterial).opacity = 0.1 + t * 0.28;
+  fx.light.intensity = 0.6 + t * 4.2;
+  if (t > 0.84) {
+    const flash = (t - 0.84) / 0.16;
+    fillMat.opacity = 0.32 + flash * 0.28;
+    sweepMat.opacity = 0.48 + flash * 0.4;
+    rimMat.color.setHex(flash > 0.5 ? 0xfff6d0 : 0xffe08a);
+    fx.light.intensity = 5 + flash * 5;
+  } else {
+    rimMat.color.setHex(0xffe08a);
+  }
+}
+
 export function makeSlashTrail(): THREE.Mesh {
   const m = new THREE.Mesh(
     new THREE.TorusGeometry(0.98, 0.07, 6, 24, Math.PI * 1.2),
