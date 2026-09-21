@@ -54,6 +54,7 @@ import {
   AshField,
   makeBolt,
   makeBurst,
+  makeDustPuff,
   makeHitFlash,
   makeImpactRing,
   makeLootBeam,
@@ -199,6 +200,8 @@ export class WorldApp {
   slash: THREE.Mesh | null = null;
   slashUntil = 0;
   sparks: SparkBurst[] = [];
+  dust: { mesh: THREE.Mesh; start: number }[] = [];
+  lastDustAt = 0;
   impacts: ImpactRing[] = [];
   hitStopUntil = 0;
   raycaster = new THREE.Raycaster();
@@ -679,6 +682,13 @@ export class WorldApp {
         attacking: this.animT < this.slashUntil,
         speed: Math.hypot(this.velX, this.velY),
       });
+      if (moving && this.animT - this.lastDustAt > 160) {
+        this.lastDustAt = this.animT;
+        const puff = makeDustPuff();
+        setPlanar(puff.position, this.renderYou.x, this.renderYou.y, 0.05);
+        this.scene.add(puff);
+        this.dust.push({ mesh: puff, start: this.animT });
+      }
       if (this.netOffline) {
         this.youGroup.traverse((o) => {
           const m = o as THREE.Mesh;
@@ -777,6 +787,19 @@ export class WorldApp {
         this.scene.remove(s.points);
         s.points.geometry.dispose();
         (s.points.material as THREE.Material).dispose();
+        return false;
+      }
+      return true;
+    });
+    this.dust = this.dust.filter((d) => {
+      const u = (this.animT - d.start) / 380;
+      d.mesh.scale.setScalar(1 + u * 2.4);
+      const mat = d.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.max(0, 0.4 * (1 - u));
+      if (u >= 1) {
+        this.scene.remove(d.mesh);
+        d.mesh.geometry.dispose();
+        mat.dispose();
         return false;
       }
       return true;
@@ -912,10 +935,11 @@ export class WorldApp {
     wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div>`;
     const label = new CSS2DObject(wrap);
     label.center.set(0.5, 1);
-    label.position.set(0, kind === "judge" ? 5.6 : kind === "portal" ? 4.1 : 2.05, 0);
+    label.position.set(0, kind === "judge" ? 5.6 : kind === "portal" ? 4.1 : kind === "loot" ? 1.35 : 2.05, 0);
     if (kind === "loot") {
       const rarity = String(e?.item?.rarity || "normal");
       group.add(makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a));
+      wrap.classList.add("loot-label");
     }
     if (kind === "portal") label.position.set(0, 4.1, 0);
     group.add(label);
@@ -936,13 +960,14 @@ export class WorldApp {
     const nameEl = rec.hpEl.querySelector(".wl-name") as HTMLElement;
     const hp = rec.hpEl.querySelector(".wl-hp") as HTMLElement;
     const fill = rec.hpEl.querySelector(".wl-hp i") as HTMLElement;
-    const name = e.label || e.name || "";
-    if (d > 16) {
+    const name = e.item?.name || e.label || e.name || "";
+    const far = rec.kind === "loot" ? 22 : 16;
+    if (d > far) {
       rec.hpEl.style.opacity = "0";
       return;
     }
-    rec.hpEl.style.opacity = d > 8 ? "0.45" : "1";
-    if (nameEl) nameEl.textContent = d > 8 ? "•" : name;
+    rec.hpEl.style.opacity = d > 8 && rec.kind !== "loot" ? "0.45" : "1";
+    if (nameEl) nameEl.textContent = rec.kind === "loot" || d <= 8 ? name : "•";
     if (e.hp != null && e.maxHp) {
       hp.style.display = "block";
       fill.style.width = `${Math.max(0, Math.min(100, (e.hp / e.maxHp) * 100))}%`;
