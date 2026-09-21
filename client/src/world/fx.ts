@@ -112,6 +112,120 @@ export function makeTelegraph(color = 0xff3311): THREE.Mesh {
   return m;
 }
 
+/** Judge slam — filled danger disc, outer rim, growing countdown sweep. */
+export type SlamTele = {
+  group: THREE.Group;
+  fill: THREE.Mesh;
+  rim: THREE.Mesh;
+  sweep: THREE.Mesh;
+  light: THREE.PointLight;
+  x: number;
+  y: number;
+  r: number;
+  start: number;
+  dur: number;
+};
+
+function slamMat(color: number, opacity: number, additive = false): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+}
+
+export function makeSlamTelegraph(): Pick<SlamTele, "group" | "fill" | "rim" | "sweep" | "light"> {
+  const group = new THREE.Group();
+  group.name = "slamTele";
+
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(1, 48), slamMat(0xa01810, 0.22));
+  fill.rotation.x = -Math.PI / 2;
+  fill.name = "slamFill";
+  fill.renderOrder = 2;
+
+  const sweep = new THREE.Mesh(new THREE.CircleGeometry(1, 48), slamMat(0xff4a22, 0.32, true));
+  sweep.rotation.x = -Math.PI / 2;
+  sweep.position.y = 0.02;
+  sweep.scale.setScalar(0.06);
+  sweep.name = "slamSweep";
+  sweep.renderOrder = 3;
+
+  const rim = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 48), slamMat(0xff6644, 0.92, true));
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.y = 0.03;
+  rim.name = "slamRim";
+  rim.renderOrder = 4;
+
+  const glow = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.2, 48), slamMat(0xff2208, 0.28, true));
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = 0.025;
+  glow.name = "slamGlow";
+  glow.renderOrder = 3;
+
+  const tickMat = slamMat(0xffd078, 0.85, true);
+  const tickGeo = new THREE.PlaneGeometry(0.16, 0.04);
+  for (let i = 0; i < 16; i++) {
+    const tick = new THREE.Mesh(tickGeo, tickMat);
+    const a = (i / 16) * Math.PI * 2;
+    tick.position.set(Math.cos(a) * 0.96, 0.035, Math.sin(a) * 0.96);
+    tick.rotation.set(-Math.PI / 2, -a, 0);
+    tick.name = "slamTick";
+    tick.renderOrder = 5;
+    group.add(tick);
+  }
+
+  const light = new THREE.PointLight(0xff4418, 1.2, 10, 2);
+  light.position.y = 1.15;
+  light.name = "slamLight";
+
+  group.add(fill, sweep, rim, glow, light);
+  return { group, fill, rim, sweep, light };
+}
+
+export function tickSlamTelegraph(s: SlamTele, t: number) {
+  const u = Math.min(1, Math.max(0, (t - s.start) / s.dur));
+  s.sweep.scale.setScalar(0.06 + u * 0.94);
+  const fillMat = s.fill.material as THREE.MeshBasicMaterial;
+  const rimMat = s.rim.material as THREE.MeshBasicMaterial;
+  const sweepMat = s.sweep.material as THREE.MeshBasicMaterial;
+  fillMat.opacity = 0.18 + u * 0.28;
+  sweepMat.opacity = 0.22 + u * 0.28;
+  rimMat.opacity = 0.72 + 0.28 * Math.abs(Math.sin(t * 0.016));
+  s.light.intensity = 1.1 + u * 5.5;
+  if (u > 0.82) {
+    const flash = (u - 0.82) / 0.18;
+    fillMat.opacity = 0.42 + flash * 0.28;
+    sweepMat.opacity = 0.5 + flash * 0.4;
+    rimMat.color.setHex(flash > 0.55 ? 0xfff1c4 : 0xffe08a);
+    s.light.intensity = 7 + flash * 6;
+  }
+}
+
+export function disposeObject3D(obj: THREE.Object3D) {
+  const mats = new Set<THREE.Material>();
+  const geos = new Set<THREE.BufferGeometry>();
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if (m.geometry && !geos.has(m.geometry)) {
+      geos.add(m.geometry);
+      m.geometry.dispose();
+    }
+    const list = Array.isArray(m.material) ? m.material : [m.material];
+    for (const mat of list) {
+      if (!mat || mats.has(mat)) continue;
+      mats.add(mat);
+      mat.dispose();
+    }
+  });
+}
+
 export function makeHitFlash(): THREE.PointLight {
   const l = new THREE.PointLight(0xffcc88, 0, 10, 2);
   l.name = "hitFlash";
@@ -122,6 +236,8 @@ export type ImpactRing = {
   mesh: THREE.Mesh;
   start: number;
   dur: number;
+  from?: number;
+  to?: number;
 };
 
 export function makeImpactRing(color: number): THREE.Mesh {
@@ -143,7 +259,9 @@ export function makeImpactRing(color: number): THREE.Mesh {
 
 export function tickImpact(ring: ImpactRing, t: number) {
   const u = Math.min(1, Math.max(0, (t - ring.start) / ring.dur));
-  const s = 0.45 + u * 3.4;
+  const from = ring.from ?? 0.45;
+  const to = ring.to ?? 3.85;
+  const s = from + u * (to - from);
   ring.mesh.scale.set(s, s, 1);
   (ring.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - u) * (1 - u) * 0.95);
 }
