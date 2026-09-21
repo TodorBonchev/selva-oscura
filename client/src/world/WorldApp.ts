@@ -748,6 +748,7 @@ export class WorldApp {
       this.camera.position.addScaledVector(this.tmp, -this.camPunch * 1.45);
       this.camPunch *= Math.exp(-dt * 7.2);
     }
+    this.camera.position.y = Math.max(this.camera.position.y, 5.2);
     if (this.camShake > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.camShake;
       this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.45;

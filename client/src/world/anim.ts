@@ -49,8 +49,11 @@ export function tickHumanoid(
     torso.rotation.x = opts.moving ? 0.08 : Math.sin(t * 2.1) * 0.02;
   }
   if (cloak) {
-    cloak.rotation.x = 0.18 + Math.sin(gait * 2) * 0.08 * step + Math.sin(t * 1.4) * 0.03;
-    cloak.rotation.y = Math.sin(gait) * 0.05 * step;
+    const idle = opts.moving ? 0 : 1;
+    cloak.rotation.x =
+      0.18 + Math.sin(gait * 2) * 0.08 * step + Math.sin(t * 1.4) * 0.03 + Math.sin(t * 2.6) * 0.06 * idle;
+    cloak.rotation.y = Math.sin(gait) * 0.05 * step + Math.sin(t * 1.9) * 0.05 * idle;
+    cloak.rotation.z = Math.sin(t * 2.2) * 0.03 * idle;
   }
   if (legL) legL.rotation.x = Math.sin(gait) * 0.62 * step;
   if (legR) legR.rotation.x = Math.sin(gait + Math.PI) * 0.62 * step;

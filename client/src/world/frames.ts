@@ -84,6 +84,7 @@ export function placeFollowCamera(
   const o = camOffset(compact);
   camera.up.copy(UP);
   camera.position.set(target.x + o.x, target.y + o.y, target.z + o.z);
+  camera.position.y = Math.max(camera.position.y, 5.2);
   // Look a little past the hero into the scene so they sit in the lower third (D4-style).
   camera.lookAt(target.x - 1.8, lookY, target.z - 1.8);
 }
