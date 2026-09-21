@@ -1,6 +1,6 @@
 # selva-oscura-client
 
-Phaser isometric 2D client for Selva Oscura Slice 1.
+Three.js 3D client for Selva Oscura Slice 1. Server protocol is unchanged.
 
 ## Connect
 
@@ -39,8 +39,8 @@ http://localhost:5173/?server=http://localhost:8080&name=Virgil
 - Bottom **action bar** sits to the **right of the stick** (Inv · AH · Interact · Attack) so thumbs don’t collide. Attack is slightly larger; hold Attack to keep swinging at the nearest foe.
 - HUD help switches to stick-oriented hints under ~640px / coarse pointer.
 - Inventory & AH panels become full-width bottom sheets with larger tap targets (~44px) and close buttons.
-- Camera zooms out on compact UI (`0.65` phones / `0.72` wider tablets) with soft follow so hub POIs stay readable while stick-driving.
-- Entity tap hit-radius is larger on compact UI; Phaser `pointerdown` works for touch (no hover-only controls).
+- Camera pulls back on compact UI so hub POIs stay readable while stick-driving.
+- Entity picking uses a Three.js raycast from the tap; the canvas uses `pointerdown` for touch.
 - Safe-area insets are respected for notched phones (`viewport-fit=cover`). Game root uses `touch-action: none` to block browser scroll/zoom over the canvas.
 
 Desktop still supports WASD / I / H / E; the stick stays hidden on fine-pointer wide viewports. Nothing in the server protocol changes for mobile.
@@ -74,3 +74,7 @@ cd client && npm install && npm run build
 ```
 
 `vercel.json` sets `outputDirectory: dist`. Set `VITE_GAME_SERVER_URL` in the Vercel project if the Railway URL changes.
+
+## 3D world
+
+The world is Three.js (y-up). Server planar `(x, y)` maps to world `(x, 0, y)`. Characters are original bronze-statue meshes with generated Doré albedos under `public/assets/tex/`. Image-to-GLB is not enabled on the current xAI team; swapping a `.glb` in later is a drop-in at `makeByKind`.

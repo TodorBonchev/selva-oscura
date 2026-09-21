@@ -156,7 +156,7 @@ export class VirtualJoystick {
     this.root.addEventListener("pointermove", onMove, { passive: false });
     this.root.addEventListener("pointerup", onUp, { passive: false });
     this.root.addEventListener("pointercancel", onUp, { passive: false });
-    // Block Phaser / canvas from seeing stick touches
+    // Block the canvas from seeing stick touches
     this.root.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: false });
     this.root.addEventListener("touchmove", (e) => {
       e.preventDefault();

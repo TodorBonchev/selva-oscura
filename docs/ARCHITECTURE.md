@@ -18,7 +18,7 @@ Browser client (untrusted)
 
 | Path | Role |
 |---|---|
-| `client/` | Phaser lean isometric 2D; DOM UI for AH / inventory |
+| `client/` | Three.js 3D world (bronze-statue kit); DOM UI for AH / inventory |
 | `server/` | Colyseus-class rooms — one room per canto instance |
 | `shared/game-core/` | Ash integer types, EventType, ItemRarity, shared constants |
 | `content/` | Cantos, drop tables, economy JSON, style bible |
