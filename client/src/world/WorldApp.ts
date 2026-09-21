@@ -1123,12 +1123,16 @@ export class WorldApp {
     if (!this.room || !this.mats) return;
     if (this.ground) this.scene.remove(this.ground.group);
     const keepouts = [
-      { x: this.room.you.x, y: this.room.you.y, r: 10 },
+      { x: this.room.you.x, y: this.room.you.y, r: 4.2 },
       ...this.room.entities
         .filter((e: any) => e.kind === "poi" || e.kind === "exit" || e.kind === "boss")
-        .map((e: any) => ({ x: e.x, y: e.y, r: e.kind === "boss" ? 10 : 5 })),
+        .map((e: any) => ({
+          x: e.x,
+          y: e.y,
+          r: e.kind === "boss" ? 10 : e.kind === "exit" ? 4.2 : 3.2,
+        })),
     ];
-    if (this.room.cantoId === "inferno_01") keepouts.push({ x: 64, y: 72, r: 9 });
+    if (this.room.cantoId === "inferno_01") keepouts.push({ x: 64, y: 72, r: 4.8 });
     this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
     this.scene.add(this.ground.group);
     this.trees = [];
@@ -1137,7 +1141,7 @@ export class WorldApp {
     });
     const lust = this.room.cantoId === "inferno_05";
     document.body.classList.toggle("in-lust", lust);
-    this.scene.fog = new THREE.FogExp2(lust ? 0x2a100c : 0x1c1812, lust ? 0.012 : 0.009);
+    this.scene.fog = new THREE.FogExp2(lust ? 0x2a100c : 0x1c1812, lust ? 0.014 : 0.013);
     this.renderer.setClearColor(lust ? 0x1a0c08 : 0x1c1812, 1);
     this.hemi.color.set(lust ? 0xffb080 : 0xe8d4b0);
     this.hemi.groundColor.set(lust ? 0x2a1008 : 0x1a1410);

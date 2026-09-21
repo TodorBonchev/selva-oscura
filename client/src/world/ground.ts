@@ -104,8 +104,8 @@ export function buildGround(
       const pathD = Math.min(distToPoly(wx, wz, HUB_PATH), distToPoly(wx, wz, HUB_SPUR), distToPoly(wx, wz, HUB_WRIT));
       const spawnD = Math.hypot(wx - 64, wz - 72);
       let k = 0.78 + hash((wx * 3) | 0, (wz * 3) | 0) * 0.16;
-      if (spawnD < 12) k = 0.98 - (spawnD / 12) * 0.12;
-      if (pathD < 3.4) k = 1.08 - (pathD / 3.4) * 0.12;
+      if (spawnD < 7) k = 0.9 - (spawnD / 7) * 0.08;
+      if (pathD < 3.4) k = 1.02 - (pathD / 3.4) * 0.1;
       colors[i * 3] = k;
       colors[i * 3 + 1] = k * 0.93;
       colors[i * 3 + 2] = k * 0.78;
@@ -144,24 +144,47 @@ export function buildGround(
   };
 
   if (isHub) {
+    const onTrail = (x: number, z: number, pad: number) =>
+      distToPoly(x, z, HUB_PATH) < pad ||
+      distToPoly(x, z, HUB_SPUR) < pad ||
+      distToPoly(x, z, HUB_WRIT) < pad;
+
+    for (let i = 0; i < 28; i++) {
+      const ang = (i / 28) * Math.PI * 2 + hash(i, 71) * 0.2;
+      let placedGrove = false;
+      for (const rad of [6.4, 8.2, 10.4, 13.2]) {
+        const x = 64 + Math.cos(ang) * rad;
+        const z = 72 + Math.sin(ang) * rad;
+        if (blocked(x, z, 1.8) || onTrail(x, z, 2.35)) continue;
+        const tree = makeTree(mats, (hash(i, 73 + rad) * 1e9) | 1);
+        tree.position.set(x, 0, z);
+        tree.rotation.y = hash(i, 74) * Math.PI * 2;
+        tree.scale.setScalar((rad < 8 ? 0.55 : 0.82) + hash(i, 75) * 0.55);
+        group.add(tree);
+        placedGrove = true;
+        break;
+      }
+      if (!placedGrove) continue;
+    }
+
     let placed = 0;
-    for (let i = 0; i < 260 && placed < 48; i++) {
+    for (let i = 0; i < 420 && placed < 86; i++) {
       const x = 4 + hash(i, 1) * (w - 8);
       const z = 4 + hash(i, 2) * (h - 8);
-      if (blocked(x, z, 2.6) || distToPoly(x, z, HUB_PATH) < 3.2) continue;
+      if (blocked(x, z, 2.2) || onTrail(x, z, 2.9)) continue;
       const tree = makeTree(mats, (hash(i, 3) * 1e9) | 1);
       tree.position.set(x, 0, z);
       tree.rotation.y = hash(i, 4) * Math.PI * 2;
-      const s = 0.72 + hash(i, 5) * 0.85;
+      const s = 0.62 + hash(i, 5) * 0.95;
       tree.scale.setScalar(s);
       group.add(tree);
       placed++;
     }
     placed = 0;
-    for (let i = 0; i < 80 && placed < 10; i++) {
+    for (let i = 0; i < 110 && placed < 16; i++) {
       const x = 6 + hash(i, 11) * (w - 12);
       const z = 6 + hash(i, 12) * (h - 12);
-      if (blocked(x, z, 1.8)) continue;
+      if (blocked(x, z, 1.4) || onTrail(x, z, 1.8)) continue;
       const stump = makeStump(mats, (hash(i, 13) * 1e9) | 1);
       stump.position.set(x, 0, z);
       stump.rotation.y = hash(i, 14) * Math.PI * 2;
@@ -170,10 +193,10 @@ export function buildGround(
       placed++;
     }
     placed = 0;
-    for (let i = 0; i < 70 && placed < 8; i++) {
+    for (let i = 0; i < 90 && placed < 12; i++) {
       const x = 6 + hash(i, 21) * (w - 12);
       const z = 6 + hash(i, 22) * (h - 12);
-      if (blocked(x, z, 2.2)) continue;
+      if (blocked(x, z, 1.8) || onTrail(x, z, 2.2)) continue;
       const log = makeFallenLog(mats, (hash(i, 23) * 1e9) | 1);
       log.position.set(x, 0, z);
       log.rotation.y = hash(i, 24) * Math.PI * 2;
@@ -182,20 +205,20 @@ export function buildGround(
       placed++;
     }
     placed = 0;
-    for (let i = 0; i < 120 && placed < 22; i++) {
+    for (let i = 0; i < 220 && placed < 48; i++) {
       const x = 5 + hash(i, 31) * (w - 10);
       const z = 5 + hash(i, 32) * (h - 10);
-      if (blocked(x, z, 1.2)) continue;
+      if (blocked(x, z, 0.9)) continue;
       const moss = makeMossClump(mats, (hash(i, 33) * 1e9) | 1);
       moss.position.set(x, 0, z);
       group.add(moss);
       placed++;
     }
     placed = 0;
-    for (let i = 0; i < 80 && placed < 12; i++) {
+    for (let i = 0; i < 140 && placed < 22; i++) {
       const x = 5 + hash(i, 41) * (w - 10);
       const z = 5 + hash(i, 42) * (h - 10);
-      if (blocked(x, z, 1.4)) continue;
+      if (blocked(x, z, 1.1) || onTrail(x, z, 1.4)) continue;
       const rock = makeForestRock(mats, (hash(i, 43) * 1e9) | 1);
       rock.position.set(x, 0, z);
       rock.rotation.y = hash(i, 44) * Math.PI * 2;
