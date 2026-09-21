@@ -232,100 +232,170 @@ export function makeGuide(mats: MatKit): THREE.Group {
 
 function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Group {
   const g = new THREE.Group();
+  const wraith = goldTrim
+    ? std(mats.leather.map, 0x3a2418, { roughness: 0.7, metalness: 0.15, emissive: 0x2a1008, emissiveIntensity: 0.18 })
+    : std(mats.leather.map, 0x2a2420, { roughness: 0.82, metalness: 0.06, emissive: 0x1a0804, emissiveIntensity: 0.12 });
   const pts = [
     new THREE.Vector2(0.02, 0),
-    new THREE.Vector2(0.28, 0.25),
-    new THREE.Vector2(0.38, 0.7),
-    new THREE.Vector2(0.22, 1.15),
-    new THREE.Vector2(0.08, 1.45),
+    new THREE.Vector2(0.22, 0.18),
+    new THREE.Vector2(0.32, 0.55),
+    new THREE.Vector2(0.24, 1.05),
+    new THREE.Vector2(0.12, 1.55),
+    new THREE.Vector2(0.04, 1.85),
   ];
-  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 18), mats.cloth);
-  body.position.y = 0.15;
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 20), wraith);
+  body.position.y = 0.2;
   const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.28, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.7),
-    goldTrim ? mats.gold : mats.bronze
+    new THREE.SphereGeometry(0.26, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
+    goldTrim ? mats.gold : wraith
   );
-  hood.position.set(0, 1.42, 0);
-  hood.rotation.x = 0.4;
-  const voidFace = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), mats.ember);
-  voidFace.position.set(0, 1.32, -0.12);
-  const ribbon = new THREE.Mesh(new THREE.TorusKnotGeometry(0.42, 0.045, 80, 8, 2, 3), mats.gale);
-  ribbon.position.y = 0.85;
+  hood.position.set(0, 1.78, 0.04);
+  hood.rotation.x = -0.35;
+  const voidFace = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), mats.ember);
+  voidFace.position.set(0, 1.68, -0.14);
+  voidFace.name = "ember";
+  const rib = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 6, 16), goldTrim ? mats.gold : mats.bronze);
+  rib.position.set(0, 1.15, 0.04);
+  rib.rotation.x = 0.4;
+  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.045, 0.85, 6), wraith);
+  armL.position.set(-0.38, 1.15, -0.15);
+  armL.rotation.z = 0.55;
+  armL.rotation.x = 0.35;
+  const armR = armL.clone();
+  armR.position.x = 0.38;
+  armR.rotation.z = -0.55;
+  const clawL = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.18, 5), mats.bone);
+  clawL.position.set(-0.62, 0.72, -0.32);
+  clawL.rotation.x = 0.9;
+  const clawR = clawL.clone();
+  clawR.position.x = 0.62;
+  const ribbon = new THREE.Mesh(new THREE.TorusKnotGeometry(0.48, 0.035, 90, 8, 2, 5), mats.gale);
+  ribbon.position.y = 0.95;
   ribbon.name = "ribbon";
-  g.add(discShadow(mats, 0.5), body, hood, voidFace, ribbon, nose(mats, 1.32, -0.22));
+  const ribbon2 = new THREE.Mesh(new THREE.TorusKnotGeometry(0.62, 0.022, 70, 6, 3, 4), mats.gale);
+  ribbon2.position.y = 0.7;
+  ribbon2.name = "ribbon2";
+  g.add(
+    discShadow(mats, 0.55),
+    body,
+    hood,
+    voidFace,
+    rib,
+    armL,
+    armR,
+    clawL,
+    clawR,
+    ribbon,
+    ribbon2,
+    nose(mats, 1.68, -0.22)
+  );
   g.scale.setScalar(scale);
   shadow(g);
   return g;
 }
 
 export function makeWhirlShade(mats: MatKit): THREE.Group {
-  const g = makeShadeBody(mats, 1, false);
+  const g = makeShadeBody(mats, 1.12, false);
   g.name = "whirl";
   return g;
 }
 
 export function makeChampion(mats: MatKit): THREE.Group {
-  const g = makeShadeBody(mats, 1.28, true);
+  const g = makeShadeBody(mats, 1.45, true);
   g.name = "champion";
-  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 6), mats.gold);
-  crown.position.set(0, 1.85, 0);
-  g.add(crown);
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.42, 6), mats.gold);
+  crown.position.set(0, 2.15, 0);
+  const plume = new THREE.Mesh(new THREE.TorusKnotGeometry(0.22, 0.03, 40, 6, 2, 3), mats.gale);
+  plume.position.set(0, 2.05, 0);
+  plume.name = "ribbon";
+  g.add(crown, plume);
   return g;
 }
 
-/** Judge of the Gate — tall robed figure, coiled tail, horned crown. */
+/** Judge of the Gate — tall horned magistrate, coiled tail, ember gaze. */
 export function makeJudge(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "judge";
   const robePts = [
-    new THREE.Vector2(0.2, 0),
-    new THREE.Vector2(0.95, 0.4),
-    new THREE.Vector2(1.05, 1.6),
-    new THREE.Vector2(0.7, 2.6),
-    new THREE.Vector2(0.45, 3.2),
+    new THREE.Vector2(0.18, 0),
+    new THREE.Vector2(1.15, 0.35),
+    new THREE.Vector2(1.25, 1.4),
+    new THREE.Vector2(0.85, 2.8),
+    new THREE.Vector2(0.52, 3.7),
   ];
-  const robe = new THREE.Mesh(new THREE.LatheGeometry(robePts, 24), mats.cloth);
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.5, 1.1, 12), mats.bronze);
-  torso.position.y = 3.15;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 14, 12), mats.bone);
-  head.position.set(0, 3.9, 0.05);
-  const hornL = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.7, 6), mats.gold);
-  hornL.position.set(-0.22, 4.28, -0.05);
-  hornL.rotation.z = 0.45;
-  hornL.rotation.x = -0.2;
+  const robe = new THREE.Mesh(new THREE.LatheGeometry(robePts, 28), mats.cloth);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.58, 1.35, 14), mats.armor);
+  torso.position.y = 3.55;
+  const pauldronL = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), mats.gold);
+  pauldronL.position.set(-0.48, 4.05, 0.05);
+  pauldronL.scale.set(1.3, 0.55, 1);
+  const pauldronR = pauldronL.clone();
+  pauldronR.position.x = 0.48;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.36, 16, 14), mats.bone);
+  head.position.set(0, 4.45, 0.06);
+  const hornL = new THREE.Mesh(new THREE.ConeGeometry(0.09, 1.15, 7), mats.gold);
+  hornL.position.set(-0.28, 5.05, -0.08);
+  hornL.rotation.z = 0.55;
+  hornL.rotation.x = -0.28;
   const hornR = hornL.clone();
-  hornR.position.x = 0.22;
-  hornR.rotation.z = -0.45;
-  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), mats.ember);
-  eyeL.position.set(-0.1, 3.94, -0.26);
+  hornR.position.x = 0.28;
+  hornR.rotation.z = -0.55;
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), mats.ember);
+  eyeL.position.set(-0.12, 4.48, -0.3);
+  eyeL.name = "ember";
   const eyeR = eyeL.clone();
-  eyeR.position.x = 0.1;
+  eyeR.position.x = 0.12;
+  const circlet = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 8, 24), mats.gold);
+  circlet.position.set(0, 4.62, 0.04);
+  circlet.rotation.x = Math.PI / 2.4;
 
   const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0.2, 0.2, 0.4),
-    new THREE.Vector3(0.9, 0.4, 0.2),
-    new THREE.Vector3(1.3, 1.1, -0.3),
-    new THREE.Vector3(0.7, 1.8, -0.8),
-    new THREE.Vector3(-0.2, 2.2, -0.5),
-    new THREE.Vector3(-0.6, 1.4, 0.2),
+    new THREE.Vector3(0.35, 0.25, 0.5),
+    new THREE.Vector3(1.35, 0.55, 0.35),
+    new THREE.Vector3(1.85, 1.4, -0.4),
+    new THREE.Vector3(1.1, 2.4, -1.15),
+    new THREE.Vector3(-0.4, 3.0, -0.7),
+    new THREE.Vector3(-1.15, 2.1, 0.35),
+    new THREE.Vector3(-0.55, 1.2, 0.85),
   ]);
-  const tail = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.16, 8, false), mats.bronze);
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.06, 8, 24), mats.gold);
-  sash.position.y = 2.55;
+  const tail = new THREE.Mesh(new THREE.TubeGeometry(curve, 56, 0.2, 10, false), mats.bronze);
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.07, 8, 28), mats.gold);
+  sash.position.y = 2.85;
   sash.rotation.x = Math.PI / 2;
+  const aura = new THREE.Mesh(
+    new THREE.RingGeometry(1.6, 2.05, 36),
+    new THREE.MeshBasicMaterial({
+      color: 0xff5533,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  aura.rotation.x = -Math.PI / 2;
+  aura.position.y = 0.08;
+  aura.name = "judgeAura";
+  const glow = new THREE.PointLight(0xff6622, 5.5, 16, 1.5);
+  glow.position.set(0, 3.4, 0.4);
 
   g.add(
-    discShadow(mats, 1.1),
+    discShadow(mats, 1.4),
     robe,
     torso,
+    pauldronL,
+    pauldronR,
     head,
     hornL,
     hornR,
     eyeL,
     eyeR,
+    circlet,
     tail,
     sash,
-    nose(mats, 3.9, -0.3)
+    aura,
+    glow,
+    nose(mats, 4.45, -0.32)
   );
   shadow(g);
   return g;
@@ -658,12 +728,11 @@ export function makeBrazier(mats: MatKit): THREE.Group {
 }
 
 export function makeGaleRibbon(mats: MatKit, len = 8): THREE.Mesh {
-  const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(len, 1.15, 1, 1),
-    mats.gale.clone()
-  );
-  m.rotation.x = Math.PI * 0.08;
-  m.position.y = 1.1;
+  const mat = mats.gale.clone();
+  mat.opacity = 0.8;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(len, 2.6, 1, 1), mat);
+  m.rotation.x = Math.PI * 0.16;
+  m.position.y = 1.7;
   m.name = "galeRibbon";
   m.renderOrder = 2;
   return m;

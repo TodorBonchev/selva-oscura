@@ -54,6 +54,10 @@ export function tickWhirl(root: THREE.Object3D, tMs: number, champion: boolean) 
     ribbon.rotation.y = tMs * (champion ? 0.0045 : 0.0032);
     ribbon.rotation.x = Math.sin(tMs * 0.0015) * 0.25;
   }
-  const body = root;
-  body.position.y = Math.sin(tMs * 0.0022) * 0.08;
+  const ribbon2 = root.getObjectByName("ribbon2");
+  if (ribbon2) {
+    ribbon2.rotation.y = -tMs * 0.0026;
+    ribbon2.rotation.z = Math.sin(tMs * 0.0011) * 0.2;
+  }
+  root.position.y = 0.12 + Math.sin(tMs * 0.0022) * 0.1;
 }

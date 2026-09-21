@@ -850,6 +850,11 @@ export class WorldApp {
       if (n.kind === "whirl" || n.kind === "champion") {
         tickWhirl(n.group, this.animT, n.kind === "champion");
       }
+      const aura = n.group.getObjectByName("judgeAura");
+      if (aura) {
+        const s = 1 + Math.sin(this.animT * 0.004) * 0.08;
+        aura.scale.set(s, s, 1);
+      }
     }
     this.ground?.group.traverse((o) => {
       if (o.name === "galeRibbon") o.rotation.y = Math.sin(this.animT * 0.0009) * 0.18;
@@ -907,7 +912,7 @@ export class WorldApp {
     wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div>`;
     const label = new CSS2DObject(wrap);
     label.center.set(0.5, 1);
-    label.position.set(0, kind === "judge" ? 4.6 : kind === "portal" ? 3.4 : 2.05, 0);
+    label.position.set(0, kind === "judge" ? 5.6 : kind === "portal" ? 4.1 : 2.05, 0);
     if (kind === "loot") {
       const rarity = String(e?.item?.rarity || "normal");
       group.add(makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a));
