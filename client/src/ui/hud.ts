@@ -402,10 +402,19 @@ export function setPanelOpen(id: string, open: boolean) {
 /** Narrow / touch-first UI (phones and compact tablets). */
 export function isCompactUi(): boolean {
   if (typeof window === "undefined") return false;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (h <= 520 && w <= 1100) return true;
   return (
     window.matchMedia("(max-width: 640px)").matches ||
-    (window.matchMedia("(pointer: coarse)").matches && window.innerWidth < 900)
+    (window.matchMedia("(pointer: coarse)").matches && Math.min(w, h) < 900)
   );
+}
+
+/** Phone/tablet held sideways — HUD must stay a single short row. */
+export function isLandscapeCompact(): boolean {
+  if (typeof window === "undefined") return false;
+  return isCompactUi() && window.matchMedia("(orientation: landscape)").matches;
 }
 
 /** Optional device vibrate — no-op when Vibration API is missing. */

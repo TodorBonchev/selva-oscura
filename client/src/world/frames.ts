@@ -14,11 +14,13 @@ import * as THREE from "three";
 
 export const UP = new THREE.Vector3(0, 1, 0);
 
-/** Camera offset in world units. Pulled back on compact UI. */
-export const CAM_BACK_DESKTOP = 7.2;
-export const CAM_HEIGHT_DESKTOP = 5.35;
-export const CAM_BACK_MOBILE = 8.0;
-export const CAM_HEIGHT_MOBILE = 5.9;
+/** Camera offset in world units. Pulled back on compact UI, more so in portrait. */
+export const CAM_BACK_DESKTOP = 9.2;
+export const CAM_HEIGHT_DESKTOP = 6.7;
+export const CAM_BACK_MOBILE = 10.4;
+export const CAM_HEIGHT_MOBILE = 7.5;
+export const CAM_BACK_PORTRAIT = 11.6;
+export const CAM_HEIGHT_PORTRAIT = 8.4;
 
 /** Local Object3D forward. */
 export const LOCAL_FWD = new THREE.Vector3(0, 0, -1);
@@ -49,7 +51,15 @@ export function planarFacingFromQuat(q: THREE.Quaternion): { x: number; y: numbe
   return { x: f.x, y: f.z };
 }
 
+export function isPortraitCompact(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(orientation: portrait)").matches && window.innerWidth < 900;
+}
+
 export function camOffset(compact: boolean): THREE.Vector3 {
+  if (compact && isPortraitCompact()) {
+    return new THREE.Vector3(CAM_BACK_PORTRAIT, CAM_HEIGHT_PORTRAIT, CAM_BACK_PORTRAIT);
+  }
   const b = compact ? CAM_BACK_MOBILE : CAM_BACK_DESKTOP;
   const h = compact ? CAM_HEIGHT_MOBILE : CAM_HEIGHT_DESKTOP;
   return new THREE.Vector3(b, h, b);

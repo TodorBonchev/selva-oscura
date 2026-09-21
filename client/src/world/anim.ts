@@ -1,8 +1,50 @@
 /**
  * Procedural humanoid motion. Joints are named Object3Ds on the wanderer rig
  * (hips, torso, cloak, tabard, hood, legL/R, kneeL/R, armL/R, elbowL/R, weapon).
+ * Local forward is −z: thigh swing is negated so the stride plants toward the nose.
  */
 import * as THREE from "three";
+
+type HumJoints = {
+  hips?: THREE.Object3D;
+  torso?: THREE.Object3D;
+  cloak?: THREE.Object3D;
+  tabard?: THREE.Object3D;
+  legL?: THREE.Object3D;
+  legR?: THREE.Object3D;
+  kneeL?: THREE.Object3D;
+  kneeR?: THREE.Object3D;
+  armL?: THREE.Object3D;
+  armR?: THREE.Object3D;
+  elbowL?: THREE.Object3D;
+  elbowR?: THREE.Object3D;
+  weapon?: THREE.Object3D;
+  hood?: THREE.Object3D;
+};
+
+function jointsOf(root: THREE.Object3D): HumJoints {
+  let j = root.userData.humJoints as HumJoints | undefined;
+  if (!j) {
+    j = {
+      hips: root.getObjectByName("hips") ?? undefined,
+      torso: root.getObjectByName("torso") ?? undefined,
+      cloak: root.getObjectByName("cloak") ?? undefined,
+      tabard: root.getObjectByName("tabard") ?? undefined,
+      legL: root.getObjectByName("legL") ?? undefined,
+      legR: root.getObjectByName("legR") ?? undefined,
+      kneeL: root.getObjectByName("kneeL") ?? undefined,
+      kneeR: root.getObjectByName("kneeR") ?? undefined,
+      armL: root.getObjectByName("armL") ?? undefined,
+      armR: root.getObjectByName("armR") ?? undefined,
+      elbowL: root.getObjectByName("elbowL") ?? undefined,
+      elbowR: root.getObjectByName("elbowR") ?? undefined,
+      weapon: root.getObjectByName("weapon") ?? undefined,
+      hood: root.getObjectByName("hood") ?? undefined,
+    };
+    root.userData.humJoints = j;
+  }
+  return j;
+}
 
 function smooth(a: number, b: number, t: number) {
   const u = Math.max(0, Math.min(1, t));
@@ -24,21 +66,22 @@ export function tickHumanoid(
   const t = opts.tMs * 0.001;
   const gait = opts.moving ? t * (7.4 + opts.speed * 0.38) : t * 1.35;
   const step = opts.moving ? 1 : 0.1;
-
-  const hips = root.getObjectByName("hips");
-  const torso = root.getObjectByName("torso");
-  const cloak = root.getObjectByName("cloak");
-  const tabard = root.getObjectByName("tabard");
-  const legL = root.getObjectByName("legL");
-  const legR = root.getObjectByName("legR");
-  const kneeL = root.getObjectByName("kneeL");
-  const kneeR = root.getObjectByName("kneeR");
-  const armL = root.getObjectByName("armL");
-  const armR = root.getObjectByName("armR");
-  const elbowL = root.getObjectByName("elbowL");
-  const elbowR = root.getObjectByName("elbowR");
-  const weapon = root.getObjectByName("weapon");
-  const hood = root.getObjectByName("hood");
+  const {
+    hips,
+    torso,
+    cloak,
+    tabard,
+    legL,
+    legR,
+    kneeL,
+    kneeR,
+    armL,
+    armR,
+    elbowL,
+    elbowR,
+    weapon,
+    hood,
+  } = jointsOf(root);
 
   if (opts.channeling) {
     if (hips) {
@@ -104,21 +147,21 @@ export function tickHumanoid(
     tabard.rotation.z = swingL * 0.04 * step;
   }
   if (legL) {
-    legL.rotation.x = swingL * 0.82 * step;
+    legL.rotation.x = -swingL * 0.82 * step;
     legL.rotation.z = 0;
   }
   if (legR) {
-    legR.rotation.x = swingR * 0.82 * step;
+    legR.rotation.x = -swingR * 0.82 * step;
     legR.rotation.z = 0;
   }
   if (kneeL) kneeL.rotation.x = 0.12 + Math.max(0, -swingL) * 1.05 * step;
   if (kneeR) kneeR.rotation.x = 0.12 + Math.max(0, -swingR) * 1.05 * step;
   if (armL) {
-    armL.rotation.x = swingR * 0.42 * step;
+    armL.rotation.x = -swingR * 0.42 * step;
     armL.rotation.z = -0.16;
   }
   if (armR) {
-    armR.rotation.x = swingL * 0.28 * step - 0.12;
+    armR.rotation.x = -swingL * 0.28 * step - 0.12;
     armR.rotation.z = 0.16;
   }
   if (elbowL) elbowL.rotation.x = -0.22 - Math.max(0, swingR) * 0.38 * step;
@@ -172,9 +215,9 @@ export function tickHumanoid(
     const k = (u - 0.55) / 0.45;
     torsoY = smooth(0.78, 0, k);
     torsoX = smooth(0.22, opts.moving ? 0.09 : 0.02, k);
-    armRx = smooth(-1.42, swingL * 0.28 * step - 0.12, k);
+    armRx = smooth(-1.42, -swingL * 0.28 * step - 0.12, k);
     armRz = smooth(-0.22, 0.16, k);
-    armLx = smooth(-0.78, swingR * 0.42 * step, k);
+    armLx = smooth(-0.78, -swingR * 0.42 * step, k);
     elRx = smooth(-0.08, -0.18 - Math.max(0, swingL) * 0.22 * step, k);
     elLx = smooth(-0.35, -0.22 - Math.max(0, swingR) * 0.38 * step, k);
     wepX = smooth(0.45, 0.55, k);
