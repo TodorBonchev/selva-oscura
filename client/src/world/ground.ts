@@ -4,7 +4,16 @@
  */
 import * as THREE from "three";
 import type { MatKit } from "./materials";
-import { makeFallenLog, makeForestRock, makeMossClump, makeRuinObelisk, makeStump, makeTree } from "./meshes";
+import {
+  makeBrazier,
+  makeFallenLog,
+  makeForestRock,
+  makeGaleRibbon,
+  makeMossClump,
+  makeRuinObelisk,
+  makeStump,
+  makeTree,
+} from "./meshes";
 
 export type GroundRig = {
   group: THREE.Group;
@@ -194,27 +203,75 @@ export function buildGround(
       placed++;
     }
   } else {
+    const hunt: [number, number][] = [
+      [20, 60],
+      [48, 48],
+      [72, 60],
+      [100, 52],
+      [140, 60],
+    ];
+    const arenas: { x: number; z: number; r: number }[] = [
+      { x: 48, z: 40, r: 7 },
+      { x: 72, z: 70, r: 7 },
+      { x: 100, z: 50, r: 8 },
+      { x: 140, z: 60, r: 9 },
+    ];
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const wx = pos.getX(i) + w / 2;
+      const wz = pos.getZ(i) + h / 2;
+      const pathD = distToPoly(wx, wz, hunt);
+      let k = 0.72 + hash((wx * 2) | 0, (wz * 2) | 0) * 0.18;
+      if (pathD < 4.2) k = 1.05 - (pathD / 4.2) * 0.18;
+      for (const a of arenas) {
+        const d = Math.hypot(wx - a.x, wz - a.z);
+        if (d < a.r) k = Math.max(k, 0.92 + (1 - d / a.r) * 0.18);
+      }
+      colors[i * 3] = k * 1.05;
+      colors[i * 3 + 1] = k * 0.72;
+      colors[i * 3 + 2] = k * 0.55;
+      if (pathD < 3.2) pos.setY(i, pos.getY(i) * 0.15);
+    }
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+
     let placed = 0;
-    for (let i = 0; i < 80 && placed < 18; i++) {
+    for (let i = 0; i < 90 && placed < 16; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
       const z = 8 + hash(i, 8) * (h - 16);
-      if (blocked(x, z, 3.2)) continue;
+      if (blocked(x, z, 3.2) || distToPoly(x, z, hunt) < 4.5) continue;
+      if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.5)) continue;
       const ob = makeRuinObelisk(mats);
       ob.position.set(x, 0, z);
       ob.rotation.y = hash(i, 9) * Math.PI * 2;
-      ob.scale.setScalar(0.8 + hash(i, 10) * 0.7);
+      ob.scale.setScalar(0.85 + hash(i, 10) * 0.7);
       group.add(ob);
       placed++;
     }
-    // Boss dais
-    const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.35, 24), mats.stone);
-    dais.position.set(140, 0.12, 60);
+    for (const a of arenas) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(a.r, 0.07, 8, 40),
+        mats.gold
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(a.x, 0.12, a.z);
+      group.add(ring);
+      const brazL = makeBrazier(mats);
+      brazL.position.set(a.x - a.r * 0.72, 0, a.z - a.r * 0.22);
+      const brazR = makeBrazier(mats);
+      brazR.position.set(a.x + a.r * 0.72, 0, a.z + a.r * 0.22);
+      group.add(brazL, brazR);
+    }
+    const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 28), mats.stone);
+    dais.position.set(140, 0.14, 60);
     dais.receiveShadow = true;
     group.add(dais);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(6.8, 0.08, 8, 40), mats.gold);
-    rim.rotation.x = Math.PI / 2;
-    rim.position.set(140, 0.32, 60);
-    group.add(rim);
+    for (let i = 0; i < 5; i++) {
+      const ribbon = makeGaleRibbon(mats, 14 + i * 2);
+      ribbon.position.set(28 + i * 24, 1.15, 58 + (i % 2) * 4);
+      ribbon.rotation.y = 0.08 * (i % 2 ? -1 : 1);
+      group.add(ribbon);
+    }
   }
 
   return { group, floor, cantoId };

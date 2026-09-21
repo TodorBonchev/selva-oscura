@@ -222,6 +222,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     metalness: 0.06,
     emissive: 0x3a1208,
     emissiveIntensity: 0.22,
+    vertexColors: true,
   });
   const canopyA = new THREE.MeshStandardMaterial({
     map: barkMap,

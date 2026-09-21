@@ -681,8 +681,11 @@ export class WorldApp {
     this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
     placeFollowCamera(this.camera, this.camFollow, compact, 1.55);
     if (this.camPunch > 0.001) {
-      this.camera.position.addScaledVector(UP, this.camPunch);
-      this.camPunch *= Math.exp(-dt * 8);
+      this.camera.position.addScaledVector(UP, this.camPunch * 0.35);
+      const punchFwd = new THREE.Vector3();
+      this.camera.getWorldDirection(punchFwd);
+      this.camera.position.addScaledVector(punchFwd, -this.camPunch * 1.15);
+      this.camPunch *= Math.exp(-dt * 7);
     }
     if (this.camShake > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.camShake;
@@ -765,6 +768,8 @@ export class WorldApp {
         const s = 1 + Math.sin(this.animT * 0.004) * 0.04;
         disc.scale.set(s, s, 1);
       }
+      const galeRibbon = n.group.getObjectByName("galeRibbon");
+      if (galeRibbon) galeRibbon.rotation.y += 0.0008;
       const galeRing = n.group.getObjectByName("galeRing");
       if (galeRing) galeRing.rotation.z = -this.animT * 0.0022;
       const inner = n.group.getObjectByName("portalInner");
@@ -800,6 +805,13 @@ export class WorldApp {
         tickWhirl(n.group, this.animT, n.kind === "champion");
       }
     }
+    this.ground?.group.traverse((o) => {
+      if (o.name === "galeRibbon") o.rotation.y = Math.sin(this.animT * 0.0009) * 0.18;
+      if (o.name === "ember") {
+        const s = 0.92 + Math.sin(this.animT * 0.009 + o.id) * 0.14;
+        o.scale.setScalar(s);
+      }
+    });
   }
 
   syncEntities() {
@@ -910,11 +922,14 @@ export class WorldApp {
     this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
     this.scene.add(this.ground.group);
     const lust = this.room.cantoId === "inferno_05";
-    this.scene.fog = new THREE.FogExp2(lust ? 0x2a100c : 0x1c1812, lust ? 0.01 : 0.009);
+    document.body.classList.toggle("in-lust", lust);
+    this.scene.fog = new THREE.FogExp2(lust ? 0x2a100c : 0x1c1812, lust ? 0.012 : 0.009);
     this.renderer.setClearColor(lust ? 0x1a0c08 : 0x1c1812, 1);
     this.hemi.color.set(lust ? 0xffb080 : 0xe8d4b0);
     this.hemi.groundColor.set(lust ? 0x2a1008 : 0x1a1410);
     this.sun.color.set(lust ? 0xff9960 : 0xffe6c0);
+    this.sun.intensity = lust ? 2.15 : 1.85;
+    this.rim.color.set(lust ? 0xff8844 : 0xffe0b0);
     const portal = this.room.entities.find((e: any) => e.kind === "exit" || e.poiKind === "portal");
     if (portal) {
       this.portalLight.intensity = 4.5;

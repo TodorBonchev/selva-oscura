@@ -2563,6 +2563,10 @@ body.slam-sting #slam-sting {
 }
 
 /* Subtle heat-haze fringe at screen edges while ×75+ */
+body.in-lust #heat-haze {
+  opacity: 0.42;
+  animation: heat-haze-shimmer 4.5s ease-in-out infinite;
+}
 #heat-haze {
   position: fixed;
   inset: 0;
