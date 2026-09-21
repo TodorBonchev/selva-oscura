@@ -681,14 +681,6 @@ export function makeRuinObelisk(mats: MatKit): THREE.Group {
   return g;
 }
 
-export function makeSlashArc(mats: MatKit): THREE.Mesh {
-  const geo = new THREE.TorusGeometry(0.7, 0.035, 6, 16, Math.PI * 0.9);
-  const m = new THREE.Mesh(geo, mats.gold);
-  m.rotation.x = Math.PI / 2;
-  m.rotation.z = 0.4;
-  return m;
-}
-
 export type KindKey =
   | "player"
   | "guide"

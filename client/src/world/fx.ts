@@ -113,8 +113,58 @@ export function makeTelegraph(color = 0xff3311): THREE.Mesh {
 }
 
 export function makeHitFlash(): THREE.PointLight {
-  const l = new THREE.PointLight(0xffcc88, 0, 8, 2);
+  const l = new THREE.PointLight(0xffcc88, 0, 10, 2);
+  l.name = "hitFlash";
   return l;
+}
+
+export type ImpactRing = {
+  mesh: THREE.Mesh;
+  start: number;
+  dur: number;
+};
+
+export function makeImpactRing(color: number): THREE.Mesh {
+  const m = new THREE.Mesh(
+    new THREE.RingGeometry(0.18, 0.48, 32),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  m.rotation.x = -Math.PI / 2;
+  m.name = "impactRing";
+  return m;
+}
+
+export function tickImpact(ring: ImpactRing, t: number) {
+  const u = Math.min(1, Math.max(0, (t - ring.start) / ring.dur));
+  const s = 0.45 + u * 3.4;
+  ring.mesh.scale.set(s, s, 1);
+  (ring.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - u) * (1 - u) * 0.95);
+}
+
+export function makeSlashTrail(): THREE.Mesh {
+  const m = new THREE.Mesh(
+    new THREE.TorusGeometry(0.98, 0.07, 6, 24, Math.PI * 1.2),
+    new THREE.MeshBasicMaterial({
+      color: 0xffe08a,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  m.name = "slashTrail";
+  m.position.set(0, 1.08, -0.52);
+  m.rotation.x = Math.PI * 0.58;
+  m.rotation.z = 0.28;
+  m.renderOrder = 4;
+  return m;
 }
 
 export type SparkBurst = {
