@@ -1124,14 +1124,14 @@ button:disabled { opacity: 0.55; cursor: default; }
   justify-content: flex-end;
   padding: 0.55rem 0.28rem 0.32rem;
   gap: 0.08rem;
-  overflow: hidden;
+  overflow: visible;
 }
 .spell-btn .spell-icon {
-  width: 1.85rem;
-  height: 1.85rem;
+  width: 2.15rem;
+  height: 2.15rem;
   object-fit: contain;
   image-rendering: auto;
-  filter: drop-shadow(0 0 4px #c9a22755);
+  filter: drop-shadow(0 0 6px #c9a227cc) brightness(1.12);
   pointer-events: none;
   z-index: 1;
 }
@@ -3483,6 +3483,11 @@ body.combo-void-ghost-pulse #combo-void-ghost {
 .you-label .wl-name {
   color: var(--gold-2);
   font-size: 13px;
+}
+.loot-label .wl-name {
+  color: var(--gold-2);
+  font-size: 13px;
+  text-shadow: 0 0 8px #c9a22788, 0 1px 2px #000;
 }
 .world-label .wl-hp {
   display: none;

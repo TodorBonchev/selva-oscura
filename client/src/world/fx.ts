@@ -220,6 +220,21 @@ export function tickSparks(b: SparkBurst, t: number) {
   (b.points.material as THREE.PointsMaterial).opacity = Math.max(0, 1 - u);
 }
 
+export function makeDustPuff(): THREE.Mesh {
+  const m = new THREE.Mesh(
+    new THREE.RingGeometry(0.08, 0.22, 16),
+    new THREE.MeshBasicMaterial({
+      color: 0xc4b08a,
+      transparent: true,
+      opacity: 0.45,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  m.rotation.x = -Math.PI / 2;
+  return m;
+}
+
 export function makeLootBeam(color: number): THREE.Mesh {
   const m = new THREE.Mesh(
     new THREE.CylinderGeometry(0.04, 0.09, 4.2, 8),

@@ -508,13 +508,15 @@ export function makeLootGem(mats: MatKit, rarity = "normal"): THREE.Group {
   ] ?? 0xb8b0a0;
   mat.color.setHex(hex);
   mat.emissive.setHex(hex);
-  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), mat);
-  gem.position.y = 0.38;
+  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.32, 0), mat);
+  gem.position.y = 0.52;
   gem.name = "gem";
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.02, 8, 16), mats.gold);
-  ring.position.y = 0.22;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.03, 8, 18), mats.gold);
+  ring.position.y = 0.28;
   ring.rotation.x = Math.PI / 2;
-  g.add(discShadow(mats, 0.22), gem, ring, nose(mats, 0.4, -0.12));
+  const glow = new THREE.PointLight(hex, rarity === "normal" ? 0.8 : 2.2, 5, 2);
+  glow.position.y = 0.6;
+  g.add(discShadow(mats, 0.3), gem, ring, glow, nose(mats, 0.55, -0.14));
   return g;
 }
 
