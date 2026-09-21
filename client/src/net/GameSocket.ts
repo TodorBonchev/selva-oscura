@@ -128,4 +128,7 @@ export class GameSocket {
   salvageBag() {
     this.send({ type: "salvage_bag" });
   }
+  sip() {
+    this.send({ type: "sip" });
+  }
 }

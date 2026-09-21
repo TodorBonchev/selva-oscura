@@ -1261,6 +1261,7 @@ export function wireHud(api: {
   equipSelected?: () => void;
   unequipSelected?: () => void;
   meltBag?: () => void;
+  sip?: () => void;
   castSpell?: (spellId: SpellId) => void;
   /** Spell hold-to-confirm (Gale aim / Ward+Burst telegraph). */
   onSpellHoldStart?: (spellId: SpellId, ev: PointerEvent) => void;
@@ -1306,6 +1307,11 @@ export function wireHud(api: {
     api.meltBag?.();
   });
   document.getElementById("btn-ah-refresh")?.addEventListener("click", () => api.refreshAh());
+  document.getElementById("btn-sip")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    hapticLight();
+    api.sip?.();
+  });
 
   const inv = document.getElementById("btn-inv");
   inv?.addEventListener("click", (e) => {

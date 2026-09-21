@@ -173,6 +173,7 @@ class CantoRoom {
       mana: PLAYER_MAX_MANA,
       maxMana: PLAYER_MAX_MANA,
       atkCd: 0,
+      sipCd: 0,
       spellCd: { gale_bolt: 0, whirl_ward: 0, infernal_burst: 0 },
       armorBuff: 0,
       wardUntil: 0,
@@ -608,6 +609,26 @@ class CantoRoom {
     this.pushAllSnapshots();
   }
 
+  handleSip(playerId) {
+    const s = this.sessions.get(playerId);
+    if (!s) return;
+    if (s.sipCd > 0) {
+      this.toast(s.ws, "warn", `Flask cooling (${Math.ceil(s.sipCd)}s)`);
+      return;
+    }
+    if (s.hp >= s.maxHp && s.mana >= s.maxMana) {
+      this.toast(s.ws, "info", "You are already whole.");
+      return;
+    }
+    const heal = Math.min(36, s.maxHp - s.hp);
+    const mana = Math.min(24, s.maxMana - s.mana);
+    s.hp += heal;
+    s.mana += mana;
+    s.sipCd = 8;
+    this.toast(s.ws, "loot", `Flask +${heal} life, +${mana} breath`);
+    this.pushSnapshot(playerId);
+  }
+
   async handleSalvage(playerId) {
     const s = this.sessions.get(playerId);
     if (!s) return;
@@ -692,6 +713,10 @@ class CantoRoom {
         this.tryDaily(playerId);
       } else if (e.poiKind === "portal") {
         return { travel: "inferno_01" };
+      } else if (e.poiKind === "shrine") {
+        s.hp = s.maxHp;
+        s.mana = s.maxMana;
+        this.toast(s.ws, "emit", "The Wind Shrine knits your wounds and fills your breath.");
       }
     }
     this.pushSnapshot(playerId);
@@ -762,6 +787,7 @@ class CantoRoom {
     let manaDirty = false;
     for (const s of this.sessions.values()) {
       if (s.atkCd > 0) s.atkCd = Math.max(0, s.atkCd - dt);
+      if (s.sipCd > 0) s.sipCd = Math.max(0, s.sipCd - dt);
       if (s.iframes > 0) s.iframes = Math.max(0, s.iframes - dt);
       if (s.spellCd) {
         for (const k of Object.keys(s.spellCd)) {

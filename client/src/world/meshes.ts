@@ -424,7 +424,7 @@ export function makeChampion(mats: MatKit): THREE.Group {
   g.name = "champion";
   const crown = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.42, 6), mats.gold);
   crown.position.set(0, 2.15, 0);
-  const plume = new THREE.Mesh(new THREE.TorusKnotGeometry(0.22, 0.03, 40, 6, 2, 3), mats.gale);
+  const plume = new THREE.Mesh(new THREE.TorusKnotGeometry(0.22, 0.03, 14, 5, 2, 3), mats.gale);
   plume.position.set(0, 2.05, 0);
   plume.name = "ribbon";
   g.add(crown, plume);
@@ -859,6 +859,27 @@ export function makeGaleRibbon(mats: MatKit, len = 8): THREE.Mesh {
   return m;
 }
 
+export function makeShrine(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "shrine";
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.38, 2.4, 8), mats.stone);
+  pillar.position.y = 1.2;
+  const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10), mats.gold);
+  bowl.position.y = 2.45;
+  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), mats.ember);
+  flame.position.y = 2.72;
+  flame.name = "ember";
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.7, 0.04, 6, 20),
+    mats.gale
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.08;
+  g.add(discShadow(mats, 0.55), pillar, bowl, flame, ring);
+  shadow(g);
+  return g;
+}
+
 export function makeRuinObelisk(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.45, 2.8, 0.45), mats.stone);
@@ -880,6 +901,7 @@ export type KindKey =
   | "stash"
   | "ah"
   | "quest"
+  | "shrine"
   | "portal"
   | "loot";
 
@@ -901,6 +923,8 @@ export function makeByKind(kind: KindKey, mats: MatKit, rarity?: string): THREE.
       return makeLectern(mats);
     case "quest":
       return makeWrit(mats);
+    case "shrine":
+      return makeShrine(mats);
     case "portal":
       return makePortal(mats);
     case "loot":
@@ -922,6 +946,7 @@ export function resolveKind(ent: {
     if (ent.poiKind === "stash") return "stash";
     if (ent.poiKind === "ah") return "ah";
     if (ent.poiKind === "quest") return "quest";
+    if (ent.poiKind === "shrine") return "shrine";
     return "guide";
   }
   if (ent.kind === "mob") return ent.champion ? "champion" : "whirl";

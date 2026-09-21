@@ -21,6 +21,7 @@ export const ITEM_ICON_FILES: Record<string, string> = {
   bone_shard: "item_gem.png",
   cinder_veil: "item_chest.png",
   road_pike: "item_sword.png",
+  minos_band: "item_gem.png",
   // generic by equip slot
   MainHand: "item_sword.png",
   OffHand: "item_gem.png",

@@ -42,14 +42,16 @@ export function makeComposer(
   scene: THREE.Scene,
   camera: THREE.Camera,
   opts?: { bloom?: boolean }
-): { composer: EffectComposer; grade: ShaderPass } {
+): { composer: EffectComposer; grade: ShaderPass; bloom: UnrealBloomPass | null } {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
+  let bloom: UnrealBloomPass | null = null;
   if (opts?.bloom !== false) {
-    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.5, 0.82));
+    bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.16, 0.4, 0.88);
+    composer.addPass(bloom);
   }
   const grade = new ShaderPass(VignetteShader);
   composer.addPass(grade);
   composer.addPass(new OutputPass());
-  return { composer, grade };
+  return { composer, grade, bloom };
 }
