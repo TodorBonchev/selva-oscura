@@ -12,6 +12,8 @@ export interface SpellDef {
   hotkey: string;
   icon: string;
   short: string;
+  /** One-line hover blurb (D4 skill-bar tip). */
+  blurb: string;
 }
 
 export const SPELLS: Record<SpellId, SpellDef> = {
@@ -23,6 +25,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     hotkey: "1",
     icon: "assets/spells/spell_gale_bolt.png",
     short: "Gale",
+    blurb: "A wind lance at the aimed foe.",
   },
   whirl_ward: {
     id: "whirl_ward",
@@ -32,6 +35,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     hotkey: "2",
     icon: "assets/spells/spell_whirl_ward.png",
     short: "Ward",
+    blurb: "A circling gale soaks the next blows.",
   },
   infernal_burst: {
     id: "infernal_burst",
@@ -41,6 +45,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     hotkey: "3",
     icon: "assets/spells/spell_infernal_burst.png",
     short: "Burst",
+    blurb: "Fire erupts in a ring at your feet.",
   },
 };
 

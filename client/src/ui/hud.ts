@@ -519,6 +519,111 @@ function wirePressed(btn: HTMLElement) {
   btn.addEventListener("pointercancel", off);
 }
 
+function barTipFinePointer() {
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
+function actionBarTipCopy(btn: HTMLElement): { key: string; name: string; meta: string; blurb: string } {
+  const spellId = btn.getAttribute("data-spell") as SpellId | null;
+  if (spellId && SPELLS[spellId]) {
+    const s = SPELLS[spellId];
+    return {
+      key: s.hotkey,
+      name: s.name,
+      meta: `${s.manaCost} mana · ${s.cooldown.toFixed(s.cooldown % 1 ? 1 : 0)}s`,
+      blurb: s.blurb,
+    };
+  }
+  const id = btn.id;
+  const hint = btn.querySelector(".action-hint")?.textContent?.trim() || "";
+  const label = btn.querySelector(".action-label")?.textContent?.trim() || "";
+  if (id === "btn-inv") return { key: hint || "I", name: "Inventory", meta: "", blurb: "The pilgrim's pack and worn kit." };
+  if (id === "btn-ah") return { key: hint || "H", name: "Auction House", meta: "", blurb: "Browse and bid in Ash." };
+  if (id === "btn-attack") return { key: "", name: "Attack", meta: "Hold to keep swinging", blurb: "Strike the nearest shade." };
+  if (id === "btn-interact") {
+    const ready = btn.classList.contains("interact-ready");
+    const hold = label.toLowerCase() === "hold" || label.toLowerCase() === "enter";
+    if (hold) return { key: "E", name: "Hold to enter", meta: "", blurb: "Channel to step through the portal." };
+    if (ready) return { key: "E", name: label || "Interact", meta: "", blurb: "Use the nearest shrine, stash, or portal." };
+    return { key: "E", name: "Interact", meta: "", blurb: "Approach a shrine, stash, or portal." };
+  }
+  return { key: hint, name: label || btn.dataset.tipTitle || "Action", meta: "", blurb: "" };
+}
+
+/** D4 skill-bar hover plate. Native `title` is stripped so the OS tip does not stack. */
+function wireActionBarTips() {
+  const tip = document.getElementById("bar-tip");
+  if (!tip) return;
+  const keyEl = tip.querySelector<HTMLElement>(".bt-key");
+  const nameEl = tip.querySelector<HTMLElement>(".bt-name");
+  const metaEl = tip.querySelector<HTMLElement>(".bt-meta");
+  const blurbEl = tip.querySelector<HTMLElement>(".bt-blurb");
+
+  const hide = () => {
+    tip.classList.add("hidden");
+    tip.setAttribute("aria-hidden", "true");
+  };
+
+  const place = (btn: HTMLElement) => {
+    const r = btn.getBoundingClientRect();
+    const pad = 10;
+    tip.style.left = `${Math.round(r.left + r.width / 2)}px`;
+    tip.style.bottom = `${Math.round(window.innerHeight - r.top + pad)}px`;
+    tip.style.top = "";
+    const tr = tip.getBoundingClientRect();
+    const overflowR = tr.right - (window.innerWidth - 8);
+    const overflowL = 8 - tr.left;
+    if (overflowR > 0) {
+      tip.style.left = `${Math.round(r.left + r.width / 2 - overflowR)}px`;
+    } else if (overflowL > 0) {
+      tip.style.left = `${Math.round(r.left + r.width / 2 + overflowL)}px`;
+    }
+  };
+
+  const show = (btn: HTMLElement) => {
+    if (!barTipFinePointer()) {
+      hide();
+      return;
+    }
+    if (
+      btn.classList.contains("pressed") ||
+      btn.classList.contains("aiming") ||
+      btn.classList.contains("charging")
+    ) {
+      hide();
+      return;
+    }
+    const copy = actionBarTipCopy(btn);
+    if (keyEl) keyEl.textContent = copy.key;
+    if (nameEl) nameEl.textContent = copy.name;
+    if (metaEl) metaEl.textContent = copy.meta;
+    if (blurbEl) blurbEl.textContent = copy.blurb;
+    tip.classList.remove("hidden");
+    tip.setAttribute("aria-hidden", "false");
+    place(btn);
+  };
+
+  document.querySelectorAll<HTMLElement>("#action-bar .action-btn").forEach((btn) => {
+    if (btn.title) {
+      btn.dataset.tipTitle = btn.title;
+      if (!btn.getAttribute("aria-label")) btn.setAttribute("aria-label", btn.title);
+      btn.removeAttribute("title");
+    }
+    btn.addEventListener("pointerenter", (e) => {
+      if (e.pointerType && e.pointerType !== "mouse") return;
+      show(btn);
+    });
+    btn.addEventListener("pointerleave", hide);
+    btn.addEventListener("pointerdown", hide);
+    btn.addEventListener("focus", () => {
+      if (barTipFinePointer()) show(btn);
+    });
+    btn.addEventListener("blur", hide);
+  });
+  window.addEventListener("resize", hide);
+  window.addEventListener("blur", hide);
+}
+
 
 
 /** Local optimistic ward buff end (ms). Server `armorBuff`/`wardUntil` overrides when present. */
@@ -1262,5 +1367,6 @@ export function wireHud(api: {
   placeToastLayer();
   window.addEventListener("resize", placeToastLayer);
 
+  wireActionBarTips();
   armHelpFade();
 }
