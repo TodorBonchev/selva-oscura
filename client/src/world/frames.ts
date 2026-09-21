@@ -15,10 +15,10 @@ import * as THREE from "three";
 export const UP = new THREE.Vector3(0, 1, 0);
 
 /** Camera offset in world units. Pulled back on compact UI. */
-export const CAM_BACK_DESKTOP = 13;
-export const CAM_HEIGHT_DESKTOP = 9.5;
-export const CAM_BACK_MOBILE = 16;
-export const CAM_HEIGHT_MOBILE = 12;
+export const CAM_BACK_DESKTOP = 10.5;
+export const CAM_HEIGHT_DESKTOP = 7.6;
+export const CAM_BACK_MOBILE = 13;
+export const CAM_HEIGHT_MOBILE = 9.5;
 
 /** Local Object3D forward. */
 export const LOCAL_FWD = new THREE.Vector3(0, 0, -1);
@@ -84,5 +84,6 @@ export function placeFollowCamera(
   const o = camOffset(compact);
   camera.up.copy(UP);
   camera.position.set(target.x + o.x, target.y + o.y, target.z + o.z);
-  camera.lookAt(target.x, lookY, target.z);
+  // Look a little past the hero into the scene so they sit in the lower third (D4-style).
+  camera.lookAt(target.x - 1.8, lookY, target.z - 1.8);
 }

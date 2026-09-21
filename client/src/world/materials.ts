@@ -13,6 +13,8 @@ export type MatKit = {
   bone: THREE.MeshStandardMaterial;
   ember: THREE.MeshStandardMaterial;
   shadowCatch: THREE.MeshStandardMaterial;
+  leather: THREE.MeshStandardMaterial;
+  armor: THREE.MeshStandardMaterial;
 };
 
 const TEX = (name: string) =>
@@ -81,7 +83,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const hatch = hatchCanvas();
 
-  const [clothMap, bronzeMap, goldMap, barkMap, stoneMap, galeMap, hubMap, lustMap] =
+  const [clothMap, bronzeMap, goldMap, barkMap, stoneMap, galeMap, hubMap, lustMap, leatherMap, armorMap] =
     await Promise.all([
       loadTex(loader, TEX("cloth"), 2.2, aniso),
       loadTex(loader, TEX("bronze"), 2.4, aniso),
@@ -89,8 +91,10 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
       loadTex(loader, TEX("bark"), 1.6, aniso),
       loadTex(loader, TEX("stone"), 2.2, aniso),
       loadTex(loader, TEX("gale"), 1.4, aniso),
-      loadTex(loader, TEX("hub_ground"), 18, aniso),
+      loadTex(loader, TEX("hub_ground"), 22, aniso),
       loadTex(loader, TEX("lust_ground"), 16, aniso),
+      loadTex(loader, TEX("leather"), 2.0, aniso),
+      loadTex(loader, TEX("armor"), 1.8, aniso),
     ]);
 
   const cloth = new THREE.MeshStandardMaterial({
@@ -143,9 +147,23 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     transparent: true,
     opacity: 0.92,
   });
+  const leather = new THREE.MeshStandardMaterial({
+    map: leatherMap,
+    color: 0x6a5844,
+    roughness: 0.86,
+    metalness: 0.08,
+  });
+  const armor = new THREE.MeshStandardMaterial({
+    map: armorMap,
+    color: 0xc4a060,
+    roughness: 0.42,
+    metalness: 0.55,
+    emissive: 0x2a1a08,
+    emissiveIntensity: 0.18,
+  });
   const groundHub = new THREE.MeshStandardMaterial({
     map: hubMap,
-    color: 0xe8dcc0,
+    color: 0xc4b49a,
     roughness: 0.92,
     metalness: 0.02,
   });
@@ -178,7 +196,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     depthWrite: false,
   });
 
-  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust]) {
+  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, leather, armor]) {
     engrave(m, hatch);
   }
 
@@ -195,6 +213,8 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     bone,
     ember,
     shadowCatch,
+    leather,
+    armor,
   };
 }
 

@@ -51,6 +51,9 @@ import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
 import { makeByKind, makeSlashArc, modelFrontWorld, resolveKind, type KindKey } from "./meshes";
 import { buildGround, type GroundRig } from "./ground";
 import { AshField, makeBolt, makeBurst, makeTelegraph, makeWardRing, placeBolt, type Bolt } from "./fx";
+import { tickHumanoid, tickWhirl } from "./anim";
+import { makeComposer } from "./post";
+import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 
 type RoomSnap = any;
 
@@ -104,9 +107,11 @@ export class WorldApp {
   hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
   fill!: THREE.DirectionalLight;
+  rim = new THREE.DirectionalLight(0xffe0b0, 1.35);
   portalLight = new THREE.PointLight(0xff6633, 0, 18, 2);
-  heroLight = new THREE.PointLight(0xffe6b0, 7.5, 16, 1.4);
+  heroLight = new THREE.PointLight(0xffc878, 4.2, 12, 1.6);
   clickMark: THREE.Mesh | null = null;
+  composer: EffectComposer | null = null;
 
   room: RoomSnap | null = null;
   joystick: VirtualJoystick;
@@ -181,13 +186,13 @@ export class WorldApp {
   constructor(root: HTMLElement, socket: GameSocket) {
     this.root = root;
     this.socket = socket;
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.2, 280);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.2, 280);
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-    this.renderer.setClearColor(0x2a2418, 1);
+    this.renderer.setClearColor(0x1c1812, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.45;
+    this.renderer.toneMappingExposure = 1.22;
     this.renderer.shadowMap.enabled = !isCompactUi();
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     root.appendChild(this.renderer.domElement);
@@ -199,10 +204,10 @@ export class WorldApp {
     this.labelRenderer.domElement.className = "world-labels";
     root.appendChild(this.labelRenderer.domElement);
 
-    this.scene.fog = new THREE.FogExp2(0x2a2418, 0.007);
-    this.hemi = new THREE.HemisphereLight(0xfff1d0, 0x3a3020, 1.55);
+    this.scene.fog = new THREE.FogExp2(0x1c1812, 0.009);
+    this.hemi = new THREE.HemisphereLight(0xe8d4b0, 0x1a1410, 1.12);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff3d6, 2.35);
+    this.sun = new THREE.DirectionalLight(0xffe6c0, 1.85);
     this.sun.castShadow = this.renderer.shadowMap.enabled;
     this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.camera.near = 2;
@@ -215,11 +220,14 @@ export class WorldApp {
     this.scene.add(this.sun.target);
     this.scene.add(this.portalLight);
 
-    const amb = new THREE.AmbientLight(0xcbb89a, 0.85);
+    const amb = new THREE.AmbientLight(0x8a7a62, 0.48);
     this.scene.add(amb);
     this.fill = new THREE.DirectionalLight(0x88aacc, 0.55);
     this.fill.position.set(-12, 10, -8);
     this.scene.add(this.fill);
+    this.rim.position.set(-10, 8, -12);
+    this.scene.add(this.rim);
+    this.scene.add(this.rim.target);
 
     this.joystick = new VirtualJoystick();
     this.resize();
@@ -237,8 +245,8 @@ export class WorldApp {
     }
     this.youGroup = makeByKind("player", this.mats);
     this.youGroup.userData.entityId = "you";
-    this.youGroup.scale.setScalar(1.45);
-    this.heroLight.position.set(0.15, 2.1, -0.35);
+    this.youGroup.scale.setScalar(1.38);
+    this.heroLight.position.set(0.2, 1.6, 0.25);
     this.youGroup.add(this.heroLight);
     this.scene.add(this.youGroup);
     {
@@ -247,7 +255,7 @@ export class WorldApp {
       wrap.innerHTML = `<div class="wl-name">You</div>`;
       const lab = new CSS2DObject(wrap);
       lab.center.set(0.5, 1);
-      lab.position.set(0, 2.15, 0);
+      lab.position.set(0, 1.95, 0);
       this.youGroup.add(lab);
     }
     this.clickMark = new THREE.Mesh(
@@ -325,6 +333,15 @@ export class WorldApp {
       (window as any).__selfTestControls = () => this.selfTestControls();
     }
 
+    {
+      const sky = new THREE.Mesh(
+        new THREE.SphereGeometry(160, 24, 16),
+        new THREE.MeshBasicMaterial({ color: 0x12100e, side: THREE.BackSide, fog: false })
+      );
+      this.scene.add(sky);
+    }
+    this.composer = makeComposer(this.renderer, this.scene, this.camera);
+    this.composer.setSize(this.root.clientWidth || window.innerWidth, this.root.clientHeight || window.innerHeight);
     this.running = true;
     this.clock.start();
     this.loop();
@@ -338,6 +355,7 @@ export class WorldApp {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
     this.labelRenderer.setSize(w, h);
+    this.composer?.setSize(w, h);
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
   }
@@ -626,9 +644,12 @@ export class WorldApp {
       setPlanar(this.youGroup.position, this.renderYou.x, this.renderYou.y, 0);
       this.youGroup.rotation.y = yawFromPlanar(this.aimX, this.aimY);
       const moving = Math.hypot(this.velX, this.velY) > 0.4;
-      const bob = moving ? Math.sin(this.animT * 0.012) * 0.05 : Math.sin(this.animT * 0.003) * 0.015;
-      this.youGroup.position.y = bob;
-      this.youGroup.rotation.z = moving ? Math.sin(this.animT * 0.012) * 0.04 : 0;
+      tickHumanoid(this.youGroup, {
+        moving,
+        tMs: this.animT,
+        attacking: this.animT < this.slashUntil,
+        speed: Math.hypot(this.velX, this.velY),
+      });
       if (this.netOffline) {
         this.youGroup.traverse((o) => {
           const m = o as THREE.Mesh;
@@ -656,8 +677,10 @@ export class WorldApp {
       this.camShake *= Math.exp(-dt * 10);
     }
 
-    this.sun.position.set(this.camFollow.x + 18, 28, this.camFollow.z + 10);
+    this.sun.position.set(this.camFollow.x + 14, 22, this.camFollow.z + 8);
     this.sun.target.position.copy(this.camFollow);
+    this.rim.position.set(this.camFollow.x - 10, 9, this.camFollow.z - 12);
+    this.rim.target.position.copy(this.camFollow);
 
     if (this.slash && this.slashUntil > this.animT) {
       this.slash.visible = true;
@@ -665,7 +688,8 @@ export class WorldApp {
     } else if (this.slash) this.slash.visible = false;
 
     this.tickFx();
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
   }
 
@@ -718,6 +742,12 @@ export class WorldApp {
       if (gem) {
         gem.rotation.y = this.animT * 0.004;
         gem.position.y = 0.38 + Math.sin(this.animT * 0.005) * 0.08;
+      }
+      if (n.kind === "guide" || n.kind === "player") {
+        tickHumanoid(n.group, { moving: false, tMs: this.animT, attacking: false, speed: 0 });
+      }
+      if (n.kind === "whirl" || n.kind === "champion") {
+        tickWhirl(n.group, this.animT, n.kind === "champion");
       }
     }
   }
@@ -824,11 +854,11 @@ export class WorldApp {
     this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
     this.scene.add(this.ground.group);
     const lust = this.room.cantoId === "inferno_05";
-    this.scene.fog = new THREE.FogExp2(lust ? 0x3a1810 : 0x2a2418, lust ? 0.008 : 0.0065);
-    this.renderer.setClearColor(lust ? 0x2a120c : 0x2a2418, 1);
-    this.hemi.color.set(lust ? 0xffc8a0 : 0xfff1d0);
-    this.hemi.groundColor.set(lust ? 0x4a2010 : 0x3a3020);
-    this.sun.color.set(lust ? 0xffaa66 : 0xfff3d6);
+    this.scene.fog = new THREE.FogExp2(lust ? 0x2a100c : 0x1c1812, lust ? 0.01 : 0.009);
+    this.renderer.setClearColor(lust ? 0x1a0c08 : 0x1c1812, 1);
+    this.hemi.color.set(lust ? 0xffb080 : 0xe8d4b0);
+    this.hemi.groundColor.set(lust ? 0x2a1008 : 0x1a1410);
+    this.sun.color.set(lust ? 0xff9960 : 0xffe6c0);
     const portal = this.room.entities.find((e: any) => e.kind === "exit" || e.poiKind === "portal");
     if (portal) {
       this.portalLight.intensity = 4.5;
