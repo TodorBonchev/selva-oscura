@@ -7,6 +7,7 @@ import {
   players,
   grantInventoryItem,
   persistPlayerFlags,
+  salvageBag,
   computeGearStats,
   equipItem,
   unequipItem,
@@ -604,6 +605,30 @@ class CantoRoom {
     }
 
     this.pushAllSnapshots();
+  }
+
+  async handleSalvage(playerId) {
+    const s = this.sessions.get(playerId);
+    if (!s) return;
+    let r;
+    try {
+      r = await salvageBag(playerId);
+    } catch (err) {
+      console.error("[salvage] failed", err.message);
+      this.toast(s.ws, "warn", "Could not melt the bag. Try again.");
+      return;
+    }
+    if (!r.ok) {
+      this.toast(s.ws, "warn", "Nothing in the bag to melt. Worn gear stays on you.");
+      return;
+    }
+    const stelle = (r.ash / 1000).toFixed(3);
+    this.toast(
+      s.ws,
+      "loot",
+      `Melted ${r.count} item${r.count === 1 ? "" : "s"} for ${r.ash.toLocaleString()} Ash (${stelle} Stelle)`
+    );
+    this.pushSnapshot(playerId);
   }
 
   async handlePickup(playerId, lootId) {

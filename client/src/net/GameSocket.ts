@@ -125,4 +125,7 @@ export class GameSocket {
   unequip(opts: { itemId?: string; slot?: string }) {
     this.send({ type: "unequip", itemId: opts.itemId, slot: opts.slot });
   }
+  salvageBag() {
+    this.send({ type: "salvage_bag" });
+  }
 }

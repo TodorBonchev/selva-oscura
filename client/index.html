@@ -62,7 +62,7 @@
   <div id="panels">
     <aside id="inventory" class="panel modal inv-panel hidden" aria-label="Inventory">
       <div class="panel-head">
-        <h2>Inventory</h2>
+        <h2>Inventory <em id="inv-count"></em></h2>
         <button type="button" class="btn-close" data-close="inventory" aria-label="Close inventory">✕</button>
       </div>
       <div class="inv-scroll">
@@ -82,6 +82,9 @@
       <div class="inv-footer">
         <div id="inv-detail" class="inv-detail">
           <span class="inv-detail-name muted">Select an item to equip or list on the Auction House.</span>
+        </div>
+        <div class="row inv-actions">
+          <button id="btn-melt" type="button" class="btn-gold" disabled>Nothing to melt</button>
         </div>
         <div class="row inv-actions">
           <button id="btn-equip" type="button" class="btn-gold">Equip</button>

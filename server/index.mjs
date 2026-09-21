@@ -240,6 +240,12 @@ async function handleMessage(ws, meta, msg) {
       );
       break;
     }
+    case "salvage_bag": {
+      const room = world.getRoom(playerId);
+      if (!room) return;
+      await room.handleSalvage(playerId);
+      break;
+    }
     default:
       send(ws, { type: "error", code: "unknown_type", message: `Unknown: ${msg.type}` });
   }
