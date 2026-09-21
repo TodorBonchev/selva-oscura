@@ -3466,6 +3466,10 @@ body.combo-void-ghost-pulse #combo-void-ghost {
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
+.you-label .wl-name {
+  color: var(--gold-2);
+  font-size: 13px;
+}
 .world-label .wl-hp {
   display: none;
   width: 48px;

@@ -59,9 +59,9 @@ export function buildGround(
   const fogRing = new THREE.Mesh(
     new THREE.RingGeometry(Math.max(w, h) * 0.62, Math.max(w, h) * 1.4, 48),
     new THREE.MeshBasicMaterial({
-      color: isHub ? 0x0b0f0c : 0x140804,
+      color: isHub ? 0x1a1810 : 0x201008,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.28,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
@@ -80,7 +80,7 @@ export function buildGround(
 
   if (isHub) {
     let placed = 0;
-    for (let i = 0; i < 220 && placed < 70; i++) {
+    for (let i = 0; i < 180 && placed < 36; i++) {
       const x = 4 + hash(i, 1) * (w - 8);
       const z = 4 + hash(i, 2) * (h - 8);
       if (blocked(x, z, 2.4)) continue;

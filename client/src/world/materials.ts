@@ -95,23 +95,23 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
 
   const cloth = new THREE.MeshStandardMaterial({
     map: clothMap,
-    color: 0xcbbda0,
-    roughness: 0.86,
-    metalness: 0.08,
+    color: 0xf2e6c8,
+    roughness: 0.78,
+    metalness: 0.04,
   });
   const bronze = new THREE.MeshStandardMaterial({
     map: bronzeMap,
-    color: 0xb08a5a,
-    roughness: 0.42,
-    metalness: 0.72,
+    color: 0xd4b07a,
+    roughness: 0.48,
+    metalness: 0.45,
   });
   const gold = new THREE.MeshStandardMaterial({
     map: goldMap,
-    color: 0xe0c56a,
-    roughness: 0.32,
-    metalness: 0.85,
-    emissive: 0x3a2a08,
-    emissiveIntensity: 0.25,
+    color: 0xffe08a,
+    roughness: 0.28,
+    metalness: 0.7,
+    emissive: 0x6a4a10,
+    emissiveIntensity: 0.55,
   });
   const bark = new THREE.MeshStandardMaterial({
     map: barkMap,
@@ -145,22 +145,24 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   });
   const groundHub = new THREE.MeshStandardMaterial({
     map: hubMap,
-    color: 0xb8b09a,
-    roughness: 0.95,
+    color: 0xe8dcc0,
+    roughness: 0.92,
     metalness: 0.02,
   });
   const groundLust = new THREE.MeshStandardMaterial({
     map: lustMap,
-    color: 0x9a6a55,
-    roughness: 0.9,
-    metalness: 0.08,
-    emissive: 0x2a0804,
-    emissiveIntensity: 0.18,
+    color: 0xd4a080,
+    roughness: 0.88,
+    metalness: 0.06,
+    emissive: 0x3a1208,
+    emissiveIntensity: 0.22,
   });
   const bone = new THREE.MeshStandardMaterial({
-    color: 0xddd4be,
-    roughness: 0.55,
-    metalness: 0.08,
+    color: 0xf4ead4,
+    roughness: 0.45,
+    metalness: 0.04,
+    emissive: 0x3a3020,
+    emissiveIntensity: 0.18,
   });
   const ember = new THREE.MeshStandardMaterial({
     color: 0xff6a33,

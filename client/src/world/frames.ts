@@ -15,10 +15,10 @@ import * as THREE from "three";
 export const UP = new THREE.Vector3(0, 1, 0);
 
 /** Camera offset in world units. Pulled back on compact UI. */
-export const CAM_BACK_DESKTOP = 22;
-export const CAM_HEIGHT_DESKTOP = 16.5;
-export const CAM_BACK_MOBILE = 28;
-export const CAM_HEIGHT_MOBILE = 20;
+export const CAM_BACK_DESKTOP = 13;
+export const CAM_HEIGHT_DESKTOP = 9.5;
+export const CAM_BACK_MOBILE = 16;
+export const CAM_HEIGHT_MOBILE = 12;
 
 /** Local Object3D forward. */
 export const LOCAL_FWD = new THREE.Vector3(0, 0, -1);
