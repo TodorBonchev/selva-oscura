@@ -618,9 +618,9 @@ export function makeTree(mats: MatKit, seed: number): THREE.Group {
     }
   }
 
-  const barkMesh = mergeMesh(barkGeos, mats.bark);
+  const barkMesh = mergeMesh(barkGeos, mats.bark.clone());
   if (barkMesh) g.add(barkMesh);
-  const leafMesh = mergeMesh(leafGeos, canopyMat);
+  const leafMesh = mergeMesh(leafGeos, canopyMat.clone());
   if (leafMesh) g.add(leafMesh);
   g.add(discShadow(mats, 0.55 + rBase));
   return g;

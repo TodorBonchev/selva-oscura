@@ -104,8 +104,10 @@ class CantoRoom {
       const count = pack.count;
       for (let i = 0; i < count; i++) {
         const id = eid("mob");
-        const ox = (Math.random() - 0.5) * 6;
-        const oy = (Math.random() - 0.5) * 6;
+        const ring = 2.4 + count * 0.45;
+        const ang = (i / Math.max(1, count)) * Math.PI * 2 + Math.random() * 0.2;
+        const ox = Math.cos(ang) * ring + (Math.random() - 0.5) * 0.6;
+        const oy = Math.sin(ang) * ring + (Math.random() - 0.5) * 0.6;
         const arch = pack.archetype || "whirl_shade";
         const maxHp = pack.champion
           ? MOB_HP.gale_champion
