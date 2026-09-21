@@ -52,7 +52,7 @@ Click / stick / WASD move · click foes or Attack · loot pickup · E / Interact
 ```
 selva-oscura/
   docs/                 Phased plan, vault spec, architecture
-  client/               Phaser lean isometric 2D (Vite → dist)
+  client/               Three.js 3D world (Vite → dist); DOM HUD
   server/               Authoritative game server (ws rooms)
   shared/game-core/     Shared types (Ash, EventType, rarity, …)
   content/              AI-readable cantos, drops, economy, style bible

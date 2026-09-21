@@ -1,6 +1,5 @@
-import Phaser from "phaser";
 import { GameSocket } from "./net/GameSocket";
-import { WorldScene } from "./scenes/WorldScene";
+import { WorldApp } from "./world/WorldApp";
 import { showToast } from "./ui/hud";
 
 const DEFAULT_SERVER =
@@ -63,31 +62,13 @@ socket.on((msg) => {
   }
 });
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO,
-  parent: "game-root",
-  width: window.innerWidth,
-  height: window.innerHeight,
-  backgroundColor: "#0b0f0c",
-  scene: [WorldScene],
-  scale: {
-    mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-  input: {
-    activePointers: 3,
-  },
-};
+const root = document.getElementById("game-root");
+if (!root) throw new Error("#game-root missing");
 
-const game = new Phaser.Game(config);
-game.scene.start("world", { socket });
+const app = new WorldApp(root, socket);
+void app.start();
 
-window.addEventListener("resize", () => {
-  game.scale.resize(window.innerWidth, window.innerHeight);
-});
-
-// Prevent pull-to-refresh / page scroll stealing touches over the canvas
-document.body.addEventListener(
+window.addEventListener(
   "touchmove",
   (e) => {
     const t = e.target as HTMLElement | null;
@@ -97,11 +78,10 @@ document.body.addEventListener(
   { passive: false }
 );
 
-// Block pinch-zoom / double-tap zoom gestures over the game surface
 document.addEventListener(
   "gesturestart",
   (e) => e.preventDefault(),
   { passive: false }
 );
 
-console.info("[Selva Oscura] Slice 1 client", { serverUrl, name });
+console.info("[Selva Oscura] Slice 1 Three.js client", { serverUrl, name });

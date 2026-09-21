@@ -2,7 +2,7 @@
   "name": "selva-oscura-client",
   "version": "0.1.0",
   "private": true,
-  "description": "Selva Oscura browser client — Phaser lean isometric 2D; DOM UI for AH/inventory",
+  "description": "Selva Oscura browser client — Three.js 3D world; DOM UI for AH/inventory",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,9 +11,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "phaser": "^3.80.1"
+    "three": "^0.170.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/three": "^0.170.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   },

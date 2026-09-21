@@ -3410,3 +3410,85 @@ body.combo-void-ghost-pulse #combo-void-ghost {
   .spell-btn.spell-cancel-flash { animation: none; }
   .compass-arrow.compass-corpse-wake .compass-corpse-x { opacity: 0.55 !important; }
 }
+
+/* ——— Three.js world overlay ——— */
+#game-root canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+#boot-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(ellipse at 50% 40%, #1c1810cc, #07090a 70%),
+    #07090a;
+  transition: opacity 0.8s ease, visibility 0.8s ease;
+}
+#boot-veil.out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+#boot-veil .boot-plate {
+  text-align: center;
+  color: var(--bone);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+#boot-veil em {
+  display: block;
+  font-style: italic;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  color: var(--bone-dim);
+  text-transform: none;
+  margin-bottom: 0.6rem;
+}
+#boot-veil strong {
+  display: block;
+  font-weight: 500;
+  font-size: 1.6rem;
+  color: var(--gold-2);
+}
+.world-label {
+  pointer-events: none;
+  text-align: center;
+  font-family: var(--serif);
+  text-shadow: 0 1px 2px #000, 0 0 8px #000a;
+}
+.world-label .wl-name {
+  color: var(--bone);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.world-label .wl-hp {
+  display: none;
+  width: 48px;
+  height: 4px;
+  margin: 3px auto 0;
+  background: #000a;
+  border: 1px solid #4a4030;
+  border-radius: 1px;
+  overflow: hidden;
+}
+.world-label .wl-hp i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #a8241f, #d63a2a);
+  width: 100%;
+}
+.float-dmg {
+  color: #ffe8a0;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+  text-shadow: 0 1px 0 #000, 0 0 8px #000;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.float-dmg.self { color: #ff8a7a; }

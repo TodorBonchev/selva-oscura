@@ -1,0 +1,1565 @@
+import * as THREE from "three";
+import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
+import { GameSocket } from "../net/GameSocket";
+import {
+  showToast,
+  updateStats,
+  renderInventory,
+  renderAh,
+  getSelectedItemId,
+  togglePanel,
+  setPanelOpen,
+  wireHud,
+  isCompactUi,
+  noteSpellCast,
+  flashManaDeny,
+  noteWardBuff,
+  noteAttackCd,
+  pulseInvBag,
+  noteComboHit,
+  isComboMilestone,
+  isComboInfernoFringe,
+  isComboEclipse,
+  isComboVoidCorona,
+  isComboAbyss,
+  isComboRiftShear,
+  isComboRiftShearMax,
+  isComboHorizonFold,
+  resetCombo,
+  playDeathRevive,
+  flashWardSoak,
+  flashSpellCancel,
+  hapticPortalComplete,
+  pulseVoidCorona,
+  pulseAbyssChroma,
+  pulseRiftShear,
+  pulseHorizonFold,
+} from "../ui/hud";
+import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
+import { VirtualJoystick } from "../ui/virtualJoystick";
+import {
+  SmoothStore,
+  MOVE_SEND_MS,
+  CAM_LERP_MOBILE,
+  CAM_LERP_DESKTOP,
+  reconcileLocal,
+  expAlpha,
+  type Vec2,
+} from "../render/smoothing";
+import { camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from "./frames";
+import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
+import { makeByKind, makeSlashArc, modelFrontWorld, resolveKind, type KindKey } from "./meshes";
+import { buildGround, type GroundRig } from "./ground";
+import { AshField, makeBolt, makeBurst, makeTelegraph, makeWardRing, placeBolt, type Bolt } from "./fx";
+
+type RoomSnap = any;
+
+const INTERACT_RANGE = 5.2;
+const INTERACT_HIGHLIGHT_RANGE = 5.0;
+const EXIT_HINT_RANGE = 7;
+const EXIT_TRAVEL_RANGE = 6.2;
+const GALE_STICKY_MS = 1600;
+const ATTACK_RANGE = 5.5;
+const AUTO_PICKUP_RANGE = 4.0;
+const MAGNET_RANGE = 5.5;
+const AUTO_PICKUP_RETRY_MS = 900;
+const PREDICT_SPEED = 8.0;
+const MOVE_ACCEL = 28;
+const MOVE_FRICTION = 18;
+const TAP_ARRIVE = 0.35;
+const ATTACK_WINDUP_MS = 160;
+const ATTACK_RECOVERY_MS = 400;
+const SPELL_TELEGRAPH_MS: Record<string, number> = {
+  gale_bolt: 180,
+  whirl_ward: 260,
+  infernal_burst: 300,
+};
+const SPELL_HOLD_CONFIRM_MS = 200;
+const GALE_DRAG_AIM_PX = 26;
+const PORTAL_HOLD_MS = 420;
+const DEATH_FX_LOCK_MS = 1600;
+const ATTACK_HOLD_MS = 720;
+const GALE_HOLD_TOAST_MS = 90;
+const HIT_STOP_MS = 58;
+
+type NodeRec = {
+  id: string;
+  kind: KindKey;
+  group: THREE.Group;
+  label: CSS2DObject;
+  hpEl: HTMLElement;
+};
+
+export class WorldApp {
+  socket: GameSocket;
+  root: HTMLElement;
+  renderer: THREE.WebGLRenderer;
+  labelRenderer: CSS2DRenderer;
+  scene = new THREE.Scene();
+  camera: THREE.PerspectiveCamera;
+  clock = new THREE.Clock();
+  mats: MatKit | null = null;
+  ground: GroundRig | null = null;
+  ash: AshField | null = null;
+  hemi: THREE.HemisphereLight;
+  sun: THREE.DirectionalLight;
+  portalLight = new THREE.PointLight(0xff6633, 0, 18, 2);
+
+  room: RoomSnap | null = null;
+  joystick: VirtualJoystick;
+  keys = new Set<string>();
+  moveTarget: Vec2 | null = null;
+  lastMoveSend = 0;
+  serverYou: Vec2 = { x: 0, y: 0 };
+  renderYou: Vec2 = { x: 0, y: 0 };
+  predicting = false;
+  remoteSmooth = new SmoothStore();
+  velX = 0;
+  velY = 0;
+  aimX = 1;
+  aimY = 0;
+  animT = 0;
+  lastCantoId: string | null = null;
+  lastYouSnapshot: any = null;
+  nodes = new Map<string, NodeRec>();
+  youGroup: THREE.Group | null = null;
+  camTarget = new THREE.Vector3();
+  camFollow = new THREE.Vector3();
+  camPunch = 0;
+  camShake = 0;
+  netOffline = false;
+  hubTipShown = false;
+  nearExitToastAt = 0;
+  seenLootIds = new Set<string>();
+  seenInvItemIds = new Set<string>();
+  autoPickupSent = new Map<string, number>();
+  lastAutoPickupScan = 0;
+  attackBusyUntil = 0;
+  attackHoldTimer: number | null = null;
+  lastHitFoe: { id: string; until: number } | null = null;
+  deathFxUntil = 0;
+  pendingCast: { spellId: SpellId; aimX: number; aimY: number; until: number } | null = null;
+  spellHold: {
+    spellId: SpellId;
+    fromKey: boolean;
+    pointerId: number | null;
+    startMs: number;
+    aimX: number;
+    aimY: number;
+    aimed: boolean;
+    btnEl: HTMLElement | null;
+    onMove: ((e: PointerEvent) => void) | null;
+    onUp: ((e: PointerEvent) => void) | null;
+  } | null = null;
+  portalHold: {
+    target: any;
+    fromKey: boolean;
+    pointerId: number | null;
+    startMs: number;
+    completed: boolean;
+    onUp: ((e: PointerEvent) => void) | null;
+  } | null = null;
+  nearestInteract: { id: string; kind: string; label: string } | null = null;
+  lastInteractHintId: string | null = null;
+  bolts: Bolt[] = [];
+  wardUntil = 0;
+  wardMesh: THREE.Mesh | null = null;
+  bursts: { mesh: THREE.Mesh; start: number; dur: number; r: number }[] = [];
+  teles: { mesh: THREE.Mesh; until: number; r: number }[] = [];
+  slash: THREE.Mesh | null = null;
+  slashUntil = 0;
+  hitStopUntil = 0;
+  raycaster = new THREE.Raycaster();
+  groundPlane = new THREE.Plane(UP, 0);
+  tmp = new THREE.Vector3();
+  tmp2 = new THREE.Vector3();
+  running = false;
+
+  constructor(root: HTMLElement, socket: GameSocket) {
+    this.root = root;
+    this.socket = socket;
+    this.camera = new THREE.PerspectiveCamera(42, 1, 0.2, 280);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    this.renderer.setClearColor(0x0b0f0c, 1);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.shadowMap.enabled = !isCompactUi();
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    root.appendChild(this.renderer.domElement);
+
+    this.labelRenderer = new CSS2DRenderer();
+    this.labelRenderer.domElement.style.position = "absolute";
+    this.labelRenderer.domElement.style.inset = "0";
+    this.labelRenderer.domElement.style.pointerEvents = "none";
+    this.labelRenderer.domElement.className = "world-labels";
+    root.appendChild(this.labelRenderer.domElement);
+
+    this.scene.fog = new THREE.FogExp2(0x0b0f0c, 0.028);
+    this.hemi = new THREE.HemisphereLight(0xc9b896, 0x1a120c, 0.85);
+    this.scene.add(this.hemi);
+    this.sun = new THREE.DirectionalLight(0xe8dcc0, 1.15);
+    this.sun.castShadow = this.renderer.shadowMap.enabled;
+    this.sun.shadow.mapSize.set(1024, 1024);
+    this.sun.shadow.camera.near = 2;
+    this.sun.shadow.camera.far = 90;
+    this.sun.shadow.camera.left = -40;
+    this.sun.shadow.camera.right = 40;
+    this.sun.shadow.camera.top = 40;
+    this.sun.shadow.camera.bottom = -40;
+    this.scene.add(this.sun);
+    this.scene.add(this.sun.target);
+    this.scene.add(this.portalLight);
+
+    const amb = new THREE.AmbientLight(0x2a241c, 0.28);
+    this.scene.add(amb);
+
+    this.joystick = new VirtualJoystick();
+    this.resize();
+    window.addEventListener("resize", () => this.resize());
+  }
+
+  async start() {
+    this.mats = await loadMatKit(this.renderer);
+    {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      const env = new THREE.Scene();
+      env.add(new THREE.HemisphereLight(0xf0e0c0, 0x22180c, 1.35));
+      this.scene.environment = pmrem.fromScene(env, 0.04).texture;
+      pmrem.dispose();
+    }
+    this.youGroup = makeByKind("player", this.mats);
+    this.youGroup.userData.entityId = "you";
+    this.scene.add(this.youGroup);
+    this.slash = makeSlashArc(this.mats);
+    this.slash.visible = false;
+    this.youGroup.add(this.slash);
+
+    this.ash = new AshField(isCompactUi() ? 80 : 160, 0xd9cfae);
+    this.scene.add(this.ash.points);
+
+    this.bindInput();
+    this.socket.on((msg) => this.onNet(msg));
+    if (this.socket.lastSnapshot) this.onNet(this.socket.lastSnapshot);
+
+    wireHud({
+      listSelected: (price) => {
+        const id = getSelectedItemId();
+        if (!id || !Number.isInteger(price) || price <= 0) {
+          showToast("Select an item and enter integer Ash price", "warn");
+          return;
+        }
+        this.socket.ahList(id, price);
+      },
+      refreshAh: () => this.socket.ahBrowse(),
+      toggleInventory: () => togglePanel("inventory"),
+      toggleAh: () => {
+        togglePanel("ah");
+        this.socket.ahBrowse();
+      },
+      interactNearest: () => this.interactNearest(),
+      attackNearest: () => this.attackNearest(),
+      onAttackHoldStart: () => this.startAttackHold(),
+      onAttackHoldEnd: () => this.stopAttackHold(),
+      equipSelected: () => {
+        const id = getSelectedItemId();
+        if (!id) {
+          showToast("Select an item to equip", "warn");
+          return;
+        }
+        this.socket.equip(String(id));
+      },
+      unequipSelected: () => {
+        const id = getSelectedItemId();
+        if (!id) {
+          showToast("Select equipped gear to unequip", "warn");
+          return;
+        }
+        this.socket.unequip({ itemId: String(id) });
+      },
+      castSpell: (spellId) => this.castSpell(spellId),
+      onSpellHoldStart: (spellId, ev) => this.beginSpellHold(spellId, { fromKey: false, pointer: ev }),
+      onSpellHoldMove: (_spellId, ev) => this.updateSpellHoldPointer(ev),
+      onSpellHoldEnd: (_spellId, ev, cast) => {
+        if (!cast) this.cancelSpellHold();
+        else this.releaseSpellHold(true, ev);
+      },
+      onInteractHoldStart: (ev) => this.beginInteractHold(ev),
+      onInteractHoldEnd: (ev, completed) => this.endInteractHold(ev, completed),
+    });
+
+    if (new URLSearchParams(location.search).has("debug")) {
+      (window as any).__world = this;
+      (window as any).__selfTestControls = () => this.selfTestControls();
+    }
+
+    this.running = true;
+    this.clock.start();
+    this.loop();
+    document.getElementById("boot-veil")?.classList.add("out");
+  }
+
+  resize() {
+    const w = this.root.clientWidth || window.innerWidth;
+    const h = this.root.clientHeight || window.innerHeight;
+    this.camera.aspect = w / Math.max(1, h);
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h, false);
+    this.labelRenderer.setSize(w, h);
+    this.renderer.domElement.style.width = "100%";
+    this.renderer.domElement.style.height = "100%";
+  }
+
+  bindInput() {
+    window.addEventListener("keydown", (e) => {
+      if (e.repeat) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      this.keys.add(e.code);
+      if (e.code === "KeyI") togglePanel("inventory");
+      if (e.code === "KeyH") {
+        togglePanel("ah");
+        this.socket.ahBrowse();
+      }
+      if (e.code === "Digit1") this.beginSpellHold("gale_bolt", { fromKey: true });
+      if (e.code === "Digit2") this.beginSpellHold("whirl_ward", { fromKey: true });
+      if (e.code === "Digit3") this.beginSpellHold("infernal_burst", { fromKey: true });
+      if (e.code === "Escape") {
+        this.cancelSpellHold();
+        this.cancelPortalHold();
+      }
+      if (e.code === "KeyE") {
+        const portal = this.nearestIsPortalTravel();
+        if (portal) this.beginPortalHold(portal, { fromKey: true });
+        else this.interactNearest();
+      }
+    });
+    window.addEventListener("keyup", (e) => {
+      this.keys.delete(e.code);
+      if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
+        this.releaseSpellHold(true);
+      }
+    });
+
+    this.renderer.domElement.addEventListener("pointerdown", (ev) => {
+      if (!this.room) return;
+      const t = ev.target as HTMLElement | null;
+      if (t?.closest?.("#action-bar, #panels, #hud button, #virtual-joystick, .vj-base, .vj-knob, #modal-backdrop")) {
+        return;
+      }
+      if (this.joystick.isVisible() && this.joystick.containsClientPoint(ev.clientX, ev.clientY)) return;
+
+      const hit = this.pickEntity(ev);
+      if (hit) {
+        if (hit.kind === "mob" || hit.kind === "boss") {
+          this.sendAttack(hit.id);
+          return;
+        }
+        if (hit.kind === "loot") {
+          this.socket.pickup(hit.id);
+          return;
+        }
+        if (hit.kind === "poi" || hit.kind === "exit") {
+          if (hit.kind === "exit" || hit.poiKind === "portal") {
+            this.beginPortalHold(hit, { fromKey: false, pointerId: ev.pointerId });
+          } else {
+            this.doInteract(hit);
+          }
+          return;
+        }
+      }
+      if (this.joystick.isActive()) return;
+      const g = this.pickGround(ev);
+      if (g) {
+        this.moveTarget = g;
+        this.socket.move(g.x, g.y);
+        this.lastMoveSend = Date.now();
+      }
+    });
+  }
+
+  ndcFromEvent(ev: PointerEvent): THREE.Vector2 {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    return new THREE.Vector2(
+      ((ev.clientX - r.left) / r.width) * 2 - 1,
+      -((ev.clientY - r.top) / r.height) * 2 + 1
+    );
+  }
+
+  pickGround(ev: PointerEvent): Vec2 | null {
+    return this.pickGroundClient(ev.clientX, ev.clientY);
+  }
+
+  pickGroundClient(clientX: number, clientY: number): Vec2 | null {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - r.left) / r.width) * 2 - 1,
+      -((clientY - r.top) / r.height) * 2 + 1
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const out = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.groundPlane, out)) return null;
+    return this.clampToBounds(out.x, out.z);
+  }
+
+  pickEntity(ev: PointerEvent): any | null {
+    if (!this.room) return null;
+    this.raycaster.setFromCamera(this.ndcFromEvent(ev), this.camera);
+    const meshes: THREE.Object3D[] = [];
+    for (const n of this.nodes.values()) meshes.push(n.group);
+    const hits = this.raycaster.intersectObjects(meshes, true);
+    if (!hits.length) return null;
+    let obj: THREE.Object3D | null = hits[0].object;
+    while (obj && obj.userData.entityId == null) obj = obj.parent;
+    const id = obj?.userData.entityId as string | undefined;
+    if (!id) return null;
+    return this.room.entities.find((e: any) => String(e.id) === String(id)) ?? null;
+  }
+
+  youPos(): Vec2 {
+    return this.renderYou;
+  }
+
+  entityRenderPos(e: { id: string; x: number; y: number }): Vec2 {
+    return this.remoteSmooth.pos(e.id, { x: e.x, y: e.y });
+  }
+
+  clampToBounds(x: number, y: number): Vec2 {
+    if (!this.room) return { x, y };
+    const b = this.room.bounds;
+    return {
+      x: Math.max(1, Math.min(b.width - 1, x)),
+      y: Math.max(1, Math.min(b.height - 1, y)),
+    };
+  }
+
+  sendMoveThrottled(x: number, y: number) {
+    const now = Date.now();
+    if (now - this.lastMoveSend < MOVE_SEND_MS) return;
+    this.lastMoveSend = now;
+    this.socket.move(x, y);
+  }
+
+  loop = () => {
+    if (!this.running) return;
+    requestAnimationFrame(this.loop);
+    let dt = this.clock.getDelta();
+    if (performance.now() < this.hitStopUntil) dt *= 0.15;
+    dt = Math.min(0.05, dt);
+    this.animT += dt * 1000;
+    this.tick(dt);
+    this.draw(dt);
+  };
+
+  tick(dt: number) {
+    if (!this.room) return;
+    const { fwd, right } = camPlanarBasis(this.camera);
+    let fx = 0;
+    let sx = 0;
+    const stick = this.joystick.getVector();
+    if (stick && (stick.x !== 0 || stick.y !== 0)) {
+      fx += -stick.y;
+      sx += stick.x;
+    }
+    if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fx += 1;
+    if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) fx -= 1;
+    if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) sx += 1;
+    if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) sx -= 1;
+
+    const ix = fwd.x * fx + right.x * sx;
+    const iy = fwd.z * fx + right.z * sx;
+    this.predicting = false;
+
+    if (ix !== 0 || iy !== 0) this.applyContinuousMove(ix, iy, dt);
+    else if (this.moveTarget) this.advanceTapMove(dt);
+    else this.integrateVelocity(dt, false);
+
+    this.renderYou = reconcileLocal(this.renderYou, this.serverYou, dt, this.predicting, {
+      x: this.velX,
+      y: this.velY,
+    });
+
+    const targets = new Map<string, Vec2>();
+    for (const e of this.room.entities) targets.set(e.id, { x: e.x, y: e.y });
+    for (const pl of this.room.players) {
+      if (pl.id === this.room.you.id) continue;
+      targets.set(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+    }
+    this.remoteSmooth.tick(targets, dt);
+
+    this.autoPickupScan();
+    this.scanNearestInteract();
+    this.resolvePendingCast();
+    this.tickPortalHold();
+    this.tickSpellKeyAim();
+    this.hintExit();
+
+    if (this.ash) this.ash.tick(dt, this.room.bounds, this.room.cantoId === "inferno_05");
+  }
+
+  applyContinuousMove(dx: number, dy: number, dtSec: number) {
+    const len = Math.hypot(dx, dy);
+    if (len > 0.001) {
+      const nx = dx / len;
+      const ny = dy / len;
+      this.velX += nx * MOVE_ACCEL * dtSec;
+      this.velY += ny * MOVE_ACCEL * dtSec;
+      const mag = Math.min(1, len);
+      const maxSp = PREDICT_SPEED * Math.max(0.35, mag);
+      const sp = Math.hypot(this.velX, this.velY);
+      if (sp > maxSp) {
+        this.velX = (this.velX / sp) * maxSp;
+        this.velY = (this.velY / sp) * maxSp;
+      }
+      if (mag > 0.2) {
+        this.aimX = nx;
+        this.aimY = ny;
+      }
+      this.moveTarget = null;
+    }
+    this.integrateVelocity(dtSec, true);
+  }
+
+  advanceTapMove(dtSec: number) {
+    if (!this.moveTarget) return;
+    const dx = this.moveTarget.x - this.renderYou.x;
+    const dy = this.moveTarget.y - this.renderYou.y;
+    const d = Math.hypot(dx, dy);
+    if (d < TAP_ARRIVE) {
+      this.moveTarget = null;
+      this.velX = 0;
+      this.velY = 0;
+      this.predicting = false;
+      return;
+    }
+    this.velX += (dx / d) * MOVE_ACCEL * dtSec;
+    this.velY += (dy / d) * MOVE_ACCEL * dtSec;
+    const sp = Math.hypot(this.velX, this.velY);
+    if (sp > PREDICT_SPEED) {
+      this.velX = (this.velX / sp) * PREDICT_SPEED;
+      this.velY = (this.velY / sp) * PREDICT_SPEED;
+    }
+    this.aimX = dx / d;
+    this.aimY = dy / d;
+    this.integrateVelocity(dtSec, true);
+    this.sendMoveThrottled(this.moveTarget.x, this.moveTarget.y);
+  }
+
+  integrateVelocity(dtSec: number, driven: boolean) {
+    if (!driven) {
+      const sp = Math.hypot(this.velX, this.velY);
+      if (sp < 0.05) {
+        this.velX = 0;
+        this.velY = 0;
+      } else {
+        const cut = Math.max(0, sp - MOVE_FRICTION * dtSec);
+        this.velX = (this.velX / sp) * cut;
+        this.velY = (this.velY / sp) * cut;
+      }
+    }
+    if (this.velX === 0 && this.velY === 0) {
+      if (!driven) this.predicting = false;
+      return;
+    }
+    const nx = this.renderYou.x + this.velX * dtSec;
+    const ny = this.renderYou.y + this.velY * dtSec;
+    this.renderYou = this.clampToBounds(nx, ny);
+    this.predicting = true;
+    this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
+  }
+
+  draw(dt: number) {
+    const compact = isCompactUi();
+    if (this.youGroup) {
+      setPlanar(this.youGroup.position, this.renderYou.x, this.renderYou.y, 0);
+      this.youGroup.rotation.y = yawFromPlanar(this.aimX, this.aimY);
+      const moving = Math.hypot(this.velX, this.velY) > 0.4;
+      const bob = moving ? Math.sin(this.animT * 0.012) * 0.05 : Math.sin(this.animT * 0.003) * 0.015;
+      this.youGroup.position.y = bob;
+      this.youGroup.rotation.z = moving ? Math.sin(this.animT * 0.012) * 0.04 : 0;
+      if (this.netOffline) {
+        this.youGroup.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh && m.material && "opacity" in m.material) {
+            (m.material as THREE.MeshStandardMaterial).transparent = true;
+            (m.material as THREE.MeshStandardMaterial).opacity = 0.45;
+          }
+        });
+      }
+    }
+
+    this.syncEntities();
+
+    setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, 0);
+    const rate = compact ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
+    this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
+    placeFollowCamera(this.camera, this.camFollow, compact, 1.2);
+    if (this.camPunch > 0.001) {
+      this.camera.position.addScaledVector(UP, this.camPunch);
+      this.camPunch *= Math.exp(-dt * 8);
+    }
+    if (this.camShake > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.camShake;
+      this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.4;
+      this.camShake *= Math.exp(-dt * 10);
+    }
+
+    this.sun.position.set(this.camFollow.x + 18, 28, this.camFollow.z + 10);
+    this.sun.target.position.copy(this.camFollow);
+
+    if (this.slash && this.slashUntil > this.animT) {
+      this.slash.visible = true;
+      this.slash.rotation.y = ((this.slashUntil - this.animT) / 400) * Math.PI;
+    } else if (this.slash) this.slash.visible = false;
+
+    this.tickFx();
+    this.renderer.render(this.scene, this.camera);
+    this.labelRenderer.render(this.scene, this.camera);
+  }
+
+  tickFx() {
+    for (const b of this.bolts) placeBolt(b, this.animT);
+    this.bolts = this.bolts.filter((b) => {
+      if (this.animT > b.start + b.dur) {
+        this.scene.remove(b.mesh);
+        return false;
+      }
+      return true;
+    });
+    if (this.wardMesh) {
+      this.wardMesh.visible = this.animT < this.wardUntil;
+      this.wardMesh.rotation.z = this.animT * 0.004;
+      if (this.youGroup) this.wardMesh.position.copy(this.youGroup.position).setY(0.15);
+    }
+    for (const b of this.bursts) {
+      const u = (this.animT - b.start) / b.dur;
+      const s = b.r * (0.3 + u * 1.4);
+      b.mesh.scale.setScalar(s);
+      const mat = b.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.max(0, 0.4 * (1 - u));
+    }
+    this.bursts = this.bursts.filter((b) => {
+      if (this.animT - b.start > b.dur) {
+        this.scene.remove(b.mesh);
+        return false;
+      }
+      return true;
+    });
+    this.teles = this.teles.filter((t) => {
+      const left = t.until - this.animT;
+      const mat = t.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.25 + 0.55 * Math.abs(Math.sin(this.animT * 0.012));
+      t.mesh.scale.setScalar(t.r * (0.85 + 0.15 * Math.sin(this.animT * 0.02)));
+      if (left <= 0) {
+        this.scene.remove(t.mesh);
+        return false;
+      }
+      return true;
+    });
+
+    for (const n of this.nodes.values()) {
+      const ribbon = n.group.getObjectByName("ribbon");
+      if (ribbon) ribbon.rotation.y = this.animT * 0.003;
+      const disc = n.group.getObjectByName("galeDisc");
+      if (disc) (disc as THREE.Mesh).rotation.z = this.animT * 0.0015;
+      const gem = n.group.getObjectByName("gem");
+      if (gem) {
+        gem.rotation.y = this.animT * 0.004;
+        gem.position.y = 0.38 + Math.sin(this.animT * 0.005) * 0.08;
+      }
+    }
+  }
+
+  syncEntities() {
+    if (!this.room || !this.mats) return;
+    const seen = new Set<string>();
+    for (const e of this.room.entities) {
+      const id = String(e.id);
+      seen.add(id);
+      const kind = resolveKind(e);
+      let rec = this.nodes.get(id);
+      if (!rec || rec.kind !== kind) {
+        if (rec) this.disposeNode(rec);
+        rec = this.spawnNode(id, kind, e);
+      }
+      const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
+      setPlanar(rec.group.position, pos.x, pos.y, 0);
+      if (e.kind === "mob" || e.kind === "boss" || e.kind === "player") {
+        const you = this.youPos();
+        rec.group.rotation.y = yawFromPlanar(you.x - pos.x, you.y - pos.y);
+      }
+      this.updateLabel(rec, e, pos);
+    }
+    for (const pl of this.room.players) {
+      if (pl.id === this.room.you.id) continue;
+      const id = `pl:${pl.id}`;
+      seen.add(id);
+      let rec = this.nodes.get(id);
+      if (!rec) rec = this.spawnNode(id, "player", { kind: "player", name: pl.name });
+      const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
+      setPlanar(rec.group.position, pos.x, pos.y, 0);
+      rec.group.rotation.y = yawFromPlanar(this.renderYou.x - pos.x, this.renderYou.y - pos.y);
+      this.updateLabel(rec, { name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp }, pos);
+    }
+    for (const [id, rec] of this.nodes) {
+      if (!seen.has(id)) {
+        this.disposeNode(rec);
+        this.nodes.delete(id);
+      }
+    }
+  }
+
+  spawnNode(id: string, kind: KindKey, e: any): NodeRec {
+    const group = makeByKind(kind, this.mats!, e.item?.rarity);
+    group.userData.entityId = id.replace(/^pl:/, "");
+    const wrap = document.createElement("div");
+    wrap.className = "world-label";
+    wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div>`;
+    const label = new CSS2DObject(wrap);
+    label.center.set(0.5, 1);
+    label.position.set(0, kind === "judge" ? 4.6 : kind === "portal" ? 3.4 : 2.05, 0);
+    group.add(label);
+    this.scene.add(group);
+    const rec: NodeRec = { id, kind, group, label, hpEl: wrap };
+    this.nodes.set(id, rec);
+    return rec;
+  }
+
+  disposeNode(rec: NodeRec) {
+    this.scene.remove(rec.group);
+    rec.label.element.remove();
+  }
+
+  updateLabel(rec: NodeRec, e: any, pos: Vec2) {
+    const you = this.youPos();
+    const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+    const nameEl = rec.hpEl.querySelector(".wl-name") as HTMLElement;
+    const hp = rec.hpEl.querySelector(".wl-hp") as HTMLElement;
+    const fill = rec.hpEl.querySelector(".wl-hp i") as HTMLElement;
+    const name = e.label || e.name || "";
+    if (d > 16) {
+      rec.hpEl.style.opacity = "0";
+      return;
+    }
+    rec.hpEl.style.opacity = d > 8 ? "0.45" : "1";
+    if (nameEl) nameEl.textContent = d > 8 ? "•" : name;
+    if (e.hp != null && e.maxHp) {
+      hp.style.display = "block";
+      fill.style.width = `${Math.max(0, Math.min(100, (e.hp / e.maxHp) * 100))}%`;
+    } else {
+      hp.style.display = "none";
+    }
+  }
+
+  lootRenderPos(e: any): Vec2 {
+    const you = this.youPos();
+    const d = Math.hypot(e.x - you.x, e.y - you.y);
+    if (d > MAGNET_RANGE || d < 0.01) return this.entityRenderPos(e);
+    const t = 1 - d / MAGNET_RANGE;
+    const pull = t * t * 0.55;
+    return { x: e.x + (you.x - e.x) * pull, y: e.y + (you.y - e.y) * pull };
+  }
+
+  rebuildGround() {
+    if (!this.room || !this.mats) return;
+    if (this.ground) this.scene.remove(this.ground.group);
+    const keepouts = [
+      { x: this.room.you.x, y: this.room.you.y, r: 6 },
+      ...this.room.entities
+        .filter((e: any) => e.kind === "poi" || e.kind === "exit" || e.kind === "boss")
+        .map((e: any) => ({ x: e.x, y: e.y, r: e.kind === "boss" ? 10 : 4 })),
+    ];
+    this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
+    this.scene.add(this.ground.group);
+    const lust = this.room.cantoId === "inferno_05";
+    this.scene.fog = new THREE.FogExp2(lust ? 0x1a0806 : 0x0b0f0c, lust ? 0.022 : 0.026);
+    this.renderer.setClearColor(lust ? 0x140804 : 0x0b0f0c, 1);
+    this.hemi.color.set(lust ? 0xe8a070 : 0xc9b896);
+    this.hemi.groundColor.set(lust ? 0x2a0804 : 0x1a120c);
+    this.sun.color.set(lust ? 0xff8844 : 0xe8dcc0);
+    const portal = this.room.entities.find((e: any) => e.kind === "exit" || e.poiKind === "portal");
+    if (portal) {
+      this.portalLight.intensity = 4.5;
+      this.portalLight.color.set(lust ? 0x66ffaa : 0xff6633);
+      setPlanar(this.portalLight.position, portal.x, portal.y, 2.2);
+    }
+  }
+
+  onNet(msg: any) {
+    switch (msg.type) {
+      case "snapshot": {
+        const prevCanto = this.lastCantoId;
+        this.room = msg.room;
+        updateStats(msg.room.you, msg.room.title);
+        this.lastYouSnapshot = msg.room.you;
+        this.refreshInventoryUi();
+        this.noteNewInventoryLoot(msg.room.you);
+        const sx = msg.room.you.x as number;
+        const sy = msg.room.you.y as number;
+        const cantoChanged = prevCanto != null && prevCanto !== msg.room.cantoId;
+        const first = this.lastCantoId == null;
+        this.lastCantoId = msg.room.cantoId;
+        this.serverYou = { x: sx, y: sy };
+        if (first || cantoChanged) {
+          this.renderYou = { x: sx, y: sy };
+          this.remoteSmooth.clear();
+          this.moveTarget = null;
+          this.autoPickupSent.clear();
+          this.lastHitFoe = null;
+          this.seenInvItemIds.clear();
+          resetCombo();
+          this.camFollow.set(sx, 0, sy);
+          this.rebuildGround();
+          if (cantoChanged) this.camPunch = 1.2;
+        }
+        const targets = new Map<string, Vec2>();
+        for (const e of msg.room.entities) targets.set(e.id, { x: e.x, y: e.y });
+        for (const pl of msg.room.players) {
+          if (pl.id === msg.room.you.id) continue;
+          targets.set(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+        }
+        for (const [id, t] of targets) {
+          if (!this.remoteSmooth.get(id)) this.remoteSmooth.set(id, t);
+        }
+        const isHub = msg.room.role === "hub" || msg.room.cantoId === "inferno_01";
+        if (isHub && !this.hubTipShown) {
+          this.hubTipShown = true;
+          showToast("No foes here — take the portal Toward Lust.", "info");
+        }
+        const lootIds = new Set<string>();
+        for (const e of msg.room.entities) {
+          if (e.kind !== "loot") continue;
+          lootIds.add(e.id);
+        }
+        this.seenLootIds = lootIds;
+        for (const id of [...this.autoPickupSent.keys()]) {
+          if (!lootIds.has(id)) this.autoPickupSent.delete(id);
+        }
+        break;
+      }
+      case "net":
+        if (msg.state === "disconnected") {
+          this.netOffline = true;
+          showToast("Connection lost — reconnecting…", "warn");
+        } else if (msg.state === "reconnected") {
+          this.netOffline = false;
+          showToast("Reconnected", "info");
+          this.youGroup?.traverse((o) => {
+            const m = o as THREE.Mesh;
+            if (m.isMesh && m.material && "opacity" in m.material) {
+              (m.material as THREE.MeshStandardMaterial).opacity = 1;
+            }
+          });
+        }
+        break;
+      case "toast": {
+        const text = String(msg.text || "");
+        showToast(text, msg.level);
+        if (/out of range|nothing to strike|no foe in range|lashes empty air/i.test(text)) resetCombo();
+        if (/slain/i.test(text)) this.triggerDeathRevive();
+        break;
+      }
+      case "ah_listings":
+        renderAh(
+          msg.listings,
+          (id) => this.socket.ahBuy(id),
+          (id) => {
+            const L = msg.listings.find((x: any) => x.id === id);
+            const bid = Math.max((L?.highestBidAsh || 0) + 100, L?.priceAsh || 0);
+            this.socket.ahBid(id, bid);
+          }
+        );
+        setPanelOpen("ah", true);
+        break;
+      case "error":
+        showToast(msg.message, "warn");
+        break;
+      case "combat":
+        this.onCombat(msg);
+        break;
+      case "spell_fx":
+        this.onSpellFx(msg);
+        break;
+      case "boss_telegraph": {
+        const x = Number(msg.x) || 0;
+        const y = Number(msg.y) || 0;
+        const radius = Number(msg.radius) || 2.6;
+        const durMs = (Number(msg.duration) || 1.4) * 1000;
+        const mesh = makeTelegraph(0xff3311);
+        setPlanar(mesh.position, x, y, 0.08);
+        mesh.scale.setScalar(radius);
+        this.scene.add(mesh);
+        this.teles.push({ mesh, until: this.animT + durMs, r: radius });
+        break;
+      }
+      case "entity_removed": {
+        const rid = String(msg.id);
+        const ent = this.room?.entities?.find((e: any) => e.id === rid);
+        if (ent && (ent.kind === "mob" || ent.kind === "boss")) {
+          this.camShake = ent.kind === "boss" ? 0.55 : 0.22;
+          this.camPunch = ent.kind === "boss" ? 0.8 : 0.35;
+        }
+        break;
+      }
+    }
+  }
+
+  onCombat(msg: any) {
+    const tid = String(msg.targetId ?? "");
+    const youId = this.room?.you?.id != null ? String(this.room.you.id) : "";
+    const sockId = this.socket.playerId != null ? String(this.socket.playerId) : "";
+    const hitSelf = Boolean(tid) && (tid === youId || tid === sockId);
+    if (hitSelf) {
+      this.camShake = 0.28;
+      this.camPunch = 0.25;
+      this.hitStopUntil = performance.now() + HIT_STOP_MS;
+      this.floatDmg(this.renderYou, msg.damage, true);
+      const soaked = Number(msg.soaked) || 0;
+      if (soaked > 0 && msg.wardActive) flashWardSoak();
+      if (msg.targetHp != null && msg.targetHp <= 0) this.triggerDeathRevive();
+      return;
+    }
+    const ent = this.room?.entities?.find((e: any) => String(e.id) === tid);
+    const attacker = String(msg.attackerId ?? "");
+    const weHit = Boolean(attacker) && (attacker === youId || attacker === sockId);
+    if (weHit && ent && (ent.kind === "mob" || ent.kind === "boss")) {
+      this.lastHitFoe = { id: String(ent.id), until: this.animT + GALE_STICKY_MS };
+      const streak = noteComboHit();
+      if (isComboMilestone(streak)) this.camPunch = 0.35;
+      if (isComboInfernoFringe(streak)) this.camPunch = 0.5;
+      if (isComboEclipse(streak)) this.camPunch = 0.6;
+      if (isComboVoidCorona(streak)) pulseVoidCorona();
+      if (isComboAbyss(streak)) pulseAbyssChroma();
+      if (isComboRiftShear(streak)) pulseRiftShear(false);
+      if (isComboRiftShearMax(streak)) pulseRiftShear(true);
+      if (isComboHorizonFold(streak)) pulseHorizonFold();
+    }
+    if (ent) {
+      this.camShake = 0.18;
+      this.hitStopUntil = performance.now() + HIT_STOP_MS;
+      const pos = this.entityRenderPos(ent);
+      this.floatDmg(pos, msg.damage, false);
+      const rec = this.nodes.get(String(ent.id));
+      if (rec) rec.group.scale.setScalar(1.12);
+    }
+  }
+
+  onSpellFx(msg: any) {
+    const id = String(msg.spellId || "");
+    if (id === "gale_bolt") {
+      const bolt: Bolt = {
+        mesh: makeBolt(this.mats!),
+        x0: Number(msg.x) || this.renderYou.x,
+        y0: Number(msg.y) || this.renderYou.y,
+        x1: Number(msg.tx ?? msg.x) || this.renderYou.x + this.aimX * 6,
+        y1: Number(msg.ty ?? msg.y) || this.renderYou.y + this.aimY * 6,
+        start: this.animT,
+        dur: Number(msg.duration ?? 0.28) * 1000 || 280,
+      };
+      this.scene.add(bolt.mesh);
+      this.bolts.push(bolt);
+    } else if (id === "whirl_ward") {
+      if (!this.wardMesh && this.mats) {
+        this.wardMesh = makeWardRing(this.mats);
+        this.scene.add(this.wardMesh);
+      }
+      this.wardUntil = this.animT + 8000;
+      noteWardBuff(8);
+    } else if (id === "infernal_burst") {
+      const mesh = makeBurst(this.mats!);
+      setPlanar(mesh.position, Number(msg.x) || this.renderYou.x, Number(msg.y) || this.renderYou.y, 0.4);
+      this.scene.add(mesh);
+      this.bursts.push({
+        mesh,
+        start: this.animT,
+        dur: 520,
+        r: Number(msg.radius) || BURST_RADIUS,
+      });
+      this.camPunch = 0.55;
+    }
+  }
+
+  floatDmg(pos: Vec2, amount: number, self: boolean) {
+    const el = document.createElement("div");
+    el.className = `float-dmg${self ? " self" : ""}`;
+    el.textContent = `−${Math.round(Number(amount) || 0)}`;
+    const obj = new CSS2DObject(el);
+    setPlanar(obj.position, pos.x, pos.y, 1.8);
+    this.scene.add(obj);
+    const t0 = this.animT;
+    const tick = () => {
+      const u = (this.animT - t0) / 700;
+      obj.position.y = 1.8 + u * 1.1;
+      el.style.opacity = String(Math.max(0, 1 - u));
+      if (u < 1) requestAnimationFrame(tick);
+      else {
+        this.scene.remove(obj);
+        el.remove();
+      }
+    };
+    requestAnimationFrame(tick);
+  }
+
+  refreshInventoryUi() {
+    const you = this.lastYouSnapshot;
+    if (!you) return;
+    renderInventory(you.inventory || [], () => {}, {
+      equipped: you.equipped || {},
+      gearStats: you.gearStats || {},
+      onEquipSlotClick: (slot) => {
+        const worn = you.equipped?.[slot];
+        if (worn) this.socket.unequip({ slot });
+      },
+    });
+  }
+
+  noteNewInventoryLoot(you: any) {
+    const ids = new Set<string>((you.inventory || []).map((it: any) => String(it.id)));
+    if (this.seenInvItemIds.size) {
+      for (const id of ids) {
+        if (!this.seenInvItemIds.has(id)) {
+          pulseInvBag();
+          break;
+        }
+      }
+    }
+    this.seenInvItemIds = ids;
+  }
+
+  doInteract(hit: any) {
+    this.socket.interact(hit.id);
+    if (hit.kind === "exit" && hit.toCanto) {
+      this.camPunch = 0.8;
+      window.setTimeout(() => this.socket.travel(hit.toCanto), 50);
+    }
+    if (hit.poiKind === "portal" && hit.toCanto) {
+      this.camPunch = 0.8;
+      window.setTimeout(() => this.socket.travel(hit.toCanto), 50);
+    }
+    if (hit.poiKind === "ah") {
+      setPanelOpen("ah", true);
+      this.socket.ahBrowse();
+    }
+  }
+
+  interactNearest() {
+    if (!this.room) return;
+    const you = this.youPos();
+    let best: any = null;
+    let bestD = INTERACT_RANGE;
+    for (const e of this.room.entities) {
+      if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < EXIT_TRAVEL_RANGE && d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    if (!best) {
+      bestD = INTERACT_RANGE;
+      for (const e of this.room.entities) {
+        if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+        const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
+        const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+        if (d < bestD) {
+          bestD = d;
+          best = e;
+        }
+      }
+    }
+    if (!best) {
+      showToast("Nothing nearby — walk closer to a portal, NPC, or loot", "warn");
+      return;
+    }
+    if (best.kind === "loot") {
+      showToast(`Picking up ${best.item?.name || "loot"}`, "loot");
+      this.socket.pickup(best.id);
+    } else if (best.kind === "exit" || best.poiKind === "portal") {
+      const dest = best.toCanto === "inferno_05" ? "Lust" : best.label || best.name || "portal";
+      showToast(`Entering ${dest}…`, "emit");
+      this.doInteract(best);
+    } else if (best.poiKind === "ah") {
+      showToast("Opening Auction House", "info");
+      this.doInteract(best);
+    } else {
+      showToast(`Interact: ${best.label || best.name || "object"}`, "info");
+      this.doInteract(best);
+    }
+  }
+
+  attackNearest(opts?: { silent?: boolean }) {
+    if (!this.room) return;
+    const you = this.youPos();
+    let best: any = null;
+    let bestD = ATTACK_RANGE;
+    for (const e of this.room.entities) {
+      if (e.kind !== "mob" && e.kind !== "boss") continue;
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    if (!best) {
+      if (!opts?.silent) {
+        showToast("No foe in range", "warn");
+        resetCombo();
+      }
+      return;
+    }
+    this.sendAttack(best.id);
+  }
+
+  sendAttack(targetId: string) {
+    const now = Date.now();
+    if (now < this.attackBusyUntil) return;
+    this.attackBusyUntil = now + ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
+    noteAttackCd((ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS) / 1000);
+    this.slashUntil = this.animT + 400;
+    window.setTimeout(() => this.socket.attack(targetId), ATTACK_WINDUP_MS);
+  }
+
+  startAttackHold() {
+    this.attackNearest({ silent: true });
+    this.stopAttackHold();
+    this.attackHoldTimer = window.setInterval(() => this.attackNearest({ silent: true }), ATTACK_HOLD_MS);
+  }
+
+  stopAttackHold() {
+    if (this.attackHoldTimer != null) {
+      window.clearInterval(this.attackHoldTimer);
+      this.attackHoldTimer = null;
+    }
+  }
+
+  castSpell(spellId: SpellId, opts?: { aimX?: number; aimY?: number; preferNearest?: boolean }) {
+    if (!this.room || this.pendingCast) return;
+    const def = SPELLS[spellId];
+    if (!def) return;
+    const mana = Number(this.room.you?.mana) || 0;
+    if (mana < def.manaCost) {
+      flashManaDeny(spellId);
+      showToast(`Not enough mana for ${def.name} (${def.manaCost})`, "warn");
+      return;
+    }
+    let ax = opts?.aimX ?? this.aimX;
+    let ay = opts?.aimY ?? this.aimY;
+    const preferNearest = opts?.preferNearest !== false && opts?.aimX == null;
+    if (spellId === "gale_bolt" && preferNearest) {
+      const dir = this.pickGaleAimDir();
+      ax = dir.x;
+      ay = dir.y;
+    }
+    const len = Math.hypot(ax, ay) || 1;
+    this.aimX = ax / len;
+    this.aimY = ay / len;
+    const wind = SPELL_TELEGRAPH_MS[spellId] ?? 220;
+    this.pendingCast = { spellId, aimX: this.aimX, aimY: this.aimY, until: this.animT + wind };
+    if (spellId === "gale_bolt") {
+      const mesh = makeTelegraph(0xffd078);
+      setPlanar(mesh.position, this.renderYou.x, this.renderYou.y, 0.1);
+      mesh.scale.setScalar(GALE_RANGE);
+      this.scene.add(mesh);
+      this.teles.push({ mesh, until: this.animT + wind, r: GALE_RANGE });
+    }
+  }
+
+  pickGaleAimDir(): { x: number; y: number } {
+    const you = this.youPos();
+    const stickyId = this.lastHitFoe && this.animT < this.lastHitFoe.until ? this.lastHitFoe.id : null;
+    let stickyDir: { x: number; y: number } | null = null;
+    let stickyD = 99;
+    let best: { x: number; y: number } | null = null;
+    let bestD = GALE_RANGE;
+    if (this.room) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob" && e.kind !== "boss") continue;
+        const pos = this.entityRenderPos(e);
+        const dx = pos.x - you.x;
+        const dy = pos.y - you.y;
+        const d = Math.hypot(dx, dy);
+        if (stickyId && String(e.id) === stickyId && d < GALE_RANGE * 1.2) {
+          stickyDir = { x: dx, y: dy };
+          stickyD = d;
+        }
+        if (d < bestD) {
+          bestD = d;
+          best = { x: dx, y: dy };
+        }
+      }
+    }
+    const use = stickyDir && !(best && bestD < 2.2 && stickyD > bestD + 1.4) ? stickyDir : best;
+    if (use) {
+      const len = Math.hypot(use.x, use.y) || 1;
+      return { x: use.x / len, y: use.y / len };
+    }
+    const len = Math.hypot(this.aimX, this.aimY) || 1;
+    return { x: this.aimX / len, y: this.aimY / len };
+  }
+
+  beginSpellHold(spellId: SpellId, o: { fromKey: boolean; pointer?: PointerEvent }) {
+    if (!this.room || this.pendingCast) return;
+    if (this.spellHold) this.cancelSpellHold();
+    const seed = spellId === "gale_bolt" ? this.pickGaleAimDir() : { x: this.aimX, y: this.aimY };
+    const len = Math.hypot(seed.x, seed.y) || 1;
+    const btn = document.getElementById(`btn-spell-${spellId}`);
+    this.spellHold = {
+      spellId,
+      fromKey: o.fromKey,
+      pointerId: o.pointer?.pointerId ?? null,
+      startMs: performance.now(),
+      aimX: seed.x / len,
+      aimY: seed.y / len,
+      aimed: false,
+      btnEl: btn,
+      onMove: null,
+      onUp: null,
+    };
+    btn?.classList.add("aiming");
+    if (!o.fromKey && o.pointer) {
+      const onMove = (e: PointerEvent) => this.updateSpellHoldPointer(e);
+      const onUp = (e: PointerEvent) => {
+        if (this.spellHold?.pointerId != null && e.pointerId !== this.spellHold.pointerId) return;
+        this.releaseSpellHold(true, e);
+      };
+      this.spellHold.onMove = onMove;
+      this.spellHold.onUp = onUp;
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    }
+  }
+
+  updateSpellHoldPointer(ev: PointerEvent) {
+    const g = this.spellHold;
+    if (!g || g.fromKey) return;
+    if (g.pointerId != null && ev.pointerId !== g.pointerId) return;
+    if (g.btnEl) {
+      const r = g.btnEl.getBoundingClientRect();
+      const pad = 10;
+      const inside =
+        ev.clientX >= r.left - pad &&
+        ev.clientX <= r.right + pad &&
+        ev.clientY >= r.top - pad &&
+        ev.clientY <= r.bottom + pad;
+      const cx = (r.left + r.right) / 2;
+      const cy = (r.top + r.bottom) / 2;
+      const drag = Math.hypot(ev.clientX - cx, ev.clientY - cy);
+      if (g.spellId === "gale_bolt") {
+        if (!g.aimed && !inside && drag < GALE_DRAG_AIM_PX) {
+          this.cancelSpellHold();
+          return;
+        }
+        if (drag >= GALE_DRAG_AIM_PX) g.aimed = true;
+      } else if (!inside) {
+        this.cancelSpellHold();
+        return;
+      }
+    }
+    if (g.spellId === "gale_bolt") this.setGaleAimFromClient(ev.clientX, ev.clientY);
+  }
+
+  setGaleAimFromClient(clientX: number, clientY: number) {
+    if (!this.spellHold || this.spellHold.spellId !== "gale_bolt") return;
+    const g = this.pickGroundClient(clientX, clientY);
+    if (!g) return;
+    const you = this.youPos();
+    let ax = g.x - you.x;
+    let ay = g.y - you.y;
+    const len = Math.hypot(ax, ay);
+    if (len < 0.15) return;
+    this.spellHold.aimX = ax / len;
+    this.spellHold.aimY = ay / len;
+    this.spellHold.aimed = true;
+    this.aimX = this.spellHold.aimX;
+    this.aimY = this.spellHold.aimY;
+  }
+
+  tickSpellKeyAim() {
+    const g = this.spellHold;
+    if (!g || !g.fromKey || g.spellId !== "gale_bolt") return;
+    if (performance.now() - g.startMs < SPELL_HOLD_CONFIRM_MS) return;
+  }
+
+  releaseSpellHold(cast: boolean, ev?: PointerEvent) {
+    const g = this.spellHold;
+    if (!g) return;
+    if (ev && g.pointerId != null && ev.pointerId !== g.pointerId) return;
+    const heldMs = performance.now() - g.startMs;
+    const spellId = g.spellId;
+    const aimX = g.aimX;
+    const aimY = g.aimY;
+    const aimed = g.aimed || heldMs >= SPELL_HOLD_CONFIRM_MS;
+    this.clearSpellHoldListeners();
+    this.spellHold = null;
+    document.getElementById(`btn-spell-${spellId}`)?.classList.remove("aiming");
+    if (!cast) return;
+    if (spellId === "gale_bolt" && heldMs >= GALE_HOLD_TOAST_MS && heldMs < SPELL_HOLD_CONFIRM_MS) {
+      showToast("Gale loosed", "info");
+    }
+    if (spellId === "gale_bolt") {
+      if (aimed) this.castSpell("gale_bolt", { aimX, aimY, preferNearest: false });
+      else this.castSpell("gale_bolt", { preferNearest: true });
+    } else this.castSpell(spellId);
+  }
+
+  cancelSpellHold() {
+    if (!this.spellHold) return;
+    const heldMs = performance.now() - this.spellHold.startMs;
+    const spellId = this.spellHold.spellId;
+    this.clearSpellHoldListeners();
+    this.spellHold = null;
+    document.getElementById(`btn-spell-${spellId}`)?.classList.remove("aiming", "pressed");
+    flashSpellCancel(spellId);
+    if (spellId === "gale_bolt" && heldMs >= GALE_HOLD_TOAST_MS) showToast("Gale cancelled", "info");
+  }
+
+  clearSpellHoldListeners() {
+    const g = this.spellHold;
+    if (!g) return;
+    if (g.onMove) window.removeEventListener("pointermove", g.onMove);
+    if (g.onUp) {
+      window.removeEventListener("pointerup", g.onUp);
+      window.removeEventListener("pointercancel", g.onUp);
+    }
+  }
+
+  resolvePendingCast() {
+    const pc = this.pendingCast;
+    if (!pc || !this.room) return;
+    if (this.animT < pc.until) return;
+    this.pendingCast = null;
+    const def = SPELLS[pc.spellId];
+    if (!def) return;
+    this.aimX = pc.aimX;
+    this.aimY = pc.aimY;
+    this.socket.cast(pc.spellId, { x: this.aimX, y: this.aimY });
+    noteSpellCast(pc.spellId, def.cooldown);
+  }
+
+  nearestIsPortalTravel(): any | null {
+    if (!this.room) return null;
+    const you = this.youPos();
+    let best: any = null;
+    let bestD = EXIT_TRAVEL_RANGE;
+    for (const e of this.room.entities) {
+      if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  beginInteractHold(ev?: PointerEvent) {
+    const portal = this.nearestIsPortalTravel();
+    if (portal) {
+      this.beginPortalHold(portal, { fromKey: false, pointer: ev });
+      return;
+    }
+    document.getElementById("btn-interact")?.classList.remove("charging");
+    this.interactNearest();
+  }
+
+  endInteractHold(_ev: PointerEvent, completed: boolean) {
+    const ph = this.portalHold;
+    if (!ph || ph.fromKey) {
+      document.getElementById("btn-interact")?.classList.remove("charging");
+      return;
+    }
+    if (!completed || !ph.completed) this.cancelPortalHold();
+    else document.getElementById("btn-interact")?.classList.remove("charging");
+  }
+
+  beginPortalHold(target: any, o: { fromKey: boolean; pointer?: PointerEvent; pointerId?: number }) {
+    if (!target) return;
+    if (this.portalHold) this.cancelPortalHold();
+    this.portalHold = {
+      target,
+      fromKey: o.fromKey,
+      pointerId: o.pointer?.pointerId ?? o.pointerId ?? null,
+      startMs: performance.now(),
+      completed: false,
+      onUp: null,
+    };
+    document.getElementById("btn-interact")?.classList.add("charging");
+    if (!o.fromKey) {
+      const onUp = (e: PointerEvent) => {
+        const ph = this.portalHold;
+        if (!ph || ph.fromKey) return;
+        if (ph.pointerId != null && e.pointerId !== ph.pointerId) return;
+        if (!ph.completed) this.cancelPortalHold();
+      };
+      this.portalHold.onUp = onUp;
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    }
+  }
+
+  cancelPortalHold() {
+    if (!this.portalHold) return;
+    const onUp = this.portalHold.onUp;
+    if (onUp) {
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    }
+    this.portalHold = null;
+    document.getElementById("btn-interact")?.classList.remove("charging");
+  }
+
+  tickPortalHold() {
+    const ph = this.portalHold;
+    if (!ph || ph.completed) return;
+    if (ph.fromKey && !this.keys.has("KeyE")) {
+      this.cancelPortalHold();
+      return;
+    }
+    if (performance.now() - ph.startMs < PORTAL_HOLD_MS) return;
+    ph.completed = true;
+    hapticPortalComplete();
+    const dest = ph.target.toCanto === "inferno_05" ? "Lust" : ph.target.label || ph.target.name || "portal";
+    showToast(`Entering ${dest}…`, "emit");
+    const target = ph.target;
+    this.cancelPortalHold();
+    this.doInteract(target);
+  }
+
+  scanNearestInteract() {
+    if (!this.room) {
+      this.nearestInteract = null;
+      return;
+    }
+    const you = this.youPos();
+    let best: any = null;
+    let bestD = INTERACT_HIGHLIGHT_RANGE;
+    for (const e of this.room.entities) {
+      if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+      const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    const interactBtn = document.getElementById("btn-interact");
+    if (!best) {
+      this.nearestInteract = null;
+      this.lastInteractHintId = null;
+      interactBtn?.classList.remove("interact-ready");
+      interactBtn?.classList.add("interact-idle");
+      return;
+    }
+    this.nearestInteract = { id: String(best.id), kind: best.kind, label: best.label || best.name };
+    interactBtn?.classList.add("interact-ready");
+    interactBtn?.classList.remove("interact-idle");
+    if (this.lastInteractHintId !== String(best.id)) {
+      this.lastInteractHintId = String(best.id);
+    }
+  }
+
+  autoPickupScan() {
+    if (!this.room) return;
+    const now = Date.now();
+    if (now - this.lastAutoPickupScan < 220) return;
+    this.lastAutoPickupScan = now;
+    const you = this.serverYou;
+    for (const e of this.room.entities) {
+      if (e.kind !== "loot") continue;
+      const d = Math.hypot(e.x - you.x, e.y - you.y);
+      if (d > AUTO_PICKUP_RANGE) continue;
+      const last = this.autoPickupSent.get(e.id) || 0;
+      if (now - last < AUTO_PICKUP_RETRY_MS) continue;
+      this.autoPickupSent.set(e.id, now);
+      this.socket.pickup(e.id);
+    }
+  }
+
+  hintExit() {
+    if (!this.room) return;
+    const isHub = this.room.role === "hub" || this.room.cantoId === "inferno_01";
+    if (!isHub) return;
+    let nearD = EXIT_HINT_RANGE;
+    let near = false;
+    for (const e of this.room.entities) {
+      if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+      if (d < nearD) {
+        nearD = d;
+        near = true;
+      }
+    }
+    if (near) {
+      const now = Date.now();
+      if (now - this.nearExitToastAt > 8000) {
+        this.nearExitToastAt = now;
+        showToast("Portal near — hold Interact to enter Lust", "info");
+      }
+    }
+  }
+
+  triggerDeathRevive() {
+    const now = Date.now();
+    if (now < this.deathFxUntil) return;
+    this.deathFxUntil = now + DEATH_FX_LOCK_MS;
+    playDeathRevive();
+    this.camShake = 0.6;
+    window.setTimeout(() => {
+      this.renderYou = { x: this.serverYou.x, y: this.serverYou.y };
+      this.velX = 0;
+      this.velY = 0;
+      this.moveTarget = null;
+    }, 200);
+  }
+
+  /**
+   * Dev-only control self-test (Rule 4). Independent oracle = nose marker on the wanderer,
+   * which the yaw code does not read.
+   */
+  async selfTestControls() {
+    const press = async (code: string, ms: number) => {
+      this.keys.add(code);
+      await new Promise((r) => setTimeout(r, ms));
+      this.keys.delete(code);
+      await new Promise((r) => setTimeout(r, 80));
+    };
+    const { fwd, right } = camPlanarBasis(this.camera);
+    const results: string[] = [];
+    for (const [code, axis, sign] of [
+      ["KeyD", right, 1],
+      ["KeyA", right, -1],
+      ["KeyW", fwd, 1],
+      ["KeyS", fwd, -1],
+    ] as const) {
+      const p0 = { x: this.renderYou.x, y: this.renderYou.y };
+      await press(code, 400);
+      const dx = this.renderYou.x - p0.x;
+      const dy = this.renderYou.y - p0.y;
+      const planar = new THREE.Vector3(dx, 0, dy);
+      if (planar.length() < 0.05) {
+        results.push(`${code}: no move`);
+        continue;
+      }
+      planar.normalize();
+      const along = planar.dot(axis) * sign;
+      const facing = new THREE.Vector3(0, 0, -1).applyQuaternion(this.youGroup!.quaternion);
+      facing.y = 0;
+      facing.normalize();
+      const nose = modelFrontWorld(this.youGroup!);
+      results.push(
+        `${code}: along=${along.toFixed(2)} faceMove=${facing.dot(planar).toFixed(2)} nose=${nose.dot(facing).toFixed(2)}`
+      );
+      console.assert(along > 0.7, `${code} moved the wrong way (cos=${along})`);
+      console.assert(facing.dot(planar) > 0.7, `${code} facing off movement`);
+      console.assert(nose.dot(facing) > 0.7, `${code} nose off parent heading`);
+    }
+    console.info("[selfTestControls]", results);
+    showToast(results.join(" · "), "info");
+    return results;
+  }
+}
