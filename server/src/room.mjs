@@ -29,7 +29,7 @@ const MOVE_SPEED = 8; // units per intent clamp
 const PLAYER_MAX_HP = 130;
 const RESPAWN_IFRAMES = 2.0; // seconds of invulnerability after waking at the entrance
 const PLAYER_BASE_DMG = 22;
-const PLAYER_ATK_CD = 0.72;
+const PLAYER_ATK_CD = 0.42;
 
 const MOB_HP = {
   whirl_shade: 36,
@@ -116,7 +116,7 @@ class CantoRoom {
         this.entities.set(id, {
           id,
           kind: "mob",
-          name: pack.champion ? "Gale Champion" : "Whirl Shade",
+          name: pack.name || (pack.champion ? "Gale Champion" : "Whirl Shade"),
           x: pack.anchor.x + ox,
           y: pack.anchor.y + oy,
           hp: maxHp,
@@ -314,7 +314,8 @@ class CantoRoom {
     if (!s) return;
     if (s.atkCd > 0) return;
     const target = this.entities.get(targetId);
-    if (!target || (target.kind !== "mob" && target.kind !== "boss")) {
+    if (!target) return;
+    if (target.kind !== "mob" && target.kind !== "boss") {
       this.toast(s.ws, "warn", "Nothing to strike.");
       return;
     }
@@ -680,7 +681,7 @@ class CantoRoom {
         this.toast(
           s.ws,
           "info",
-          "Guide: The wood is not a battlefield. Seek Lust through the eastern path, then return."
+          "Guide: Follow the gold arrow into Lust. Clear the road shades, then the Judge. Return and claim the writ."
         );
       } else if (e.poiKind === "stash") {
         this.toast(s.ws, "info", `Stash holds ${ledger.stash.length} items (stub — inventory only for now).`);

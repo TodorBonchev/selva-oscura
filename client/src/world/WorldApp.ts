@@ -34,6 +34,8 @@ import {
   flashSlamSafeRim,
   hapticPortalComplete,
   setPortalHoldUi,
+  setQuestLine,
+  setTargetPlate,
   pulseVoidCorona,
   pulseAbyssChroma,
   pulseRiftShear,
@@ -93,7 +95,9 @@ const INTERACT_HIGHLIGHT_RANGE = 5.0;
 const EXIT_HINT_RANGE = 7;
 const EXIT_TRAVEL_RANGE = 6.2;
 const GALE_STICKY_MS = 1600;
-const ATTACK_RANGE = 5.5;
+/** Must stay inside the server melee check (3.5) or swings toast "Out of range". */
+const ATTACK_RANGE = 3.35;
+const CHASE_RANGE = 26;
 const AUTO_PICKUP_RANGE = 4.0;
 const MAGNET_RANGE = 5.5;
 const AUTO_PICKUP_RETRY_MS = 900;
@@ -101,8 +105,8 @@ const PREDICT_SPEED = 8.0;
 const MOVE_ACCEL = 28;
 const MOVE_FRICTION = 18;
 const TAP_ARRIVE = 0.35;
-const ATTACK_WINDUP_MS = 160;
-const ATTACK_RECOVERY_MS = 400;
+const ATTACK_WINDUP_MS = 70;
+const ATTACK_RECOVERY_MS = 240;
 const SPELL_TELEGRAPH_MS: Record<string, number> = {
   gale_bolt: 180,
   whirl_ward: 260,
@@ -149,6 +153,9 @@ export class WorldApp {
   radar: Radar | null = null;
   frameN = 0;
   combatUntil = 0;
+  lastChaseToast = 0;
+  slowFrames = 0;
+  gfxDropped = false;
   propAnims: THREE.Object3D[] = [];
   treeFadeTick = 0;
 
@@ -627,6 +634,13 @@ export class WorldApp {
     let dt = this.clock.getDelta();
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
     dt = Math.min(0.05, dt);
+    if (dt > 0.034) this.slowFrames++;
+    else this.slowFrames = Math.max(0, this.slowFrames - 1);
+    if (!this.gfxDropped && this.slowFrames > 40) {
+      this.gfxDropped = true;
+      this.renderer.setPixelRatio(1);
+      this.resize();
+    }
     this.animT += dt * 1000;
     this.tick(dt);
     this.draw(dt);
@@ -857,6 +871,7 @@ export class WorldApp {
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
+    this.paintChrome();
     if (this.radar && this.room) {
       this.radar.tick({
         you: this.renderYou,
@@ -1336,9 +1351,11 @@ export class WorldApp {
           (id) => this.socket.ahBuy(id),
           (id) => {
             const L = msg.listings.find((x: any) => x.id === id);
-            const bid = Math.max((L?.highestBidAsh || 0) + 100, L?.priceAsh || 0);
+            const floor = Math.max(Number(L?.highestBidAsh) || 0, Number(L?.priceAsh) || 0);
+            const bid = floor + Math.max(50, Math.round(floor * 0.1));
             this.socket.ahBid(id, bid);
-          }
+          },
+          Number(this.room?.you?.ash) || 0
         );
         setPanelOpen("ah", true);
         break;
@@ -1661,28 +1678,78 @@ export class WorldApp {
     }
   }
 
-  attackNearest(opts?: { silent?: boolean }) {
+  paintChrome() {
     if (!this.room) return;
+    const you = this.room.you || {};
+    const canto = this.room.cantoId;
+    const foes = this.room.entities.filter(
+      (e: any) => (e.kind === "mob" || e.kind === "boss") && (e.hp == null || e.hp > 0)
+    );
+    let line = "Explore the wood";
+    if (canto === "inferno_05") {
+      const boss = foes.find((e: any) => e.kind === "boss");
+      const shades = foes.filter((e: any) => e.kind === "mob").length;
+      if (shades > 0) line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
+      else if (boss) line = "Slay the Judge of the Gate";
+      else line = "Return through the portal";
+    } else if (!you.spokeToGuide) {
+      line = "Speak with the Guide";
+    } else if (!you.visitedInferno) {
+      line = "Follow the gold arrow into Lust";
+    } else {
+      line = "Claim the daily writ, or hunt Lust again";
+    }
+    setQuestLine(line);
+    const near = this.nearestFoe(16);
+    if (near) {
+      const hp = Number(near.e.hp) || 0;
+      const max = Number(near.e.maxHp) || hp || 1;
+      setTargetPlate(near.e.name || "Foe", hp / max);
+    } else {
+      setTargetPlate(null, 0);
+    }
+    document.getElementById("btn-attack")?.classList.toggle("foe-near", Boolean(this.nearestFoe(CHASE_RANGE)));
+  }
+
+  nearestFoe(maxDist: number): { e: any; d: number; pos: Vec2 } | null {
+    if (!this.room) return null;
     const you = this.youPos();
-    let best: any = null;
-    let bestD = ATTACK_RANGE;
+    let best: { e: any; d: number; pos: Vec2 } | null = null;
     for (const e of this.room.entities) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
+      if (e.hp != null && e.hp <= 0) continue;
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
-      if (d < bestD) {
-        bestD = d;
-        best = e;
-      }
+      if (d < maxDist && (!best || d < best.d)) best = { e, d, pos };
     }
-    if (!best) {
-      if (!opts?.silent) {
-        showToast("No foe in range", "warn");
-        resetCombo();
+    return best;
+  }
+
+  attackNearest(opts?: { silent?: boolean }) {
+    if (!this.room) return;
+    const melee = this.nearestFoe(ATTACK_RANGE);
+    if (melee) {
+      this.moveTarget = null;
+      this.aimX = melee.pos.x - this.renderYou.x;
+      this.aimY = melee.pos.y - this.renderYou.y;
+      this.sendAttack(melee.e.id);
+      return;
+    }
+    const chase = this.nearestFoe(CHASE_RANGE);
+    if (chase) {
+      this.moveTarget = { x: chase.pos.x, y: chase.pos.y };
+      this.aimX = chase.pos.x - this.renderYou.x;
+      this.aimY = chase.pos.y - this.renderYou.y;
+      if (!opts?.silent && this.animT - this.lastChaseToast > 1600) {
+        this.lastChaseToast = this.animT;
+        showToast(`Closing on ${chase.e.name || "foe"}`, "info");
       }
       return;
     }
-    this.sendAttack(best.id);
+    if (!opts?.silent) {
+      showToast("No foe in sight — follow the red arrow", "warn");
+      resetCombo();
+    }
   }
 
   sendAttack(targetId: string) {
@@ -1691,10 +1758,16 @@ export class WorldApp {
     this.noteCombat();
     this.attackBusyUntil = now + ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
     noteAttackCd((ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS) / 1000);
-    this.slashUntil = this.animT + 400;
+    this.slashUntil = this.animT + 280;
     this.camPunch = Math.max(this.camPunch, 0.16);
     this.camFovKick = Math.max(this.camFovKick, 1.1);
-    window.setTimeout(() => this.socket.attack(targetId), ATTACK_WINDUP_MS);
+    window.setTimeout(() => {
+      const live = this.room?.entities.find((e: any) => String(e.id) === String(targetId));
+      if (!live || (live.hp != null && live.hp <= 0)) return;
+      const pos = this.entityRenderPos(live);
+      if (Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) > ATTACK_RANGE + 0.45) return;
+      this.socket.attack(targetId);
+    }, ATTACK_WINDUP_MS);
   }
 
   startAttackHold() {

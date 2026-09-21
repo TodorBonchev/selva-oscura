@@ -46,6 +46,8 @@ const BASE_CONTENT_SLOT = {
   grave_gloves: "gloves",
   rusty_buckler: "offhand",
   bone_shard: "misc",
+  cinder_veil: "armor",
+  road_pike: "weapon",
 };
 
 /**
@@ -57,7 +59,8 @@ export function inferContentSlot(item) {
   if (item.slot) return String(item.slot).toLowerCase();
   if (item.baseId && BASE_CONTENT_SLOT[item.baseId]) return BASE_CONTENT_SLOT[item.baseId];
   const n = String(item.name || "").toLowerCase();
-  if (n.includes("club") || n.includes("sword") || n.includes("blade")) return "weapon";
+  if (n.includes("pike") || n.includes("club") || n.includes("sword") || n.includes("blade")) return "weapon";
+  if (n.includes("veil")) return "armor";
   if (n.includes("cape") || n.includes("mail") || n.includes("armor")) return "armor";
   if (n.includes("helm") || n.includes("hood") || n.includes("crown")) return "helm";
   if (n.includes("boot") || n.includes("greave")) return "boots";
