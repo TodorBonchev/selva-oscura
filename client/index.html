@@ -103,6 +103,14 @@
     </aside>
   </div>
 
+  <div id="portal-hold-prompt" class="hidden" aria-hidden="true">
+    <div class="php-key" aria-hidden="true">E</div>
+    <div class="php-copy">
+      <div class="php-title">Hold to enter</div>
+      <div class="php-dest">Lust</div>
+      <div class="php-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+    </div>
+  </div>
   <nav id="action-bar" aria-label="Game actions">
     <button type="button" id="btn-inv" class="action-btn" title="Inventory">
       <img class="action-icon" src="/assets/dore/poi_stash.png" alt="" draggable="false" />
@@ -139,6 +147,7 @@
     </div>
     <button type="button" id="btn-interact" class="action-btn action-primary interact-idle" title="Interact">
       <img class="action-icon" src="/assets/dore/poi_quest.png" alt="" draggable="false" />
+      <span class="spell-cd interact-cd" hidden></span>
       <span class="action-label" data-short="Use">Interact</span>
       <span class="action-hint" aria-hidden="true">E</span>
     </button>

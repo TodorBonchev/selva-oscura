@@ -32,6 +32,7 @@ import {
   flashSlamSting,
   flashSlamSafeRim,
   hapticPortalComplete,
+  setPortalHoldUi,
   pulseVoidCorona,
   pulseAbyssChroma,
   pulseRiftShear,
@@ -61,6 +62,7 @@ import {
   makeHitFlash,
   makeImpactRing,
   makeLootBeam,
+  makePortalHoldFx,
   makeSlashTrail,
   makeSlamTelegraph,
   makeTelegraph,
@@ -68,10 +70,12 @@ import {
   placeBolt,
   spawnSparks,
   tickImpact,
+  tickPortalHoldFx,
   tickSlamTelegraph,
   tickSparks,
   type Bolt,
   type ImpactRing,
+  type PortalHoldFx,
   type SlamTele,
   type SparkBurst,
 } from "./fx";
@@ -104,7 +108,7 @@ const SPELL_TELEGRAPH_MS: Record<string, number> = {
 };
 const SPELL_HOLD_CONFIRM_MS = 200;
 const GALE_DRAG_AIM_PX = 26;
-const PORTAL_HOLD_MS = 420;
+const PORTAL_HOLD_MS = 680;
 const DEATH_FX_LOCK_MS = 1600;
 const ATTACK_HOLD_MS = 720;
 const GALE_HOLD_TOAST_MS = 90;
@@ -197,6 +201,7 @@ export class WorldApp {
     completed: boolean;
     onUp: ((e: PointerEvent) => void) | null;
   } | null = null;
+  portalHoldFx: PortalHoldFx | null = null;
   nearestInteract: { id: string; kind: string; label: string } | null = null;
   lastInteractHintId: string | null = null;
   bolts: Bolt[] = [];
@@ -330,6 +335,8 @@ export class WorldApp {
     this.slash = makeSlashTrail();
     this.slash.visible = false;
     this.youGroup.add(this.slash);
+    this.portalHoldFx = makePortalHoldFx();
+    this.scene.add(this.portalHoldFx.group);
 
     this.ash = new AshField(isCompactUi() ? 80 : 160, 0xd9cfae);
     this.scene.add(this.ash.points);
@@ -709,6 +716,7 @@ export class WorldApp {
         tMs: this.animT,
         attacking: this.animT < this.slashUntil,
         speed: Math.hypot(this.velX, this.velY),
+        channeling: Boolean(this.portalHold && !this.portalHold.completed),
       });
       if (moving && this.animT - this.lastDustAt > 160) {
         this.lastDustAt = this.animT;
@@ -908,7 +916,11 @@ export class WorldApp {
       const disc = n.group.getObjectByName("galeDisc");
       if (disc) {
         (disc as THREE.Mesh).rotation.z = this.animT * 0.0015;
-        const s = 1 + Math.sin(this.animT * 0.004) * 0.04;
+        let s = 1 + Math.sin(this.animT * 0.004) * 0.04;
+        if (this.portalHold && String(this.portalHold.target?.id) === n.id) {
+          const u = Math.min(1, (performance.now() - this.portalHold.startMs) / PORTAL_HOLD_MS);
+          s = 1 + u * 0.22 + Math.sin(this.animT * 0.012) * 0.05;
+        }
         disc.scale.set(s, s, 1);
       }
       const galeRibbon = n.group.getObjectByName("galeRibbon");
@@ -1129,6 +1141,7 @@ export class WorldApp {
           resetCombo();
           this.camFollow.set(sx, 0, sy);
           this.rebuildGround();
+          this.cancelPortalHold();
           if (cantoChanged) this.camPunch = 1.2;
         }
         const targets = new Map<string, Vec2>();
@@ -1778,23 +1791,33 @@ export class WorldApp {
       this.beginPortalHold(portal, { fromKey: false, pointer: ev });
       return;
     }
-    document.getElementById("btn-interact")?.classList.remove("charging");
+    setPortalHoldUi(null);
     this.interactNearest();
   }
 
   endInteractHold(_ev: PointerEvent, completed: boolean) {
     const ph = this.portalHold;
     if (!ph || ph.fromKey) {
-      document.getElementById("btn-interact")?.classList.remove("charging");
+      if (!ph) setPortalHoldUi(null);
       return;
     }
     if (!completed || !ph.completed) this.cancelPortalHold();
-    else document.getElementById("btn-interact")?.classList.remove("charging");
+    else setPortalHoldUi(null);
+  }
+
+  portalDestName(target: any): string {
+    if (target?.toCanto === "inferno_05") return "Lust";
+    if (target?.toCanto === "inferno_01") return "Dark Wood";
+    return String(target?.label || target?.name || "portal");
   }
 
   beginPortalHold(target: any, o: { fromKey: boolean; pointer?: PointerEvent; pointerId?: number }) {
     if (!target) return;
     if (this.portalHold) this.cancelPortalHold();
+    this.moveTarget = null;
+    this.velX = 0;
+    this.velY = 0;
+    const you = this.youPos();
     this.portalHold = {
       target,
       fromKey: o.fromKey,
@@ -1803,7 +1826,12 @@ export class WorldApp {
       completed: false,
       onUp: null,
     };
-    document.getElementById("btn-interact")?.classList.add("charging");
+    setPortalHoldUi(0, this.portalDestName(target));
+    if (this.portalHoldFx) {
+      this.portalHoldFx.group.visible = true;
+      setPlanar(this.portalHoldFx.group.position, you.x, you.y, 0.05);
+      tickPortalHoldFx(this.portalHoldFx, 0);
+    }
     if (!o.fromKey) {
       const onUp = (e: PointerEvent) => {
         const ph = this.portalHold;
@@ -1818,14 +1846,22 @@ export class WorldApp {
   }
 
   cancelPortalHold() {
-    if (!this.portalHold) return;
-    const onUp = this.portalHold.onUp;
+    if (!this.portalHold && !this.portalHoldFx?.group.visible) {
+      setPortalHoldUi(null);
+      return;
+    }
+    const onUp = this.portalHold?.onUp;
     if (onUp) {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     }
     this.portalHold = null;
-    document.getElementById("btn-interact")?.classList.remove("charging");
+    setPortalHoldUi(null);
+    if (this.portalHoldFx) {
+      this.portalHoldFx.group.visible = false;
+      this.portalHoldFx.light.intensity = 0;
+    }
+    if (this.portalLight.intensity > 4.5) this.portalLight.intensity = 4.5;
   }
 
   tickPortalHold() {
@@ -1835,10 +1871,38 @@ export class WorldApp {
       this.cancelPortalHold();
       return;
     }
-    if (performance.now() - ph.startMs < PORTAL_HOLD_MS) return;
+    const you = this.youPos();
+    const pos = this.entityRenderPos(ph.target);
+    if (Math.hypot(pos.x - you.x, pos.y - you.y) > EXIT_TRAVEL_RANGE) {
+      this.cancelPortalHold();
+      return;
+    }
+    const stick = this.joystick.getVector();
+    const steering =
+      this.keys.has("KeyW") ||
+      this.keys.has("KeyS") ||
+      this.keys.has("KeyA") ||
+      this.keys.has("KeyD") ||
+      this.keys.has("ArrowUp") ||
+      this.keys.has("ArrowDown") ||
+      this.keys.has("ArrowLeft") ||
+      this.keys.has("ArrowRight") ||
+      Boolean(stick && (Math.abs(stick.x) > 0.18 || Math.abs(stick.y) > 0.18));
+    if (steering || this.moveTarget) {
+      this.cancelPortalHold();
+      return;
+    }
+    const dest = this.portalDestName(ph.target);
+    const u = Math.min(1, (performance.now() - ph.startMs) / PORTAL_HOLD_MS);
+    setPortalHoldUi(u, dest);
+    if (this.portalHoldFx) {
+      setPlanar(this.portalHoldFx.group.position, you.x, you.y, 0.05);
+      tickPortalHoldFx(this.portalHoldFx, u);
+    }
+    this.portalLight.intensity = 4.5 + u * 7.5;
+    if (u < 1) return;
     ph.completed = true;
     hapticPortalComplete();
-    const dest = ph.target.toCanto === "inferno_05" ? "Lust" : ph.target.label || ph.target.name || "portal";
     showToast(`Entering ${dest}…`, "emit");
     const target = ph.target;
     this.cancelPortalHold();
@@ -1863,16 +1927,22 @@ export class WorldApp {
       }
     }
     const interactBtn = document.getElementById("btn-interact");
+    const labelEl = interactBtn?.querySelector<HTMLElement>(".action-label");
     if (!best) {
       this.nearestInteract = null;
       this.lastInteractHintId = null;
       interactBtn?.classList.remove("interact-ready");
       interactBtn?.classList.add("interact-idle");
+      if (labelEl && !this.portalHold) labelEl.textContent = "Interact";
       return;
     }
     this.nearestInteract = { id: String(best.id), kind: best.kind, label: best.label || best.name };
     interactBtn?.classList.add("interact-ready");
     interactBtn?.classList.remove("interact-idle");
+    if (!this.portalHold && labelEl) {
+      const isPortal = best.kind === "exit" || best.poiKind === "portal";
+      labelEl.textContent = isPortal ? "Hold" : "Interact";
+    }
     if (this.lastInteractHintId !== String(best.id)) {
       this.lastInteractHintId = String(best.id);
     }

@@ -1806,30 +1806,123 @@ body.has-modal #virtual-joystick { display: none; }
   opacity: 0.9;
 }
 
-/* Portal hold-to-travel charge on Interact — Ward timer disc language */
+/* Portal hold-to-travel — filling gold disc (not a looping pulse) */
 #btn-interact.charging {
   box-shadow: 0 0 0 2px #c9a227, 0 0 18px #c9a22799, 0 0 8px #6a8cff66;
   filter: brightness(1.12);
+  animation: none;
 }
-#btn-interact.charging::after {
+#btn-interact .interact-cd {
+  position: absolute;
+  inset: 3px;
+  z-index: 3;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(
+    from -90deg,
+    #ffe8a0 0deg,
+    #c9a227 var(--portal-charge-deg, 0deg),
+    rgba(201, 162, 39, 0.18) var(--portal-charge-deg, 0deg),
+    rgba(201, 162, 39, 0.18) 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent 64%, #000 66%);
+  mask: radial-gradient(farthest-side, transparent 64%, #000 66%);
+  box-shadow: 0 0 10px #c9a22766;
+  opacity: 0.95;
+}
+#btn-interact .interact-cd::before {
   content: "";
   position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  border: 2.5px solid #c9a227aa;
-  box-shadow:
-    inset 0 0 0 1px #ffe8a066,
-    0 0 10px #c9a22766;
-  background:
-    radial-gradient(circle at 35% 30%, #ffe8a044, transparent 55%),
-    conic-gradient(from -90deg, #ffe8a0 0deg, #c9a227 120deg, #6a8cff88 220deg, transparent 360deg);
-  opacity: 0.85;
-  animation: portal-charge-disc 0.7s ease-in-out infinite;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(
+    from -90deg,
+    transparent 0deg,
+    transparent calc(var(--portal-charge-deg, 0deg) - 5deg),
+    #fff6d0 calc(var(--portal-charge-deg, 0deg) - 2deg),
+    #fff6d0 var(--portal-charge-deg, 0deg),
+    transparent calc(var(--portal-charge-deg, 0deg) + 0.1deg),
+    transparent 360deg
+  );
   pointer-events: none;
 }
-@keyframes portal-charge-disc {
-  0%, 100% { transform: scale(0.92); opacity: 0.7; }
-  50% { transform: scale(1.05); opacity: 0.95; }
+#btn-interact.charging .action-label,
+#btn-interact.charging .action-icon,
+#btn-interact.charging .action-hint {
+  position: relative;
+  z-index: 4;
+}
+
+#portal-hold-prompt {
+  position: fixed;
+  z-index: 28;
+  left: 50%;
+  bottom: calc(var(--action-bar-h) + 0.7rem);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  pointer-events: none;
+  padding: 0.45rem 0.75rem 0.5rem 0.55rem;
+  background:
+    linear-gradient(180deg, #ffffff10, transparent 40%),
+    linear-gradient(180deg, #24211ae8 0%, #12110ce8 100%);
+  border: 1px solid var(--border);
+  box-shadow:
+    inset 0 0 0 1px #000c,
+    inset 0 0 0 2px #6a5e3f55,
+    0 4px 18px #000c,
+    0 0 16px #c9a22733;
+  border-radius: 3px;
+  min-width: 11.5rem;
+}
+#portal-hold-prompt.hidden { display: none !important; }
+.php-key {
+  flex: 0 0 auto;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  color: var(--gold-2);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  background: linear-gradient(180deg, #3a3220, #16140f);
+  box-shadow: inset 0 0 0 1px #000c, 0 0 8px #c9a22744;
+}
+.php-copy { min-width: 8.4rem; }
+.php-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--bone-2);
+}
+.php-dest {
+  font-size: 1.05rem;
+  color: var(--gold-2);
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 0 #000, 0 0 8px #c9a22766;
+  line-height: 1.15;
+}
+.php-bar {
+  margin-top: 0.28rem;
+  width: 100%;
+  height: 5px;
+  background: #000c;
+  border: 1px solid #c9a22788;
+  border-radius: 1px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px #0008;
+}
+.php-bar i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #c9a227, #ffe8a0);
+  box-shadow: 0 0 8px #c9a227aa;
 }
 
 
@@ -3241,6 +3334,16 @@ body.abyss-afterimage-pulse #game-root {
     inset: 3px 3px calc(3px + 0.52rem) 3px;
     border-radius: 50%;
   }
+  #btn-interact .interact-cd {
+    inset: 3px 3px calc(3px + 0.52rem) 3px;
+  }
+  #portal-hold-prompt {
+    bottom: calc(var(--action-bar-h) + 0.45rem);
+    padding: 0.35rem 0.55rem 0.4rem 0.45rem;
+    min-width: 0;
+  }
+  .php-title { font-size: 0.62rem; }
+  .php-dest { font-size: 0.92rem; }
   /* Keep 2-row right mobile layout intact */
   #action-bar {
     --action-bar-h: calc(6.05rem + var(--safe-bottom));
@@ -3248,6 +3351,8 @@ body.abyss-afterimage-pulse #game-root {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  #btn-interact.charging { filter: none; }
+  #portal-hold-prompt { box-shadow: inset 0 0 0 1px #000c, 0 2px 8px #000a; }
   body.rift-shear-pulse #rift-shear { animation: none; opacity: 0.45; }
   body.rift-shear-pulse #game-root,
   body.rift-shear-pulse.rift-shear-max #game-root { animation: none; filter: saturate(1.1); }

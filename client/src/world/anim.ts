@@ -6,7 +6,7 @@ import * as THREE from "three";
 
 export function tickHumanoid(
   root: THREE.Object3D,
-  opts: { moving: boolean; tMs: number; attacking: boolean; speed: number }
+  opts: { moving: boolean; tMs: number; attacking: boolean; speed: number; channeling?: boolean }
 ) {
   const t = opts.tMs * 0.001;
   const gait = opts.moving ? t * (7.2 + opts.speed * 0.4) : t * 1.35;
@@ -21,6 +21,25 @@ export function tickHumanoid(
   const armR = root.getObjectByName("armR");
   const weapon = root.getObjectByName("weapon");
   const hood = root.getObjectByName("hood");
+
+  if (opts.channeling) {
+    if (hips) hips.position.y = Math.sin(t * 3.2) * 0.01;
+    if (torso) {
+      torso.rotation.y = 0;
+      torso.rotation.x = 0.16;
+    }
+    if (cloak) {
+      cloak.rotation.x = 0.34 + Math.sin(t * 3.6) * 0.05;
+      cloak.rotation.y = Math.sin(t * 2.4) * 0.07;
+    }
+    if (legL) legL.rotation.x = 0.04;
+    if (legR) legR.rotation.x = -0.04;
+    if (armL) armL.rotation.x = -0.58;
+    if (armR) armR.rotation.x = -0.66;
+    if (weapon) weapon.rotation.z = 0.22;
+    if (hood) hood.rotation.x = -0.5 + Math.sin(t * 2.1) * 0.02;
+    return;
+  }
 
   if (hips) {
     hips.position.y = opts.moving ? 0.02 + Math.abs(Math.sin(gait)) * 0.055 : Math.sin(t * 2.1) * 0.012;
