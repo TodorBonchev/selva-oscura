@@ -128,6 +128,7 @@ export class WorldApp {
   clock = new THREE.Clock();
   mats: MatKit | null = null;
   ground: GroundRig | null = null;
+  trees: THREE.Object3D[] = [];
   ash: AshField | null = null;
   hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
@@ -754,10 +755,46 @@ export class WorldApp {
       this.slash.scale.setScalar(0.85 + u * 0.55);
     } else if (this.slash) this.slash.visible = false;
 
+    this.fadeTreeOccluders();
     this.tickFx(dt);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
+  }
+
+  /** Ghost trees that sit between the camera and the pilgrim (D4 canopy fade). */
+  fadeTreeOccluders() {
+    if (!this.youGroup || !this.trees.length) return;
+    this.youGroup.getWorldPosition(this.tmp);
+    this.tmp.y += 1.35;
+    this.tmp2.copy(this.tmp).sub(this.camera.position);
+    const dist = this.tmp2.length();
+    if (dist < 0.4) return;
+    this.tmp2.multiplyScalar(1 / dist);
+    this.raycaster.set(this.camera.position, this.tmp2);
+    this.raycaster.far = dist - 0.35;
+    const hits = this.raycaster.intersectObjects(this.trees, true);
+    const hidden = new Set<THREE.Object3D>();
+    for (const h of hits) {
+      let o: THREE.Object3D | null = h.object;
+      while (o && o.name !== "tree") o = o.parent;
+      if (o) hidden.add(o);
+    }
+    for (const tree of this.trees) {
+      const fade = hidden.has(tree);
+      tree.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        for (const mat of mats) {
+          const sm = mat as THREE.MeshStandardMaterial;
+          if (!("opacity" in sm)) continue;
+          sm.transparent = true;
+          sm.opacity = fade ? 0.18 : 1;
+          sm.depthWrite = !fade;
+        }
+      });
+    }
   }
 
   tickFx(dt: number) {
@@ -1014,6 +1051,10 @@ export class WorldApp {
     if (this.room.cantoId === "inferno_01") keepouts.push({ x: 64, y: 72, r: 9 });
     this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
     this.scene.add(this.ground.group);
+    this.trees = [];
+    this.ground.group.traverse((o) => {
+      if (o.name === "tree") this.trees.push(o);
+    });
     const lust = this.room.cantoId === "inferno_05";
     document.body.classList.toggle("in-lust", lust);
     this.scene.fog = new THREE.FogExp2(lust ? 0x2a100c : 0x1c1812, lust ? 0.012 : 0.009);
