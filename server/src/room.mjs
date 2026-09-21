@@ -769,7 +769,9 @@ class CantoRoom {
       }
       if (!nearest) continue;
       const aggro = e.kind === "boss" ? 14 : 8;
-      if (nearestD < aggro && nearestD > 1.2) {
+      const winding = e.kind === "boss" && e.windupLeft > 0;
+      // Hold still during slam windup so the ground ring matches the hit.
+      if (!winding && nearestD < aggro && nearestD > 1.2) {
         const dx = nearest.x - e.x;
         const dy = nearest.y - e.y;
         const len = Math.hypot(dx, dy) || 1;
@@ -779,7 +781,7 @@ class CantoRoom {
         moved = true;
       }
       // Boss: telegraph windup before the hit so players can dodge
-      if (e.kind === "boss" && e.windupLeft > 0) {
+      if (winding) {
         e.windupLeft = Math.max(0, e.windupLeft - dt);
         if (e.windupLeft <= 0) {
           const target = this.sessions.get(e.windupTargetId);
@@ -833,7 +835,7 @@ class CantoRoom {
             attackerId: e.id,
             x: e.x,
             y: e.y,
-            radius: 2.8,
+            radius: 3.2,
             duration: 1.4,
           });
           this.markDirty();

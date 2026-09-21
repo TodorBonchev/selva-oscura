@@ -29,6 +29,8 @@ import {
   playDeathRevive,
   flashWardSoak,
   flashSpellCancel,
+  flashSlamSting,
+  flashSlamSafeRim,
   hapticPortalComplete,
   pulseVoidCorona,
   pulseAbyssChroma,
@@ -54,19 +56,23 @@ import {
   AshField,
   makeBolt,
   makeBurst,
+  disposeObject3D,
   makeDustPuff,
   makeHitFlash,
   makeImpactRing,
   makeLootBeam,
   makeSlashTrail,
+  makeSlamTelegraph,
   makeTelegraph,
   makeWardRing,
   placeBolt,
   spawnSparks,
   tickImpact,
+  tickSlamTelegraph,
   tickSparks,
   type Bolt,
   type ImpactRing,
+  type SlamTele,
   type SparkBurst,
 } from "./fx";
 import { tickHumanoid, tickWhirl } from "./anim";
@@ -197,6 +203,7 @@ export class WorldApp {
   wardMesh: THREE.Mesh | null = null;
   bursts: { mesh: THREE.Mesh; start: number; dur: number; r: number }[] = [];
   teles: { mesh: THREE.Mesh; until: number; r: number }[] = [];
+  slams: SlamTele[] = [];
   slash: THREE.Mesh | null = null;
   slashUntil = 0;
   sparks: SparkBurst[] = [];
@@ -827,6 +834,16 @@ export class WorldApp {
       }
       return true;
     });
+    this.slams = this.slams.filter((s) => {
+      tickSlamTelegraph(s, this.animT);
+      if (this.animT >= s.start + s.dur) {
+        this.resolveSlam(s);
+        this.scene.remove(s.group);
+        disposeObject3D(s.group);
+        return false;
+      }
+      return true;
+    });
 
     for (const n of this.nodes.values()) {
       const ribbon = n.group.getObjectByName("ribbon");
@@ -1112,13 +1129,9 @@ export class WorldApp {
       case "boss_telegraph": {
         const x = Number(msg.x) || 0;
         const y = Number(msg.y) || 0;
-        const radius = Number(msg.radius) || 2.6;
-        const durMs = (Number(msg.duration) || 1.4) * 1000;
-        const mesh = makeTelegraph(0xff3311);
-        setPlanar(mesh.position, x, y, 0.08);
-        mesh.scale.setScalar(radius);
-        this.scene.add(mesh);
-        this.teles.push({ mesh, until: this.animT + durMs, r: radius });
+        const radius = Number(msg.radius) || 3.2;
+        const dur = Number(msg.duration) || 1.4;
+        this.spawnJudgeSlam(x, y, radius, dur);
         break;
       }
       case "entity_removed": {
@@ -1184,6 +1197,69 @@ export class WorldApp {
       if (rec) rec.group.scale.setScalar(heavy ? 1.28 : 1.2);
       this.spawnHitFx(pos, heavy ? 0xffd078 : 0xffe8a0, heavy || comboBoost > 0.2);
     }
+  }
+
+  spawnJudgeSlam(x: number, y: number, radius = 3.2, durationSec = 1.4) {
+    const built = makeSlamTelegraph();
+    // Sit above the Lust dais (top ~0.34) so the disc isn't buried in stone.
+    setPlanar(built.group.position, x, y, 0.38);
+    built.group.scale.setScalar(Math.max(0.6, radius));
+    this.scene.add(built.group);
+    this.slams.push({
+      ...built,
+      x,
+      y,
+      r: radius,
+      start: this.animT,
+      dur: Math.max(0.2, durationSec) * 1000,
+    });
+    this.camPunch = Math.max(this.camPunch, 0.14);
+  }
+
+  resolveSlam(s: SlamTele) {
+    const shock = new THREE.Mesh(
+      new THREE.RingGeometry(0.9, 1.08, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0xffe08a,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    shock.rotation.x = -Math.PI / 2;
+    setPlanar(shock.position, s.x, s.y, 0.4);
+    this.scene.add(shock);
+    this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: s.r * 0.96, to: s.r * 1.55 });
+    const core = new THREE.Mesh(
+      new THREE.RingGeometry(0.72, 1.0, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0xff5533,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    core.rotation.x = -Math.PI / 2;
+    setPlanar(core.position, s.x, s.y, 0.42);
+    this.scene.add(core);
+    this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: s.r * 0.2, to: s.r * 1.05 });
+    const burst = spawnSparks(s.x, s.y, 1.55, 0xff5533, this.animT);
+    burst.dur = 640;
+    this.scene.add(burst.points);
+    this.sparks.push(burst);
+    this.hitLight.color.setHex(0xff5533);
+    this.hitLight.intensity = 16;
+    setPlanar(this.hitLight.position, s.x, s.y, 1.4);
+    this.camShake = Math.max(this.camShake, 0.5);
+    this.camPunch = Math.max(this.camPunch, 0.78);
+    this.camFovKick = Math.max(this.camFovKick, 3.4);
+    const d = Math.hypot(this.renderYou.x - s.x, this.renderYou.y - s.y);
+    if (d <= s.r + 0.2) flashSlamSting();
+    else if (d <= s.r + 1.25) flashSlamSafeRim();
   }
 
   spawnHitFx(pos: Vec2, color: number, heavy = false) {
