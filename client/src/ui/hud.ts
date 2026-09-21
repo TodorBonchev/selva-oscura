@@ -48,9 +48,16 @@ function rarityClass(r: string | undefined): string {
 }
 
 /** Toast with brief fade; level → gold (loot), bright gold (emit), crimson (warn), bone (info). */
+let lastToastText = "";
+let lastToastAt = 0;
+
 export function showToast(text: string, level = "info") {
   const el = document.getElementById("toast");
   if (!el) return;
+  const now = Date.now();
+  if (text === lastToastText && now - lastToastAt < 900) return;
+  lastToastText = text;
+  lastToastAt = now;
   placeToastLayer();
   el.textContent = text;
   el.className = "";
@@ -337,41 +344,82 @@ export function getSelectedItemId() {
   return selectedItemId;
 }
 
-export function renderAh(listings: any[], onBuy: (id: string) => void, onBid: (id: string) => void) {
+export function setQuestLine(text: string) {
+  const el = document.getElementById("quest-track");
+  if (!el || el.textContent === text) return;
+  el.textContent = text;
+}
+
+export function setTargetPlate(name: string | null, ratio: number) {
+  const el = document.getElementById("target-plate");
+  if (!el) return;
+  if (!name) {
+    if (!el.classList.contains("hidden")) el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+  const n = el.querySelector("#target-name");
+  if (n && n.textContent !== name) n.textContent = name;
+  const bar = el.querySelector("#target-hp") as HTMLElement | null;
+  if (bar) bar.style.width = `${Math.max(0, Math.min(100, Math.round(ratio * 100)))}%`;
+}
+
+export function renderAh(
+  listings: any[],
+  onBuy: (id: string) => void,
+  onBid: (id: string) => void,
+  ash = 0
+) {
   const list = document.getElementById("ah-list");
   if (!list) return;
   list.innerHTML = "";
+  const purse = document.createElement("li");
+  purse.className = "ah-purse";
+  purse.textContent = `Your purse · ${ash.toLocaleString()} Ash`;
+  list.appendChild(purse);
   if (!listings.length) {
-    list.innerHTML = `<li class="ah-empty">No listings — the hall is quiet.</li>`;
+    const empty = document.createElement("li");
+    empty.className = "ah-empty";
+    empty.textContent = "No listings. Melt trash for Ash, or list a bag item with a price.";
+    list.appendChild(empty);
     return;
   }
-  for (const L of listings) {
+  const sorted = [...listings].sort((a, b) => Number(a.priceAsh) - Number(b.priceAsh));
+  for (const L of sorted) {
     const li = document.createElement("li");
     li.className = `ah-row ah-loot-pulse ${rarityClass(L.item?.rarity)}`;
     const rarity = RARITY_LABEL[L.item?.rarity] || L.item?.rarity || "";
+    const stats = L.item ? formatItemStats(itemStatBonus(L.item)) : "";
+    const price = Number(L.priceAsh) || 0;
+    const canBuy = ash >= price;
     li.innerHTML = `
       <div class="ah-item">
         <span class="ah-seal" aria-hidden="true"></span>
         <div class="ah-text">
           <div class="ah-name">${escapeHtml(L.item?.name)}</div>
-          <div class="ah-meta"><span class="ah-rarity">${escapeHtml(rarity)}</span> · ${escapeHtml(L.sellerName)}</div>
+          <div class="ah-meta"><span class="ah-rarity">${escapeHtml(rarity)}</span> · ${escapeHtml(L.sellerName)}${stats ? ` · ${escapeHtml(stats)}` : ""}</div>
         </div>
       </div>
       <div class="ah-prices">
-        <span class="ah-ask"><i>Ask</i> ${formatAsh(L.priceAsh)}</span>
+        <span class="ah-ask"><i>Ask</i> ${formatAsh(price)}</span>
         <span class="ah-bid"><i>Bid</i> ${L.highestBidAsh ? formatAsh(L.highestBidAsh) : "—"}</span>
       </div>`;
     const row = document.createElement("div");
     row.className = "row ah-actions";
     const buy = document.createElement("button");
     buy.className = "btn-gold";
-    buy.textContent = "Buy";
+    buy.textContent = canBuy ? "Buy" : "Need Ash";
+    buy.disabled = !canBuy;
     buy.onclick = (e) => {
       e.stopPropagation();
       onBuy(L.id);
     };
+    const floor = Math.max(Number(L.highestBidAsh) || 0, price);
+    const next = floor + Math.max(50, Math.round(floor * 0.1));
     const bid = document.createElement("button");
-    bid.textContent = "Bid +";
+    bid.textContent = `Bid ${next.toLocaleString()}`;
+    bid.disabled = ash < next;
+    bid.title = "Raises the bid by about 10%";
     bid.onclick = (e) => {
       e.stopPropagation();
       onBid(L.id);

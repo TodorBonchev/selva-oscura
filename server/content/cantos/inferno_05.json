@@ -35,6 +35,16 @@
   },
   "packs": [
     {
+      "id": "lust_road_wardens",
+      "name": "Road Shade",
+      "archetype": "whirl_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 32, "y": 56 }
+    },
+    {
       "id": "lust_winds_a",
       "archetype": "whirl_shade",
       "count": 3,

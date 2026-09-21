@@ -7,6 +7,8 @@
     { "name": "Rusty Buckler", "slot": "offhand", "baseId": "rusty_buckler" },
     { "name": "Pilgrim Boots", "slot": "boots", "baseId": "pilgrim_boots" },
     { "name": "Ash Helm", "slot": "helm", "baseId": "ash_helm" },
-    { "name": "Grave Gloves", "slot": "gloves", "baseId": "grave_gloves" }
+    { "name": "Grave Gloves", "slot": "gloves", "baseId": "grave_gloves" },
+    { "name": "Cinder Veil", "slot": "armor", "baseId": "cinder_veil" },
+    { "name": "Road Pike", "slot": "weapon", "baseId": "road_pike" }
   ]
 }
