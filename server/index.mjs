@@ -246,6 +246,12 @@ async function handleMessage(ws, meta, msg) {
       await room.handleSalvage(playerId);
       break;
     }
+    case "sip": {
+      const room = world.getRoom(playerId);
+      if (!room) return;
+      room.handleSip(playerId);
+      break;
+    }
     default:
       send(ws, { type: "error", code: "unknown_type", message: `Unknown: ${msg.type}` });
   }

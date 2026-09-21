@@ -25,6 +25,13 @@
     ],
     "pois": [
       {
+        "id": "wind_shrine",
+        "kind": "shrine",
+        "x": 26,
+        "y": 64,
+        "label": "Wind Shrine"
+      },
+      {
         "id": "lust_portal_home",
         "kind": "portal",
         "x": 14,

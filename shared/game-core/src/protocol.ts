@@ -17,6 +17,7 @@ export type ClientMessage =
   | { type: "equip"; itemId: string }
   | { type: "unequip"; itemId?: string; slot?: string }
   | { type: "salvage_bag" }
+  | { type: "sip" }
   | { type: "cast"; spellId: string; aimX?: number; aimY?: number }
   | { type: "ping" };
 

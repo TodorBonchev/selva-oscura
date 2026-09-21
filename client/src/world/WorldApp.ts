@@ -84,6 +84,7 @@ import {
 } from "./fx";
 import { tickHumanoid, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
+import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import type { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
@@ -149,11 +150,13 @@ export class WorldApp {
   clickMark: THREE.Group | null = null;
   composer: EffectComposer | null = null;
   gradePass: ShaderPass | null = null;
+  bloom: UnrealBloomPass | null = null;
   hitLight = makeHitFlash();
   radar: Radar | null = null;
   frameN = 0;
   combatUntil = 0;
   lastChaseToast = 0;
+  lockedId: string | null = null;
   slowFrames = 0;
   gfxDropped = false;
   propAnims: THREE.Object3D[] = [];
@@ -267,7 +270,7 @@ export class WorldApp {
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xffe6c0, 1.85);
     this.sun.castShadow = this.renderer.shadowMap.enabled;
-    this.sun.shadow.mapSize.set(isCompactUi() ? 256 : 512, isCompactUi() ? 256 : 512);
+    this.sun.shadow.mapSize.set(256, 256);
     this.sun.shadow.camera.near = 2;
     this.sun.shadow.camera.far = 90;
     this.sun.shadow.camera.left = -40;
@@ -350,7 +353,7 @@ export class WorldApp {
     this.portalHoldFx = makePortalHoldFx();
     this.scene.add(this.portalHoldFx.group);
 
-    this.ash = new AshField(isCompactUi() ? 72 : 140, 0xe8d4b0);
+    this.ash = new AshField(isCompactUi() ? 48 : 90, 0xe8d4b0);
     this.scene.add(this.ash.points);
     this.radar = new Radar();
 
@@ -394,6 +397,7 @@ export class WorldApp {
         this.socket.unequip({ itemId: String(id) });
       },
       meltBag: () => this.socket.salvageBag(),
+      sip: () => this.socket.sip(),
       castSpell: (spellId) => this.castSpell(spellId),
       onSpellHoldStart: (spellId, ev) => this.beginSpellHold(spellId, { fromKey: false, pointer: ev }),
       onSpellHoldMove: (_spellId, ev) => this.updateSpellHoldPointer(ev),
@@ -413,7 +417,7 @@ export class WorldApp {
     {
       const sky = new THREE.Mesh(
         new THREE.SphereGeometry(160, 24, 16),
-        new THREE.MeshBasicMaterial({ color: 0x12100e, side: THREE.BackSide, fog: false })
+        new THREE.MeshBasicMaterial({ color: 0x241810, side: THREE.BackSide, fog: false })
       );
       this.scene.add(sky);
     }
@@ -421,7 +425,11 @@ export class WorldApp {
       const rig = makeComposer(this.renderer, this.scene, this.camera, { bloom: !isCompactUi() });
       this.composer = rig.composer;
       this.gradePass = rig.grade;
-      this.composer.setSize(this.root.clientWidth || window.innerWidth, this.root.clientHeight || window.innerHeight);
+      this.bloom = rig.bloom;
+      const bw = this.root.clientWidth || window.innerWidth;
+      const bh = this.root.clientHeight || window.innerHeight;
+      this.composer.setSize(bw, bh);
+      this.bloom?.setSize(Math.max(2, bw >> 1), Math.max(2, bh >> 1));
     }
     this.running = true;
     this.clock.start();
@@ -466,6 +474,7 @@ export class WorldApp {
     this.renderer.setSize(w, h, false);
     this.labelRenderer.setSize(w, h);
     this.composer?.setSize(w, h);
+    this.bloom?.setSize(Math.max(2, w >> 1), Math.max(2, h >> 1));
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
     document.body.classList.toggle("hud-compact", isCompactUi());
@@ -489,6 +498,7 @@ export class WorldApp {
         this.cancelSpellHold();
         this.cancelPortalHold();
       }
+      if (e.code === "KeyQ") this.socket.sip();
       if (e.code === "KeyE") {
         const portal = this.nearestIsPortalTravel();
         if (portal) this.beginPortalHold(portal, { fromKey: true });
@@ -513,7 +523,8 @@ export class WorldApp {
       const hit = this.pickEntity(ev);
       if (hit) {
         if (hit.kind === "mob" || hit.kind === "boss") {
-          this.sendAttack(hit.id);
+          this.lockedId = String(hit.id);
+          this.attackNearest();
           return;
         }
         if (hit.kind === "loot") {
@@ -1689,7 +1700,9 @@ export class WorldApp {
     if (canto === "inferno_05") {
       const boss = foes.find((e: any) => e.kind === "boss");
       const shades = foes.filter((e: any) => e.kind === "mob").length;
-      if (shades > 0) line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
+      if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.7) {
+        line = "Wind Shrine on the road will mend you";
+      } else if (shades > 0) line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
       else if (boss) line = "Slay the Judge of the Gate";
       else line = "Return through the portal";
     } else if (!you.spokeToGuide) {
@@ -1711,6 +1724,17 @@ export class WorldApp {
     document.getElementById("btn-attack")?.classList.toggle("foe-near", Boolean(this.nearestFoe(CHASE_RANGE)));
   }
 
+  foeById(id: string, maxDist: number): { e: any; d: number; pos: Vec2 } | null {
+    if (!this.room) return null;
+    const e = this.room.entities.find((x: any) => String(x.id) === id);
+    if (!e || (e.hp != null && e.hp <= 0)) return null;
+    const you = this.youPos();
+    const pos = this.entityRenderPos(e);
+    const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+    if (d > maxDist) return null;
+    return { e, d, pos };
+  }
+
   nearestFoe(maxDist: number): { e: any; d: number; pos: Vec2 } | null {
     if (!this.room) return null;
     const you = this.youPos();
@@ -1727,15 +1751,22 @@ export class WorldApp {
 
   attackNearest(opts?: { silent?: boolean }) {
     if (!this.room) return;
-    const melee = this.nearestFoe(ATTACK_RANGE);
-    if (melee) {
+    if (this.lockedId) {
+      const live = this.room.entities.find((e: any) => String(e.id) === this.lockedId);
+      if (!live || (live.hp != null && live.hp <= 0)) this.lockedId = null;
+    }
+    const melee = this.lockedId
+      ? this.foeById(this.lockedId, 80)
+      : this.nearestFoe(ATTACK_RANGE);
+    const inMelee = melee && melee.d <= ATTACK_RANGE ? melee : this.nearestFoe(ATTACK_RANGE);
+    if (inMelee) {
       this.moveTarget = null;
-      this.aimX = melee.pos.x - this.renderYou.x;
-      this.aimY = melee.pos.y - this.renderYou.y;
-      this.sendAttack(melee.e.id);
+      this.aimX = inMelee.pos.x - this.renderYou.x;
+      this.aimY = inMelee.pos.y - this.renderYou.y;
+      this.sendAttack(inMelee.e.id);
       return;
     }
-    const chase = this.nearestFoe(CHASE_RANGE);
+    const chase = this.lockedId ? this.foeById(this.lockedId, 80) : this.nearestFoe(CHASE_RANGE);
     if (chase) {
       this.moveTarget = { x: chase.pos.x, y: chase.pos.y };
       this.aimX = chase.pos.x - this.renderYou.x;

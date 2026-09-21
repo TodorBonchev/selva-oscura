@@ -3843,6 +3843,10 @@ body.combo-void-ghost-pulse #combo-void-ghost {
   width: 100%;
   background: linear-gradient(90deg, #6a1010, #d63a2a);
 }
+#btn-sip {
+  border-color: #8a3030;
+}
+#btn-sip .action-label { color: #ffb0a0; }
 #btn-attack.foe-near {
   box-shadow: 0 0 0 1px #d63a2a, 0 0 12px #d63a2a66;
 }
