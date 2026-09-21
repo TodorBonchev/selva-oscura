@@ -19,6 +19,7 @@ export type GroundRig = {
   group: THREE.Group;
   floor: THREE.Mesh;
   cantoId: string;
+  heightAt: (x: number, z: number) => number;
 };
 
 function hash(i: number, j: number) {
@@ -63,6 +64,39 @@ const HUB_WRIT: [number, number][] = [
   [64, 72],
   [64, 60],
 ];
+const LUST_HUNT: [number, number][] = [
+  [20, 60],
+  [48, 48],
+  [72, 60],
+  [100, 52],
+  [140, 60],
+];
+
+/** Same displacement the floor mesh uses, so feet and props sit on the dirt. */
+export function terrainHeight(
+  cantoId: string,
+  bounds: { width: number; height: number },
+  wx: number,
+  wz: number
+): number {
+  const isHub = cantoId === "inferno_01";
+  const x = wx - bounds.width / 2;
+  const z = wz - bounds.height / 2;
+  let n =
+    Math.sin(x * 0.17) * Math.cos(z * 0.13) * (isHub ? 0.28 : 0.12) +
+    Math.sin(x * 0.41 + z * 0.27) * 0.08;
+  if (isHub) {
+    const pathD = Math.min(
+      distToPoly(wx, wz, HUB_PATH),
+      distToPoly(wx, wz, HUB_SPUR),
+      distToPoly(wx, wz, HUB_WRIT)
+    );
+    if (pathD < 2.6) n *= 0.22;
+  } else if (distToPoly(wx, wz, LUST_HUNT) < 3.2) {
+    n *= 0.15;
+  }
+  return n;
+}
 
 export function buildGround(
   cantoId: string,
@@ -76,17 +110,16 @@ export function buildGround(
   const w = bounds.width;
   const h = bounds.height;
 
+  const heightAt = (x: number, z: number) => terrainHeight(cantoId, bounds, x, z);
+
   const segs = isHub ? 48 : 40;
   const geo = new THREE.PlaneGeometry(w + 24, h + 24, segs, segs);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
-    const n =
-      Math.sin(x * 0.17) * Math.cos(z * 0.13) * (isHub ? 0.28 : 0.12) +
-      Math.sin(x * 0.41 + z * 0.27) * 0.08;
-    pos.setY(i, n);
+    const wx = pos.getX(i) + w / 2;
+    const wz = pos.getZ(i) + h / 2;
+    pos.setY(i, heightAt(wx, wz));
   }
   geo.computeVertexNormals();
   const ny = geo.attributes.normal.getY(0);
@@ -109,7 +142,6 @@ export function buildGround(
       colors[i * 3] = k;
       colors[i * 3 + 1] = k * 0.93;
       colors[i * 3 + 2] = k * 0.78;
-      if (pathD < 2.6) pos.setY(i, pos.getY(i) * 0.22);
     }
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
@@ -157,7 +189,7 @@ export function buildGround(
         const z = 72 + Math.sin(ang) * rad;
         if (blocked(x, z, 1.8) || onTrail(x, z, 2.35)) continue;
         const tree = makeTree(mats, (hash(i, 73 + rad) * 1e9) | 1);
-        tree.position.set(x, 0, z);
+        tree.position.set(x, heightAt(x, z), z);
         tree.rotation.y = hash(i, 74) * Math.PI * 2;
         tree.scale.setScalar((rad < 8 ? 0.55 : 0.82) + hash(i, 75) * 0.55);
         group.add(tree);
@@ -173,7 +205,7 @@ export function buildGround(
       const z = 4 + hash(i, 2) * (h - 8);
       if (blocked(x, z, 2.2) || onTrail(x, z, 2.9)) continue;
       const tree = makeTree(mats, (hash(i, 3) * 1e9) | 1);
-      tree.position.set(x, 0, z);
+      tree.position.set(x, heightAt(x, z), z);
       tree.rotation.y = hash(i, 4) * Math.PI * 2;
       const s = 0.62 + hash(i, 5) * 0.95;
       tree.scale.setScalar(s);
@@ -186,7 +218,7 @@ export function buildGround(
       const z = 6 + hash(i, 12) * (h - 12);
       if (blocked(x, z, 1.4) || onTrail(x, z, 1.8)) continue;
       const stump = makeStump(mats, (hash(i, 13) * 1e9) | 1);
-      stump.position.set(x, 0, z);
+      stump.position.set(x, heightAt(x, z), z);
       stump.rotation.y = hash(i, 14) * Math.PI * 2;
       stump.scale.setScalar(0.85 + hash(i, 15) * 0.5);
       group.add(stump);
@@ -198,7 +230,7 @@ export function buildGround(
       const z = 6 + hash(i, 22) * (h - 12);
       if (blocked(x, z, 1.8) || onTrail(x, z, 2.2)) continue;
       const log = makeFallenLog(mats, (hash(i, 23) * 1e9) | 1);
-      log.position.set(x, 0, z);
+      log.position.set(x, heightAt(x, z), z);
       log.rotation.y = hash(i, 24) * Math.PI * 2;
       log.scale.setScalar(0.8 + hash(i, 25) * 0.45);
       group.add(log);
@@ -210,7 +242,7 @@ export function buildGround(
       const z = 5 + hash(i, 32) * (h - 10);
       if (blocked(x, z, 0.9)) continue;
       const moss = makeMossClump(mats, (hash(i, 33) * 1e9) | 1);
-      moss.position.set(x, 0, z);
+      moss.position.set(x, heightAt(x, z), z);
       group.add(moss);
       placed++;
     }
@@ -220,19 +252,12 @@ export function buildGround(
       const z = 5 + hash(i, 42) * (h - 10);
       if (blocked(x, z, 1.1) || onTrail(x, z, 1.4)) continue;
       const rock = makeForestRock(mats, (hash(i, 43) * 1e9) | 1);
-      rock.position.set(x, 0, z);
+      rock.position.set(x, heightAt(x, z), z);
       rock.rotation.y = hash(i, 44) * Math.PI * 2;
       group.add(rock);
       placed++;
     }
   } else {
-    const hunt: [number, number][] = [
-      [20, 60],
-      [48, 48],
-      [72, 60],
-      [100, 52],
-      [140, 60],
-    ];
     const arenas: { x: number; z: number; r: number }[] = [
       { x: 48, z: 40, r: 7 },
       { x: 72, z: 70, r: 7 },
@@ -243,7 +268,7 @@ export function buildGround(
     for (let i = 0; i < pos.count; i++) {
       const wx = pos.getX(i) + w / 2;
       const wz = pos.getZ(i) + h / 2;
-      const pathD = distToPoly(wx, wz, hunt);
+      const pathD = distToPoly(wx, wz, LUST_HUNT);
       let k = 0.72 + hash((wx * 2) | 0, (wz * 2) | 0) * 0.18;
       if (pathD < 4.2) k = 1.05 - (pathD / 4.2) * 0.18;
       for (const a of arenas) {
@@ -253,7 +278,6 @@ export function buildGround(
       colors[i * 3] = k * 1.05;
       colors[i * 3 + 1] = k * 0.72;
       colors[i * 3 + 2] = k * 0.55;
-      if (pathD < 3.2) pos.setY(i, pos.getY(i) * 0.15);
     }
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
@@ -262,10 +286,10 @@ export function buildGround(
     for (let i = 0; i < 90 && placed < 16; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
       const z = 8 + hash(i, 8) * (h - 16);
-      if (blocked(x, z, 3.2) || distToPoly(x, z, hunt) < 4.5) continue;
+      if (blocked(x, z, 3.2) || distToPoly(x, z, LUST_HUNT) < 4.5) continue;
       if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.5)) continue;
       const ob = makeRuinObelisk(mats);
-      ob.position.set(x, 0, z);
+      ob.position.set(x, heightAt(x, z), z);
       ob.rotation.y = hash(i, 9) * Math.PI * 2;
       ob.scale.setScalar(0.85 + hash(i, 10) * 0.7);
       group.add(ob);
@@ -277,25 +301,31 @@ export function buildGround(
         mats.gold
       );
       ring.rotation.x = Math.PI / 2;
-      ring.position.set(a.x, 0.12, a.z);
+      ring.position.set(a.x, heightAt(a.x, a.z) + 0.12, a.z);
       group.add(ring);
       const brazL = makeBrazier(mats);
-      brazL.position.set(a.x - a.r * 0.72, 0, a.z - a.r * 0.22);
+      const lx = a.x - a.r * 0.72;
+      const lz = a.z - a.r * 0.22;
+      brazL.position.set(lx, heightAt(lx, lz), lz);
       const brazR = makeBrazier(mats);
-      brazR.position.set(a.x + a.r * 0.72, 0, a.z + a.r * 0.22);
+      const rx = a.x + a.r * 0.72;
+      const rz = a.z + a.r * 0.22;
+      brazR.position.set(rx, heightAt(rx, rz), rz);
       group.add(brazL, brazR);
     }
     const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 28), mats.stone);
-    dais.position.set(140, 0.14, 60);
+    dais.position.set(140, heightAt(140, 60) + 0.14, 60);
     dais.receiveShadow = true;
     group.add(dais);
     for (let i = 0; i < 5; i++) {
       const ribbon = makeGaleRibbon(mats, 14 + i * 2);
-      ribbon.position.set(28 + i * 24, 1.15, 58 + (i % 2) * 4);
+      const rx = 28 + i * 24;
+      const rz = 58 + (i % 2) * 4;
+      ribbon.position.set(rx, heightAt(rx, rz) + 1.15, rz);
       ribbon.rotation.y = 0.08 * (i % 2 ? -1 : 1);
       group.add(ribbon);
     }
   }
 
-  return { group, floor, cantoId };
+  return { group, floor, cantoId, heightAt };
 }
