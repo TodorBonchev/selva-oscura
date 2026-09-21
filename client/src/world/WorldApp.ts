@@ -11,6 +11,7 @@ import {
   setPanelOpen,
   wireHud,
   isCompactUi,
+  isLandscapeCompact,
   noteSpellCast,
   flashManaDeny,
   noteWardBuff,
@@ -81,6 +82,7 @@ import {
 } from "./fx";
 import { tickHumanoid, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
+import { Radar } from "../ui/radar";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import type { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
@@ -144,6 +146,11 @@ export class WorldApp {
   composer: EffectComposer | null = null;
   gradePass: ShaderPass | null = null;
   hitLight = makeHitFlash();
+  radar: Radar | null = null;
+  frameN = 0;
+  combatUntil = 0;
+  propAnims: THREE.Object3D[] = [];
+  treeFadeTick = 0;
 
   room: RoomSnap | null = null;
   joystick: VirtualJoystick;
@@ -226,9 +233,13 @@ export class WorldApp {
   constructor(root: HTMLElement, socket: GameSocket) {
     this.root = root;
     this.socket = socket;
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.2, 280);
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    this.camera = new THREE.PerspectiveCamera(this.camFov(), 1, 0.2, isCompactUi() ? 170 : 240);
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: !isCompactUi(),
+      alpha: false,
+      powerPreference: "high-performance",
+    });
+    this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.setClearColor(0x1c1812, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -249,7 +260,7 @@ export class WorldApp {
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xffe6c0, 1.85);
     this.sun.castShadow = this.renderer.shadowMap.enabled;
-    this.sun.shadow.mapSize.set(1024, 1024);
+    this.sun.shadow.mapSize.set(isCompactUi() ? 256 : 512, isCompactUi() ? 256 : 512);
     this.sun.shadow.camera.near = 2;
     this.sun.shadow.camera.far = 90;
     this.sun.shadow.camera.left = -40;
@@ -273,6 +284,7 @@ export class WorldApp {
     this.joystick = new VirtualJoystick();
     this.resize();
     window.addEventListener("resize", () => this.resize());
+    window.addEventListener("orientationchange", () => this.resize());
   }
 
   async start() {
@@ -331,8 +343,9 @@ export class WorldApp {
     this.portalHoldFx = makePortalHoldFx();
     this.scene.add(this.portalHoldFx.group);
 
-    this.ash = new AshField(isCompactUi() ? 140 : 280, 0xe8d4b0);
+    this.ash = new AshField(isCompactUi() ? 72 : 140, 0xe8d4b0);
     this.scene.add(this.ash.points);
+    this.radar = new Radar();
 
     this.bindInput();
     this.socket.on((msg) => this.onNet(msg));
@@ -397,7 +410,7 @@ export class WorldApp {
       this.scene.add(sky);
     }
     {
-      const rig = makeComposer(this.renderer, this.scene, this.camera);
+      const rig = makeComposer(this.renderer, this.scene, this.camera, { bloom: !isCompactUi() });
       this.composer = rig.composer;
       this.gradePass = rig.grade;
       this.composer.setSize(this.root.clientWidth || window.innerWidth, this.root.clientHeight || window.innerHeight);
@@ -408,16 +421,47 @@ export class WorldApp {
     document.getElementById("boot-veil")?.classList.add("out");
   }
 
+  pixelRatio(): number {
+    const dpr = window.devicePixelRatio || 1;
+    return Math.min(isCompactUi() ? 1.25 : 1.5, dpr);
+  }
+
+  camFov(): number {
+    if (isLandscapeCompact()) return 56;
+    if (isCompactUi()) return 54;
+    return 52;
+  }
+
+  inCombat(): boolean {
+    if (Date.now() < this.combatUntil) return true;
+    if (!this.room) return false;
+    const you = this.renderYou;
+    for (const e of this.room.entities) {
+      if (e.kind !== "mob" && e.kind !== "boss") continue;
+      if (Math.hypot(e.x - you.x, e.y - you.y) < 18) return true;
+    }
+    return false;
+  }
+
+  noteCombat() {
+    this.combatUntil = Date.now() + 2800;
+  }
+
   resize() {
     const w = this.root.clientWidth || window.innerWidth;
     const h = this.root.clientHeight || window.innerHeight;
+    this.camera.fov = this.camFov();
+    this.camera.far = isCompactUi() ? 170 : 240;
     this.camera.aspect = w / Math.max(1, h);
     this.camera.updateProjectionMatrix();
+    this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.setSize(w, h, false);
     this.labelRenderer.setSize(w, h);
     this.composer?.setSize(w, h);
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
+    document.body.classList.toggle("hud-compact", isCompactUi());
+    document.body.classList.toggle("hud-landscape", isLandscapeCompact());
   }
 
   bindInput() {
@@ -631,12 +675,15 @@ export class WorldApp {
     this.hintExit();
 
     if (this.ash) {
+      const fight = this.inCombat();
       this.ash.tick(
         dt,
         this.room.bounds,
         this.room.cantoId === "inferno_05",
         this.renderYou.x,
-        this.renderYou.y
+        this.renderYou.y,
+        fight || isCompactUi() ? 2 : 1,
+        this.frameN
       );
     }
     this.idleLookAtFoes(dt);
@@ -735,7 +782,7 @@ export class WorldApp {
         speed: Math.hypot(this.velX, this.velY),
         channeling: Boolean(this.portalHold && !this.portalHold.completed),
       });
-      if (moving && this.animT - this.lastDustAt > 160) {
+      if (moving && this.animT - this.lastDustAt > 160 && this.dust.length < 8) {
         this.lastDustAt = this.animT;
         const puff = makeDustPuff();
         setPlanar(puff.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.05));
@@ -772,12 +819,13 @@ export class WorldApp {
       this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.45;
       this.camShake *= Math.exp(-dt * 10);
     }
+    const baseFov = this.camFov();
     if (Math.abs(this.camFovKick) > 0.02) {
-      this.camera.fov = 50 + this.camFovKick;
+      this.camera.fov = baseFov + this.camFovKick;
       this.camera.updateProjectionMatrix();
       this.camFovKick *= Math.exp(-dt * 9);
-    } else if (this.camera.fov !== 50) {
-      this.camera.fov = 50;
+    } else if (this.camera.fov !== baseFov) {
+      this.camera.fov = baseFov;
       this.camera.updateProjectionMatrix();
       this.camFovKick = 0;
     }
@@ -802,11 +850,24 @@ export class WorldApp {
       this.slash.scale.setScalar(0.85 + u * 0.55);
     } else if (this.slash) this.slash.visible = false;
 
+    this.frameN++;
     this.fadeTreeOccluders();
     this.tickFx(dt);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
+    if (this.radar && this.room) {
+      this.radar.tick({
+        you: this.renderYou,
+        aimX: this.aimX,
+        aimY: this.aimY,
+        bounds: this.room.bounds,
+        entities: this.room.entities,
+        cantoId: this.room.cantoId,
+        camera: this.camera,
+        compact: compact,
+      });
+    }
   }
 
   /** Stand still: slowly face the nearest shade so idle does not look frozen. */
@@ -842,6 +903,8 @@ export class WorldApp {
 
   fadeTreeOccluders() {
     if (!this.youGroup || !this.trees.length) return;
+    this.treeFadeTick++;
+    if (this.inCombat() && this.treeFadeTick % 3 !== 0) return;
     this.youGroup.getWorldPosition(this.tmp);
     this.tmp.y += 1.35;
     this.tmp2.copy(this.tmp).sub(this.camera.position);
@@ -863,11 +926,13 @@ export class WorldApp {
     for (const tree of this.trees) {
       const dx = tree.position.x - camX;
       const dz = tree.position.z - camZ;
-      const nearCam = dx * dx + dz * dz < 6.2 * 6.2;
+      const nearCam = dx * dx + dz * dz < 8.8 * 8.8;
       const fade = hidden.has(tree) || nearCam;
+      if (tree.userData.fade === fade) continue;
+      tree.userData.fade = fade;
       tree.traverse((c) => {
         const m = c as THREE.Mesh;
-        if (!m.isMesh || !m.castShadow) return;
+        if (!m.isMesh) return;
         const mats = Array.isArray(m.material) ? m.material : [m.material];
         for (const mat of mats) {
           const sm = mat as THREE.MeshStandardMaterial;
@@ -1023,16 +1088,25 @@ export class WorldApp {
         aura.scale.set(s, s, 1);
       }
     }
-    this.ground?.group.traverse((o) => {
-      if (o.name === "galeRibbon") o.rotation.y = Math.sin(this.animT * 0.0009) * 0.18;
-      if (o.name === "ember") {
-        const s = 0.92 + Math.sin(this.animT * 0.009 + o.id) * 0.14;
-        o.scale.setScalar(s);
+    if (!this.inCombat() || this.frameN % 2 === 0) {
+      for (const o of this.propAnims) {
+        if (o.name === "galeRibbon") o.rotation.y = Math.sin(this.animT * 0.0009) * 0.18;
+        if (o.name === "ember") {
+          const s = 0.92 + Math.sin(this.animT * 0.009 + o.id) * 0.14;
+          o.scale.setScalar(s);
+        }
       }
-    });
-    for (const tree of this.trees) {
-      tree.rotation.z = Math.sin(this.animT * 0.0007 + tree.id * 0.13) * 0.032;
-      tree.rotation.x = Math.sin(this.animT * 0.00055 + tree.id * 0.21) * 0.018;
+    }
+    if (!this.inCombat() || this.frameN % 2 === 0) {
+      const px = this.renderYou.x;
+      const pz = this.renderYou.y;
+      for (const tree of this.trees) {
+        const dx = tree.position.x - px;
+        const dz = tree.position.z - pz;
+        if (dx * dx + dz * dz > 30 * 30) continue;
+        tree.rotation.z = Math.sin(this.animT * 0.0007 + tree.id * 0.13) * 0.032;
+        tree.rotation.x = Math.sin(this.animT * 0.00055 + tree.id * 0.21) * 0.018;
+      }
     }
   }
 
@@ -1158,8 +1232,10 @@ export class WorldApp {
     this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
     this.scene.add(this.ground.group);
     this.trees = [];
+    this.propAnims = [];
     this.ground.group.traverse((o) => {
       if (o.name === "tree") this.trees.push(o);
+      if (o.name === "galeRibbon" || o.name === "ember") this.propAnims.push(o);
     });
     const lust = this.room.cantoId === "inferno_05";
     document.body.classList.toggle("in-lust", lust);
@@ -1395,10 +1471,13 @@ export class WorldApp {
     setPlanar(core.position, s.x, s.y, this.standY(s.x, s.y, 0.42));
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: s.r * 0.2, to: s.r * 1.05 });
-    const burst = spawnSparks(s.x, s.y, this.standY(s.x, s.y, 1.55), 0xff5533, this.animT);
-    burst.dur = 640;
-    this.scene.add(burst.points);
-    this.sparks.push(burst);
+    if (this.sparks.length < 3) {
+      const burst = spawnSparks(s.x, s.y, this.standY(s.x, s.y, 1.55), 0xff5533, this.animT);
+      burst.dur = 640;
+      this.scene.add(burst.points);
+      this.sparks.push(burst);
+    }
+    this.noteCombat();
     this.hitLight.color.setHex(0xff5533);
     this.hitLight.intensity = 16;
     setPlanar(this.hitLight.position, s.x, s.y, this.standY(s.x, s.y, 1.4));
@@ -1420,10 +1499,13 @@ export class WorldApp {
     core.scale.setScalar(0.55);
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: heavy ? 280 : 180 });
-    const burst = spawnSparks(pos.x, pos.y, this.standY(pos.x, pos.y, heavy ? 1.35 : 1.1), color, this.animT);
-    burst.dur = heavy ? 640 : 420;
-    this.scene.add(burst.points);
-    this.sparks.push(burst);
+    if (this.sparks.length < (isCompactUi() ? 2 : 5)) {
+      const burst = spawnSparks(pos.x, pos.y, this.standY(pos.x, pos.y, heavy ? 1.35 : 1.1), color, this.animT);
+      burst.dur = heavy ? 640 : 420;
+      this.scene.add(burst.points);
+      this.sparks.push(burst);
+    }
+    this.noteCombat();
     this.hitLight.color.setHex(color);
     this.hitLight.intensity = heavy ? 14 : 8.5;
     setPlanar(this.hitLight.position, pos.x, pos.y, this.standY(pos.x, pos.y, 1.2));
@@ -1605,6 +1687,7 @@ export class WorldApp {
   sendAttack(targetId: string) {
     const now = Date.now();
     if (now < this.attackBusyUntil) return;
+    this.noteCombat();
     this.attackBusyUntil = now + ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
     noteAttackCd((ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS) / 1000);
     this.slashUntil = this.animT + 400;
@@ -1827,6 +1910,7 @@ export class WorldApp {
     if (!def) return;
     this.aimX = pc.aimX;
     this.aimY = pc.aimY;
+    this.noteCombat();
     this.socket.cast(pc.spellId, { x: this.aimX, y: this.aimY });
     noteSpellCast(pc.spellId, def.cooldown);
   }
@@ -2112,12 +2196,22 @@ export class WorldApp {
       facing.y = 0;
       facing.normalize();
       const nose = modelFrontWorld(this.youGroup!);
+      const toe = this.youGroup!.getObjectByName("toeR");
+      const toeDir = new THREE.Vector3();
+      if (toe) {
+        toe.getWorldPosition(toeDir);
+        const hips = new THREE.Vector3();
+        this.youGroup!.getWorldPosition(hips);
+        toeDir.sub(hips).setY(0);
+        if (toeDir.lengthSq() > 1e-6) toeDir.normalize();
+      }
       results.push(
-        `${code}: along=${along.toFixed(2)} faceMove=${facing.dot(planar).toFixed(2)} nose=${nose.dot(facing).toFixed(2)}`
+        `${code}: along=${along.toFixed(2)} faceMove=${facing.dot(planar).toFixed(2)} nose=${nose.dot(facing).toFixed(2)} toe=${toeDir.lengthSq() ? toeDir.dot(facing).toFixed(2) : "n/a"}`
       );
       console.assert(along > 0.7, `${code} moved the wrong way (cos=${along})`);
       console.assert(facing.dot(planar) > 0.7, `${code} facing off movement`);
       console.assert(nose.dot(facing) > 0.7, `${code} nose off parent heading`);
+      if (toeDir.lengthSq()) console.assert(toeDir.dot(facing) > 0.35, `${code} toes off heading`);
     }
     console.info("[selfTestControls]", results);
     showToast(results.join(" · "), "info");

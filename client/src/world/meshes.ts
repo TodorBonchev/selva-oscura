@@ -103,9 +103,10 @@ function makeLeg(side: number, leather: THREE.Material, bootM: THREE.Material, g
   const greave = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.072, 0.16, 10), gold);
   greave.position.y = -0.22;
   const boot = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.13, 0.3), bootM);
-  boot.position.set(0, -0.42, 0.06);
+  boot.position.set(0, -0.42, -0.06);
   const toe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.12), bootM);
-  toe.position.set(0, -0.43, 0.2);
+  toe.name = side < 0 ? "toeL" : "toeR";
+  toe.position.set(0, -0.43, -0.2);
   knee.add(knurl, shin, greave, boot, toe);
   g.add(thigh, knee);
   return g;
@@ -228,7 +229,7 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   chest.position.y = 0.28;
   chest.scale.set(1.08, 1, 0.82);
   const breast = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), armor);
-  breast.position.set(0, 0.42, 0.09);
+  breast.position.set(0, 0.42, -0.09);
   breast.scale.set(1.32, 0.68, 0.58);
   const sash = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.028, 8, 22), gold);
   sash.rotation.x = Math.PI / 2;

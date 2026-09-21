@@ -39,8 +39,17 @@ export class AshField {
     this.vel[o + 2] = (Math.random() - 0.5) * 0.55;
   }
 
-  tick(dt: number, _bounds: { width: number; height: number }, gale: boolean, px = 64, pz = 64) {
-    for (let i = 0; i < this.n; i++) {
+  tick(
+    dt: number,
+    _bounds: { width: number; height: number },
+    gale: boolean,
+    px = 64,
+    pz = 64,
+    stride = 1,
+    phase = 0
+  ) {
+    const step = Math.max(1, stride | 0);
+    for (let i = phase % step; i < this.n; i += step) {
       const o = i * 3;
       this.pos[o] += this.vel[o] * dt + (gale ? 2.2 * dt : 0);
       this.pos[o + 1] += this.vel[o + 1] * dt;

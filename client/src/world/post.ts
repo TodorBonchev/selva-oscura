@@ -40,12 +40,14 @@ const VignetteShader = {
 export function makeComposer(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
-  camera: THREE.Camera
+  camera: THREE.Camera,
+  opts?: { bloom?: boolean }
 ): { composer: EffectComposer; grade: ShaderPass } {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.32, 0.55, 0.78);
-  composer.addPass(bloom);
+  if (opts?.bloom !== false) {
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.5, 0.82));
+  }
   const grade = new ShaderPass(VignetteShader);
   composer.addPass(grade);
   composer.addPass(new OutputPass());
