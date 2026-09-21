@@ -15,7 +15,54 @@ export type MatKit = {
   shadowCatch: THREE.MeshStandardMaterial;
   leather: THREE.MeshStandardMaterial;
   armor: THREE.MeshStandardMaterial;
+  canopyA: THREE.MeshStandardMaterial;
+  canopyB: THREE.MeshStandardMaterial;
+  moss: THREE.MeshStandardMaterial;
 };
+
+/** Dual-scale world-XZ albedo so tiled ground maps stop reading as wallpaper. */
+export function breakAlbedoTiling(mat: THREE.MeshStandardMaterial, scale: number) {
+  mat.customProgramCacheKey = () => `break-albedo:${scale.toFixed(3)}`;
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+varying vec3 vWp;`
+      )
+      .replace(
+        "#include <project_vertex>",
+        `#include <project_vertex>
+vWp = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+varying vec3 vWp;`
+      )
+      .replace(
+        "#include <map_fragment>",
+        `
+#ifdef USE_MAP
+  vec2 wu = vWp.xz * ${scale.toFixed(4)};
+  vec2 wr = vec2(wu.x * 0.72 - wu.y * 0.69, wu.x * 0.69 + wu.y * 0.72);
+  vec4 a = texture2D(map, wu);
+  vec4 b = texture2D(map, wr * 0.37 + vec2(0.41, 0.17));
+  vec4 c = texture2D(map, wu * 1.73 + vec2(0.08, 0.62));
+  float n = 0.5 + 0.5 * sin(vWp.x * 0.093 + vWp.z * 0.071);
+  float n2 = 0.5 + 0.5 * sin(vWp.x * 0.031 - vWp.z * 0.044);
+  vec4 sampledDiffuseColor = mix(mix(a, b, n), c, 0.22 + 0.18 * n2);
+  float macro = 0.88 + 0.16 * n2;
+  sampledDiffuseColor.rgb *= macro;
+  float lum = dot(sampledDiffuseColor.rgb, vec3(0.30, 0.54, 0.16));
+  sampledDiffuseColor.rgb = mix(vec3(lum * 0.94, lum * 0.86, lum * 0.72), sampledDiffuseColor.rgb, 0.74);
+  diffuseColor *= sampledDiffuseColor;
+#endif
+`
+      );
+  };
+}
 
 const TEX = (name: string) =>
   `/assets/tex/${name}.jpg?v=${typeof __ASSET_VER__ !== "undefined" ? __ASSET_VER__ : "1"}`;
@@ -91,8 +138,8 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
       loadTex(loader, TEX("bark"), 1.6, aniso),
       loadTex(loader, TEX("stone"), 2.2, aniso),
       loadTex(loader, TEX("gale"), 1.4, aniso),
-      loadTex(loader, TEX("hub_ground"), 22, aniso),
-      loadTex(loader, TEX("lust_ground"), 16, aniso),
+      loadTex(loader, TEX("hub_ground"), 8, aniso),
+      loadTex(loader, TEX("lust_ground"), 10, aniso),
       loadTex(loader, TEX("leather"), 2.0, aniso),
       loadTex(loader, TEX("armor"), 1.8, aniso),
     ]);
@@ -163,9 +210,10 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   });
   const groundHub = new THREE.MeshStandardMaterial({
     map: hubMap,
-    color: 0xc4b49a,
-    roughness: 0.92,
+    color: 0xe4d4b6,
+    roughness: 0.94,
     metalness: 0.02,
+    vertexColors: true,
   });
   const groundLust = new THREE.MeshStandardMaterial({
     map: lustMap,
@@ -175,6 +223,31 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     emissive: 0x3a1208,
     emissiveIntensity: 0.22,
   });
+  const canopyA = new THREE.MeshStandardMaterial({
+    map: barkMap,
+    color: 0x3a4a32,
+    roughness: 0.94,
+    metalness: 0.02,
+    emissive: 0x10180e,
+    emissiveIntensity: 0.18,
+  });
+  const canopyB = new THREE.MeshStandardMaterial({
+    map: barkMap,
+    color: 0x2a3826,
+    roughness: 0.95,
+    metalness: 0.02,
+    emissive: 0x0c140c,
+    emissiveIntensity: 0.14,
+  });
+  const moss = new THREE.MeshStandardMaterial({
+    color: 0x2c3824,
+    roughness: 0.96,
+    metalness: 0.02,
+    emissive: 0x0a1208,
+    emissiveIntensity: 0.12,
+  });
+  breakAlbedoTiling(groundHub, 0.088);
+  breakAlbedoTiling(groundLust, 0.062);
   const bone = new THREE.MeshStandardMaterial({
     color: 0xf4ead4,
     roughness: 0.45,
@@ -196,7 +269,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     depthWrite: false,
   });
 
-  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, leather, armor]) {
+  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, leather, armor, canopyA, canopyB, moss]) {
     engrave(m, hatch);
   }
 
@@ -215,6 +288,9 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     shadowCatch,
     leather,
     armor,
+    canopyA,
+    canopyB,
+    moss,
   };
 }
 

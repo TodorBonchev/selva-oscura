@@ -4,7 +4,7 @@
  */
 import * as THREE from "three";
 import type { MatKit } from "./materials";
-import { makeRuinObelisk, makeTree } from "./meshes";
+import { makeFallenLog, makeForestRock, makeMossClump, makeRuinObelisk, makeStump, makeTree } from "./meshes";
 
 export type GroundRig = {
   group: THREE.Group;
@@ -17,6 +17,43 @@ function hash(i: number, j: number) {
   n = (n ^ (n >> 13)) * 1274126177;
   return ((n ^ (n >> 16)) >>> 0) / 4294967296;
 }
+
+function distToPoly(x: number, z: number, pts: [number, number][]): number {
+  let best = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const ax = pts[i][0];
+    const az = pts[i][1];
+    const bx = pts[i + 1][0];
+    const bz = pts[i + 1][1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const l2 = dx * dx + dz * dz || 1;
+    let t = ((x - ax) * dx + (z - az) * dz) / l2;
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(x - (ax + t * dx), z - (az + t * dz));
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+const HUB_PATH: [number, number][] = [
+  [52, 78],
+  [58, 74],
+  [64, 72],
+  [70, 62],
+  [80, 52],
+  [90, 44],
+  [96, 40],
+];
+const HUB_SPUR: [number, number][] = [
+  [64, 72],
+  [70, 76],
+  [76, 78],
+];
+const HUB_WRIT: [number, number][] = [
+  [64, 72],
+  [64, 60],
+];
 
 export function buildGround(
   cantoId: string,
@@ -50,6 +87,25 @@ export function buildGround(
     for (let i = 0; i < nrm.count; i++) nrm.setY(i, -nrm.getY(i));
   }
 
+  if (isHub) {
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const wx = pos.getX(i) + w / 2;
+      const wz = pos.getZ(i) + h / 2;
+      const pathD = Math.min(distToPoly(wx, wz, HUB_PATH), distToPoly(wx, wz, HUB_SPUR), distToPoly(wx, wz, HUB_WRIT));
+      const spawnD = Math.hypot(wx - 64, wz - 72);
+      let k = 0.78 + hash((wx * 3) | 0, (wz * 3) | 0) * 0.16;
+      if (spawnD < 12) k = 0.98 - (spawnD / 12) * 0.12;
+      if (pathD < 3.4) k = 1.08 - (pathD / 3.4) * 0.12;
+      colors[i * 3] = k;
+      colors[i * 3 + 1] = k * 0.93;
+      colors[i * 3 + 2] = k * 0.78;
+      if (pathD < 2.6) pos.setY(i, pos.getY(i) * 0.22);
+    }
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+  }
+
   const floor = new THREE.Mesh(geo, isHub ? mats.groundHub : mats.groundLust);
   floor.receiveShadow = true;
   floor.position.set(w / 2, 0, h / 2);
@@ -80,16 +136,61 @@ export function buildGround(
 
   if (isHub) {
     let placed = 0;
-    for (let i = 0; i < 180 && placed < 36; i++) {
+    for (let i = 0; i < 260 && placed < 48; i++) {
       const x = 4 + hash(i, 1) * (w - 8);
       const z = 4 + hash(i, 2) * (h - 8);
-      if (blocked(x, z, 2.4)) continue;
+      if (blocked(x, z, 2.6) || distToPoly(x, z, HUB_PATH) < 3.2) continue;
       const tree = makeTree(mats, (hash(i, 3) * 1e9) | 1);
       tree.position.set(x, 0, z);
       tree.rotation.y = hash(i, 4) * Math.PI * 2;
-      const s = 0.75 + hash(i, 5) * 0.7;
+      const s = 0.72 + hash(i, 5) * 0.85;
       tree.scale.setScalar(s);
       group.add(tree);
+      placed++;
+    }
+    placed = 0;
+    for (let i = 0; i < 80 && placed < 10; i++) {
+      const x = 6 + hash(i, 11) * (w - 12);
+      const z = 6 + hash(i, 12) * (h - 12);
+      if (blocked(x, z, 1.8)) continue;
+      const stump = makeStump(mats, (hash(i, 13) * 1e9) | 1);
+      stump.position.set(x, 0, z);
+      stump.rotation.y = hash(i, 14) * Math.PI * 2;
+      stump.scale.setScalar(0.85 + hash(i, 15) * 0.5);
+      group.add(stump);
+      placed++;
+    }
+    placed = 0;
+    for (let i = 0; i < 70 && placed < 8; i++) {
+      const x = 6 + hash(i, 21) * (w - 12);
+      const z = 6 + hash(i, 22) * (h - 12);
+      if (blocked(x, z, 2.2)) continue;
+      const log = makeFallenLog(mats, (hash(i, 23) * 1e9) | 1);
+      log.position.set(x, 0, z);
+      log.rotation.y = hash(i, 24) * Math.PI * 2;
+      log.scale.setScalar(0.8 + hash(i, 25) * 0.45);
+      group.add(log);
+      placed++;
+    }
+    placed = 0;
+    for (let i = 0; i < 120 && placed < 22; i++) {
+      const x = 5 + hash(i, 31) * (w - 10);
+      const z = 5 + hash(i, 32) * (h - 10);
+      if (blocked(x, z, 1.2)) continue;
+      const moss = makeMossClump(mats, (hash(i, 33) * 1e9) | 1);
+      moss.position.set(x, 0, z);
+      group.add(moss);
+      placed++;
+    }
+    placed = 0;
+    for (let i = 0; i < 80 && placed < 12; i++) {
+      const x = 5 + hash(i, 41) * (w - 10);
+      const z = 5 + hash(i, 42) * (h - 10);
+      if (blocked(x, z, 1.4)) continue;
+      const rock = makeForestRock(mats, (hash(i, 43) * 1e9) | 1);
+      rock.position.set(x, 0, z);
+      rock.rotation.y = hash(i, 44) * Math.PI * 2;
+      group.add(rock);
       placed++;
     }
   } else {

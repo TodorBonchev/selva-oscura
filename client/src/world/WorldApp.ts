@@ -846,11 +846,12 @@ export class WorldApp {
     if (!this.room || !this.mats) return;
     if (this.ground) this.scene.remove(this.ground.group);
     const keepouts = [
-      { x: this.room.you.x, y: this.room.you.y, r: 16 },
+      { x: this.room.you.x, y: this.room.you.y, r: 10 },
       ...this.room.entities
         .filter((e: any) => e.kind === "poi" || e.kind === "exit" || e.kind === "boss")
         .map((e: any) => ({ x: e.x, y: e.y, r: e.kind === "boss" ? 10 : 5 })),
     ];
+    if (this.room.cantoId === "inferno_01") keepouts.push({ x: 64, y: 72, r: 9 });
     this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
     this.scene.add(this.ground.group);
     const lust = this.room.cantoId === "inferno_05";

@@ -4,7 +4,47 @@
  * of the mount (threejs-frame-conventions Rule 3 / 4).
  */
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { MatKit } from "./materials";
+
+const _eul = new THREE.Euler();
+const _quat = new THREE.Quaternion();
+const _pos = new THREE.Vector3();
+const _scl = new THREE.Vector3();
+const _mtx = new THREE.Matrix4();
+
+function xform(
+  geo: THREE.BufferGeometry,
+  px: number,
+  py: number,
+  pz: number,
+  rx: number,
+  ry: number,
+  rz: number,
+  sx = 1,
+  sy = 1,
+  sz = 1
+): THREE.BufferGeometry {
+  _eul.set(rx, ry, rz);
+  _quat.setFromEuler(_eul);
+  _pos.set(px, py, pz);
+  _scl.set(sx, sy, sz);
+  _mtx.compose(_pos, _quat, _scl);
+  const g = geo.clone();
+  g.applyMatrix4(_mtx);
+  return g.index ? g.toNonIndexed() : g;
+}
+
+function mergeMesh(geos: THREE.BufferGeometry[], mat: THREE.Material, cast = true): THREE.Mesh | null {
+  if (!geos.length) return null;
+  const merged = mergeGeometries(geos, false);
+  if (!merged) return null;
+  merged.computeVertexNormals();
+  const m = new THREE.Mesh(merged, mat);
+  m.castShadow = cast;
+  m.receiveShadow = true;
+  return m;
+}
 
 function shadow(obj: THREE.Object3D) {
   obj.traverse((o) => {
@@ -381,25 +421,189 @@ export function makeTree(mats: MatKit, seed: number): THREE.Group {
     seed = (seed * 16807) % 2147483647;
     return (seed - 1) / 2147483646;
   };
-  const h = 6.2 + rng() * 4.8;
-  const lean = (rng() - 0.5) * 0.22;
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1 + rng() * 0.08, 0.32 + rng() * 0.16, h, 8),
-    mats.bark
-  );
-  trunk.position.y = h / 2;
-  trunk.rotation.z = lean;
-  g.add(trunk);
-  const canopyMat = new THREE.MeshLambertMaterial({ color: 0x243028 });
-  const canopyMat2 = new THREE.MeshLambertMaterial({ color: 0x1a281c });
-  for (let i = 0; i < 5; i++) {
-    const s = 1.1 + rng() * 1.4;
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(s, 7, 5), i % 2 ? canopyMat : canopyMat2);
-    ball.position.set((rng() - 0.5) * 1.6, h - 0.6 + rng() * 1.1, (rng() - 0.5) * 1.6);
-    ball.scale.set(1.15, 0.72, 1.15);
-    g.add(ball);
+  const h = 7.4 + rng() * 6.2;
+  const leanX = (rng() - 0.5) * 0.34;
+  const leanZ = (rng() - 0.5) * 0.28;
+  const dead = rng() > 0.58;
+  const rBase = 0.28 + rng() * 0.2;
+  const barkGeos: THREE.BufferGeometry[] = [];
+  const leafGeos: THREE.BufferGeometry[] = [];
+  const canopyMat = rng() > 0.5 ? mats.canopyA : mats.canopyB;
+
+  const nRoots = 4 + ((rng() * 3) | 0);
+  for (let i = 0; i < nRoots; i++) {
+    const ang = (i / nRoots) * Math.PI * 2 + rng() * 0.5;
+    const len = 0.9 + rng() * 0.7;
+    const cyl = new THREE.CylinderGeometry(0.025 + rng() * 0.02, 0.08 + rng() * 0.04, len, 5);
+    barkGeos.push(
+      xform(cyl, Math.cos(ang) * 0.42, 0.07, Math.sin(ang) * 0.42, 1.18, -ang, 0.18, 1, 1, 1)
+    );
+    cyl.dispose();
   }
-  shadow(g);
+
+  let y = 0;
+  let r = rBase;
+  const segs = 3;
+  for (let i = 0; i < segs; i++) {
+    const segH = h / segs * (i === 0 ? 1.05 : 0.95);
+    const rTop = r * (0.58 + rng() * 0.14);
+    const cyl = new THREE.CylinderGeometry(rTop, r, segH, 7);
+    const px = leanX * (y + segH * 0.5);
+    const pz = leanZ * (y + segH * 0.5);
+    barkGeos.push(xform(cyl, px, y + segH / 2, pz, leanZ * 0.45, 0, -leanX * 0.45));
+    cyl.dispose();
+    y += segH;
+    r = rTop;
+  }
+
+  const nBr = 6 + ((rng() * 4) | 0);
+  for (let i = 0; i < nBr; i++) {
+    const t = 0.38 + rng() * 0.55;
+    const by = h * t;
+    const ang = rng() * Math.PI * 2;
+    const len = 1.35 + rng() * 2.4;
+    const px = Math.cos(ang) * 0.18 + leanX * by;
+    const pz = Math.sin(ang) * 0.18 + leanZ * by;
+    const rx = Math.sin(ang) * (0.65 + rng() * 0.55);
+    const rz = Math.cos(ang) * (0.65 + rng() * 0.55);
+    const cyl = new THREE.CylinderGeometry(0.02 + rng() * 0.015, 0.055 + rng() * 0.03, len, 5);
+    barkGeos.push(xform(cyl, px, by, pz, rx, 0, rz));
+    cyl.dispose();
+
+    if (!dead && rng() > 0.18) {
+      const s = 0.42 + rng() * 0.7;
+      const ico = new THREE.IcosahedronGeometry(s, 0);
+      leafGeos.push(
+        xform(
+          ico,
+          px + Math.cos(ang) * len * 0.42,
+          by + 0.22 + rng() * 0.4,
+          pz + Math.sin(ang) * len * 0.42,
+          rng() * 0.8,
+          rng() * Math.PI,
+          rng() * 0.8,
+          1.25 + rng() * 0.4,
+          0.28 + rng() * 0.16,
+          1.15 + rng() * 0.3
+        )
+      );
+      ico.dispose();
+    }
+  }
+
+  if (!dead) {
+    for (let t = 0; t < 3; t++) {
+      const tuft = new THREE.IcosahedronGeometry(0.7 + rng() * 0.55, 0);
+      leafGeos.push(
+        xform(
+          tuft,
+          leanX * h + (rng() - 0.5) * 1.1,
+          h - 0.35 + rng() * 0.55,
+          leanZ * h + (rng() - 0.5) * 1.1,
+          rng() * 0.7,
+          rng(),
+          rng() * 0.7,
+          1.2 + rng() * 0.35,
+          0.26 + rng() * 0.12,
+          1.15 + rng() * 0.25
+        )
+      );
+      tuft.dispose();
+    }
+  }
+
+  const barkMesh = mergeMesh(barkGeos, mats.bark);
+  if (barkMesh) g.add(barkMesh);
+  const leafMesh = mergeMesh(leafGeos, canopyMat);
+  if (leafMesh) g.add(leafMesh);
+  g.add(discShadow(mats, 0.55 + rBase));
+  return g;
+}
+
+export function makeStump(mats: MatKit, seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "stump";
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const h = 0.45 + rng() * 0.4;
+  const r = 0.22 + rng() * 0.14;
+  const geos: THREE.BufferGeometry[] = [];
+  const trunk = new THREE.CylinderGeometry(r * 0.82, r, h, 8);
+  geos.push(xform(trunk, 0, h / 2, 0, 0, rng(), 0));
+  trunk.dispose();
+  const cap = new THREE.CylinderGeometry(r * 0.8, r * 0.8, 0.05, 8);
+  geos.push(xform(cap, 0, h + 0.02, 0, 0, 0, 0));
+  cap.dispose();
+  for (let i = 0; i < 3; i++) {
+    const ang = (i / 3) * Math.PI * 2 + rng() * 0.4;
+    const root = new THREE.CylinderGeometry(0.03, 0.08, 0.7, 5);
+    geos.push(xform(root, Math.cos(ang) * 0.28, 0.06, Math.sin(ang) * 0.28, 1.2, -ang, 0));
+    root.dispose();
+  }
+  const mesh = mergeMesh(geos, mats.bark);
+  if (mesh) g.add(mesh);
+  g.add(discShadow(mats, r + 0.15));
+  return g;
+}
+
+export function makeFallenLog(mats: MatKit, seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "log";
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const len = 2.2 + rng() * 2.4;
+  const r = 0.12 + rng() * 0.1;
+  const geos: THREE.BufferGeometry[] = [];
+  const body = new THREE.CylinderGeometry(r * 0.85, r, len, 7);
+  geos.push(xform(body, 0, r * 0.7, 0, 0, 0, Math.PI / 2));
+  body.dispose();
+  if (rng() > 0.4) {
+    const stub = new THREE.CylinderGeometry(0.03, 0.06, 0.45 + rng() * 0.3, 5);
+    geos.push(xform(stub, (rng() - 0.5) * len * 0.3, r + 0.2, 0.05, 0.7, 0, 0.4));
+    stub.dispose();
+  }
+  const mesh = mergeMesh(geos, mats.bark);
+  if (mesh) g.add(mesh);
+  g.add(discShadow(mats, len * 0.28));
+  return g;
+}
+
+export function makeMossClump(mats: MatKit, seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "moss";
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const s = 0.35 + rng() * 0.55;
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), mats.moss);
+  m.position.y = 0.06;
+  m.scale.set(1.3, 0.22 + rng() * 0.12, 1.15);
+  m.rotation.y = rng() * Math.PI * 2;
+  m.castShadow = false;
+  m.receiveShadow = true;
+  g.add(m);
+  return g;
+}
+
+export function makeForestRock(mats: MatKit, seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "rock";
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28 + rng() * 0.32, 0), mats.stone);
+  m.position.y = 0.12;
+  m.scale.set(1.1 + rng() * 0.5, 0.45 + rng() * 0.35, 0.9 + rng() * 0.4);
+  m.rotation.set(rng() * 0.4, rng() * Math.PI, rng() * 0.4);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m, discShadow(mats, 0.32));
   return g;
 }
 
