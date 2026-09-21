@@ -137,7 +137,7 @@ export class WorldApp {
   hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
   fill!: THREE.DirectionalLight;
-  rim = new THREE.DirectionalLight(0xffe0b0, 1.35);
+  rim = new THREE.DirectionalLight(0xffe0b0, 1.7);
   portalLight = new THREE.PointLight(0xff6633, 0, 18, 2);
   heroLight = new THREE.PointLight(0xffc878, 4.2, 12, 1.6);
   clickMark: THREE.Group | null = null;
@@ -286,19 +286,12 @@ export class WorldApp {
     }
     this.youGroup = makeByKind("player", this.mats);
     this.youGroup.userData.entityId = "you";
-    this.youGroup.scale.setScalar(1.38);
-    this.heroLight.position.set(0.2, 1.6, 0.25);
+    this.youGroup.scale.setScalar(1.42);
+    this.heroLight.position.set(0.08, 1.15, -0.42);
+    this.heroLight.intensity = 3.4;
+    this.heroLight.distance = 9;
     this.youGroup.add(this.heroLight);
     this.scene.add(this.youGroup);
-    {
-      const wrap = document.createElement("div");
-      wrap.className = "world-label you-label";
-      wrap.innerHTML = `<div class="wl-name">You</div>`;
-      const lab = new CSS2DObject(wrap);
-      lab.center.set(0.5, 1);
-      lab.position.set(0, 1.95, 0);
-      this.youGroup.add(lab);
-    }
     {
       const g = new THREE.Group();
       const ringMat = new THREE.MeshBasicMaterial({
@@ -720,10 +713,12 @@ export class WorldApp {
       setPlanar(this.youGroup.position, this.renderYou.x, this.renderYou.y, 0);
       this.youGroup.rotation.y = yawFromPlanar(this.aimX, this.aimY);
       const moving = Math.hypot(this.velX, this.velY) > 0.4;
+      const attacking = this.animT < this.slashUntil;
       tickHumanoid(this.youGroup, {
         moving,
         tMs: this.animT,
-        attacking: this.animT < this.slashUntil,
+        attacking,
+        attackU: attacking ? 1 - (this.slashUntil - this.animT) / 400 : 0,
         speed: Math.hypot(this.velX, this.velY),
         channeling: Boolean(this.portalHold && !this.portalHold.completed),
       });
@@ -750,14 +745,14 @@ export class WorldApp {
     setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, 0);
     const rate = compact ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
     this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
-    placeFollowCamera(this.camera, this.camFollow, compact, 1.55);
+    placeFollowCamera(this.camera, this.camFollow, compact, 1.32);
     if (this.camPunch > 0.001) {
       this.camera.position.addScaledVector(UP, this.camPunch * 0.42);
       this.camera.getWorldDirection(this.tmp);
       this.camera.position.addScaledVector(this.tmp, -this.camPunch * 1.45);
       this.camPunch *= Math.exp(-dt * 7.2);
     }
-    this.camera.position.y = Math.max(this.camera.position.y, 5.2);
+    this.camera.position.y = Math.max(this.camera.position.y, 4.6);
     if (this.camShake > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.camShake;
       this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.45;

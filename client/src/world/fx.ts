@@ -376,19 +376,19 @@ export function tickPortalHoldFx(fx: PortalHoldFx, u: number) {
 
 export function makeSlashTrail(): THREE.Mesh {
   const m = new THREE.Mesh(
-    new THREE.TorusGeometry(0.98, 0.07, 6, 24, Math.PI * 1.2),
+    new THREE.TorusGeometry(1.15, 0.055, 8, 28, Math.PI * 1.15),
     new THREE.MeshBasicMaterial({
-      color: 0xffe08a,
+      color: 0xffe8a8,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.95,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
   );
   m.name = "slashTrail";
-  m.position.set(0, 1.08, -0.52);
-  m.rotation.x = Math.PI * 0.58;
-  m.rotation.z = 0.28;
+  m.position.set(0.15, 1.15, -0.45);
+  m.rotation.x = Math.PI * 0.62;
+  m.rotation.z = 0.35;
   m.renderOrder = 4;
   return m;
 }
