@@ -33,6 +33,22 @@ export function inferContentSlot(item: {
   return null;
 }
 
+/** Integer Ash paid when melting a bag item. Must match server/src/ledger.mjs vendorAsh. */
+const VENDOR_ASH: Record<string, number> = {
+  normal: 12,
+  magic: 40,
+  rare: 140,
+  set: 400,
+  unique: 900,
+  canto_unique: 2500,
+};
+
+export function vendorAsh(item: { rarity?: string; qty?: number }): number {
+  const base = VENDOR_ASH[String(item?.rarity || "normal")] ?? VENDOR_ASH.normal;
+  const qty = Math.max(1, Number(item?.qty) || 1);
+  return base * qty;
+}
+
 function rarityMul(rarity: string | undefined): number {
   switch (String(rarity || "normal")) {
     case "canto_unique":

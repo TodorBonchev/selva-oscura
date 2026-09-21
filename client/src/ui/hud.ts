@@ -5,10 +5,12 @@ import {
   resolveEquipSlot,
   type EquipSlot,
 } from "../items/icons";
-import { formatItemStats, itemStatBonus, itemStatsHtml, slotLabelForItem } from "../items/stats";
+import { formatItemStats, itemStatBonus, itemStatsHtml, slotLabelForItem, vendorAsh } from "../items/stats";
 import { SPELLS, SPELL_HOTBAR, type SpellId } from "../spells";
 
 let selectedItemId: string | null = null;
+let lastBagItems: any[] = [];
+let meltArmTimer: number | null = null;
 let toastTimer: number | null = null;
 let lastHpShown: number | null = null;
 let lastManaShown: number | null = null;
@@ -202,6 +204,19 @@ export function renderInventory(
 ) {
   const grid = document.getElementById("inv-grid");
   if (!grid) return;
+  lastBagItems = items;
+  const countEl = document.getElementById("inv-count");
+  if (countEl) countEl.textContent = `${items.length}/${INV_MAX_SLOTS}`;
+  const melt = document.getElementById("btn-melt") as HTMLButtonElement | null;
+  if (melt && melt.dataset.armed !== "1") {
+    const ash = items.reduce((sum, it) => sum + vendorAsh(it), 0);
+    melt.disabled = items.length === 0;
+    melt.textContent = items.length ? `Melt all · ${ash.toLocaleString()} Ash` : "Nothing to melt";
+    melt.title = items.length
+      ? "Turns every bag item into Ash. Worn gear is kept."
+      : "Bag is empty. Equipped gear is not melted.";
+  }
+  document.getElementById("btn-inv")?.classList.toggle("bag-crowded", items.length >= 32);
   grid.innerHTML = "";
   grid.style.setProperty("--inv-cols", String(INV_COLS));
 
@@ -313,7 +328,7 @@ export function renderInventory(
         `<div class="inv-detail-stats">${itemStatsHtml(st)}</div>`;
     } else {
       detail.className = "inv-detail";
-      detail.innerHTML = `<span class="inv-detail-name muted">${count ? "Select an item — Equip wears it; List AH sells it." : "Your satchel is empty — foes in Lust drop loot."}</span>`;
+      detail.innerHTML = `<span class="inv-detail-name muted">${count ? "Select an item to equip or list. Melt all turns the bag into Ash — worn gear stays." : "Your satchel is empty — foes in Lust drop loot."}</span>`;
     }
   }
 }
@@ -1197,6 +1212,7 @@ export function wireHud(api: {
   onAttackHoldEnd?: () => void;
   equipSelected?: () => void;
   unequipSelected?: () => void;
+  meltBag?: () => void;
   castSpell?: (spellId: SpellId) => void;
   /** Spell hold-to-confirm (Gale aim / Ward+Burst telegraph). */
   onSpellHoldStart?: (spellId: SpellId, ev: PointerEvent) => void;
@@ -1215,6 +1231,31 @@ export function wireHud(api: {
   });
   document.getElementById("btn-unequip")?.addEventListener("click", () => {
     api.unequipSelected?.();
+  });
+  const meltBtn = document.getElementById("btn-melt") as HTMLButtonElement | null;
+  meltBtn?.addEventListener("click", () => {
+    if (!meltBtn || meltBtn.disabled) return;
+    hapticLight();
+    if (meltBtn.dataset.armed !== "1") {
+      meltBtn.dataset.armed = "1";
+      meltBtn.classList.add("armed");
+      meltBtn.textContent = "Tap again to melt";
+      if (meltArmTimer != null) window.clearTimeout(meltArmTimer);
+      meltArmTimer = window.setTimeout(() => {
+        meltBtn.dataset.armed = "0";
+        meltBtn.classList.remove("armed");
+        const ash = lastBagItems.reduce((sum, it) => sum + vendorAsh(it), 0);
+        meltBtn.disabled = lastBagItems.length === 0;
+        meltBtn.textContent = lastBagItems.length
+          ? `Melt all · ${ash.toLocaleString()} Ash`
+          : "Nothing to melt";
+      }, 2400);
+      return;
+    }
+    meltBtn.dataset.armed = "0";
+    meltBtn.classList.remove("armed");
+    if (meltArmTimer != null) window.clearTimeout(meltArmTimer);
+    api.meltBag?.();
   });
   document.getElementById("btn-ah-refresh")?.addEventListener("click", () => api.refreshAh());
 

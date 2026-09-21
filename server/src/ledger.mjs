@@ -537,6 +537,55 @@ export function getEmitLog() {
   return emitLog.slice(-50);
 }
 
+/** Bag vendor prices in integer Ash. Equipped gear is never included. */
+const VENDOR_ASH = {
+  normal: 12,
+  magic: 40,
+  rare: 140,
+  set: 400,
+  unique: 900,
+  canto_unique: 2500,
+};
+
+export function vendorAsh(item) {
+  const base = VENDOR_ASH[String(item?.rarity || "normal")] ?? VENDOR_ASH.normal;
+  const qty = Math.max(1, Number(item?.qty) || 1);
+  return base * qty;
+}
+
+/**
+ * Melt every bag item (not worn gear) into Ash and delete the rows.
+ * @returns {Promise<{ ok: boolean, reason?: string, count?: number, ash?: number }>}
+ */
+export async function salvageBag(playerId) {
+  const p = players.get(playerId);
+  if (!p) return { ok: false, reason: "no_player" };
+  const sold = [];
+  const keep = [];
+  let ash = 0;
+  for (const it of p.inventory || []) {
+    if (it.equipSlot) keep.push(it);
+    else {
+      sold.push(it);
+      ash += vendorAsh(it);
+    }
+  }
+  if (!sold.length) return { ok: false, reason: "empty" };
+  const prevInv = p.inventory;
+  const prevAsh = p.ash;
+  p.inventory = keep;
+  p.ash += ash;
+  try {
+    await persistPlayerRow(p);
+    for (const it of sold) await removeItemRow(it.id);
+  } catch (err) {
+    p.inventory = prevInv;
+    p.ash = prevAsh;
+    throw err;
+  }
+  return { ok: true, count: sold.length, ash };
+}
+
 export function creditAsh(playerId, amount) {
   const p = players.get(playerId);
   if (!p || !Number.isInteger(amount) || amount <= 0) return false;

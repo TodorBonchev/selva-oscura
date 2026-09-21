@@ -386,6 +386,7 @@ export class WorldApp {
         }
         this.socket.unequip({ itemId: String(id) });
       },
+      meltBag: () => this.socket.salvageBag(),
       castSpell: (spellId) => this.castSpell(spellId),
       onSpellHoldStart: (spellId, ev) => this.beginSpellHold(spellId, { fromKey: false, pointer: ev }),
       onSpellHoldMove: (_spellId, ev) => this.updateSpellHoldPointer(ev),

@@ -705,6 +705,27 @@ body.has-modal #toast.toast-show {
 .inv-slot .inv-glyph { display: none; }
 .inv-actions { flex-wrap: wrap; gap: 0.35rem; }
 .inv-actions input { flex: 1 1 6rem; min-width: 5rem; }
+#inv-count {
+  margin-left: 0.35rem;
+  font-style: normal;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--bone-dim);
+}
+#btn-melt {
+  flex: 1 1 100%;
+  min-height: var(--tap);
+}
+#btn-melt.armed {
+  animation: melt-arm 0.7s ease-in-out infinite;
+}
+@keyframes melt-arm {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.18); }
+}
+#btn-inv.bag-crowded .action-label {
+  color: #ffb070;
+}
 /* Phones: paper-doll becomes a 6-across strip above the grid so the sheet fits without scrolling */
 @media (max-width: 480px) {
   .inv-layout { grid-template-columns: 1fr; gap: 0.4rem; }
