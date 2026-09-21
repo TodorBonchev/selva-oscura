@@ -633,6 +633,7 @@ export class WorldApp {
         this.renderYou.y
       );
     }
+    this.idleLookAtFoes(dt);
     if (this.clickMark) {
       this.clickMark.visible = !!this.moveTarget;
       if (this.moveTarget) {
@@ -800,6 +801,37 @@ export class WorldApp {
   }
 
   /** Ghost trees that sit between the camera and the pilgrim (D4 canopy fade). */
+  /** Stand still: slowly face the nearest shade so idle does not look frozen. */
+  idleLookAtFoes(dt: number) {
+    if (!this.room) return;
+    if (Math.hypot(this.velX, this.velY) > 0.35) return;
+    if (this.moveTarget || this.portalHold) return;
+    const you = this.youPos();
+    let best: { x: number; y: number } | null = null;
+    let bestD = 13;
+    for (const e of this.room.entities) {
+      if (e.kind !== "mob" && e.kind !== "boss") continue;
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d < bestD) {
+        bestD = d;
+        best = pos;
+      }
+    }
+    if (!best) return;
+    let dx = best.x - you.x;
+    let dy = best.y - you.y;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len;
+    dy /= len;
+    const k = Math.min(1, dt * 2.4);
+    this.aimX += (dx - this.aimX) * k;
+    this.aimY += (dy - this.aimY) * k;
+    const n = Math.hypot(this.aimX, this.aimY) || 1;
+    this.aimX /= n;
+    this.aimY /= n;
+  }
+
   fadeTreeOccluders() {
     if (!this.youGroup || !this.trees.length) return;
     this.youGroup.getWorldPosition(this.tmp);
