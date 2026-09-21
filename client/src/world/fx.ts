@@ -17,7 +17,7 @@ export class AshField {
     geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
     const mat = new THREE.PointsMaterial({
       color,
-      size: 0.12,
+      size: 0.16,
       transparent: true,
       opacity: 0.55,
       depthWrite: false,
@@ -27,25 +27,27 @@ export class AshField {
     this.points.frustumCulled = false;
   }
 
-  private respawn(i: number, scatter: boolean) {
+  private respawn(i: number, scatter: boolean, px = 64, pz = 64) {
     const o = i * 3;
-    this.pos[o] = Math.random() * 160;
-    this.pos[o + 1] = scatter ? Math.random() * 8 : 0.2;
-    this.pos[o + 2] = Math.random() * 130;
-    this.vel[o] = (Math.random() - 0.5) * 0.6;
-    this.vel[o + 1] = 0.25 + Math.random() * 0.55;
-    this.vel[o + 2] = (Math.random() - 0.5) * 0.6;
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.random() * 22;
+    this.pos[o] = px + Math.cos(a) * r;
+    this.pos[o + 1] = scatter ? Math.random() * 7 : 0.15;
+    this.pos[o + 2] = pz + Math.sin(a) * r;
+    this.vel[o] = (Math.random() - 0.5) * 0.55;
+    this.vel[o + 1] = 0.22 + Math.random() * 0.7;
+    this.vel[o + 2] = (Math.random() - 0.5) * 0.55;
   }
 
-  tick(dt: number, bounds: { width: number; height: number }, gale: boolean) {
-    const w = bounds.width;
-    const h = bounds.height;
+  tick(dt: number, _bounds: { width: number; height: number }, gale: boolean, px = 64, pz = 64) {
     for (let i = 0; i < this.n; i++) {
       const o = i * 3;
-      this.pos[o] += this.vel[o] * dt + (gale ? 1.8 * dt : 0);
+      this.pos[o] += this.vel[o] * dt + (gale ? 2.2 * dt : 0);
       this.pos[o + 1] += this.vel[o + 1] * dt;
       this.pos[o + 2] += this.vel[o + 2] * dt;
-      if (this.pos[o + 1] > 9 || this.pos[o] < -4 || this.pos[o] > w + 4) this.respawn(i, false);
+      const dx = this.pos[o] - px;
+      const dz = this.pos[o + 2] - pz;
+      if (this.pos[o + 1] > 8 || dx * dx + dz * dz > 26 * 26) this.respawn(i, false, px, pz);
     }
     (this.points.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }

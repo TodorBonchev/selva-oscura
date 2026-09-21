@@ -3594,6 +3594,19 @@ body.combo-void-ghost-pulse #combo-void-ghost {
   font-size: 13px;
   text-shadow: 0 0 8px #c9a22788, 0 1px 2px #000;
 }
+.interact-prompt {
+  margin-top: 5px;
+  padding: 0.12rem 0.45rem;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #1a140c;
+  background: linear-gradient(180deg, #e8c86a, #c9a227);
+  border: 1px solid #f3e9c9;
+  box-shadow: 0 0 10px #c9a22788, 0 2px 6px #000a;
+  border-radius: 2px;
+}
+.world-label.is-nearest .wl-name { color: var(--gold-2); }
 .world-label .wl-hp {
   display: none;
   width: 48px;

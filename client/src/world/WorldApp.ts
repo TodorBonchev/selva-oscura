@@ -338,7 +338,7 @@ export class WorldApp {
     this.portalHoldFx = makePortalHoldFx();
     this.scene.add(this.portalHoldFx.group);
 
-    this.ash = new AshField(isCompactUi() ? 80 : 160, 0xd9cfae);
+    this.ash = new AshField(isCompactUi() ? 140 : 280, 0xe8d4b0);
     this.scene.add(this.ash.points);
 
     this.bindInput();
@@ -624,7 +624,15 @@ export class WorldApp {
     this.tickSpellKeyAim();
     this.hintExit();
 
-    if (this.ash) this.ash.tick(dt, this.room.bounds, this.room.cantoId === "inferno_05");
+    if (this.ash) {
+      this.ash.tick(
+        dt,
+        this.room.bounds,
+        this.room.cantoId === "inferno_05",
+        this.renderYou.x,
+        this.renderYou.y
+      );
+    }
     if (this.clickMark) {
       this.clickMark.visible = !!this.moveTarget;
       if (this.moveTarget) {
@@ -1023,7 +1031,7 @@ export class WorldApp {
     group.userData.entityId = id.replace(/^pl:/, "");
     const wrap = document.createElement("div");
     wrap.className = "world-label";
-    wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div>`;
+    wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div><div class="interact-prompt" hidden></div>`;
     const label = new CSS2DObject(wrap);
     label.center.set(0.5, 1);
     label.position.set(0, kind === "judge" ? 5.6 : kind === "portal" ? 4.1 : kind === "loot" ? 1.35 : 2.05, 0);
@@ -1929,6 +1937,18 @@ export class WorldApp {
     }
     const interactBtn = document.getElementById("btn-interact");
     const labelEl = interactBtn?.querySelector<HTMLElement>(".action-label");
+    const bestId = best ? String(best.id) : "";
+    for (const rec of this.nodes.values()) {
+      rec.hpEl.classList.toggle("is-nearest", rec.id === bestId);
+      const prompt = rec.hpEl.querySelector(".interact-prompt") as HTMLElement | null;
+      if (!prompt) continue;
+      const on = rec.id === bestId;
+      prompt.hidden = !on;
+      if (on) {
+        const isPortal = best.kind === "exit" || best.poiKind === "portal";
+        prompt.textContent = isPortal ? "Hold E" : rec.kind === "loot" ? "Take" : "E";
+      }
+    }
     if (!best) {
       this.nearestInteract = null;
       this.lastInteractHintId = null;
