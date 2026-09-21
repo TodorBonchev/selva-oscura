@@ -136,7 +136,7 @@ export class WorldApp {
   rim = new THREE.DirectionalLight(0xffe0b0, 1.35);
   portalLight = new THREE.PointLight(0xff6633, 0, 18, 2);
   heroLight = new THREE.PointLight(0xffc878, 4.2, 12, 1.6);
-  clickMark: THREE.Mesh | null = null;
+  clickMark: THREE.Group | null = null;
   composer: EffectComposer | null = null;
   gradePass: ShaderPass | null = null;
   hitLight = makeHitFlash();
@@ -294,19 +294,39 @@ export class WorldApp {
       lab.position.set(0, 1.95, 0);
       this.youGroup.add(lab);
     }
-    this.clickMark = new THREE.Mesh(
-      new THREE.RingGeometry(0.35, 0.48, 24),
-      new THREE.MeshBasicMaterial({
+    {
+      const g = new THREE.Group();
+      const ringMat = new THREE.MeshBasicMaterial({
         color: 0xe8c86a,
         transparent: true,
-        opacity: 0.85,
+        opacity: 0.95,
         side: THREE.DoubleSide,
         depthWrite: false,
-      })
-    );
-    this.clickMark.rotation.x = -Math.PI / 2;
-    this.clickMark.visible = false;
-    this.scene.add(this.clickMark);
+      });
+      const outer = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.62, 28), ringMat);
+      outer.rotation.x = -Math.PI / 2;
+      const inner = new THREE.Mesh(
+        new THREE.RingGeometry(0.12, 0.22, 20),
+        new THREE.MeshBasicMaterial({
+          color: 0xfff3c0,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+      );
+      inner.rotation.x = -Math.PI / 2;
+      inner.position.y = 0.02;
+      const pip = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035, 0.035, 0.55, 8),
+        new THREE.MeshBasicMaterial({ color: 0xe8c86a, transparent: true, opacity: 0.7, depthWrite: false })
+      );
+      pip.position.y = 0.28;
+      g.add(outer, inner, pip);
+      g.visible = false;
+      this.clickMark = g;
+      this.scene.add(g);
+    }
     this.slash = makeSlashTrail();
     this.slash.visible = false;
     this.youGroup.add(this.slash);
@@ -940,6 +960,10 @@ export class WorldApp {
         o.scale.setScalar(s);
       }
     });
+    for (const tree of this.trees) {
+      tree.rotation.z = Math.sin(this.animT * 0.0007 + tree.id * 0.13) * 0.032;
+      tree.rotation.x = Math.sin(this.animT * 0.00055 + tree.id * 0.21) * 0.018;
+    }
   }
 
   syncEntities() {
@@ -995,6 +1019,11 @@ export class WorldApp {
       group.add(makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a));
       wrap.classList.add("loot-label");
     }
+    if (kind === "whirl" || kind === "champion" || kind === "judge") {
+      wrap.classList.add("foe");
+      if (kind === "champion") wrap.classList.add("elite");
+      if (kind === "judge") wrap.classList.add("boss");
+    }
     if (kind === "portal") label.position.set(0, 4.1, 0);
     group.add(label);
     this.scene.add(group);
@@ -1015,16 +1044,19 @@ export class WorldApp {
     const hp = rec.hpEl.querySelector(".wl-hp") as HTMLElement;
     const fill = rec.hpEl.querySelector(".wl-hp i") as HTMLElement;
     const name = e.item?.name || e.label || e.name || "";
-    const far = rec.kind === "loot" ? 22 : 16;
+    const foe = rec.kind === "whirl" || rec.kind === "champion" || rec.kind === "judge";
+    const far = rec.kind === "loot" ? 22 : foe ? 26 : 16;
     if (d > far) {
       rec.hpEl.style.opacity = "0";
       return;
     }
-    rec.hpEl.style.opacity = d > 8 && rec.kind !== "loot" ? "0.45" : "1";
-    if (nameEl) nameEl.textContent = rec.kind === "loot" || d <= 8 ? name : "•";
+    rec.hpEl.style.opacity = d > 10 && !foe && rec.kind !== "loot" ? "0.45" : "1";
+    if (nameEl) nameEl.textContent = foe || rec.kind === "loot" || d <= 8 ? name : "•";
     if (e.hp != null && e.maxHp) {
       hp.style.display = "block";
-      fill.style.width = `${Math.max(0, Math.min(100, (e.hp / e.maxHp) * 100))}%`;
+      const ratio = Math.max(0, Math.min(1, e.hp / e.maxHp));
+      fill.style.width = `${(ratio * 100).toFixed(1)}%`;
+      fill.classList.toggle("low", ratio <= 0.3);
     } else {
       hp.style.display = "none";
     }

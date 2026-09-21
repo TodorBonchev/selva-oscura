@@ -3505,6 +3505,34 @@ body.combo-void-ghost-pulse #combo-void-ghost {
   background: linear-gradient(90deg, #a8241f, #d63a2a);
   width: 100%;
 }
+.world-label.foe .wl-name {
+  color: #e8dcc0;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+.world-label.foe .wl-hp {
+  width: 78px;
+  height: 7px;
+  border: 1px solid #c9a227aa;
+  box-shadow: 0 0 8px #000c, inset 0 0 0 1px #0008;
+}
+.world-label.foe.elite .wl-hp {
+  width: 92px;
+  border-color: #e8c86a;
+}
+.world-label.foe.elite .wl-name { color: #e8c86a; }
+.world-label.foe.boss .wl-hp {
+  width: 128px;
+  height: 9px;
+  border-color: #ff6a33;
+}
+.world-label.foe.boss .wl-name {
+  color: #ffb070;
+  font-size: 15px;
+}
+.world-label .wl-hp i.low {
+  background: linear-gradient(90deg, #6a1010, #d63a2a);
+}
 .float-dmg {
   color: #ffe8a0;
   font-family: var(--serif);
