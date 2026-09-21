@@ -86,34 +86,85 @@ function std(map: THREE.Texture | null, color: number, extra: THREE.MeshStandard
   });
 }
 
-function makeLeg(side: number, leather: THREE.Material, bootM: THREE.Material) {
+function makeLeg(side: number, leather: THREE.Material, bootM: THREE.Material, gold: THREE.Material) {
   const g = new THREE.Group();
   g.name = side < 0 ? "legL" : "legR";
-  g.position.set(0.13 * side, 0.92, 0);
-  const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.42, 8), leather);
-  thigh.position.y = -0.2;
-  const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.4, 8), leather);
-  shin.position.y = -0.58;
-  const boot = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.3), bootM);
-  boot.position.set(0, -0.82, 0.06);
-  g.add(thigh, shin, boot);
+  g.position.set(0.145 * side, 0.98, 0.01);
+
+  const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.1, 0.48, 12), leather);
+  thigh.position.y = -0.24;
+
+  const knee = new THREE.Group();
+  knee.name = side < 0 ? "kneeL" : "kneeR";
+  knee.position.y = -0.48;
+  const knurl = new THREE.Mesh(new THREE.SphereGeometry(0.072, 10, 8), leather);
+  const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.068, 0.4, 12), leather);
+  shin.position.y = -0.2;
+  const greave = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.072, 0.16, 10), gold);
+  greave.position.y = -0.22;
+  const boot = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.13, 0.3), bootM);
+  boot.position.set(0, -0.42, 0.06);
+  const toe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.12), bootM);
+  toe.position.set(0, -0.43, 0.2);
+  knee.add(knurl, shin, greave, boot, toe);
+  g.add(thigh, knee);
   return g;
 }
 
-function makeArm(side: number, leather: THREE.Material, armor: THREE.Material) {
+function makeArm(side: number, leather: THREE.Material, armor: THREE.Material, glove: THREE.Material) {
   const g = new THREE.Group();
   g.name = side < 0 ? "armL" : "armR";
-  g.position.set(0.28 * side, 1.48, 0);
-  g.rotation.z = side * 0.18;
-  const ua = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.36, 8), leather);
+  g.rotation.z = side * 0.16;
+
+  const ua = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.078, 0.34, 12), leather);
   ua.position.y = -0.16;
-  const la = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.34, 8), leather);
-  la.position.y = -0.48;
-  const pad = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), armor);
-  pad.position.set(0.02 * side, 0.02, 0);
-  pad.scale.set(1.2, 0.7, 1);
-  g.add(ua, la, pad);
+
+  const elbow = new THREE.Group();
+  elbow.name = side < 0 ? "elbowL" : "elbowR";
+  elbow.position.y = -0.33;
+  const joint = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 8), leather);
+  const la = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.3, 12), leather);
+  la.position.y = -0.15;
+  const bracer = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.056, 0.13, 10), armor);
+  bracer.position.y = -0.22;
+
+  const hand = new THREE.Group();
+  hand.name = side < 0 ? "handL" : "handR";
+  hand.position.y = -0.34;
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.07, 0.11), glove);
+  palm.position.z = 0.01;
+  hand.add(palm);
+
+  elbow.add(joint, la, bracer, hand);
+  g.add(ua, elbow);
   return g;
+}
+
+function makeLongsword(steel: THREE.Material, gold: THREE.Material): THREE.Group {
+  const weapon = new THREE.Group();
+  weapon.name = "weapon";
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.92, 0.085), steel);
+  blade.position.y = -0.48;
+  const fuller = new THREE.Mesh(
+    new THREE.BoxGeometry(0.01, 0.72, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0x9a9488, roughness: 0.28, metalness: 0.82 })
+  );
+  fuller.position.set(0, -0.46, 0.04);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.048, 0.14, 4), steel);
+  tip.position.y = -0.99;
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.035, 0.07), gold);
+  const quillonL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.16), gold);
+  quillonL.position.set(-0.13, 0, 0);
+  const quillonR = quillonL.clone();
+  quillonR.position.x = 0.13;
+  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.18, 10), gold);
+  hilt.position.y = 0.1;
+  const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.14, 8), steel);
+  wrap.position.y = 0.1;
+  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), gold);
+  pommel.position.y = 0.21;
+  weapon.add(blade, fuller, tip, guard, quillonL, quillonR, hilt, wrap, pommel);
+  return weapon;
 }
 
 /** Dark-fantasy wanderer (D4/PoE2 silhouette). Local forward −z, feet on y=0. */
@@ -121,93 +172,160 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   const root = new THREE.Group();
   root.name = "wanderer";
 
-  const leather = std(mats.leather.map, 0x5c4a38, { roughness: 0.86, metalness: 0.06 });
-  const armor = std(mats.armor.map, 0xb08a48, { roughness: 0.4, metalness: 0.55, emissive: 0x2a1c08, emissiveIntensity: 0.2 });
-  const gold = std(mats.gold.map, 0xe8c86a, { roughness: 0.3, metalness: 0.75, emissive: 0x6a4a10, emissiveIntensity: 0.45 });
-  const skin = lambert(0xe2c4a4, 0x3a2818, 0.08);
-  const bootM = lambert(0x2a2218);
-  const steel = std(null, 0xc8c0a8, { roughness: 0.35, metalness: 0.7 });
-  const capeM = std(mats.leather.map, 0x3a3228, { roughness: 0.9, side: THREE.DoubleSide });
+  const leather = std(mats.leather.map, 0x7a6248, { roughness: 0.82, metalness: 0.08 });
+  const armor = std(mats.armor.map, 0xc49a52, { roughness: 0.38, metalness: 0.58, emissive: 0x3a2408, emissiveIntensity: 0.28 });
+  const gold = std(mats.gold.map, 0xe8c86a, { roughness: 0.28, metalness: 0.78, emissive: 0x6a4a10, emissiveIntensity: 0.5 });
+  const skin = lambert(0xc4a07a, 0x2a1810, 0.06);
+  const bootM = lambert(0x1c1610);
+  const steel = std(null, 0xc8c0a8, { roughness: 0.32, metalness: 0.74 });
+  const glove = lambert(0x3a2c20);
+  const capeM = std(mats.leather.map, 0x4a3c30, { roughness: 0.9, side: THREE.DoubleSide });
+  const tabardM = std(mats.cloth.map, 0x6a5340, {
+    roughness: 0.86,
+    side: THREE.DoubleSide,
+  });
 
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.32, 0.46, 28),
+    new THREE.RingGeometry(0.4, 0.46, 40),
     new THREE.MeshBasicMaterial({
       color: 0xc9a227,
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.55,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.03;
+  ring.renderOrder = 2;
 
   const hips = new THREE.Group();
   hips.name = "hips";
-  const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), leather);
-  pelvis.scale.set(1.25, 0.7, 0.9);
-  pelvis.position.y = 0.92;
-  hips.add(pelvis, makeLeg(-1, leather, bootM), makeLeg(1, leather, bootM));
+  const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.155, 12, 10), leather);
+  pelvis.scale.set(1.35, 0.62, 0.95);
+  pelvis.position.y = 0.98;
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.028, 8, 20), gold);
+  belt.rotation.x = Math.PI / 2;
+  belt.position.y = 0.98;
+  const tabard = new THREE.Mesh(
+    new THREE.LatheGeometry(
+      [new THREE.Vector2(0.1, 0), new THREE.Vector2(0.16, -0.12), new THREE.Vector2(0.14, -0.5)],
+      12,
+      Math.PI * 0.82,
+      Math.PI * 0.36
+    ),
+    tabardM
+  );
+  tabard.name = "tabard";
+  tabard.position.set(0, 0.96, -0.04);
+  tabard.rotation.y = Math.PI;
+  hips.add(pelvis, belt, tabard, makeLeg(-1, leather, bootM, gold), makeLeg(1, leather, bootM, gold));
 
   const torso = new THREE.Group();
   torso.name = "torso";
-  torso.position.y = 1.05;
-  const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.55, 12), leather);
+  torso.position.y = 1.08;
+  const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.25, 0.58, 14), leather);
   chest.position.y = 0.28;
-  const breast = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), armor);
-  breast.position.set(0, 0.38, 0.06);
-  breast.scale.set(1.15, 0.7, 0.55);
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.03, 8, 20), gold);
+  chest.scale.set(1.08, 1, 0.82);
+  const breast = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), armor);
+  breast.position.set(0, 0.42, 0.09);
+  breast.scale.set(1.32, 0.68, 0.58);
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.028, 8, 22), gold);
   sash.rotation.x = Math.PI / 2;
-  sash.position.y = 0.06;
-  const armL = makeArm(-1, leather, armor);
-  const armR = makeArm(1, leather, armor);
-  armL.position.set(-0.26, 0.48, 0);
-  armR.position.set(0.26, 0.48, 0);
+  sash.position.y = 0.04;
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.032, 8, 16), leather);
+  collar.rotation.x = Math.PI / 2.15;
+  collar.position.y = 0.56;
 
-  const weapon = new THREE.Group();
-  weapon.name = "weapon";
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.95, 0.09), steel);
-  blade.position.y = -0.42;
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.08), gold);
-  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.16, 8), gold);
-  hilt.position.y = 0.1;
-  weapon.add(blade, guard, hilt);
-  weapon.position.set(0, -0.55, 0.02);
+  const pauldronL = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), armor);
+  pauldronL.position.set(-0.28, 0.54, 0.02);
+  pauldronL.scale.set(1.5, 0.55, 1.2);
+  const pauldronR = pauldronL.clone();
+  pauldronR.position.x = 0.28;
+  const pauldronTrimL = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.018, 6, 14), gold);
+  pauldronTrimL.position.set(-0.3, 0.54, 0.02);
+  pauldronTrimL.rotation.z = Math.PI / 2.4;
+  const pauldronTrimR = pauldronTrimL.clone();
+  pauldronTrimR.position.x = 0.3;
+  pauldronTrimR.rotation.z = -Math.PI / 2.4;
+
+  const armL = makeArm(-1, leather, armor, glove);
+  const armR = makeArm(1, leather, armor, glove);
+  armL.position.set(-0.27, 0.5, 0);
+  armR.position.set(0.27, 0.5, 0);
+
+  const weapon = makeLongsword(steel, gold);
+  weapon.position.set(0.01, 0.02, 0.03);
+  weapon.rotation.x = 0.55;
   weapon.rotation.z = 0.12;
-  armR.add(weapon);
+  armR.getObjectByName("handR")?.add(weapon);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.145, 14, 12), skin);
-  head.position.y = 0.72;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.132, 16, 14), skin);
+  head.position.y = 0.7;
+  const faceShade = new THREE.Mesh(
+    new THREE.CircleGeometry(0.09, 12),
+    new THREE.MeshLambertMaterial({ color: 0x1a100c, emissive: 0x120c08, emissiveIntensity: 0.15 })
+  );
+  faceShade.position.set(0, 0.7, -0.118);
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), mats.ember);
+  eyeL.position.set(-0.038, 0.715, -0.125);
+  const eyeR = eyeL.clone();
+  eyeR.position.x = 0.038;
+
   const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.2, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    new THREE.SphereGeometry(0.175, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
     leather
   );
   hood.name = "hood";
-  hood.position.set(0, 0.78, 0.02);
-  hood.rotation.x = -0.42;
+  hood.position.set(0, 0.76, 0.03);
+  hood.rotation.x = -0.38;
+  const cowl = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.028, 8, 18, Math.PI * 1.2), leather);
+  cowl.position.set(0, 0.66, -0.02);
+  cowl.rotation.x = 0.55;
 
   const cloak = new THREE.Mesh(
     new THREE.LatheGeometry(
       [
-        new THREE.Vector2(0.08, 0),
-        new THREE.Vector2(0.28, 0.1),
-        new THREE.Vector2(0.4, 0.45),
-        new THREE.Vector2(0.36, 0.95),
-        new THREE.Vector2(0.22, 1.25),
+        new THREE.Vector2(0.16, 0),
+        new THREE.Vector2(0.28, -0.18),
+        new THREE.Vector2(0.32, -0.55),
+        new THREE.Vector2(0.26, -0.95),
+        new THREE.Vector2(0.18, -1.18),
       ],
-      14,
+      16,
       Math.PI * 0.55,
       Math.PI * 0.9
     ),
     capeM
   );
   cloak.name = "cloak";
-  cloak.position.set(0, -0.15, 0.12);
+  cloak.position.set(0, 0.48, 0.1);
   cloak.rotation.y = Math.PI;
+  const clasp = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), gold);
+  clasp.position.set(0, 0.5, -0.16);
 
-  torso.add(chest, breast, sash, armL, armR, head, hood, cloak, nose(mats, 0.72, -0.13));
-  root.add(ring, hips, torso);
+  torso.add(
+    chest,
+    breast,
+    sash,
+    collar,
+    pauldronL,
+    pauldronR,
+    pauldronTrimL,
+    pauldronTrimR,
+    armL,
+    armR,
+    head,
+    faceShade,
+    eyeL,
+    eyeR,
+    hood,
+    cowl,
+    cloak,
+    clasp,
+    nose(mats, 0.7, -0.13)
+  );
+  root.add(discShadow(mats, 0.4), ring, hips, torso);
   shadow(root);
   return root;
 }
