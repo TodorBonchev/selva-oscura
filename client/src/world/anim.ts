@@ -212,5 +212,5 @@ export function tickWhirl(root: THREE.Object3D, tMs: number, champion: boolean) 
     ribbon2.rotation.y = -tMs * 0.0026;
     ribbon2.rotation.z = Math.sin(tMs * 0.0011) * 0.2;
   }
-  root.position.y = 0.12 + Math.sin(tMs * 0.0022) * 0.1;
+  root.position.y += 0.12 + Math.sin(tMs * 0.0022) * 0.1;
 }

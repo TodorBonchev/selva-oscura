@@ -520,6 +520,13 @@ export class WorldApp {
       -((clientY - r.top) / r.height) * 2 + 1
     );
     this.raycaster.setFromCamera(ndc, this.camera);
+    this.raycaster.far = 400;
+    if (this.ground?.floor) {
+      const hit = this.raycaster.intersectObject(this.ground.floor, false)[0];
+      this.raycaster.far = Infinity;
+      if (hit) return this.clampToBounds(hit.point.x, hit.point.z);
+    }
+    this.raycaster.far = Infinity;
     const out = new THREE.Vector3();
     if (!this.raycaster.ray.intersectPlane(this.groundPlane, out)) return null;
     return this.clampToBounds(out.x, out.z);
@@ -528,6 +535,7 @@ export class WorldApp {
   pickEntity(ev: PointerEvent): any | null {
     if (!this.room) return null;
     this.raycaster.setFromCamera(this.ndcFromEvent(ev), this.camera);
+    this.raycaster.far = Infinity;
     const meshes: THREE.Object3D[] = [];
     for (const n of this.nodes.values()) meshes.push(n.group);
     const hits = this.raycaster.intersectObjects(meshes, true);
@@ -554,6 +562,11 @@ export class WorldApp {
       x: Math.max(1, Math.min(b.width - 1, x)),
       y: Math.max(1, Math.min(b.height - 1, y)),
     };
+  }
+
+  /** World +Y so meshes sit on the displaced dirt instead of clipping through it. */
+  standY(x: number, y: number, lift = 0): number {
+    return (this.ground?.heightAt(x, y) ?? 0) + lift;
   }
 
   sendMoveThrottled(x: number, y: number) {
@@ -630,7 +643,7 @@ export class WorldApp {
     if (this.clickMark) {
       this.clickMark.visible = !!this.moveTarget;
       if (this.moveTarget) {
-        setPlanar(this.clickMark.position, this.moveTarget.x, this.moveTarget.y, 0.06);
+        setPlanar(this.clickMark.position, this.moveTarget.x, this.moveTarget.y, this.standY(this.moveTarget.x, this.moveTarget.y, 0.06));
         const pulse = 0.9 + Math.sin(this.animT * 0.01) * 0.12;
         this.clickMark.scale.setScalar(pulse);
       }
@@ -710,7 +723,7 @@ export class WorldApp {
   draw(dt: number) {
     const compact = isCompactUi();
     if (this.youGroup) {
-      setPlanar(this.youGroup.position, this.renderYou.x, this.renderYou.y, 0);
+      setPlanar(this.youGroup.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
       this.youGroup.rotation.y = yawFromPlanar(this.aimX, this.aimY);
       const moving = Math.hypot(this.velX, this.velY) > 0.4;
       const attacking = this.animT < this.slashUntil;
@@ -725,7 +738,7 @@ export class WorldApp {
       if (moving && this.animT - this.lastDustAt > 160) {
         this.lastDustAt = this.animT;
         const puff = makeDustPuff();
-        setPlanar(puff.position, this.renderYou.x, this.renderYou.y, 0.05);
+        setPlanar(puff.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.05));
         this.scene.add(puff);
         this.dust.push({ mesh: puff, start: this.animT });
       }
@@ -742,7 +755,7 @@ export class WorldApp {
 
     this.syncEntities();
 
-    setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, 0);
+    setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
     const rate = compact ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
     this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
     placeFollowCamera(this.camera, this.camFollow, compact, 1.32);
@@ -752,7 +765,8 @@ export class WorldApp {
       this.camera.position.addScaledVector(this.tmp, -this.camPunch * 1.45);
       this.camPunch *= Math.exp(-dt * 7.2);
     }
-    this.camera.position.y = Math.max(this.camera.position.y, 4.6);
+    const camFloor = this.standY(this.camera.position.x, this.camera.position.z, 4.6);
+    this.camera.position.y = Math.max(this.camera.position.y, camFloor);
     if (this.camShake > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.camShake;
       this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.45;
@@ -795,7 +809,6 @@ export class WorldApp {
     this.labelRenderer.render(this.scene, this.camera);
   }
 
-  /** Ghost trees that sit between the camera and the pilgrim (D4 canopy fade). */
   /** Stand still: slowly face the nearest shade so idle does not look frozen. */
   idleLookAtFoes(dt: number) {
     if (!this.room) return;
@@ -838,22 +851,28 @@ export class WorldApp {
     this.raycaster.set(this.camera.position, this.tmp2);
     this.raycaster.far = dist - 0.35;
     const hits = this.raycaster.intersectObjects(this.trees, true);
+    this.raycaster.far = Infinity;
     const hidden = new Set<THREE.Object3D>();
     for (const h of hits) {
       let o: THREE.Object3D | null = h.object;
       while (o && o.name !== "tree") o = o.parent;
       if (o) hidden.add(o);
     }
+    const camX = this.camera.position.x;
+    const camZ = this.camera.position.z;
     for (const tree of this.trees) {
-      const fade = hidden.has(tree);
+      const dx = tree.position.x - camX;
+      const dz = tree.position.z - camZ;
+      const nearCam = dx * dx + dz * dz < 6.2 * 6.2;
+      const fade = hidden.has(tree) || nearCam;
       tree.traverse((c) => {
         const m = c as THREE.Mesh;
-        if (!m.isMesh) return;
+        if (!m.isMesh || !m.castShadow) return;
         const mats = Array.isArray(m.material) ? m.material : [m.material];
         for (const mat of mats) {
           const sm = mat as THREE.MeshStandardMaterial;
           if (!("opacity" in sm)) continue;
-          sm.transparent = true;
+          sm.transparent = fade;
           sm.opacity = fade ? 0.18 : 1;
           sm.depthWrite = !fade;
         }
@@ -862,7 +881,10 @@ export class WorldApp {
   }
 
   tickFx(dt: number) {
-    for (const b of this.bolts) placeBolt(b, this.animT);
+    for (const b of this.bolts) {
+      placeBolt(b, this.animT);
+      b.mesh.position.y += this.standY(b.mesh.position.x, b.mesh.position.z);
+    }
     this.bolts = this.bolts.filter((b) => {
       if (this.animT > b.start + b.dur) {
         this.scene.remove(b.mesh);
@@ -873,7 +895,7 @@ export class WorldApp {
     if (this.wardMesh) {
       this.wardMesh.visible = this.animT < this.wardUntil;
       this.wardMesh.rotation.z = this.animT * 0.004;
-      if (this.youGroup) this.wardMesh.position.copy(this.youGroup.position).setY(0.15);
+      if (this.youGroup) this.wardMesh.position.copy(this.youGroup.position).setY(this.youGroup.position.y + 0.15);
     }
     for (const b of this.bursts) {
       const u = (this.animT - b.start) / b.dur;
@@ -1027,7 +1049,7 @@ export class WorldApp {
         rec = this.spawnNode(id, kind, e);
       }
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
-      setPlanar(rec.group.position, pos.x, pos.y, 0);
+      setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
       if (e.kind === "mob" || e.kind === "boss" || e.kind === "player") {
         const you = this.youPos();
         rec.group.rotation.y = yawFromPlanar(you.x - pos.x, you.y - pos.y);
@@ -1041,7 +1063,7 @@ export class WorldApp {
       let rec = this.nodes.get(id);
       if (!rec) rec = this.spawnNode(id, "player", { kind: "player", name: pl.name });
       const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
-      setPlanar(rec.group.position, pos.x, pos.y, 0);
+      setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
       rec.group.rotation.y = yawFromPlanar(this.renderYou.x - pos.x, this.renderYou.y - pos.y);
       this.updateLabel(rec, { name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp }, pos);
     }
@@ -1152,7 +1174,7 @@ export class WorldApp {
     if (portal) {
       this.portalLight.intensity = 4.5;
       this.portalLight.color.set(lust ? 0x66ffaa : 0xff6633);
-      setPlanar(this.portalLight.position, portal.x, portal.y, 2.2);
+      setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
     }
   }
 
@@ -1179,8 +1201,8 @@ export class WorldApp {
           this.lastHitFoe = null;
           this.seenInvItemIds.clear();
           resetCombo();
-          this.camFollow.set(sx, 0, sy);
           this.rebuildGround();
+          this.camFollow.set(sx, this.standY(sx, sy), sy);
           this.cancelPortalHold();
           if (cantoChanged) this.camPunch = 1.2;
         }
@@ -1328,7 +1350,7 @@ export class WorldApp {
   spawnJudgeSlam(x: number, y: number, radius = 3.2, durationSec = 1.4) {
     const built = makeSlamTelegraph();
     // Sit above the Lust dais (top ~0.34) so the disc isn't buried in stone.
-    setPlanar(built.group.position, x, y, 0.38);
+    setPlanar(built.group.position, x, y, this.standY(x, y, 0.38));
     built.group.scale.setScalar(Math.max(0.6, radius));
     this.scene.add(built.group);
     this.slams.push({
@@ -1355,7 +1377,7 @@ export class WorldApp {
       })
     );
     shock.rotation.x = -Math.PI / 2;
-    setPlanar(shock.position, s.x, s.y, 0.4);
+    setPlanar(shock.position, s.x, s.y, this.standY(s.x, s.y, 0.4));
     this.scene.add(shock);
     this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: s.r * 0.96, to: s.r * 1.55 });
     const core = new THREE.Mesh(
@@ -1370,16 +1392,16 @@ export class WorldApp {
       })
     );
     core.rotation.x = -Math.PI / 2;
-    setPlanar(core.position, s.x, s.y, 0.42);
+    setPlanar(core.position, s.x, s.y, this.standY(s.x, s.y, 0.42));
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: s.r * 0.2, to: s.r * 1.05 });
-    const burst = spawnSparks(s.x, s.y, 1.55, 0xff5533, this.animT);
+    const burst = spawnSparks(s.x, s.y, this.standY(s.x, s.y, 1.55), 0xff5533, this.animT);
     burst.dur = 640;
     this.scene.add(burst.points);
     this.sparks.push(burst);
     this.hitLight.color.setHex(0xff5533);
     this.hitLight.intensity = 16;
-    setPlanar(this.hitLight.position, s.x, s.y, 1.4);
+    setPlanar(this.hitLight.position, s.x, s.y, this.standY(s.x, s.y, 1.4));
     this.camShake = Math.max(this.camShake, 0.5);
     this.camPunch = Math.max(this.camPunch, 0.78);
     this.camFovKick = Math.max(this.camFovKick, 3.4);
@@ -1390,21 +1412,21 @@ export class WorldApp {
 
   spawnHitFx(pos: Vec2, color: number, heavy = false) {
     const ring = makeImpactRing(color);
-    setPlanar(ring.position, pos.x, pos.y, 0.07);
+    setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.07));
     this.scene.add(ring);
     this.impacts.push({ mesh: ring, start: this.animT, dur: heavy ? 560 : 360 });
     const core = makeImpactRing(0xfff1c4);
-    setPlanar(core.position, pos.x, pos.y, 0.08);
+    setPlanar(core.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.08));
     core.scale.setScalar(0.55);
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: heavy ? 280 : 180 });
-    const burst = spawnSparks(pos.x, pos.y, heavy ? 1.35 : 1.1, color, this.animT);
+    const burst = spawnSparks(pos.x, pos.y, this.standY(pos.x, pos.y, heavy ? 1.35 : 1.1), color, this.animT);
     burst.dur = heavy ? 640 : 420;
     this.scene.add(burst.points);
     this.sparks.push(burst);
     this.hitLight.color.setHex(color);
     this.hitLight.intensity = heavy ? 14 : 8.5;
-    setPlanar(this.hitLight.position, pos.x, pos.y, 1.2);
+    setPlanar(this.hitLight.position, pos.x, pos.y, this.standY(pos.x, pos.y, 1.2));
   }
 
   onSpellFx(msg: any) {
@@ -1432,7 +1454,7 @@ export class WorldApp {
       const mesh = makeBurst(this.mats!);
       const bx = Number(msg.x) || this.renderYou.x;
       const by = Number(msg.y) || this.renderYou.y;
-      setPlanar(mesh.position, bx, by, 0.4);
+      setPlanar(mesh.position, bx, by, this.standY(bx, by, 0.4));
       this.scene.add(mesh);
       this.bursts.push({
         mesh,
@@ -1451,12 +1473,13 @@ export class WorldApp {
     el.className = `float-dmg${self ? " self" : ""}`;
     el.textContent = `−${Math.round(Number(amount) || 0)}`;
     const obj = new CSS2DObject(el);
-    setPlanar(obj.position, pos.x, pos.y, 1.8);
+    const gy = this.standY(pos.x, pos.y);
+    setPlanar(obj.position, pos.x, pos.y, gy + 1.8);
     this.scene.add(obj);
     const t0 = this.animT;
     const tick = () => {
       const u = (this.animT - t0) / 700;
-      obj.position.y = 1.8 + u * 1.1;
+      obj.position.y = gy + 1.8 + u * 1.1;
       el.style.opacity = String(Math.max(0, 1 - u));
       if (u < 1) requestAnimationFrame(tick);
       else {
@@ -1628,7 +1651,7 @@ export class WorldApp {
     this.pendingCast = { spellId, aimX: this.aimX, aimY: this.aimY, until: this.animT + wind };
     if (spellId === "gale_bolt") {
       const mesh = makeTelegraph(0xffd078);
-      setPlanar(mesh.position, this.renderYou.x, this.renderYou.y, 0.1);
+      setPlanar(mesh.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.1));
       mesh.scale.setScalar(GALE_RANGE);
       this.scene.add(mesh);
       this.teles.push({ mesh, until: this.animT + wind, r: GALE_RANGE });
@@ -1869,7 +1892,7 @@ export class WorldApp {
     setPortalHoldUi(0, this.portalDestName(target));
     if (this.portalHoldFx) {
       this.portalHoldFx.group.visible = true;
-      setPlanar(this.portalHoldFx.group.position, you.x, you.y, 0.05);
+      setPlanar(this.portalHoldFx.group.position, you.x, you.y, this.standY(you.x, you.y, 0.05));
       tickPortalHoldFx(this.portalHoldFx, 0);
     }
     if (!o.fromKey) {
@@ -1936,7 +1959,7 @@ export class WorldApp {
     const u = Math.min(1, (performance.now() - ph.startMs) / PORTAL_HOLD_MS);
     setPortalHoldUi(u, dest);
     if (this.portalHoldFx) {
-      setPlanar(this.portalHoldFx.group.position, you.x, you.y, 0.05);
+      setPlanar(this.portalHoldFx.group.position, you.x, you.y, this.standY(you.x, you.y, 0.05));
       tickPortalHoldFx(this.portalHoldFx, u);
     }
     this.portalLight.intensity = 4.5 + u * 7.5;
