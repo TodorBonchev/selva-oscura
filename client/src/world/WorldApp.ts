@@ -974,7 +974,7 @@ export class WorldApp {
   fadeTreeOccluders() {
     if (!this.youGroup || !this.trees.length) return;
     this.treeFadeTick++;
-    if (this.inCombat() && this.treeFadeTick % 3 !== 0) return;
+    if (this.treeFadeTick % 2 !== 0) return;
     this.youGroup.getWorldPosition(this.tmp);
     this.tmp.y += 1.35;
     this.tmp2.copy(this.tmp).sub(this.camera.position);
@@ -1123,7 +1123,7 @@ export class WorldApp {
       const inner = n.group.getObjectByName("portalInner");
       if (inner) inner.rotation.y = this.animT * 0.003;
       const ps = n.group.getObjectByName("portalSparks") as THREE.Points | undefined;
-      if (ps) {
+      if (ps && this.frameN % 2 === 0) {
         const arr = (ps.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
         for (let i = 0; i < arr.length / 3; i++) {
           arr[i * 3 + 1] += 0.018;
@@ -1137,10 +1137,6 @@ export class WorldApp {
         const mat = (beam as THREE.Mesh).material as THREE.MeshBasicMaterial;
         mat.opacity = 0.28 + Math.sin(this.animT * 0.006) * 0.12;
       }
-      if (n.group.scale.x > 1.001) {
-        const s = 1 + (n.group.scale.x - 1) * 0.82;
-        n.group.scale.setScalar(s);
-      }
       const gem = n.group.getObjectByName("gem");
       if (gem) {
         gem.rotation.y = this.animT * 0.004;
@@ -1149,7 +1145,7 @@ export class WorldApp {
       if (n.kind === "guide" || n.kind === "player") {
         tickHumanoid(n.group, { moving: false, tMs: this.animT, attacking: false, speed: 0 });
       }
-      if (n.kind === "whirl" || n.kind === "champion") {
+      if ((n.kind === "whirl" || n.kind === "champion") && this.frameN % 2 === 0) {
         tickWhirl(n.group, this.animT, n.kind === "champion");
       }
       const aura = n.group.getObjectByName("judgeAura");
@@ -1783,6 +1779,8 @@ export class WorldApp {
       else if (shades > 0) line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
       else if (boss) line = "Slay the Judge of the Gate";
       else line = "Return through the portal";
+    } else if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.85) {
+      line = "The camp pyre will mend you";
     } else if (!you.spokeToGuide) {
       line = "Speak with the Guide";
     } else if (!you.visitedInferno) {

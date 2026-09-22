@@ -852,10 +852,16 @@ class CantoRoom {
           stilled++;
         }
         this.toast(s.ws, "emit", stilled ? `The bell stills ${stilled}` : "The bell rings, and nothing answers.");
-      } else if (e.poiKind === "shrine") {
+      } else if (e.poiKind === "pyre" || e.poiKind === "shrine") {
         s.hp = s.maxHp;
         s.mana = s.maxMana;
-        this.toast(s.ws, "emit", "The Wind Shrine knits your wounds and fills your breath.");
+        this.toast(
+          s.ws,
+          "emit",
+          e.poiKind === "pyre"
+            ? "The camp pyre warms you. Life and breath restored."
+            : "The Wind Shrine knits your wounds and fills your breath."
+        );
       }
     }
     this.pushSnapshot(playerId);

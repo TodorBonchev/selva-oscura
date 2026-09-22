@@ -17,6 +17,7 @@
       }
     ],
     "pois": [
+      { "id": "camp_pyre", "kind": "pyre", "x": 68, "y": 74, "label": "Camp pyre" },
       { "id": "virgil_guide", "kind": "npc", "x": 60, "y": 70, "label": "Guide" },
       { "id": "hub_stash", "kind": "stash", "x": 52, "y": 78, "label": "Stash" },
       { "id": "hub_ah", "kind": "ah", "x": 76, "y": 78, "label": "Auction House" },
