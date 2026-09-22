@@ -68,11 +68,35 @@ Or: `DATABASE_URL=… npm run migrate`
 
 ## Run locally
 
+Local playtests use the `dev` branch, a Postgres instance on this machine, and the client pointed at `http://127.0.0.1:8080`. Do not point that client at the Railway server.
+
 ```bash
-cd server && npm install && npm start
-# PORT default 8080; content from ./content (bundled) or CONTENT_ROOT
-# optional: export DATABASE_URL=… for durable state
+cd server
+npm install
+npm run db
 ```
+
+`npm run db` starts an embedded Postgres on port 5433 (data in `server/.pgdata`, gitignored), creates database `selva`, and writes `server/.env` if it is missing:
+
+`postgresql://selva:selva_local@127.0.0.1:5433/selva`
+
+Then:
+
+```bash
+npm start
+```
+
+The server reads `.env` only for variables that are not already set, runs migrations, and listens on 8080. `GET /health` should say `persistence: postgres`.
+
+In `client/.env.local` (gitignored):
+
+```
+VITE_GAME_SERVER_URL=http://127.0.0.1:8080
+```
+
+Restart `npm run dev` in `client/` so Vite picks that up. Open `http://127.0.0.1:5173/`.
+
+Omit `DATABASE_URL` only if you want a throwaway in-memory ledger.
 
 - `GET /health` — includes `persistence: "postgres" | "memory"`
 - `GET /ah`

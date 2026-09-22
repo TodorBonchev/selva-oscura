@@ -17,3 +17,4 @@ so-play.mjs
 secrets/
 *.env
 !.env.example
+server/.pgdata/
