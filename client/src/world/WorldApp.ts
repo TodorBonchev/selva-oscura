@@ -915,7 +915,7 @@ export class WorldApp {
     this.tickFx(dt);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
-    if (!this.inCombat() || this.frameN % 2 === 0) {
+    if (this.frameN % 2 === 0) {
       this.labelRenderer.render(this.scene, this.camera);
     }
     this.paintChrome();
@@ -1213,9 +1213,10 @@ export class WorldApp {
   }
 
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
-    const group = makeByKind(kind, this.mats!, e.item?.rarity);
+    const group = makeByKind(e.archetype === "storm_heart" ? "shrine" : kind, this.mats!, e.item?.rarity);
     if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
     if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
+    if (e.archetype === "storm_heart") group.scale.setScalar(1.45);
     group.userData.entityId = id.replace(/^pl:/, "");
     const wrap = document.createElement("div");
     wrap.className = "world-label";
@@ -1423,6 +1424,7 @@ export class WorldApp {
         const radius = Number(msg.radius) || 3.2;
         const dur = Number(msg.duration) || 1.4;
         this.spawnJudgeSlam(x, y, radius, dur);
+        this.flashDodge(dur);
         break;
       }
       case "entity_removed": {
@@ -1738,9 +1740,13 @@ export class WorldApp {
     if (canto === "inferno_05") {
       const boss = foes.find((e: any) => e.kind === "boss");
       const shades = foes.filter((e: any) => e.kind === "mob").length;
+      const heart = this.room.entities.some(
+        (e: any) => e.archetype === "storm_heart" && (e.hp == null || e.hp > 0)
+      );
       if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.7) {
         line = "Wind Shrine on the road will mend you";
-      } else if (shades > 0) line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
+      } else if (heart) line = "Break the Storm Heart — nearby shades are warded";
+      else if (shades > 0) line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
       else if (boss) line = "Slay the Judge of the Gate";
       else line = "Return through the portal";
     } else if (!you.spokeToGuide) {
@@ -1795,6 +1801,13 @@ export class WorldApp {
     }
     noteUtilityCd("btn-sip", 8);
     this.socket.sip();
+  }
+
+  flashDodge(sec = 1.4) {
+    const el = document.getElementById("dodge-callout");
+    if (!el) return;
+    el.classList.remove("hidden");
+    window.setTimeout(() => el.classList.add("hidden"), Math.max(400, sec * 1000));
   }
 
   dash() {

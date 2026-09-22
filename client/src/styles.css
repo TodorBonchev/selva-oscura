@@ -3796,6 +3796,24 @@ body.combo-void-ghost-pulse #combo-void-ghost {
 }
 .float-dmg.self { color: #ff8a7a; }
 
+#dodge-callout {
+  position: fixed;
+  z-index: 16;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  padding: 0.45rem 1rem;
+  font-size: 1.35rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #ffe8a0;
+  background: #2a1008ee;
+  border: 1px solid #e8c86a;
+  pointer-events: none;
+  text-shadow: 0 0 12px #ff6622;
+}
+#dodge-callout.hidden { display: none; }
+
 #quest-track {
   position: fixed;
   z-index: 13;
