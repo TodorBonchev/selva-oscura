@@ -242,11 +242,11 @@ function makeLongsword(steel: THREE.Material, gold: THREE.Material): THREE.Group
   quillonL.position.set(-0.13, 0, 0);
   const quillonR = quillonL.clone();
   quillonR.position.x = 0.13;
-  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.18, 10), gold);
+  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.18, segCount(10, 7)), gold);
   hilt.position.y = 0.1;
-  const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.14, 8), steel);
+  const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.14, segCount(8, 6)), steel);
   wrap.position.y = 0.1;
-  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), gold);
+  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.042, segCount(10, 7), segCount(8, 6)), gold);
   pommel.position.y = 0.21;
   weapon.add(blade, fuller, tip, guard, quillonL, quillonR, hilt, wrap, pommel);
   return weapon;
@@ -273,9 +273,9 @@ function makeOffhandBuckler(steel: THREE.Material, gold: THREE.Material): THREE.
 export function makeWanderer(mats: MatKit): THREE.Group {
   const root = new THREE.Group();
   root.name = "wanderer";
-  const latheSeg = segCount(14, 10);
-  const bodyRad = segCount(14, 9);
-  const headSeg = segCount(16, 10);
+  const latheSeg = segCount(14, 8);
+  const bodyRad = segCount(14, 8);
+  const headSeg = segCount(16, 9);
 
   const leather = std(mats.leather.map, 0x7a6248, { roughness: 0.82, metalness: 0.08 });
   const armor = std(mats.armor.map, 0xc49a52, { roughness: 0.38, metalness: 0.58, emissive: 0x3a2408, emissiveIntensity: 0.28 });
@@ -398,21 +398,34 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.1, segCount(10, 7)), skin);
   neck.position.y = 0.62;
 
-  const pauldronL = new THREE.Mesh(new THREE.SphereGeometry(0.11, bodyRad, segCount(10, 7)), armor);
-  pauldronL.position.set(-0.26, 0.5, 0.01);
-  pauldronL.scale.set(1.45, 0.5, 1.15);
+  const pauldronL = new THREE.Mesh(new THREE.SphereGeometry(0.115, bodyRad, segCount(10, 7)), armor);
+  pauldronL.position.set(-0.27, 0.51, 0.02);
+  pauldronL.scale.set(1.52, 0.48, 1.22);
   tagGearSlot(pauldronL, "Chest");
   const pauldronR = pauldronL.clone();
-  pauldronR.position.x = 0.26;
+  pauldronR.position.x = 0.27;
   tagGearSlot(pauldronR, "Chest");
-  const pauldronTrimL = new THREE.Mesh(new THREE.TorusGeometry(0.095, 0.015, segCount(6, 5), segCount(12, 8)), gold);
-  pauldronTrimL.position.set(-0.275, 0.5, 0.01);
-  pauldronTrimL.rotation.z = Math.PI / 2.4;
+  const pauldronTrimL = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.016, segCount(6, 5), segCount(12, 8)), gold);
+  pauldronTrimL.position.set(-0.285, 0.51, 0.02);
+  pauldronTrimL.rotation.z = Math.PI / 2.35;
   tagGearSlot(pauldronTrimL, "Chest");
   const pauldronTrimR = pauldronTrimL.clone();
-  pauldronTrimR.position.x = 0.275;
-  pauldronTrimR.rotation.z = -Math.PI / 2.4;
+  pauldronTrimR.position.x = 0.285;
+  pauldronTrimR.rotation.z = -Math.PI / 2.35;
   tagGearSlot(pauldronTrimR, "Chest");
+  // Desktop-only ridge plates — keep compact at the wanderer mesh budget.
+  let pauldronRidgeL: THREE.Mesh | null = null;
+  let pauldronRidgeR: THREE.Mesh | null = null;
+  if (!isCompactUi()) {
+    pauldronRidgeL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.022, 0.12), gold);
+    pauldronRidgeL.position.set(-0.3, 0.545, 0.01);
+    pauldronRidgeL.rotation.z = 0.35;
+    tagGearSlot(pauldronRidgeL, "Chest");
+    pauldronRidgeR = pauldronRidgeL.clone();
+    pauldronRidgeR.position.x = 0.3;
+    pauldronRidgeR.rotation.z = -0.35;
+    tagGearSlot(pauldronRidgeR, "Chest");
+  }
 
   const armL = makeArm(-1, leather, armor, glove, skin);
   const armR = makeArm(1, leather, armor, glove, skin);
@@ -420,7 +433,7 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   armR.position.set(0.29, 0.48, 0);
 
   const weapon = makeLongsword(steel, gold);
-  weapon.position.set(0.01, 0.02, 0.03);
+  weapon.position.set(0.015, 0.015, 0.035);
   weapon.rotation.x = 0.55;
   weapon.rotation.z = 0.12;
   tagGearSlot(weapon, "MainHand");
@@ -435,71 +448,92 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   head.position.y = headY;
   head.scale.set(0.92, 1.12, 0.95);
 
-  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.07, segCount(10, 7), 7), skin);
-  jaw.position.set(0, headY - 0.07, -0.02);
-  jaw.scale.set(0.95, 0.55, 0.85);
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.072, segCount(10, 7), 7), skin);
+  jaw.position.set(0, headY - 0.075, -0.025);
+  jaw.scale.set(0.98, 0.52, 0.88);
 
-  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.04), skin);
-  brow.position.set(0, headY + 0.035, -0.1);
-  brow.scale.set(1, 0.7, 0.8);
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.028, 0.042), skin);
+  brow.position.set(0, headY + 0.038, -0.102);
+  brow.scale.set(1, 0.72, 0.78);
 
-  const noseBridge = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.05, 0.035), skin);
-  noseBridge.position.set(0, headY - 0.01, -0.12);
+  const noseBridge = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.052, 0.038), skin);
+  noseBridge.position.set(0, headY - 0.008, -0.122);
 
-  const cheekL = new THREE.Mesh(new THREE.SphereGeometry(0.035, segCount(8, 5), 5), skin);
-  cheekL.position.set(-0.055, headY - 0.025, -0.07);
-  cheekL.scale.set(0.7, 0.65, 0.55);
+  // Bare scalp fringe — desktop only (compact keeps head/jaw stubs for budget).
+  let scalp: THREE.Mesh | null = null;
+  if (!isCompactUi()) {
+    scalp = new THREE.Mesh(new THREE.SphereGeometry(0.118, headSeg, segCount(10, 7), 0, Math.PI * 2, 0, Math.PI * 0.42), lambert(0x2a2218));
+    scalp.position.set(0, headY + 0.02, 0.01);
+    scalp.scale.set(0.98, 0.85, 1.02);
+  }
+
+  const cheekL = new THREE.Mesh(new THREE.SphereGeometry(0.036, segCount(8, 5), 5), skin);
+  cheekL.position.set(-0.058, headY - 0.028, -0.072);
+  cheekL.scale.set(0.72, 0.62, 0.55);
   const cheekR = cheekL.clone();
-  cheekR.position.x = 0.055;
+  cheekR.position.x = 0.058;
 
-  const socketM = new THREE.MeshLambertMaterial({ color: 0x1a100c, emissive: 0x120c08, emissiveIntensity: 0.18 });
-  const socketL = new THREE.Mesh(new THREE.SphereGeometry(0.028, segCount(8, 5), 5), socketM);
-  socketL.position.set(-0.038, headY + 0.01, -0.105);
-  socketL.scale.set(1.1, 0.7, 0.55);
+  const socketM = new THREE.MeshLambertMaterial({ color: 0x1a100c, emissive: 0x120c08, emissiveIntensity: 0.2 });
+  const socketL = new THREE.Mesh(new THREE.SphereGeometry(0.03, segCount(8, 5), 5), socketM);
+  socketL.position.set(-0.04, headY + 0.012, -0.108);
+  socketL.scale.set(1.12, 0.68, 0.52);
   const socketR = socketL.clone();
-  socketR.position.x = 0.038;
+  socketR.position.x = 0.04;
 
-  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.014, segCount(8, 5), 5), mats.ember);
-  eyeL.position.set(-0.038, headY + 0.01, -0.118);
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.015, segCount(8, 5), 5), mats.ember);
+  eyeL.position.set(-0.04, headY + 0.012, -0.12);
   const eyeR = eyeL.clone();
-  eyeR.position.x = 0.038;
+  eyeR.position.x = 0.04;
 
   // Hood drapes over crown without swallowing face (anim rest hood.rotation.x = -0.38)
   const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.155, headSeg, segCount(12, 8), 0, Math.PI * 2, 0, Math.PI * 0.58),
+    new THREE.SphereGeometry(0.162, headSeg, segCount(12, 8), 0, Math.PI * 2, 0, Math.PI * 0.62),
     leather
   );
   hood.name = "hood";
-  hood.position.set(0, headY + 0.05, 0.025);
+  hood.position.set(0, headY + 0.048, 0.03);
   hood.rotation.x = -0.38;
-  hood.scale.set(1.05, 1.0, 1.08);
+  hood.scale.set(1.08, 0.98, 1.12);
   tagGearSlot(hood, "Head");
 
+  // Soft front brim — desktop only.
+  let hoodBrim: THREE.Mesh | null = null;
+  if (!isCompactUi()) {
+    hoodBrim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.12, 0.02, segCount(6, 5), segCount(14, 10), Math.PI * 1.05),
+      leather
+    );
+    hoodBrim.position.set(0, headY + 0.02, -0.08);
+    hoodBrim.rotation.x = 1.15;
+    tagGearSlot(hoodBrim, "Head");
+  }
+
   const cowl = new THREE.Mesh(
-    new THREE.TorusGeometry(0.13, 0.024, segCount(8, 5), segCount(16, 10), Math.PI * 1.15),
+    new THREE.TorusGeometry(0.135, 0.026, segCount(8, 5), segCount(16, 10), Math.PI * 1.2),
     leather
   );
-  cowl.position.set(0, headY - 0.08, -0.015);
-  cowl.rotation.x = 0.55;
+  cowl.position.set(0, headY - 0.085, -0.01);
+  cowl.rotation.x = 0.58;
   tagGearSlot(cowl, "Head");
 
   const cloak = new THREE.Mesh(
     new THREE.LatheGeometry(
       [
-        new THREE.Vector2(0.14, 0),
-        new THREE.Vector2(0.24, -0.16),
-        new THREE.Vector2(0.3, -0.48),
-        new THREE.Vector2(0.26, -0.88),
-        new THREE.Vector2(0.17, -1.12),
+        new THREE.Vector2(0.15, 0),
+        new THREE.Vector2(0.26, -0.14),
+        new THREE.Vector2(0.34, -0.42),
+        new THREE.Vector2(0.3, -0.82),
+        new THREE.Vector2(0.22, -1.08),
+        new THREE.Vector2(0.14, -1.22),
       ],
       latheSeg,
-      Math.PI * 0.55,
-      Math.PI * 0.9
+      Math.PI * 0.52,
+      Math.PI * 0.96
     ),
     capeM
   );
   cloak.name = "cloak";
-  cloak.position.set(0, 0.46, 0.09);
+  cloak.position.set(0, 0.48, 0.1);
   cloak.rotation.y = Math.PI;
   tagGearSlot(cloak, "Chest");
 
@@ -534,8 +568,12 @@ export function makeWanderer(mats: MatKit): THREE.Group {
     cowl,
     cloak,
     clasp,
-    nose(mats, headY, -0.135)
+    nose(mats, headY, -0.138)
   );
+  if (pauldronRidgeL) torso.add(pauldronRidgeL);
+  if (pauldronRidgeR) torso.add(pauldronRidgeR);
+  if (scalp) torso.add(scalp);
+  if (hoodBrim) torso.add(hoodBrim);
   root.add(discShadow(mats, 0.38), ring, hips, torso);
   shadow(root);
   return root;

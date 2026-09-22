@@ -384,20 +384,22 @@ export function tickPortalHoldFx(fx: PortalHoldFx, u: number) {
 }
 
 export function makeSlashTrail(): THREE.Mesh {
+  // Brighter bone-gold arc; fewer segments on compact via caller scale, not geometry thrash.
   const m = new THREE.Mesh(
-    new THREE.TorusGeometry(1.15, 0.055, 8, 28, Math.PI * 1.15),
+    new THREE.TorusGeometry(1.22, 0.07, 6, 24, Math.PI * 1.22),
     new THREE.MeshBasicMaterial({
-      color: 0xffe8a8,
+      color: 0xfff0c4,
       transparent: true,
-      opacity: 0.95,
+      opacity: 1,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
   );
   m.name = "slashTrail";
-  m.position.set(0.15, 1.15, -0.45);
-  m.rotation.x = Math.PI * 0.62;
-  m.rotation.z = 0.35;
+  // Rough hand/weapon height on scaled wanderer (youGroup scale ~1.42).
+  m.position.set(0.28, 1.28, -0.55);
+  m.rotation.x = Math.PI * 0.58;
+  m.rotation.z = 0.42;
   m.renderOrder = 4;
   return m;
 }

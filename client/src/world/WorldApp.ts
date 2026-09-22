@@ -127,6 +127,8 @@ const MOVE_FRICTION = 18;
 const TAP_ARRIVE = 0.35;
 const ATTACK_WINDUP_MS = 70;
 const ATTACK_RECOVERY_MS = 240;
+/** Client slash/attackU duration — matches windup+recovery so anim hits with send. */
+const ATTACK_ANIM_MS = ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
 const SPELL_TELEGRAPH_MS: Record<string, number> = {
   gale_bolt: 180,
   whirl_ward: 260,
@@ -517,7 +519,7 @@ export class WorldApp {
 
   pixelRatio(): number {
     const dpr = window.devicePixelRatio || 1;
-    return Math.min(isCompactUi() ? 1.25 : 1.5, dpr);
+    return Math.min(isCompactUi() ? 1.2 : 1.5, dpr);
   }
 
   camFov(): number {
@@ -898,7 +900,7 @@ export class WorldApp {
         moving,
         tMs: this.animT,
         attacking,
-        attackU: attacking ? 1 - (this.slashUntil - this.animT) / 400 : 0,
+        attackU: attacking ? 1 - (this.slashUntil - this.animT) / ATTACK_ANIM_MS : 0,
         speed: Math.hypot(this.velX, this.velY),
         channeling: Boolean(this.portalHold && !this.portalHold.completed),
       });
@@ -970,20 +972,33 @@ export class WorldApp {
     if (this.slash && this.slashUntil > this.animT) {
       this.slash.visible = true;
       const left = this.slashUntil - this.animT;
-      const u = 1 - left / 400;
-      this.slash.rotation.y = (1 - u) * Math.PI * 0.95;
-      this.slash.rotation.z = 0.28 + u * 0.55;
+      const u = 1 - left / ATTACK_ANIM_MS;
+      // Windup holds arc back; impact snaps through; recovery fades.
+      const swing = u < 0.22 ? u / 0.22 * 0.22 : u < 0.4 ? 0.22 + ((u - 0.22) / 0.18) * 0.7 : 0.92 + (u - 0.4) * 0.12;
+      this.slash.rotation.y = (1 - swing) * Math.PI * 1.05;
+      this.slash.rotation.z = 0.22 + swing * 0.7;
       const sm = this.slash.material as THREE.MeshBasicMaterial;
-      sm.opacity = 0.95 * (1 - u * u);
-      this.slash.scale.setScalar(0.85 + u * 0.55);
+      const bright = u >= 0.22 && u < 0.45 ? 1 : 0.85;
+      sm.opacity = bright * (1 - u * u);
+      sm.color.setHex(u >= 0.22 && u < 0.4 ? 0xfff6d8 : 0xffe8a8);
+      const punch = u >= 0.22 && u < 0.4 ? 1.15 : 1;
+      this.slash.scale.setScalar((0.82 + swing * 0.55) * punch * (compact ? 0.92 : 1));
     } else if (this.slash) this.slash.visible = false;
 
     this.frameN++;
     const inCombatRoom =
       this.room?.cantoId === "inferno_05" || this.room?.cantoId === "inferno_06";
     const inGlut = this.room?.cantoId === "inferno_06";
+    const fighting = this.inCombat();
+    // Compact combat: ease pixel ratio slightly when still at the soft cap (skip if already gfx-dropped).
+    if (compact && !this.gfxDropped && this.frameN % 30 === 0) {
+      const want = Math.min(fighting ? 1.05 : 1.2, window.devicePixelRatio || 1);
+      if (Math.abs(this.renderer.getPixelRatio() - want) > 0.04) {
+        this.renderer.setPixelRatio(want);
+      }
+    }
     const shadowEvery = compact && inCombatRoom ? 3 : 2;
-    const labelEvery = compact && this.inCombat() ? 3 : 2;
+    const labelEvery = compact && fighting ? 3 : 2;
     if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
@@ -1214,7 +1229,13 @@ export class WorldApp {
         gem.position.y = 0.38 + Math.sin(this.animT * 0.005) * 0.08;
       }
       if (n.kind === "guide" || n.kind === "player") {
-        tickHumanoid(n.group, { moving: false, tMs: this.animT, attacking: false, speed: 0 });
+        const hdx = n.group.position.x - this.renderYou.x;
+        const hdz = n.group.position.z - this.renderYou.y;
+        // Skip far remotes/guides — idle pose freezes; resume when near.
+        const humR = isCompactUi() ? 28 : 42;
+        if (hdx * hdx + hdz * hdz < humR * humR) {
+          tickHumanoid(n.group, { moving: false, tMs: this.animT, attacking: false, speed: 0 });
+        }
       }
       if ((n.kind === "whirl" || n.kind === "champion") && this.frameN % 2 === 0) {
         tickWhirl(n.group, this.animT, n.kind === "champion");
@@ -1956,7 +1977,7 @@ export class WorldApp {
     this.impacts.push({ mesh: core, start: this.animT, dur: heavy ? 280 : 180 });
     // Skip particle bursts far from camera (off-screen combat still gets rings).
     const sparkDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
-    const sparkCap = isCompactUi() ? 2 : 4;
+    const sparkCap = isCompactUi() ? 1 : 3;
     if (sparkDist < 36 && this.sparks.length < sparkCap) {
       const burst =
         this.room?.cantoId === "inferno_06" && heavy
@@ -2316,11 +2337,11 @@ export class WorldApp {
     const now = Date.now();
     if (now < this.attackBusyUntil) return;
     this.noteCombat();
-    this.attackBusyUntil = now + ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
-    noteAttackCd((ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS) / 1000);
-    this.slashUntil = this.animT + 280;
-    this.camPunch = Math.max(this.camPunch, 0.16);
-    this.camFovKick = Math.max(this.camFovKick, 1.1);
+    this.attackBusyUntil = now + ATTACK_ANIM_MS;
+    noteAttackCd(ATTACK_ANIM_MS / 1000);
+    this.slashUntil = this.animT + ATTACK_ANIM_MS;
+    this.camPunch = Math.max(this.camPunch, 0.22);
+    this.camFovKick = Math.max(this.camFovKick, 1.35);
     window.setTimeout(() => {
       const live = this.room?.entities.find((e: any) => String(e.id) === String(targetId));
       if (!live || (live.hp != null && live.hp <= 0)) return;
