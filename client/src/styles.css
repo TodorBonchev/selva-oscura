@@ -2236,6 +2236,10 @@ body.respawn-fade #death-flash {
   border-bottom-color: #d63a2a;
   filter: drop-shadow(0 0 5px #d63a2a99);
 }
+.compass-arrow[data-dest="gluttony"] .compass-chevron {
+  border-bottom-color: #8a9a3a;
+  filter: drop-shadow(0 0 5px #8a9a3a99);
+}
 .compass-arrow[data-dest="wood"] .compass-chevron {
   filter: drop-shadow(0 0 5px #c9a22799);
 }
@@ -2260,6 +2264,8 @@ body.respawn-fade #death-flash {
 }
 .compass-arrow[data-dest="lust"] .compass-label { color: #ffc8b8; }
 .compass-arrow[data-dest="lust"] .compass-dist { color: #e8a090; }
+.compass-arrow[data-dest="gluttony"] .compass-label { color: #d8e8a0; }
+.compass-arrow[data-dest="gluttony"] .compass-dist { color: #b0c070; }
 @media (max-width: 640px) {
   .compass-arrow { width: 2.1rem; height: 2.4rem; margin: -1.05rem 0 0 -1.05rem; }
   .compass-chevron {
@@ -2710,6 +2716,15 @@ body.slam-sting #slam-sting {
 body.in-lust #heat-haze {
   opacity: 0.42;
   animation: heat-haze-shimmer 4.5s ease-in-out infinite;
+}
+body.in-gluttony #heat-haze {
+  opacity: 0.38;
+  animation: heat-haze-shimmer 5.2s ease-in-out infinite;
+  background:
+    radial-gradient(ellipse 110% 40% at 50% -5%, #8a7a3040 0%, transparent 55%),
+    radial-gradient(ellipse 40% 110% at -5% 50%, #5a4a2018 0%, transparent 50%),
+    radial-gradient(ellipse 40% 110% at 105% 50%, #6a5a2818 0%, transparent 50%),
+    radial-gradient(ellipse 110% 36% at 50% 105%, #3a302018 0%, transparent 55%);
 }
 #heat-haze {
   position: fixed;

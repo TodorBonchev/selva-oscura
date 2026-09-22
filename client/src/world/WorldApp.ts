@@ -752,7 +752,7 @@ export class WorldApp {
       this.ash.tick(
         dt,
         this.room.bounds,
-        this.room.cantoId === "inferno_05",
+        this.room.cantoId === "inferno_05" || this.room.cantoId === "inferno_06",
         this.renderYou.x,
         this.renderYou.y,
         fight || isCompactUi() ? 2 : 1,
@@ -1223,13 +1223,14 @@ export class WorldApp {
       }
       const ward = rec.group.getObjectByName("wardRing");
       if (ward) {
+        const isHeart = (a: string | undefined) => a === "storm_heart" || a === "mire_heart";
         const heart = this.room.entities.find(
-          (h: any) => h.archetype === "storm_heart" && (h.hp == null || h.hp > 0)
+          (h: any) => isHeart(h.archetype) && (h.hp == null || h.hp > 0)
         );
         const near =
           heart &&
           e.kind === "mob" &&
-          e.archetype !== "storm_heart" &&
+          !isHeart(e.archetype) &&
           Math.hypot(heart.x - e.x, heart.y - e.y) <= 14;
         ward.visible = Boolean(near);
       }
@@ -1255,10 +1256,11 @@ export class WorldApp {
   }
 
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
-    const group = makeByKind(e.archetype === "storm_heart" ? "shrine" : kind, this.mats!, e.item?.rarity);
-    if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
-    if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
-    if (e.archetype === "storm_heart") group.scale.setScalar(1.45);
+    const isHeartArch = e.archetype === "storm_heart" || e.archetype === "mire_heart";
+    const group = makeByKind(isHeartArch ? "shrine" : kind, this.mats!, e.item?.rarity);
+    if (e.archetype === "gale_wisp" || e.archetype === "mud_wisp") group.scale.setScalar(0.62);
+    if (e.archetype === "gale_warden" || e.archetype === "mire_warden") group.scale.setScalar(1.15);
+    if (isHeartArch) group.scale.setScalar(1.45);
     if (e.poiKind === "bell") group.scale.setScalar(0.72);
     if (e.poiKind === "pyre") group.scale.setScalar(1.85);
     if (kind === "whirl" || kind === "champion") {
@@ -1360,18 +1362,38 @@ export class WorldApp {
       if (o.name === "galeRibbon" || o.name === "ember") this.propAnims.push(o);
     });
     const lust = this.room.cantoId === "inferno_05";
+    const glut = this.room.cantoId === "inferno_06";
     document.body.classList.toggle("in-lust", lust);
-    this.scene.fog = new THREE.FogExp2(lust ? 0x3a140e : 0x1c1812, lust ? 0.018 : 0.013);
-    this.renderer.setClearColor(lust ? 0x1a0c08 : 0x1c1812, 1);
-    this.hemi.color.set(lust ? 0xffb080 : 0xe8d4b0);
-    this.hemi.groundColor.set(lust ? 0x2a1008 : 0x1a1410);
-    this.sun.color.set(lust ? 0xff9960 : 0xffe6c0);
-    this.sun.intensity = lust ? 2.15 : 1.85;
-    this.rim.color.set(lust ? 0xff8844 : 0xffe0b0);
+    document.body.classList.toggle("in-gluttony", glut);
+    if (lust) {
+      this.scene.fog = new THREE.FogExp2(0x3a140e, 0.018);
+      this.renderer.setClearColor(0x1a0c08, 1);
+      this.hemi.color.set(0xffb080);
+      this.hemi.groundColor.set(0x2a1008);
+      this.sun.color.set(0xff9960);
+      this.sun.intensity = 2.15;
+      this.rim.color.set(0xff8844);
+    } else if (glut) {
+      this.scene.fog = new THREE.FogExp2(0x2a2414, 0.02);
+      this.renderer.setClearColor(0x141208, 1);
+      this.hemi.color.set(0xc8b880);
+      this.hemi.groundColor.set(0x1a160c);
+      this.sun.color.set(0xd4b060);
+      this.sun.intensity = 1.95;
+      this.rim.color.set(0xa89050);
+    } else {
+      this.scene.fog = new THREE.FogExp2(0x1c1812, 0.013);
+      this.renderer.setClearColor(0x1c1812, 1);
+      this.hemi.color.set(0xe8d4b0);
+      this.hemi.groundColor.set(0x1a1410);
+      this.sun.color.set(0xffe6c0);
+      this.sun.intensity = 1.85;
+      this.rim.color.set(0xffe0b0);
+    }
     const portal = this.room.entities.find((e: any) => e.kind === "exit" || e.poiKind === "portal");
     if (portal) {
       this.portalLight.intensity = 4.5;
-      this.portalLight.color.set(lust ? 0x66ffaa : 0xff6633);
+      this.portalLight.color.set(lust ? 0x66ffaa : glut ? 0x88aa44 : 0xff6633);
       setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
     }
   }
@@ -1778,7 +1800,14 @@ export class WorldApp {
       showToast(`Picking up ${best.item?.name || "loot"}`, "loot");
       this.socket.pickup(best.id);
     } else if (best.kind === "exit" || best.poiKind === "portal") {
-      const dest = best.toCanto === "inferno_05" ? "Lust" : best.label || best.name || "portal";
+      const dest =
+        best.toCanto === "inferno_05"
+          ? "Lust"
+          : best.toCanto === "inferno_06"
+            ? "Gluttony"
+            : best.toCanto === "inferno_01"
+              ? "Dark Wood"
+              : best.label || best.name || "portal";
       showToast(`Entering ${dest}…`, "emit");
       this.doInteract(best);
     } else if (best.poiKind === "ah") {
@@ -1798,21 +1827,35 @@ export class WorldApp {
       (e: any) => (e.kind === "mob" || e.kind === "boss") && (e.hp == null || e.hp > 0)
     );
     let line = "Explore the wood";
-    if (canto === "inferno_05") {
+    if (canto === "inferno_05" || canto === "inferno_06") {
       const boss = foes.find((e: any) => e.kind === "boss");
       const shades = foes.filter((e: any) => e.kind === "mob").length;
       const heart = this.room.entities.some(
-        (e: any) => e.archetype === "storm_heart" && (e.hp == null || e.hp > 0)
+        (e: any) =>
+          (e.archetype === "storm_heart" || e.archetype === "mire_heart") &&
+          (e.hp == null || e.hp > 0)
       );
+      const isGlut = canto === "inferno_06";
       if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.7) {
-        line = "Wind Shrine on the road will mend you";
-      } else if (heart) line = "Break the Storm Heart — nearby shades are warded";
-      else if (shades >= 8 && this.room.entities.some((e: any) => e.poiKind === "bell")) {
-        line = "Ring the Gale Bell to still a pack";
+        line = isGlut ? "Mire Shrine on the road will mend you" : "Wind Shrine on the road will mend you";
+      } else if (heart) {
+        line = isGlut
+          ? "Break the Mire Heart — nearby shades are warded"
+          : "Break the Storm Heart — nearby shades are warded";
+      } else if (shades >= 8 && this.room.entities.some((e: any) => e.poiKind === "bell")) {
+        line = isGlut ? "Ring the Mire Bell to still a pack" : "Ring the Gale Bell to still a pack";
+      } else if (shades > 0) {
+        line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
+      } else if (boss) {
+        line = isGlut ? "Slay the Triple Maw" : "Slay the Judge of the Gate";
+      } else if (isGlut) {
+        line = "Return to Lust, or press deeper another day";
+      } else {
+        const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
+        line = cleared
+          ? "The Gluttony portal past the dais is open"
+          : "Return through the portal";
       }
-      else if (shades > 0) line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
-      else if (boss) line = "Slay the Judge of the Gate";
-      else line = "Return through the portal";
     } else if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.85) {
       line = "The camp pyre will mend you";
     } else if (!you.spokeToGuide) {
@@ -1820,7 +1863,10 @@ export class WorldApp {
     } else if (!you.visitedInferno) {
       line = "Follow the gold arrow into Lust";
     } else {
-      line = "Claim the daily writ, or hunt Lust again";
+      const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
+      line = cleared
+        ? "Claim the daily writ, or hunt Lust / Gluttony"
+        : "Claim the daily writ, or hunt Lust again";
     }
     setQuestLine(line);
     const near = this.nearestFoe(16);
@@ -2210,6 +2256,7 @@ export class WorldApp {
 
   portalDestName(target: any): string {
     if (target?.toCanto === "inferno_05") return "Lust";
+    if (target?.toCanto === "inferno_06") return "Gluttony";
     if (target?.toCanto === "inferno_01") return "Dark Wood";
     return String(target?.label || target?.name || "portal");
   }
@@ -2399,7 +2446,7 @@ export class WorldApp {
       const now = Date.now();
       if (now - this.nearExitToastAt > 8000) {
         this.nearExitToastAt = now;
-        showToast("Portal near — hold Interact to enter Lust", "info");
+        showToast("Portal near — hold Interact to travel", "info");
       }
     }
   }

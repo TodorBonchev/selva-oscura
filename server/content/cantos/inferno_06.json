@@ -1,0 +1,194 @@
+{
+  "id": "inferno_06",
+  "canticle": "inferno",
+  "number": 6,
+  "title": "Gluttony",
+  "subtitle_it": "piova etterna",
+  "role": "combat",
+  "circle": 3,
+  "geo": {
+    "bounds": {
+      "width": 160,
+      "height": 120
+    },
+    "spawn": {
+      "x": 18,
+      "y": 52
+    },
+    "exits": [
+      {
+        "to_canto": "inferno_05",
+        "x": 10,
+        "y": 52,
+        "label": "Return to Lust"
+      },
+      {
+        "to_canto": "inferno_01",
+        "x": 14,
+        "y": 44,
+        "label": "Return to Dark Wood"
+      }
+    ],
+    "pois": [
+      {
+        "id": "mire_bell",
+        "kind": "bell",
+        "x": 86,
+        "y": 58,
+        "label": "Mire Bell"
+      },
+      {
+        "id": "filth_cache",
+        "kind": "cache",
+        "x": 54,
+        "y": 68,
+        "label": "Filth Cache"
+      },
+      {
+        "id": "mire_shrine",
+        "kind": "shrine",
+        "x": 28,
+        "y": 56,
+        "label": "Mire Shrine"
+      },
+      {
+        "id": "gluttony_portal_lust",
+        "kind": "portal",
+        "x": 12,
+        "y": 50,
+        "label": "Lust portal",
+        "to_canto": "inferno_05"
+      }
+    ]
+  },
+  "packs": [
+    {
+      "id": "glut_mire_heart",
+      "name": "Mire Heart",
+      "archetype": "mire_heart",
+      "count": 1,
+      "elite": true,
+      "champion": true,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 74, "y": 64 }
+    },
+    {
+      "id": "glut_wisps",
+      "name": "Filth Wisp",
+      "archetype": "mud_wisp",
+      "count": 4,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 36, "y": 70 }
+    },
+    {
+      "id": "glut_road_wardens",
+      "name": "Sludge Shade",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 30, "y": 48 }
+    },
+    {
+      "id": "glut_mire_a",
+      "name": "Mire Shade",
+      "archetype": "mire_shade",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 52, "y": 38 }
+    },
+    {
+      "id": "glut_mire_b",
+      "name": "Mire Shade",
+      "archetype": "mire_shade",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 68, "y": 78 }
+    },
+    {
+      "id": "glut_champion_pair",
+      "name": "Mire Champion",
+      "archetype": "mire_champion",
+      "count": 2,
+      "elite": true,
+      "champion": true,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 98, "y": 44 }
+    },
+    {
+      "id": "glut_strays",
+      "name": "Stray Filth",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 90, "y": 72 }
+    },
+    {
+      "id": "glut_chorus",
+      "name": "Chorus Filth",
+      "archetype": "mire_shade",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 112, "y": 66 }
+    },
+    {
+      "id": "glut_gate_warden",
+      "name": "Mire Warden",
+      "archetype": "mire_warden",
+      "count": 1,
+      "elite": true,
+      "champion": true,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 128, "y": 50 }
+    },
+    {
+      "id": "glut_cerbero",
+      "name": "Cerbero",
+      "archetype": "mire_champion",
+      "count": 1,
+      "elite": true,
+      "champion": true,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 118, "y": 54 }
+    }
+  ],
+  "bosses": [
+    {
+      "id": "triple_maw",
+      "name": "Triple Maw",
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 138,
+        "y": 48
+      },
+      "first_clear_emit": true
+    }
+  ],
+  "first_clear": {
+    "enabled": true,
+    "event": "FirstClear",
+    "requires": "triple_maw"
+  },
+  "daily_quests": [],
+  "style_kit": {
+    "palette": "inferno_red_black",
+    "kit_id": "circle_03_gluttony",
+    "notes": "Circle kit 3 of 12; mud-rain filth; Doré line weight"
+  },
+  "loot_density": "raw_d2",
+  "legal": {
+    "text_source": "italian_original",
+    "notes": "Names and short Italian tags only; original encounter design; no assets from other Dante games"
+  }
+}

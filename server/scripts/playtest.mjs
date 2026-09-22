@@ -27,8 +27,17 @@ const waitFor = async (pred, ms = 12000, label = "cond") => {
 await sleep(150);
 ws.send(JSON.stringify({ type: "hello", name: "Buyer" }));
 await waitFor((m) => m.room?.cantoId === "inferno_01", 5000, "hub");
+
+// Gate check: Lust→Gluttony should fail before Lust clear
 ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_05" }));
 await waitFor((m) => m.room?.cantoId === "inferno_05", 5000, "lust");
+ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_06" }));
+await sleep(400);
+if (lastSnap.room.cantoId === "inferno_06") {
+  throw new Error("Gluttony should be gated until Lust first clear");
+}
+console.log("gate ok — still in Lust before clear");
+
 const boss = lastSnap.room.entities.find((e) => e.kind === "boss");
 if (!boss) throw new Error("no boss — room may need respawn (leave and rejoin)");
 console.log("boss", boss.name, "hp", boss.hp);
@@ -61,7 +70,9 @@ console.log(
   "inv",
   lastSnap.room.you.inventory.map((i) => i.rarity),
   "pendingAsh",
-  lastSnap.room.you.pendingAsh
+  lastSnap.room.you.pendingAsh,
+  "firstClears",
+  lastSnap.room.you.firstClears
 );
 const item =
   lastSnap.room.you.inventory.find((i) => !i.soulbound) || lastSnap.room.you.inventory[0];
@@ -69,6 +80,30 @@ ws.send(JSON.stringify({ type: "ah_list", itemId: item.id, priceAsh: 1000 }));
 await sleep(400);
 const ahRes = await fetch("http://127.0.0.1:8080/ah").then((r) => r.json());
 console.log("AH", ahRes.listings.length, ahRes.listings[0]?.item?.name, ahRes.listings[0]?.priceAsh);
+
+// After Lust clear → Gluttony
+ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_06" }));
+await waitFor((m) => m.room?.cantoId === "inferno_06", 5000, "gluttony");
+const glutBoss = lastSnap.room.entities.find((e) => e.kind === "boss");
+const glutMobs = lastSnap.room.entities.filter((e) => e.kind === "mob");
+if (!glutBoss) throw new Error("no Gluttony boss");
+if (glutMobs.length < 5) throw new Error("Gluttony packs missing");
+console.log(
+  "gluttony",
+  lastSnap.room.title,
+  "boss",
+  glutBoss.name,
+  "mobs",
+  glutMobs.length,
+  "exits",
+  lastSnap.room.entities.filter((e) => e.kind === "exit").map((e) => e.toCanto)
+);
+
+// Back to Lust
+ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_05" }));
+await waitFor((m) => m.room?.cantoId === "inferno_05", 5000, "lust-return");
+console.log("return Lust ok");
+
 console.log(
   "emits",
   toasts.filter((t) => t.level === "emit").map((t) => t.text)

@@ -37,6 +37,12 @@ const MOB_HP = {
   gale_warden: 120,
   storm_heart: 90,
   gale_champion: 80,
+  // Gluttony / mire archetypes (circle 3)
+  mire_shade: 40,
+  mud_wisp: 18,
+  mire_warden: 130,
+  mire_heart: 100,
+  mire_champion: 88,
   boss: 200,
 };
 
@@ -45,17 +51,34 @@ const MOB_DMG = {
   gale_wisp: 2,
   gale_warden: 6,
   gale_champion: 7,
+  mire_shade: 3,
+  mud_wisp: 2,
+  mire_warden: 7,
+  mire_champion: 8,
   boss: 12,
 };
 
+const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart"]);
+
 let entitySeq = 0;
 function heartWards(room, e) {
-  if (!e || e.archetype === "storm_heart" || e.kind === "boss") return false;
+  if (!e || HEART_ARCHETYPES.has(e.archetype) || e.kind === "boss") return false;
   for (const h of room.entities.values()) {
-    if (h.archetype !== "storm_heart" || !(h.hp > 0)) continue;
+    if (!HEART_ARCHETYPES.has(h.archetype) || !(h.hp > 0)) continue;
     if (Math.hypot(h.x - e.x, h.y - e.y) <= 14) return true;
   }
   return false;
+}
+
+function cantoTitle(id) {
+  return CANTOS[id]?.title || id;
+}
+
+/** True if player has first-cleared the given canto id. */
+function hasCleared(playerId, cantoId) {
+  if (!cantoId) return true;
+  const ledger = players.get(playerId);
+  return Boolean(ledger?.firstClears?.has(cantoId));
 }
 
 function eid(prefix) {
@@ -99,6 +122,8 @@ class CantoRoom {
         y: poi.y,
         poiKind: poi.kind,
         label: poi.label,
+        toCanto: poi.to_canto || null,
+        requireClear: poi.require_clear || null,
       });
     }
 
@@ -112,6 +137,7 @@ class CantoRoom {
         y: ex.y,
         label: ex.label,
         toCanto: ex.to_canto,
+        requireClear: ex.require_clear || null,
       });
     }
 
@@ -124,9 +150,7 @@ class CantoRoom {
         const ox = Math.cos(ang) * ring + (Math.random() - 0.5) * 0.6;
         const oy = Math.sin(ang) * ring + (Math.random() - 0.5) * 0.6;
         const arch = pack.archetype || "whirl_shade";
-        const maxHp = pack.champion
-          ? MOB_HP.gale_champion
-          : MOB_HP[arch] || MOB_HP.whirl_shade;
+        const maxHp = MOB_HP[arch] || (pack.champion ? MOB_HP.gale_champion : MOB_HP.whirl_shade);
         this.entities.set(id, {
           id,
           kind: "mob",
@@ -249,6 +273,7 @@ class CantoRoom {
         poiKind: e.poiKind,
         label: e.label,
         toCanto: e.toCanto,
+        requireClear: e.requireClear || null,
         item: e.item,
       });
     }
@@ -602,7 +627,7 @@ class CantoRoom {
       });
     }
 
-    if (entity.archetype === "storm_heart") {
+    if (HEART_ARCHETYPES.has(entity.archetype)) {
       for (const e of [...this.entities.values()]) {
         if (e === entity || e.kind !== "mob") continue;
         if (Math.hypot(e.x - entity.x, e.y - entity.y) > 14) continue;
@@ -618,7 +643,11 @@ class CantoRoom {
         });
         if (e.hp <= 0) this.onEntityKilled(killerId, e);
       }
-      if (killer) this.toast(killer.ws, "emit", "The Storm Heart shatters.");
+      if (killer) this.toast(
+        killer.ws,
+        "emit",
+        entity.archetype === "mire_heart" ? "The Mire Heart bursts." : "The Storm Heart shatters."
+      );
     }
 
     this.entities.delete(entity.id);
@@ -628,7 +657,11 @@ class CantoRoom {
       for (const e of this.entities.values()) {
         if (e.packId === entity.packId && e.kind === "mob") left++;
       }
-      if (left === 0) this.toast(killer.ws, "info", "The gust breaks. Press on.");
+      if (left === 0) {
+        const line =
+          this.cantoId === "inferno_06" ? "The sludge settles. Press on." : "The gust breaks. Press on.";
+        this.toast(killer.ws, "info", line);
+      }
     }
     if (killer && entity.kind === "mob") {
       let mobs = 0;
@@ -637,7 +670,10 @@ class CantoRoom {
         if (e.kind === "mob" && e.hp > 0) mobs++;
         if (e.kind === "boss" && e.hp > 0) bossUp = true;
       }
-      if (mobs === 0 && bossUp) this.toast(killer.ws, "emit", "The road is clear. The Judge waits.");
+      if (mobs === 0 && bossUp) {
+        const bossName = this.canto.bosses?.[0]?.name || "the boss";
+        this.toast(killer.ws, "emit", `The road is clear. ${bossName} waits.`);
+      }
     }
 
     if (drops.length && killer) {
@@ -800,6 +836,11 @@ class CantoRoom {
     }
 
     if (e.kind === "exit") {
+      if (e.requireClear && !hasCleared(playerId, e.requireClear)) {
+        const need = cantoTitle(e.requireClear);
+        this.toast(s.ws, "warn", `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${need}.`);
+        return;
+      }
       this.send(s.ws, { type: "toast", level: "info", text: `Travel: ${e.toCanto}` });
       // Client/world manager will travel
       return { travel: e.toCanto };
@@ -814,7 +855,7 @@ class CantoRoom {
         this.toast(
           s.ws,
           "info",
-          "Guide: Follow the gold arrow into Lust. Clear the road shades, then the Judge. Return and claim the writ."
+          "Guide: Follow the gold arrow into Lust. Clear the Judge, then the Gluttony gate past his dais opens. Return and claim the writ."
         );
       } else if (e.poiKind === "stash") {
         this.toast(s.ws, "info", `Stash holds ${ledger.stash.length} items (stub — inventory only for now).`);
@@ -824,7 +865,13 @@ class CantoRoom {
       } else if (e.poiKind === "quest") {
         this.tryDaily(playerId);
       } else if (e.poiKind === "portal") {
-        return { travel: "inferno_01" };
+        const dest = e.toCanto || "inferno_01";
+        if (e.requireClear && !hasCleared(playerId, e.requireClear)) {
+          const need = cantoTitle(e.requireClear);
+          this.toast(s.ws, "warn", `The way to ${cantoTitle(dest)} is sealed until you clear ${need}.`);
+          return;
+        }
+        return { travel: dest };
       } else if (e.poiKind === "cache") {
         if (s.lootedCache) {
           this.toast(s.ws, "info", "The wind cache is empty.");
@@ -977,7 +1024,7 @@ class CantoRoom {
         e.stunLeft = Math.max(0, e.stunLeft - dt);
         continue;
       }
-      if (e.archetype === "storm_heart") continue;
+      if (HEART_ARCHETYPES.has(e.archetype)) continue;
       let nearest = null;
       let nearestD = 999;
       for (const s of this.sessions.values()) {
@@ -1011,7 +1058,13 @@ class CantoRoom {
         const dy = nearest.y - e.y;
         const len = Math.hypot(dx, dy) || 1;
         const speed =
-          e.archetype === "gale_wisp" ? 5.4 : e.archetype === "gale_warden" ? 1.6 : e.kind === "boss" ? 2.2 : 3.0;
+          e.archetype === "gale_wisp" || e.archetype === "mud_wisp"
+            ? 5.4
+            : e.archetype === "gale_warden" || e.archetype === "mire_warden"
+              ? 1.6
+              : e.kind === "boss"
+                ? 2.2
+                : 3.0;
         e.x += (dx / len) * speed * dt;
         e.y += (dy / len) * speed * dt;
         moved = true;
@@ -1078,7 +1131,9 @@ class CantoRoom {
           continue;
         }
         const arch = e.archetype || "whirl_shade";
-        const dmg = e.champion ? MOB_DMG.gale_champion : MOB_DMG[arch] || MOB_DMG.whirl_shade;
+        const dmg = e.champion
+          ? MOB_DMG[arch] || MOB_DMG.gale_champion
+          : MOB_DMG[arch] || MOB_DMG.whirl_shade;
         const led = players.get(nearest.playerId);
         const armor =
           (led ? computeGearStats(led).armor : 0) + (nearest.armorBuff || 0);
@@ -1157,6 +1212,28 @@ export class World {
     if (!this.rooms.has(toCanto)) return { ok: false, reason: "unknown_canto" };
     const from = this.getRoom(playerId);
     const sess = from?.sessions.get(playerId);
+    // Enforce require_clear on exits/portals defined in the current canto toward toCanto
+    if (from) {
+      const gated = [];
+      for (const ex of from.canto.geo.exits || []) {
+        if (ex.to_canto === toCanto && ex.require_clear) gated.push(ex.require_clear);
+      }
+      for (const poi of from.canto.geo.pois || []) {
+        if (poi.kind === "portal" && poi.to_canto === toCanto && poi.require_clear) {
+          gated.push(poi.require_clear);
+        }
+      }
+      for (const need of gated) {
+        if (!hasCleared(playerId, need)) {
+          from.toast(
+            ws,
+            "warn",
+            `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`
+          );
+          return { ok: false, reason: "require_clear", need };
+        }
+      }
+    }
     // Allow travel if near exit OR explicit travel after interact
     const room = this.ensureJoin(ws, playerId, name, toCanto);
     room.pushSnapshot(playerId);
@@ -1167,6 +1244,8 @@ export class World {
         "info",
         "No foes in the Dark Wood — take the eastern portal Toward Lust."
       );
+    } else if (room.cantoId === "inferno_06") {
+      room.toast(ws, "info", "The eternal rain falls. Clear the mire, then the Triple Maw.");
     }
     return { ok: true, room };
   }

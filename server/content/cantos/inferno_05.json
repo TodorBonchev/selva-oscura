@@ -21,6 +21,13 @@
         "x": 12,
         "y": 60,
         "label": "Return to Dark Wood"
+      },
+      {
+        "to_canto": "inferno_06",
+        "x": 150,
+        "y": 60,
+        "label": "Toward Gluttony \u2192",
+        "require_clear": "inferno_05"
       }
     ],
     "pois": [
@@ -50,7 +57,17 @@
         "kind": "portal",
         "x": 14,
         "y": 58,
-        "label": "Hub portal"
+        "label": "Hub portal",
+        "to_canto": "inferno_01"
+      },
+      {
+        "id": "lust_portal_gluttony",
+        "kind": "portal",
+        "x": 148,
+        "y": 58,
+        "label": "Gluttony portal",
+        "to_canto": "inferno_06",
+        "require_clear": "inferno_05"
       }
     ]
   },
@@ -63,7 +80,10 @@
       "elite": true,
       "champion": true,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 78, "y": 58 }
+      "anchor": {
+        "x": 78,
+        "y": 58
+      }
     },
     {
       "id": "lust_wisps",
@@ -73,7 +93,10 @@
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 40, "y": 72 }
+      "anchor": {
+        "x": 40,
+        "y": 72
+      }
     },
     {
       "id": "lust_road_wardens",
@@ -83,7 +106,10 @@
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 32, "y": 56 }
+      "anchor": {
+        "x": 32,
+        "y": 56
+      }
     },
     {
       "id": "lust_winds_a",
@@ -129,7 +155,10 @@
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 86, "y": 38 }
+      "anchor": {
+        "x": 86,
+        "y": 38
+      }
     },
     {
       "id": "lust_chorus",
@@ -139,7 +168,10 @@
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 110, "y": 72 }
+      "anchor": {
+        "x": 110,
+        "y": 72
+      }
     },
     {
       "id": "lust_gate_warden",
@@ -149,7 +181,10 @@
       "elite": true,
       "champion": true,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 132, "y": 60 }
+      "anchor": {
+        "x": 132,
+        "y": 60
+      }
     },
     {
       "id": "lust_bufera",
@@ -159,7 +194,10 @@
       "elite": true,
       "champion": true,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 122, "y": 58 }
+      "anchor": {
+        "x": 122,
+        "y": 58
+      }
     }
   ],
   "bosses": [

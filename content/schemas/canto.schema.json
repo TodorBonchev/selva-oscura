@@ -55,7 +55,11 @@
               "to_canto": { "type": "string" },
               "x": { "type": "number" },
               "y": { "type": "number" },
-              "label": { "type": "string" }
+              "label": { "type": "string" },
+              "require_clear": {
+                "type": "string",
+                "description": "Canto id that must be first-cleared before this exit can be used"
+              }
             }
           }
         },
@@ -66,10 +70,21 @@
             "required": ["id", "kind", "x", "y"],
             "properties": {
               "id": { "type": "string" },
-              "kind": { "type": "string", "enum": ["npc", "portal", "stash", "ah", "quest", "craft"] },
+              "kind": {
+                "type": "string",
+                "enum": ["npc", "portal", "stash", "ah", "quest", "craft", "bell", "cache", "shrine", "pyre"]
+              },
               "x": { "type": "number" },
               "y": { "type": "number" },
-              "label": { "type": "string" }
+              "label": { "type": "string" },
+              "to_canto": {
+                "type": "string",
+                "description": "Destination canto for portal POIs"
+              },
+              "require_clear": {
+                "type": "string",
+                "description": "Canto id that must be first-cleared before this portal can be used"
+              }
             }
           }
         }
@@ -82,6 +97,7 @@
         "required": ["id", "drop_table", "count", "elite"],
         "properties": {
           "id": { "type": "string" },
+          "name": { "type": "string" },
           "archetype": { "type": "string" },
           "count": { "type": "integer", "minimum": 1 },
           "elite": { "type": "boolean" },

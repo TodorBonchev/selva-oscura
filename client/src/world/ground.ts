@@ -71,6 +71,23 @@ const LUST_HUNT: [number, number][] = [
   [100, 52],
   [140, 60],
 ];
+const GLUTTONY_HUNT: [number, number][] = [
+  [18, 52],
+  [44, 62],
+  [70, 48],
+  [100, 58],
+  [138, 48],
+];
+
+function huntPathFor(cantoId: string): [number, number][] {
+  if (cantoId === "inferno_06") return GLUTTONY_HUNT;
+  return LUST_HUNT;
+}
+
+function bossDaisFor(cantoId: string): { x: number; z: number } {
+  if (cantoId === "inferno_06") return { x: 138, z: 48 };
+  return { x: 140, z: 60 };
+}
 
 /** Same displacement the floor mesh uses, so feet and props sit on the dirt. */
 export function terrainHeight(
@@ -92,7 +109,7 @@ export function terrainHeight(
       distToPoly(wx, wz, HUB_WRIT)
     );
     if (pathD < 2.6) n *= 0.22;
-  } else if (distToPoly(wx, wz, LUST_HUNT) < 3.2) {
+  } else if (distToPoly(wx, wz, huntPathFor(cantoId)) < 3.2) {
     n *= 0.15;
   }
   return n;
@@ -156,7 +173,7 @@ export function buildGround(
   const fogRing = new THREE.Mesh(
     new THREE.RingGeometry(Math.max(w, h) * 0.62, Math.max(w, h) * 1.4, 48),
     new THREE.MeshBasicMaterial({
-      color: isHub ? 0x1a1810 : 0x201008,
+      color: isHub ? 0x1a1810 : cantoId === "inferno_06" ? 0x1a1810 : 0x201008,
       transparent: true,
       opacity: 0.28,
       side: THREE.DoubleSide,
@@ -258,19 +275,30 @@ export function buildGround(
       placed++;
     }
   } else {
-    const arenas: { x: number; z: number; r: number }[] = [
-      { x: 32, z: 56, r: 5 },
-      { x: 48, z: 40, r: 7 },
-      { x: 72, z: 70, r: 7 },
-      { x: 100, z: 50, r: 8 },
-      { x: 122, z: 58, r: 6 },
-      { x: 140, z: 60, r: 9 },
-    ];
+    const hunt = huntPathFor(cantoId);
+    const isGlut = cantoId === "inferno_06";
+    const arenas: { x: number; z: number; r: number }[] = isGlut
+      ? [
+          { x: 30, z: 48, r: 5 },
+          { x: 52, z: 38, r: 7 },
+          { x: 68, z: 78, r: 7 },
+          { x: 98, z: 44, r: 8 },
+          { x: 118, z: 54, r: 6 },
+          { x: 138, z: 48, r: 9 },
+        ]
+      : [
+          { x: 32, z: 56, r: 5 },
+          { x: 48, z: 40, r: 7 },
+          { x: 72, z: 70, r: 7 },
+          { x: 100, z: 50, r: 8 },
+          { x: 122, z: 58, r: 6 },
+          { x: 140, z: 60, r: 9 },
+        ];
     const colors = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
       const wx = pos.getX(i) + w / 2;
       const wz = pos.getZ(i) + h / 2;
-      const pathD = distToPoly(wx, wz, LUST_HUNT);
+      const pathD = distToPoly(wx, wz, hunt);
       let k = 0.72 + hash((wx * 2) | 0, (wz * 2) | 0) * 0.18;
       if (pathD < 4.2) k = 1.12 - (pathD / 4.2) * 0.16;
       else if (pathD > 16) k *= 0.62;
@@ -278,9 +306,16 @@ export function buildGround(
         const d = Math.hypot(wx - a.x, wz - a.z);
         if (d < a.r) k = Math.max(k, 0.92 + (1 - d / a.r) * 0.18);
       }
-      colors[i * 3] = k * 1.05;
-      colors[i * 3 + 1] = k * 0.72;
-      colors[i * 3 + 2] = k * 0.55;
+      if (isGlut) {
+        // Muddy olive-brown tint
+        colors[i * 3] = k * 0.88;
+        colors[i * 3 + 1] = k * 0.78;
+        colors[i * 3 + 2] = k * 0.48;
+      } else {
+        colors[i * 3] = k * 1.05;
+        colors[i * 3 + 1] = k * 0.72;
+        colors[i * 3 + 2] = k * 0.55;
+      }
     }
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
@@ -289,7 +324,7 @@ export function buildGround(
     for (let i = 0; i < 70 && placed < 8; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
       const z = 8 + hash(i, 8) * (h - 16);
-      if (blocked(x, z, 3.2) || distToPoly(x, z, LUST_HUNT) < 4.5) continue;
+      if (blocked(x, z, 3.2) || distToPoly(x, z, hunt) < 4.5) continue;
       if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.5)) continue;
       const ob = makeRuinObelisk(mats);
       ob.position.set(x, heightAt(x, z), z);
@@ -316,9 +351,9 @@ export function buildGround(
       brazR.position.set(rx, heightAt(rx, rz), rz);
       group.add(brazL, brazR);
     }
-    for (let i = 0; i < LUST_HUNT.length - 1; i++) {
-      const a = LUST_HUNT[i];
-      const b = LUST_HUNT[i + 1];
+    for (let i = 0; i < hunt.length - 1; i++) {
+      const a = hunt[i];
+      const b = hunt[i + 1];
       const mx = (a[0] + b[0]) * 0.5;
       const mz = (a[1] + b[1]) * 0.5;
       const rib = makeGaleRibbon(mats, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.55);
@@ -326,7 +361,8 @@ export function buildGround(
       rib.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
       const mat = rib.material as THREE.MeshBasicMaterial;
       mat.side = THREE.DoubleSide;
-      mat.opacity = 0.45;
+      mat.opacity = isGlut ? 0.32 : 0.45;
+      if (isGlut && mat.color) mat.color.set(0x6a5a30);
       group.add(rib);
       const crack = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.62, 0.05, 0.22), mats.ember);
       crack.position.set(mx, heightAt(mx, mz) + 0.05, mz);
@@ -335,14 +371,15 @@ export function buildGround(
       crack.receiveShadow = false;
       group.add(crack);
     }
+    const daisPos = bossDaisFor(cantoId);
     const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 20), mats.stone);
-    dais.position.set(140, heightAt(140, 60) + 0.14, 60);
+    dais.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.14, daisPos.z);
     dais.receiveShadow = true;
     group.add(dais);
     for (let i = 0; i < 5; i++) {
       const ribbon = makeGaleRibbon(mats, 14 + i * 2);
       const rx = 28 + i * 24;
-      const rz = 58 + (i % 2) * 4;
+      const rz = (isGlut ? 50 : 58) + (i % 2) * 4;
       ribbon.position.set(rx, heightAt(rx, rz) + 1.15, rz);
       ribbon.rotation.y = 0.08 * (i % 2 ? -1 : 1);
       group.add(ribbon);

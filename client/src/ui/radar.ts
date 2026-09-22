@@ -10,14 +10,28 @@ type Vec2 = { x: number; y: number };
 const RANGE = 38;
 const _ndc = new Vector3();
 
+function cantoShort(id: string | undefined): string | null {
+  if (id === "inferno_05") return "Lust";
+  if (id === "inferno_06") return "Gluttony";
+  if (id === "inferno_01") return "Wood";
+  return null;
+}
+
 function destLabel(e: any): string {
   if (e?.kind === "exit" || e?.poiKind === "portal") {
-    return e.toCanto === "inferno_05" ? "Lust" : e.toCanto === "inferno_01" ? "Wood" : e.label || "Portal";
+    return cantoShort(e.toCanto) || e.label || "Portal";
   }
-  if (e?.kind === "boss") return e.name || "Judge";
+  if (e?.kind === "boss") return e.name || "Boss";
   if (e?.kind === "mob") return e.champion ? "Champion" : "Shade";
   if (e?.poiKind === "npc" || e?.kind === "poi") return e.label || e.name || "Guide";
   return e?.label || e?.name || "";
+}
+
+function destClass(toCanto: string | undefined): string {
+  if (toCanto === "inferno_05") return "lust";
+  if (toCanto === "inferno_06") return "gluttony";
+  if (toCanto === "inferno_01") return "wood";
+  return "wood";
 }
 
 export class Radar {
@@ -190,11 +204,15 @@ export class Radar {
     compact: boolean;
   }) {
     const wanted: { id: string; dest: string; label: string; e: any }[] = [];
-    const portal = opts.entities.find((e) => e.kind === "exit" || e.poiKind === "portal");
+    const portals = opts.entities.filter((e) => e.kind === "exit" || e.poiKind === "portal");
+    // Prefer onward Inferno exits over hub returns when several portals exist
+    const portal =
+      portals.find((e) => e.toCanto && e.toCanto !== "inferno_01") ||
+      portals[0];
     if (portal) {
       wanted.push({
         id: "portal",
-        dest: portal.toCanto === "inferno_05" ? "lust" : "wood",
+        dest: destClass(portal.toCanto),
         label: destLabel(portal),
         e: portal,
       });
@@ -304,7 +322,10 @@ export class Radar {
   }
 
   private writeHint(opts: { you: Vec2; entities: any[]; cantoId: string }) {
-    const portal = opts.entities.find((e) => e.kind === "exit" || e.poiKind === "portal");
+    const portals = opts.entities.filter((e) => e.kind === "exit" || e.poiKind === "portal");
+    const portal =
+      portals.find((e) => e.toCanto && e.toCanto !== "inferno_01") ||
+      portals[0];
     const guide = opts.entities.find(
       (e) => e.poiKind === "npc" || (e.kind === "poi" && (e.label === "Guide" || e.name === "Guide"))
     );
@@ -319,14 +340,19 @@ export class Radar {
       }
     }
     let text = "Explore the wood";
-    if (opts.cantoId === "inferno_05") {
-      if (foe) text = foe.kind === "boss" ? "Slay the Judge" : `Hunt ${destLabel(foe)}`;
-      else if (portal) text = "Return through the portal";
+    if (opts.cantoId === "inferno_05" || opts.cantoId === "inferno_06") {
+      const bossLabel = opts.cantoId === "inferno_06" ? "Slay the Triple Maw" : "Slay the Judge";
+      if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
+      else if (portal) {
+        const dest = cantoShort(portal.toCanto) || "portal";
+        text = `Travel — ${dest}`;
+      }
     } else if (foe && foeD < 28) {
       text = `Hunt ${destLabel(foe)}`;
     } else if (portal) {
       const d = Math.hypot(portal.x - opts.you.x, portal.y - opts.you.y);
-      text = d < 8 ? "Hold E — enter Lust" : "Follow the gold arrow to Lust";
+      const dest = cantoShort(portal.toCanto) || "Lust";
+      text = d < 8 ? `Hold E — enter ${dest}` : `Follow the gold arrow to ${dest}`;
     } else if (guide) {
       text = "Speak with the Guide";
     }
