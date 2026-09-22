@@ -701,6 +701,15 @@ class CantoRoom {
         const r2 = tryEmit(killerId, "FirstClear", { cantoId: this.cantoId, requires: entity.id });
         if (r2.ok && killer) {
           this.toast(killer.ws, "emit", `FirstClear pending +${r2.payoutAsh} Ash`);
+          if (this.cantoId === "inferno_05") {
+            this.toast(
+              killer.ws,
+              "emit",
+              "Lust falls — the Gluttony gate past the dais opens."
+            );
+          } else if (this.cantoId === "inferno_06") {
+            this.toast(killer.ws, "emit", "The Triple Maw is broken. The rain still falls.");
+          }
         } else if (killer && r2.reason === "already_cleared") {
           this.toast(killer.ws, "info", "First clear already claimed for this canto.");
         }
@@ -837,8 +846,11 @@ class CantoRoom {
 
     if (e.kind === "exit") {
       if (e.requireClear && !hasCleared(playerId, e.requireClear)) {
-        const need = cantoTitle(e.requireClear);
-        this.toast(s.ws, "warn", `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${need}.`);
+        const tip =
+          e.requireClear === "inferno_05"
+            ? "Clear the Judge first — then the Gluttony gate opens."
+            : `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
+        this.toast(s.ws, "warn", tip);
         return;
       }
       this.send(s.ws, { type: "toast", level: "info", text: `Travel: ${e.toCanto}` });
@@ -867,14 +879,21 @@ class CantoRoom {
       } else if (e.poiKind === "portal") {
         const dest = e.toCanto || "inferno_01";
         if (e.requireClear && !hasCleared(playerId, e.requireClear)) {
-          const need = cantoTitle(e.requireClear);
-          this.toast(s.ws, "warn", `The way to ${cantoTitle(dest)} is sealed until you clear ${need}.`);
+          const tip =
+            e.requireClear === "inferno_05"
+              ? "Clear the Judge first — then the Gluttony gate opens."
+              : `The way to ${cantoTitle(dest)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
+          this.toast(s.ws, "warn", tip);
           return;
         }
         return { travel: dest };
       } else if (e.poiKind === "cache") {
         if (s.lootedCache) {
-          this.toast(s.ws, "info", "The wind cache is empty.");
+          this.toast(
+            s.ws,
+            "info",
+            this.cantoId === "inferno_06" ? "The filth cache is empty." : "The wind cache is empty."
+          );
           return;
         }
         const bagCount = ledger.inventory.filter((i) => !i.equipSlot).length;
@@ -1225,11 +1244,11 @@ export class World {
       }
       for (const need of gated) {
         if (!hasCleared(playerId, need)) {
-          from.toast(
-            ws,
-            "warn",
-            `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`
-          );
+          const tip =
+            need === "inferno_05"
+              ? "Clear the Judge first — then the Gluttony gate opens."
+              : `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`;
+          from.toast(ws, "warn", tip);
           return { ok: false, reason: "require_clear", need };
         }
       }
@@ -1246,6 +1265,8 @@ export class World {
       );
     } else if (room.cantoId === "inferno_06") {
       room.toast(ws, "info", "The eternal rain falls. Clear the mire, then the Triple Maw.");
+    } else if (room.cantoId === "inferno_05" && hasCleared(playerId, "inferno_05")) {
+      room.toast(ws, "info", "The Gluttony gate past the Judge's dais stands open.");
     }
     return { ok: true, room };
   }

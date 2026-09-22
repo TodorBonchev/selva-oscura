@@ -75,10 +75,30 @@ export class Radar {
     cantoId: string;
     camera: PerspectiveCamera;
     compact: boolean;
+    firstClears?: string[];
   }) {
     this.drawMap(opts);
     this.drawArrows(opts);
     this.writeHint(opts);
+  }
+
+  private portalPreferred(entities: any[], cantoId: string, firstClears?: string[]): any | null {
+    const portals = entities.filter((e) => e.kind === "exit" || e.poiKind === "portal");
+    if (!portals.length) return null;
+    const cleared = Array.isArray(firstClears) ? firstClears : [];
+    const unlocked = (e: any) => !e.requireClear || cleared.includes(e.requireClear);
+    // After Lust clear, prefer the Gluttony gate
+    if (cantoId === "inferno_05") {
+      const glut = portals.find((e) => e.toCanto === "inferno_06" && unlocked(e));
+      if (glut) return glut;
+      const glutLocked = portals.find((e) => e.toCanto === "inferno_06");
+      if (glutLocked) return glutLocked;
+    }
+    if (cantoId === "inferno_06") {
+      const lust = portals.find((e) => e.toCanto === "inferno_05");
+      if (lust) return lust;
+    }
+    return portals.find((e) => e.toCanto && e.toCanto !== "inferno_01") || portals[0];
   }
 
   private drawMap(opts: {
@@ -88,6 +108,7 @@ export class Radar {
     bounds: { width: number; height: number };
     entities: any[];
     cantoId: string;
+    firstClears?: string[];
   }) {
     const { ctx, canvas } = this;
     const w = canvas.width;
@@ -146,13 +167,18 @@ export class Radar {
       const sy = on ? py : cy + (dy / d) * rim;
 
       if (e.kind === "exit" || e.poiKind === "portal") {
+        const clears = opts.firstClears || [];
+        const locked = Boolean(e.requireClear && !clears.includes(e.requireClear));
+        const towardGlut = e.toCanto === "inferno_06";
+        const fill = locked ? "#6a6048" : towardGlut ? "#c8e070" : "#e8c86a";
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(Math.PI / 4);
-        ctx.fillStyle = "#e8c86a";
+        ctx.fillStyle = fill;
+        ctx.globalAlpha = locked ? 0.45 : 1;
         ctx.fillRect(-5, -5, 10, 10);
         ctx.restore();
-        if (!on) this.rimChevron(ctx, sx, sy, "#e8c86a");
+        if (!on) this.rimChevron(ctx, sx, sy, fill);
       } else if (e.kind === "boss") {
         ring(sx, sy, on ? 6 : 5, "#d63a2a", "#ffc8b8");
       } else if (e.kind === "mob") {
@@ -202,18 +228,22 @@ export class Radar {
     entities: any[];
     camera: PerspectiveCamera;
     compact: boolean;
+    cantoId?: string;
+    firstClears?: string[];
   }) {
     const wanted: { id: string; dest: string; label: string; e: any }[] = [];
-    const portals = opts.entities.filter((e) => e.kind === "exit" || e.poiKind === "portal");
-    // Prefer onward Inferno exits over hub returns when several portals exist
-    const portal =
-      portals.find((e) => e.toCanto && e.toCanto !== "inferno_01") ||
-      portals[0];
+    const portal = this.portalPreferred(opts.entities, opts.cantoId || "", opts.firstClears);
     if (portal) {
+      const clears = opts.firstClears || [];
+      const locked = Boolean(portal.requireClear && !clears.includes(portal.requireClear));
       wanted.push({
         id: "portal",
-        dest: destClass(portal.toCanto),
-        label: destLabel(portal),
+        dest: locked ? "locked" : destClass(portal.toCanto),
+        label: locked
+          ? portal.requireClear === "inferno_05"
+            ? "Clear Judge"
+            : "Sealed"
+          : destLabel(portal),
         e: portal,
       });
     }
@@ -228,9 +258,15 @@ export class Radar {
       }
     }
     if (bestFoe) {
+      const bossDest =
+        opts.cantoId === "inferno_06"
+          ? "gluttony"
+          : bestFoe.kind === "boss"
+            ? "lust"
+            : "wood";
       wanted.push({
         id: "foe",
-        dest: bestFoe.kind === "boss" ? "lust" : "wood",
+        dest: bestFoe.kind === "boss" ? bossDest : opts.cantoId === "inferno_06" ? "gluttony" : "wood",
         label: destLabel(bestFoe),
         e: bestFoe,
       });
@@ -321,11 +357,8 @@ export class Radar {
     };
   }
 
-  private writeHint(opts: { you: Vec2; entities: any[]; cantoId: string }) {
-    const portals = opts.entities.filter((e) => e.kind === "exit" || e.poiKind === "portal");
-    const portal =
-      portals.find((e) => e.toCanto && e.toCanto !== "inferno_01") ||
-      portals[0];
+  private writeHint(opts: { you: Vec2; entities: any[]; cantoId: string; firstClears?: string[] }) {
+    const portal = this.portalPreferred(opts.entities, opts.cantoId, opts.firstClears);
     const guide = opts.entities.find(
       (e) => e.poiKind === "npc" || (e.kind === "poi" && (e.label === "Guide" || e.name === "Guide"))
     );
@@ -339,10 +372,13 @@ export class Radar {
         foe = e;
       }
     }
+    const clears = opts.firstClears || [];
     let text = "Explore the wood";
     if (opts.cantoId === "inferno_05" || opts.cantoId === "inferno_06") {
       const bossLabel = opts.cantoId === "inferno_06" ? "Slay the Triple Maw" : "Slay the Judge";
+      const portalLocked = portal && portal.requireClear && !clears.includes(portal.requireClear);
       if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
+      else if (portal && portalLocked) text = "Clear the Judge — then Gluttony opens";
       else if (portal) {
         const dest = cantoShort(portal.toCanto) || "portal";
         text = `Travel — ${dest}`;

@@ -10,6 +10,8 @@ export type MatKit = {
   gem: THREE.MeshStandardMaterial;
   groundHub: THREE.MeshStandardMaterial;
   groundLust: THREE.MeshStandardMaterial;
+  groundGlut: THREE.MeshStandardMaterial;
+  mire: THREE.MeshBasicMaterial;
   bone: THREE.MeshStandardMaterial;
   ember: THREE.MeshStandardMaterial;
   shadowCatch: THREE.MeshStandardMaterial;
@@ -223,6 +225,24 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     emissiveIntensity: 0.22,
     vertexColors: true,
   });
+  // Same lust_ground albedo, retinted olive-mud for Gluttony (no new texture file).
+  const groundGlut = new THREE.MeshStandardMaterial({
+    map: lustMap.clone(),
+    color: 0x9a8860,
+    roughness: 0.94,
+    metalness: 0.04,
+    emissive: 0x2a2810,
+    emissiveIntensity: 0.16,
+    vertexColors: true,
+  });
+  const mire = new THREE.MeshBasicMaterial({
+    color: 0x8a9a44,
+    transparent: true,
+    opacity: 0.5,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
   const canopyA = new THREE.MeshStandardMaterial({
     map: barkMap,
     color: 0x3a4a32,
@@ -250,6 +270,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   lustMap.anisotropy = Math.min(2, lustMap.anisotropy);
   breakAlbedoTiling(groundHub, 0.088);
   breakAlbedoTiling(groundLust, 0.062);
+  breakAlbedoTiling(groundGlut, 0.048);
   const bone = new THREE.MeshStandardMaterial({
     color: 0xf4ead4,
     roughness: 0.45,
@@ -271,7 +292,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     depthWrite: false,
   });
 
-  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, leather, armor, canopyA, canopyB, moss]) {
+  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, groundGlut, leather, armor, canopyA, canopyB, moss]) {
     engrave(m, hatch);
   }
 
@@ -285,6 +306,8 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     gem,
     groundHub,
     groundLust,
+    groundGlut,
+    mire,
     bone,
     ember,
     shadowCatch,

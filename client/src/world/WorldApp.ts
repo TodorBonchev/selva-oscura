@@ -55,7 +55,7 @@ import {
 } from "../render/smoothing";
 import { camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from "./frames";
 import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
-import { makeByKind, modelFrontWorld, resolveKind, type KindKey } from "./meshes";
+import { makeByKind, modelFrontWorld, resolveKind, setPortalGateVisual, tintMireEnemy, type KindKey } from "./meshes";
 import { buildGround, type GroundRig } from "./ground";
 import {
   AshField,
@@ -198,6 +198,10 @@ export class WorldApp {
   hitFlashAmt = 0;
   netOffline = false;
   hubTipShown = false;
+  glutEnterTipShown = false;
+  seenFirstClears = new Set<string>();
+  lustClearRevelShown = false;
+  lustReturnGlutNudgeShown = false;
   nearExitToastAt = 0;
   seenLootIds = new Set<string>();
   seenInvItemIds = new Set<string>();
@@ -953,6 +957,7 @@ export class WorldApp {
         cantoId: this.room.cantoId,
         camera: this.camera,
         compact: compact,
+        firstClears: Array.isArray(this.room.you?.firstClears) ? this.room.you.firstClears : [],
       });
     }
   }
@@ -1234,6 +1239,11 @@ export class WorldApp {
           Math.hypot(heart.x - e.x, heart.y - e.y) <= 14;
         ward.visible = Boolean(near);
       }
+      if (rec.kind === "portal") {
+        const locked = this.portalIsLocked(e);
+        setPortalGateVisual(rec.group, locked, this.portalOpenTint(e));
+        rec.hpEl.classList.toggle("portal-locked", locked);
+      }
       this.updateLabel(rec, e, pos);
     }
     for (const pl of this.room.players) {
@@ -1258,11 +1268,18 @@ export class WorldApp {
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
     const isHeartArch = e.archetype === "storm_heart" || e.archetype === "mire_heart";
     const group = makeByKind(isHeartArch ? "shrine" : kind, this.mats!, e.item?.rarity);
+    const arch = String(e.archetype || "");
+    const isMire = arch.startsWith("mire_") || arch === "mud_wisp";
     if (e.archetype === "gale_wisp" || e.archetype === "mud_wisp") group.scale.setScalar(0.62);
     if (e.archetype === "gale_warden" || e.archetype === "mire_warden") group.scale.setScalar(1.15);
+    if (e.archetype === "mire_shade") group.scale.setScalar(1.05);
+    if (e.archetype === "mire_champion") group.scale.setScalar(1.08);
     if (isHeartArch) group.scale.setScalar(1.45);
     if (e.poiKind === "bell") group.scale.setScalar(0.72);
     if (e.poiKind === "pyre") group.scale.setScalar(1.85);
+    if (isMire && (kind === "whirl" || kind === "champion" || isHeartArch)) {
+      tintMireEnemy(group, this.mats!, Boolean(e.champion) || isHeartArch);
+    }
     if (kind === "whirl" || kind === "champion") {
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(0.62, 0.74, 18),
@@ -1274,24 +1291,32 @@ export class WorldApp {
       ring.visible = false;
       group.add(ring);
     }
+    if (kind === "portal") {
+      setPortalGateVisual(group, this.portalIsLocked(e), this.portalOpenTint(e));
+    }
     group.userData.entityId = id.replace(/^pl:/, "");
     const wrap = document.createElement("div");
     wrap.className = "world-label";
     wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div><div class="interact-prompt" hidden></div>`;
     const label = new CSS2DObject(wrap);
     label.center.set(0.5, 1);
-    label.position.set(0, kind === "judge" ? 5.6 : kind === "portal" ? 4.1 : kind === "loot" ? 1.35 : 2.05, 0);
+    const bossY = kind === "triple_maw" ? 5.9 : kind === "judge" ? 5.6 : 2.05;
+    label.position.set(0, kind === "portal" ? 4.1 : kind === "loot" ? 1.35 : bossY, 0);
     if (kind === "loot") {
       const rarity = String(e?.item?.rarity || "normal");
       group.add(makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a));
       wrap.classList.add("loot-label");
     }
-    if (kind === "whirl" || kind === "champion" || kind === "judge") {
+    if (kind === "whirl" || kind === "champion" || kind === "judge" || kind === "triple_maw") {
       wrap.classList.add("foe");
       if (kind === "champion") wrap.classList.add("elite");
-      if (kind === "judge") wrap.classList.add("boss");
+      if (kind === "judge" || kind === "triple_maw") wrap.classList.add("boss");
+      if (isMire) wrap.classList.add("mire");
     }
-    if (kind === "portal") label.position.set(0, 4.1, 0);
+    if (kind === "portal") {
+      label.position.set(0, 4.1, 0);
+      if (this.portalIsLocked(e)) wrap.classList.add("portal-locked");
+    }
     group.add(label);
     group.userData.baseScale = group.scale.x;
     this.scene.add(group);
@@ -1312,7 +1337,11 @@ export class WorldApp {
     const hp = rec.hpEl.querySelector(".wl-hp") as HTMLElement;
     const fill = rec.hpEl.querySelector(".wl-hp i") as HTMLElement;
     const name = e.item?.name || e.label || e.name || "";
-    const foe = rec.kind === "whirl" || rec.kind === "champion" || rec.kind === "judge";
+    const foe =
+      rec.kind === "whirl" ||
+      rec.kind === "champion" ||
+      rec.kind === "judge" ||
+      rec.kind === "triple_maw";
     const far = rec.kind === "loot" ? 22 : foe ? 26 : 16;
     if (d > far) {
       rec.hpEl.style.opacity = "0";
@@ -1337,6 +1366,27 @@ export class WorldApp {
     const t = 1 - d / MAGNET_RANGE;
     const pull = t * t * 0.55;
     return { x: e.x + (you.x - e.x) * pull, y: e.y + (you.y - e.y) * pull };
+  }
+
+
+  portalIsLocked(e: any): boolean {
+    const need = e?.requireClear;
+    if (!need) return false;
+    const clears = this.room?.you?.firstClears;
+    return !(Array.isArray(clears) && clears.includes(need));
+  }
+
+  portalOpenTint(e: any): number {
+    if (e?.toCanto === "inferno_06") return 0xa8c050;
+    if (e?.toCanto === "inferno_05") return 0x66ffaa;
+    if (this.room?.cantoId === "inferno_06") return 0x88aa44;
+    if (this.room?.cantoId === "inferno_05") return 0xff8844;
+    return 0xff6633;
+  }
+
+  denyLockedPortal(e: any) {
+    const need = e?.requireClear === "inferno_05" ? "the Judge" : "the prior circle";
+    showToast(`Sealed — clear ${need} first`, "warn");
   }
 
   rebuildGround() {
@@ -1374,13 +1424,13 @@ export class WorldApp {
       this.sun.intensity = 2.15;
       this.rim.color.set(0xff8844);
     } else if (glut) {
-      this.scene.fog = new THREE.FogExp2(0x2a2414, 0.02);
-      this.renderer.setClearColor(0x141208, 1);
-      this.hemi.color.set(0xc8b880);
-      this.hemi.groundColor.set(0x1a160c);
-      this.sun.color.set(0xd4b060);
-      this.sun.intensity = 1.95;
-      this.rim.color.set(0xa89050);
+      this.scene.fog = new THREE.FogExp2(0x221e10, 0.026);
+      this.renderer.setClearColor(0x100e08, 1);
+      this.hemi.color.set(0xb8a870);
+      this.hemi.groundColor.set(0x141208);
+      this.sun.color.set(0xc4a848);
+      this.sun.intensity = 1.72;
+      this.rim.color.set(0x8a7840);
     } else {
       this.scene.fog = new THREE.FogExp2(0x1c1812, 0.013);
       this.renderer.setClearColor(0x1c1812, 1);
@@ -1390,10 +1440,27 @@ export class WorldApp {
       this.sun.intensity = 1.85;
       this.rim.color.set(0xffe0b0);
     }
-    const portal = this.room.entities.find((e: any) => e.kind === "exit" || e.poiKind === "portal");
+    const portals = this.room.entities.filter((e: any) => e.kind === "exit" || e.poiKind === "portal");
+    const clears = this.room.you?.firstClears;
+    const lustCleared = Array.isArray(clears) && clears.includes("inferno_05");
+    const portal =
+      (lust && lustCleared && portals.find((e: any) => e.toCanto === "inferno_06" && !this.portalIsLocked(e))) ||
+      portals.find((e: any) => e.toCanto && e.toCanto !== "inferno_01") ||
+      portals[0];
     if (portal) {
-      this.portalLight.intensity = 4.5;
-      this.portalLight.color.set(lust ? 0x66ffaa : glut ? 0x88aa44 : 0xff6633);
+      const locked = this.portalIsLocked(portal);
+      this.portalLight.intensity = locked ? 1.2 : 4.5;
+      this.portalLight.color.set(
+        portal.toCanto === "inferno_06"
+          ? locked
+            ? 0x5a5040
+            : 0xa8c050
+          : lust
+            ? 0x66ffaa
+            : glut
+              ? 0x88aa44
+              : 0xff6633
+      );
       setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
     }
   }
@@ -1440,6 +1507,41 @@ export class WorldApp {
           this.hubTipShown = true;
           showToast("No foes here — take the portal Toward Lust.", "info");
         }
+        const clears: string[] = Array.isArray(msg.room.you?.firstClears)
+          ? msg.room.you.firstClears
+          : [];
+        // Seed known clears on first snapshot so reconnects do not re-revel
+        if (this.seenFirstClears.size === 0 && clears.length && first) {
+          for (const c of clears) this.seenFirstClears.add(c);
+        } else {
+          for (const c of clears) {
+            if (!this.seenFirstClears.has(c)) {
+              this.seenFirstClears.add(c);
+              if (c === "inferno_05" && !this.lustClearRevelShown) {
+                this.lustClearRevelShown = true;
+                this.camPunch = Math.max(this.camPunch, 1.45);
+                showToast("Lust falls — the Gluttony gate past the dais opens", "emit");
+              }
+              if (c === "inferno_06") {
+                this.camPunch = Math.max(this.camPunch, 1.2);
+                showToast("The Triple Maw is broken. The rain still falls.", "emit");
+              }
+            }
+          }
+        }
+        if (msg.room.cantoId === "inferno_06" && (first || cantoChanged) && !this.glutEnterTipShown) {
+          this.glutEnterTipShown = true;
+          showToast("piova etterna — clear the mire, then the Triple Maw", "info");
+        }
+        if (
+          cantoChanged &&
+          msg.room.cantoId === "inferno_05" &&
+          clears.includes("inferno_05") &&
+          !this.lustReturnGlutNudgeShown
+        ) {
+          this.lustReturnGlutNudgeShown = true;
+          showToast("The Gluttony portal waits past the Judge's dais", "info");
+        }
         const lootIds = new Set<string>();
         for (const e of msg.room.entities) {
           if (e.kind !== "loot") continue;
@@ -1471,6 +1573,10 @@ export class WorldApp {
         showToast(text, msg.level);
         if (/out of range|nothing to strike|no foe in range|lashes empty air/i.test(text)) resetCombo();
         if (/slain/i.test(text)) this.triggerDeathRevive();
+        if (/Gluttony gate|gate past the dais opens/i.test(text)) {
+          this.camPunch = Math.max(this.camPunch, 1.25);
+          this.lustClearRevelShown = true;
+        }
         break;
       }
       case "ah_listings":
@@ -1751,6 +1857,10 @@ export class WorldApp {
   }
 
   doInteract(hit: any) {
+    if ((hit.kind === "exit" || hit.poiKind === "portal") && this.portalIsLocked(hit)) {
+      this.denyLockedPortal(hit);
+      return;
+    }
     this.socket.interact(hit.id);
     if (hit.kind === "exit" && hit.toCanto) {
       this.camPunch = 0.8;
@@ -1800,6 +1910,10 @@ export class WorldApp {
       showToast(`Picking up ${best.item?.name || "loot"}`, "loot");
       this.socket.pickup(best.id);
     } else if (best.kind === "exit" || best.poiKind === "portal") {
+      if (this.portalIsLocked(best)) {
+        this.denyLockedPortal(best);
+        return;
+      }
       const dest =
         best.toCanto === "inferno_05"
           ? "Lust"
@@ -1853,8 +1967,8 @@ export class WorldApp {
       } else {
         const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
         line = cleared
-          ? "The Gluttony portal past the dais is open"
-          : "Return through the portal";
+          ? "Hold E at the gold gate — Gluttony awaits"
+          : "Defeat the Judge to open the Gluttony gate";
       }
     } else if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.85) {
       line = "The camp pyre will mend you";
@@ -2263,6 +2377,11 @@ export class WorldApp {
 
   beginPortalHold(target: any, o: { fromKey: boolean; pointer?: PointerEvent; pointerId?: number }) {
     if (!target) return;
+    if (this.portalIsLocked(target)) {
+      this.denyLockedPortal(target);
+      setPortalHoldUi(null);
+      return;
+    }
     if (this.portalHold) this.cancelPortalHold();
     this.moveTarget = null;
     this.velX = 0;
@@ -2387,7 +2506,15 @@ export class WorldApp {
       prompt.hidden = !on;
       if (on) {
         const isPortal = best.kind === "exit" || best.poiKind === "portal";
-        prompt.textContent = isPortal ? "Hold E" : rec.kind === "loot" ? "Take" : "E";
+        if (isPortal && this.portalIsLocked(best)) {
+          prompt.textContent =
+            best.requireClear === "inferno_05" ? "Clear the Judge first" : "Sealed";
+        } else if (isPortal) {
+          const dest = this.portalDestName(best);
+          prompt.textContent = `Hold E — ${dest}`;
+        } else {
+          prompt.textContent = rec.kind === "loot" ? "Take" : "E";
+        }
       }
     }
     if (!best) {
@@ -2403,7 +2530,9 @@ export class WorldApp {
     interactBtn?.classList.remove("interact-idle");
     if (!this.portalHold && labelEl) {
       const isPortal = best.kind === "exit" || best.poiKind === "portal";
-      labelEl.textContent = isPortal ? "Hold" : "Interact";
+      if (isPortal && this.portalIsLocked(best)) labelEl.textContent = "Sealed";
+      else if (isPortal) labelEl.textContent = "Hold";
+      else labelEl.textContent = "Interact";
     }
     if (this.lastInteractHintId !== String(best.id)) {
       this.lastInteractHintId = String(best.id);

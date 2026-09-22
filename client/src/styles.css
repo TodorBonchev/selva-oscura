@@ -2718,7 +2718,7 @@ body.in-lust #heat-haze {
   animation: heat-haze-shimmer 4.5s ease-in-out infinite;
 }
 body.in-gluttony #heat-haze {
-  opacity: 0.38;
+  opacity: 0.48;
   animation: heat-haze-shimmer 5.2s ease-in-out infinite;
   background:
     radial-gradient(ellipse 110% 40% at 50% -5%, #8a7a3040 0%, transparent 55%),
@@ -2726,6 +2726,62 @@ body.in-gluttony #heat-haze {
     radial-gradient(ellipse 40% 110% at 105% 50%, #6a5a2818 0%, transparent 50%),
     radial-gradient(ellipse 110% 36% at 50% 105%, #3a302018 0%, transparent 55%);
 }
+
+/* Gluttony locked-portal + mire rain atmosphere */
+.compass-arrow[data-dest="locked"] .compass-chevron {
+  border-bottom-color: #8a8060;
+  filter: grayscale(0.4) brightness(0.75);
+}
+.compass-arrow[data-dest="locked"] .compass-label { color: #b0a888; }
+.compass-arrow[data-dest="locked"] .compass-dist { color: #8a8060; }
+
+.world-label.portal-locked .wl-name { color: #9a9070; }
+.world-label.portal-locked .interact-prompt {
+  color: #e8d8a0;
+  background: #2a2414cc;
+  border-color: #8a7840;
+}
+.world-label.foe.mire .wl-name { color: #c8d890; }
+.world-label.foe.mire.boss .wl-name { color: #e8f0a8; text-shadow: 0 0 8px #6a8020aa; }
+
+#mire-rain {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    repeating-linear-gradient(
+      112deg,
+      transparent 0 11px,
+      #c8c09014 11px 12px,
+      transparent 12px 23px
+    ),
+    repeating-linear-gradient(
+      98deg,
+      transparent 0 17px,
+      #8a9a4410 17px 18px,
+      transparent 18px 37px
+    );
+  mix-blend-mode: soft-light;
+  transition: opacity 0.5s ease;
+}
+body.in-gluttony #mire-rain {
+  opacity: 0.85;
+  animation: mire-rain-fall 2.8s linear infinite;
+}
+body.in-gluttony #heat-haze {
+  opacity: 0.48;
+}
+@keyframes mire-rain-fall {
+  0% { background-position: 0 0, 0 0; }
+  100% { background-position: 28px 120px, -18px 160px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.in-gluttony #mire-rain { animation: none; opacity: 0.55; }
+}
+
+
 #heat-haze {
   position: fixed;
   inset: 0;

@@ -530,6 +530,100 @@ export function makeJudge(mats: MatKit): THREE.Group {
   return g;
 }
 
+
+/** Triple Maw — three-headed cerberine mass on a mud dais, olive-filth aura. */
+export function makeTripleMaw(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "triple_maw";
+  const bodyPts = [
+    new THREE.Vector2(0.22, 0),
+    new THREE.Vector2(1.35, 0.45),
+    new THREE.Vector2(1.45, 1.55),
+    new THREE.Vector2(1.05, 2.65),
+    new THREE.Vector2(0.62, 3.35),
+  ];
+  const hide = new THREE.MeshStandardMaterial({
+    color: 0x4a3a28,
+    roughness: 0.82,
+    metalness: 0.12,
+    emissive: 0x2a3010,
+    emissiveIntensity: 0.32,
+  });
+  const body = new THREE.Mesh(new THREE.LatheGeometry(bodyPts, 24), hide);
+  const neckBase = new THREE.Mesh(new THREE.SphereGeometry(0.72, 14, 12), hide);
+  neckBase.position.set(0, 3.15, 0.1);
+  neckBase.scale.set(1.35, 0.7, 1.1);
+
+  const makeHead = (ox: number, oy: number, oz: number, yaw: number) => {
+    const head = new THREE.Group();
+    head.position.set(ox, oy, oz);
+    head.rotation.y = yaw;
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.38, 14, 12), mats.bone);
+    skull.scale.set(1.05, 0.95, 1.2);
+    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.55, 7), mats.bronze);
+    jaw.position.set(0, -0.28, -0.32);
+    jaw.rotation.x = 1.85;
+    const fangL = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.22, 5), mats.bone);
+    fangL.position.set(-0.12, -0.18, -0.48);
+    fangL.rotation.x = 0.9;
+    const fangR = fangL.clone();
+    fangR.position.x = 0.12;
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), mats.ember);
+    eyeL.position.set(-0.14, 0.08, -0.34);
+    eyeL.name = "ember";
+    const eyeR = eyeL.clone();
+    eyeR.position.x = 0.14;
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.55, 6), mats.gold);
+    horn.position.set(0, 0.42, -0.05);
+    horn.rotation.x = -0.45;
+    head.add(skull, jaw, fangL, fangR, eyeL, eyeR, horn);
+    return head;
+  };
+
+  const headC = makeHead(0, 3.85, -0.15, 0);
+  const headL = makeHead(-0.95, 3.55, 0.15, 0.55);
+  const headR = makeHead(0.95, 3.55, 0.15, -0.55);
+
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.08, 8, 28), mats.gold);
+  sash.position.y = 2.4;
+  sash.rotation.x = Math.PI / 2;
+  const sludge = new THREE.Mesh(new THREE.TorusKnotGeometry(0.95, 0.07, 28, 6, 2, 3), mats.mire);
+  sludge.position.y = 1.6;
+  sludge.name = "ribbon";
+  const aura = new THREE.Mesh(
+    new THREE.RingGeometry(1.85, 2.35, 36),
+    new THREE.MeshBasicMaterial({
+      color: 0xa8b848,
+      transparent: true,
+      opacity: 0.38,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  aura.rotation.x = -Math.PI / 2;
+  aura.position.y = 0.08;
+  aura.name = "judgeAura";
+  const glow = new THREE.PointLight(0xaabb44, 4.8, 18, 1.5);
+  glow.position.set(0, 3.2, 0.5);
+
+  g.add(
+    discShadow(mats, 1.55),
+    body,
+    neckBase,
+    headC,
+    headL,
+    headR,
+    sash,
+    sludge,
+    aura,
+    glow,
+    nose(mats, 4.05, -0.55)
+  );
+  shadow(g);
+  return g;
+}
+
 export function makeChest(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "stash";
@@ -626,6 +720,82 @@ export function makePortal(mats: MatKit): THREE.Group {
   g.add(discShadow(mats, 1.45), colL, colR, capL, capR, arch, disc, disc2, trim, inner, glow, sparks, nose(mats, 2.0, -0.2));
   shadow(g);
   return g;
+}
+
+
+/** Dim / brighten a portal group for require_clear lock state. */
+export function setPortalGateVisual(root: THREE.Object3D, locked: boolean, openTint = 0xff6633) {
+  root.userData.portalLocked = locked;
+  const disc = root.getObjectByName("galeDisc") as THREE.Mesh | undefined;
+  const ring = root.getObjectByName("galeRing") as THREE.Mesh | undefined;
+  const sparks = root.getObjectByName("portalSparks") as THREE.Points | undefined;
+  const apply = (m: THREE.Material | THREE.Material[] | undefined, fn: (mat: any) => void) => {
+    if (!m) return;
+    if (Array.isArray(m)) m.forEach(fn);
+    else fn(m);
+  };
+  if (disc) {
+    apply(disc.material, (mat) => {
+      if (mat.color) mat.color.setHex(locked ? 0x3a3428 : openTint);
+      if ("opacity" in mat) mat.opacity = locked ? 0.22 : 0.62;
+    });
+  }
+  if (ring) {
+    apply(ring.material, (mat) => {
+      if (mat.color) mat.color.setHex(locked ? 0x2a2818 : openTint);
+      if ("opacity" in mat) mat.opacity = locked ? 0.18 : 0.55;
+    });
+  }
+  if (sparks) {
+    apply(sparks.material, (mat) => {
+      if (mat.color) mat.color.setHex(locked ? 0x5a5040 : 0xff8844);
+      if ("opacity" in mat) mat.opacity = locked ? 0.25 : 0.85;
+      if ("size" in mat) mat.size = locked ? 0.05 : 0.11;
+    });
+  }
+  root.traverse((o) => {
+    if ((o as THREE.PointLight).isPointLight) {
+      const L = o as THREE.PointLight;
+      L.intensity = locked ? 0.35 : 1.6;
+      L.color.setHex(locked ? 0x6a6040 : openTint);
+    }
+  });
+}
+
+/** Olive-filth tint for mire archetypes (reuses shade meshes). */
+export function tintMireEnemy(root: THREE.Object3D, mats: MatKit, heavy = false) {
+  const mud = heavy ? 0x5a4a28 : 0x3a3420;
+  const em = heavy ? 0x4a5020 : 0x2a3010;
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mat = m.material as THREE.Material & {
+      color?: THREE.Color;
+      map?: THREE.Texture | null;
+      emissive?: THREE.Color;
+      emissiveIntensity?: number;
+      clone: () => THREE.Material;
+      isMeshStandardMaterial?: boolean;
+    };
+    if (!mat || !("color" in mat)) return;
+    if (m.name === "ember") return;
+    if (mat === (mats.gold as any) || mat === (mats.bone as any) || mat === (mats.ember as any)) return;
+    if (mat === (mats.gale as any) || mat === (mats.mire as any) || m.name === "ribbon" || m.name === "ribbon2") {
+      const clone = mats.mire.clone();
+      clone.color.setHex(heavy ? 0xb0c050 : 0x8a9a44);
+      m.material = clone;
+      return;
+    }
+    if (mat.isMeshStandardMaterial) {
+      const c = (mat as THREE.MeshStandardMaterial).clone();
+      c.color.setHex(mud);
+      if (c.emissive) {
+        c.emissive.setHex(em);
+        c.emissiveIntensity = heavy ? 0.42 : 0.3;
+      }
+      m.material = c;
+    }
+  });
 }
 
 export function makeLootGem(mats: MatKit, rarity = "normal"): THREE.Group {
@@ -904,6 +1074,7 @@ export type KindKey =
   | "whirl"
   | "champion"
   | "judge"
+  | "triple_maw"
   | "stash"
   | "ah"
   | "quest"
@@ -924,6 +1095,8 @@ export function makeByKind(kind: KindKey, mats: MatKit, rarity?: string): THREE.
       return makeChampion(mats);
     case "judge":
       return makeJudge(mats);
+    case "triple_maw":
+      return makeTripleMaw(mats);
     case "stash":
       return makeChest(mats);
     case "ah":
@@ -946,9 +1119,16 @@ export function resolveKind(ent: {
   poiKind?: string;
   champion?: boolean;
   name?: string;
+  id?: string;
+  archetype?: string;
 }): KindKey {
   if (ent.kind === "player") return "player";
-  if (ent.kind === "boss") return "judge";
+  if (ent.kind === "boss") {
+    const id = String(ent.id || "");
+    const nm = String(ent.name || "");
+    if (id.includes("triple_maw") || /triple maw/i.test(nm)) return "triple_maw";
+    return "judge";
+  }
   if (ent.kind === "loot") return "loot";
   if (ent.kind === "exit" || ent.poiKind === "portal") return "portal";
   if (ent.kind === "poi") {

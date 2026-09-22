@@ -99,9 +99,10 @@ export function terrainHeight(
   const isHub = cantoId === "inferno_01";
   const x = wx - bounds.width / 2;
   const z = wz - bounds.height / 2;
+  const isGlut = cantoId === "inferno_06";
   let n =
-    Math.sin(x * 0.17) * Math.cos(z * 0.13) * (isHub ? 0.28 : 0.12) +
-    Math.sin(x * 0.41 + z * 0.27) * 0.08;
+    Math.sin(x * 0.17) * Math.cos(z * 0.13) * (isHub ? 0.28 : isGlut ? 0.16 : 0.12) +
+    Math.sin(x * 0.41 + z * 0.27) * (isGlut ? 0.11 : 0.08);
   if (isHub) {
     const pathD = Math.min(
       distToPoly(wx, wz, HUB_PATH),
@@ -109,8 +110,11 @@ export function terrainHeight(
       distToPoly(wx, wz, HUB_WRIT)
     );
     if (pathD < 2.6) n *= 0.22;
-  } else if (distToPoly(wx, wz, huntPathFor(cantoId)) < 3.2) {
-    n *= 0.15;
+  } else if (distToPoly(wx, wz, huntPathFor(cantoId)) < (isGlut ? 3.6 : 3.2)) {
+    n *= isGlut ? 0.08 : 0.15;
+  } else if (isGlut) {
+    // Soft sinks between hunt lanes — mire pockets
+    n -= 0.06 * Math.abs(Math.sin(x * 0.09) * Math.cos(z * 0.11));
   }
   return n;
 }
@@ -164,7 +168,9 @@ export function buildGround(
     geo.computeVertexNormals();
   }
 
-  const floor = new THREE.Mesh(geo, isHub ? mats.groundHub : mats.groundLust);
+  const floorMat =
+    isHub ? mats.groundHub : cantoId === "inferno_06" ? mats.groundGlut : mats.groundLust;
+  const floor = new THREE.Mesh(geo, floorMat);
   floor.receiveShadow = true;
   floor.position.set(w / 2, 0, h / 2);
   floor.name = "floor";
@@ -173,9 +179,9 @@ export function buildGround(
   const fogRing = new THREE.Mesh(
     new THREE.RingGeometry(Math.max(w, h) * 0.62, Math.max(w, h) * 1.4, 48),
     new THREE.MeshBasicMaterial({
-      color: isHub ? 0x1a1810 : cantoId === "inferno_06" ? 0x1a1810 : 0x201008,
+      color: isHub ? 0x1a1810 : cantoId === "inferno_06" ? 0x18160c : 0x201008,
       transparent: true,
-      opacity: 0.28,
+      opacity: cantoId === "inferno_06" ? 0.4 : 0.28,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
@@ -307,10 +313,11 @@ export function buildGround(
         if (d < a.r) k = Math.max(k, 0.92 + (1 - d / a.r) * 0.18);
       }
       if (isGlut) {
-        // Muddy olive-brown tint
-        colors[i * 3] = k * 0.88;
-        colors[i * 3 + 1] = k * 0.78;
-        colors[i * 3 + 2] = k * 0.48;
+        // Muddy olive-brown with darker off-path sinks
+        const sink = pathD > 10 ? 0.82 : 1;
+        colors[i * 3] = k * 0.78 * sink;
+        colors[i * 3 + 1] = k * 0.72 * sink;
+        colors[i * 3 + 2] = k * 0.38 * sink;
       } else {
         colors[i * 3] = k * 1.05;
         colors[i * 3 + 1] = k * 0.72;
@@ -335,8 +342,8 @@ export function buildGround(
     }
     for (const a of arenas) {
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(a.r, 0.07, 8, 40),
-        mats.gold
+        new THREE.TorusGeometry(a.r, isGlut ? 0.09 : 0.07, 8, 40),
+        isGlut ? mats.mire : mats.gold
       );
       ring.rotation.x = Math.PI / 2;
       ring.position.set(a.x, heightAt(a.x, a.z) + 0.12, a.z);
@@ -372,17 +379,86 @@ export function buildGround(
       group.add(crack);
     }
     const daisPos = bossDaisFor(cantoId);
-    const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 20), mats.stone);
-    dais.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.14, daisPos.z);
-    dais.receiveShadow = true;
-    group.add(dais);
-    for (let i = 0; i < 5; i++) {
-      const ribbon = makeGaleRibbon(mats, 14 + i * 2);
-      const rx = 28 + i * 24;
-      const rz = (isGlut ? 50 : 58) + (i % 2) * 4;
-      ribbon.position.set(rx, heightAt(rx, rz) + 1.15, rz);
-      ribbon.rotation.y = 0.08 * (i % 2 ? -1 : 1);
-      group.add(ribbon);
+    if (isGlut) {
+      const mud = new THREE.MeshStandardMaterial({
+        color: 0x3a3220,
+        roughness: 0.95,
+        metalness: 0.04,
+        emissive: 0x1a180c,
+        emissiveIntensity: 0.2,
+      });
+      const dais = new THREE.Mesh(new THREE.CylinderGeometry(7.4, 8.2, 0.55, 22), mud);
+      dais.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.18, daisPos.z);
+      dais.receiveShadow = true;
+      group.add(dais);
+      const lip = new THREE.Mesh(new THREE.TorusGeometry(7.6, 0.12, 8, 40), mats.gold);
+      lip.rotation.x = Math.PI / 2;
+      lip.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.48, daisPos.z);
+      group.add(lip);
+      const filth = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.09, 8, 36), mats.mire);
+      filth.rotation.x = Math.PI / 2;
+      filth.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.52, daisPos.z);
+      group.add(filth);
+      // Puddles along the hunt path
+      for (let i = 0; i < hunt.length; i++) {
+        const [px, pz] = hunt[i];
+        const puddle = new THREE.Mesh(
+          new THREE.CircleGeometry(1.4 + hash(i, 91) * 1.1, 18),
+          new THREE.MeshStandardMaterial({
+            color: 0x2a2818,
+            roughness: 0.35,
+            metalness: 0.25,
+            emissive: 0x3a4018,
+            emissiveIntensity: 0.18,
+            transparent: true,
+            opacity: 0.72,
+          })
+        );
+        puddle.rotation.x = -Math.PI / 2;
+        puddle.position.set(px + (hash(i, 92) - 0.5) * 2.2, heightAt(px, pz) + 0.06, pz + (hash(i, 93) - 0.5) * 2.2);
+        puddle.receiveShadow = true;
+        group.add(puddle);
+      }
+      // Sludge mounds off-path
+      let mounds = 0;
+      for (let i = 0; i < 90 && mounds < 14; i++) {
+        const x = 10 + hash(i, 61) * (w - 20);
+        const z = 10 + hash(i, 62) * (h - 20);
+        if (blocked(x, z, 2.2) || distToPoly(x, z, hunt) < 3.8) continue;
+        if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.2)) continue;
+        const mound = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55 + hash(i, 63) * 0.7, 0), mats.moss);
+        mound.position.set(x, heightAt(x, z) + 0.12, z);
+        mound.scale.set(1.4, 0.35 + hash(i, 64) * 0.25, 1.2);
+        mound.rotation.y = hash(i, 65) * Math.PI * 2;
+        group.add(mound);
+        mounds++;
+      }
+      // Low mire haze ribbons (olive) instead of high gale streamers
+      for (let i = 0; i < 6; i++) {
+        const ribbon = makeGaleRibbon(mats, 12 + i * 2);
+        const mat = ribbon.material as THREE.MeshBasicMaterial;
+        mat.color.set(0x6a7a30);
+        mat.opacity = 0.28;
+        const rx = 22 + i * 20;
+        const rz = 46 + (i % 2) * 10;
+        ribbon.position.set(rx, heightAt(rx, rz) + 0.85, rz);
+        ribbon.rotation.y = 0.12 * (i % 2 ? -1 : 1);
+        ribbon.rotation.x = Math.PI * 0.08;
+        group.add(ribbon);
+      }
+    } else {
+      const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 20), mats.stone);
+      dais.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.14, daisPos.z);
+      dais.receiveShadow = true;
+      group.add(dais);
+      for (let i = 0; i < 5; i++) {
+        const ribbon = makeGaleRibbon(mats, 14 + i * 2);
+        const rx = 28 + i * 24;
+        const rz = 58 + (i % 2) * 4;
+        ribbon.position.set(rx, heightAt(rx, rz) + 1.15, rz);
+        ribbon.rotation.y = 0.08 * (i % 2 ? -1 : 1);
+        group.add(ribbon);
+      }
     }
   }
 
