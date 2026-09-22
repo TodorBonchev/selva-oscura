@@ -574,6 +574,13 @@ class CantoRoom {
 
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
+    if (entity.packId && killer) {
+      let left = 0;
+      for (const e of this.entities.values()) {
+        if (e.packId === entity.packId && e.kind === "mob") left++;
+      }
+      if (left === 0) this.toast(killer.ws, "info", "The gust breaks. Press on.");
+    }
 
     if (drops.length && killer) {
       this.toast(

@@ -14,6 +14,8 @@ const BASE_CONTENT_SLOT: Record<string, string> = {
   bone_shard: "misc",
   cinder_veil: "armor",
   road_pike: "weapon",
+  minos_band: "misc",
+  storm_cowl: "helm",
 };
 
 /** Content slot for an item (weapon/armor/helm/…); mirrors server inferContentSlot. */
@@ -29,7 +31,7 @@ export function inferContentSlot(item: {
   if (n.includes("pike") || n.includes("club") || n.includes("sword") || n.includes("blade")) return "weapon";
   if (n.includes("veil")) return "armor";
   if (n.includes("cape") || n.includes("mail") || n.includes("armor")) return "armor";
-  if (n.includes("helm") || n.includes("hood") || n.includes("crown")) return "helm";
+  if (n.includes("cowl") || n.includes("helm") || n.includes("hood") || n.includes("crown")) return "helm";
   if (n.includes("boot") || n.includes("greave")) return "boots";
   if (n.includes("glove") || n.includes("gauntlet")) return "gloves";
   if (n.includes("buckler") || n.includes("shield")) return "offhand";

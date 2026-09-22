@@ -157,6 +157,7 @@ export class WorldApp {
   combatUntil = 0;
   lastChaseToast = 0;
   lockedId: string | null = null;
+  lockRing: THREE.Mesh | null = null;
   slowFrames = 0;
   gfxDropped = false;
   propAnims: THREE.Object3D[] = [];
@@ -346,6 +347,20 @@ export class WorldApp {
       g.visible = false;
       this.clickMark = g;
       this.scene.add(g);
+      const lock = new THREE.Mesh(
+        new THREE.RingGeometry(0.72, 0.86, 28),
+        new THREE.MeshBasicMaterial({
+          color: 0xd63a2a,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+      );
+      lock.rotation.x = -Math.PI / 2;
+      lock.visible = false;
+      this.lockRing = lock;
+      this.scene.add(lock);
     }
     this.slash = makeSlashTrail();
     this.slash.visible = false;
@@ -827,6 +842,14 @@ export class WorldApp {
     }
 
     this.syncEntities();
+    if (this.lockRing) {
+      const lock = this.lockedId ? this.foeById(this.lockedId, 80) : null;
+      this.lockRing.visible = Boolean(lock);
+      if (lock) {
+        setPlanar(this.lockRing.position, lock.pos.x, lock.pos.y, this.standY(lock.pos.x, lock.pos.y, 0.08));
+        this.lockRing.rotation.z = this.animT * 0.004;
+      }
+    }
 
     setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
     const rate = compact ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;

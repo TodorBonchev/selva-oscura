@@ -22,6 +22,7 @@ export const ITEM_ICON_FILES: Record<string, string> = {
   cinder_veil: "item_chest.png",
   road_pike: "item_sword.png",
   minos_band: "item_gem.png",
+  storm_cowl: "item_helm.png",
   // generic by equip slot
   MainHand: "item_sword.png",
   OffHand: "item_gem.png",
@@ -67,6 +68,7 @@ export function resolveBaseId(it: {
   if (n.includes("pike") || n.includes("club") || n.includes("sword") || n.includes("blade")) return n.includes("pike") ? "road_pike" : "ashen_club";
   if (n.includes("veil") || n.includes("cinder")) return "cinder_veil";
   if (n.includes("cape") || n.includes("mail") || n.includes("armor")) return "torn_cape";
+  if (n.includes("cowl")) return "storm_cowl";
   if (n.includes("helm") || n.includes("hood") || n.includes("crown")) return "ash_helm";
   if (n.includes("boot") || n.includes("greave")) return "pilgrim_boots";
   if (n.includes("glove") || n.includes("gauntlet")) return "grave_gloves";

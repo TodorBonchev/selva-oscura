@@ -49,10 +49,9 @@ varying vec3 vWp;`
   vec2 wr = vec2(wu.x * 0.72 - wu.y * 0.69, wu.x * 0.69 + wu.y * 0.72);
   vec4 a = texture2D(map, wu);
   vec4 b = texture2D(map, wr * 0.37 + vec2(0.41, 0.17));
-  vec4 c = texture2D(map, wu * 1.73 + vec2(0.08, 0.62));
   float n = 0.5 + 0.5 * sin(vWp.x * 0.093 + vWp.z * 0.071);
   float n2 = 0.5 + 0.5 * sin(vWp.x * 0.031 - vWp.z * 0.044);
-  vec4 sampledDiffuseColor = mix(mix(a, b, n), c, 0.22 + 0.18 * n2);
+  vec4 sampledDiffuseColor = mix(a, b, 0.35 + 0.4 * n);
   float macro = 0.88 + 0.16 * n2;
   sampledDiffuseColor.rgb *= macro;
   float lum = dot(sampledDiffuseColor.rgb, vec3(0.30, 0.54, 0.16));
