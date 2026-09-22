@@ -27,6 +27,7 @@ export const ITEM_ICON_FILES: Record<string, string> = {
   wisp_filament: "item_gem.png",
   heart_shard: "item_gem.png",
   pyre_coal: "item_gem.png",
+  writ_quill: "item_gem.png",
   // generic by equip slot
   MainHand: "item_sword.png",
   OffHand: "item_gem.png",
