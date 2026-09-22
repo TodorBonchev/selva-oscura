@@ -25,6 +25,13 @@
     ],
     "pois": [
       {
+        "id": "wind_cache",
+        "kind": "cache",
+        "x": 60,
+        "y": 55,
+        "label": "Wind Cache"
+      },
+      {
         "id": "wind_shrine",
         "kind": "shrine",
         "x": 26,
@@ -86,6 +93,16 @@
         "x": 100,
         "y": 50
       }
+    },
+    {
+      "id": "lust_strays",
+      "name": "Stray Shade",
+      "archetype": "whirl_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 86, "y": 38 }
     },
     {
       "id": "lust_bufera",

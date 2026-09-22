@@ -589,7 +589,7 @@ export function makePortal(mats: MatKit): THREE.Group {
   const inner = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.03, 8, 24), mats.gold);
   inner.position.y = 2.05;
   inner.name = "portalInner";
-  const glow = new THREE.PointLight(0xff6633, 6.5, 14, 1.6);
+  const glow = new THREE.PointLight(0xff6633, 1.6, 8, 2);
   glow.position.set(0, 2.1, 0.2);
   const n = 48;
   const pos = new Float32Array(n * 3);
@@ -737,7 +737,7 @@ export function makeTree(mats: MatKit, seed: number): THREE.Group {
 
   const barkMesh = mergeMesh(barkGeos, mats.bark.clone());
   if (barkMesh) g.add(barkMesh);
-  const leafMesh = mergeMesh(leafGeos, canopyMat.clone());
+  const leafMesh = mergeMesh(leafGeos, canopyMat.clone(), false);
   if (leafMesh) g.add(leafMesh);
   g.add(discShadow(mats, 0.55 + rBase));
   return g;
@@ -939,7 +939,7 @@ export function resolveKind(ent: {
   if (ent.kind === "loot") return "loot";
   if (ent.kind === "exit" || ent.poiKind === "portal") return "portal";
   if (ent.kind === "poi") {
-    if (ent.poiKind === "stash") return "stash";
+    if (ent.poiKind === "stash" || ent.poiKind === "cache") return "stash";
     if (ent.poiKind === "ah") return "ah";
     if (ent.poiKind === "quest") return "quest";
     if (ent.poiKind === "shrine") return "shrine";

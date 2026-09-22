@@ -156,6 +156,7 @@ export class WorldApp {
   frameN = 0;
   combatUntil = 0;
   lastChaseToast = 0;
+  dashReadyAt = 0;
   lockedId: string | null = null;
   lockRing: THREE.Mesh | null = null;
   slowFrames = 0;
@@ -256,7 +257,7 @@ export class WorldApp {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.22;
     this.renderer.shadowMap.enabled = !isCompactUi();
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     root.appendChild(this.renderer.domElement);
 
     this.labelRenderer = new CSS2DRenderer();
@@ -413,6 +414,7 @@ export class WorldApp {
       },
       meltBag: () => this.socket.salvageBag(),
       sip: () => this.socket.sip(),
+      dash: () => this.dash(),
       castSpell: (spellId) => this.castSpell(spellId),
       onSpellHoldStart: (spellId, ev) => this.beginSpellHold(spellId, { fromKey: false, pointer: ev }),
       onSpellHoldMove: (_spellId, ev) => this.updateSpellHoldPointer(ev),
@@ -514,6 +516,10 @@ export class WorldApp {
         this.cancelPortalHold();
       }
       if (e.code === "KeyQ") this.socket.sip();
+      if (e.code === "Space") {
+        e.preventDefault();
+        this.dash();
+      }
       if (e.code === "KeyE") {
         const portal = this.nearestIsPortalTravel();
         if (portal) this.beginPortalHold(portal, { fromKey: true });
@@ -1289,7 +1295,7 @@ export class WorldApp {
     });
     const lust = this.room.cantoId === "inferno_05";
     document.body.classList.toggle("in-lust", lust);
-    this.scene.fog = new THREE.FogExp2(lust ? 0x2a100c : 0x1c1812, lust ? 0.014 : 0.013);
+    this.scene.fog = new THREE.FogExp2(lust ? 0x3a140e : 0x1c1812, lust ? 0.018 : 0.013);
     this.renderer.setClearColor(lust ? 0x1a0c08 : 0x1c1812, 1);
     this.hemi.color.set(lust ? 0xffb080 : 0xe8d4b0);
     this.hemi.groundColor.set(lust ? 0x2a1008 : 0x1a1410);
@@ -1770,6 +1776,29 @@ export class WorldApp {
       if (d < maxDist && (!best || d < best.d)) best = { e, d, pos };
     }
     return best;
+  }
+
+  dash() {
+    const now = Date.now();
+    if (now < this.dashReadyAt) return;
+    this.dashReadyAt = now + 4000;
+    const len = Math.hypot(this.aimX, this.aimY) || 1;
+    const nx = this.aimX / len;
+    const ny = this.aimY / len;
+    const step = 5.5;
+    const nxPos = this.renderYou.x + nx * step;
+    const nyPos = this.renderYou.y + ny * step;
+    this.renderYou.x = nxPos;
+    this.renderYou.y = nyPos;
+    this.serverYou.x = nxPos;
+    this.serverYou.y = nyPos;
+    this.socket.dash(nx, ny);
+    if (this.dust.length < 8) {
+      const puff = makeDustPuff();
+      setPlanar(puff.position, nxPos, nyPos, this.standY(nxPos, nyPos, 0.05));
+      this.scene.add(puff);
+      this.dust.push({ mesh: puff, start: this.animT });
+    }
   }
 
   attackNearest(opts?: { silent?: boolean }) {

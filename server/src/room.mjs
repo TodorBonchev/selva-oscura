@@ -174,6 +174,7 @@ class CantoRoom {
       maxMana: PLAYER_MAX_MANA,
       atkCd: 0,
       sipCd: 0,
+      dashCd: 0,
       spellCd: { gale_bolt: 0, whirl_ward: 0, infernal_burst: 0 },
       armorBuff: 0,
       wardUntil: 0,
@@ -616,6 +617,31 @@ class CantoRoom {
     this.pushAllSnapshots();
   }
 
+  handleDash(playerId, aimX, aimY) {
+    const s = this.sessions.get(playerId);
+    if (!s || s.hp <= 0) return;
+    if (s.dashCd > 0) {
+      this.toast(s.ws, "warn", `Dash cooling (${Math.ceil(s.dashCd)}s)`);
+      return;
+    }
+    let dx = Number(aimX) || s._lastFaceX || 0;
+    let dy = Number(aimY) || s._lastFaceY || -1;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len;
+    dy /= len;
+    const step = 5.5;
+    const b = this.canto.geo.bounds;
+    s.x = Math.max(2, Math.min(b.width - 2, s.x + dx * step));
+    s.y = Math.max(2, Math.min(b.height - 2, s.y + dy * step));
+    s._lastFaceX = dx;
+    s._lastFaceY = dy;
+    s.iframes = Math.max(s.iframes || 0, 0.35);
+    s.dashCd = 4;
+    this.toast(s.ws, "info", "Dash");
+    this.markDirty();
+    this.pushSnapshot(playerId);
+  }
+
   handleSip(playerId) {
     const s = this.sessions.get(playerId);
     if (!s) return;
@@ -720,6 +746,28 @@ class CantoRoom {
         this.tryDaily(playerId);
       } else if (e.poiKind === "portal") {
         return { travel: "inferno_01" };
+      } else if (e.poiKind === "cache") {
+        if (s.lootedCache) {
+          this.toast(s.ws, "info", "The wind cache is empty.");
+          return;
+        }
+        const bagCount = ledger.inventory.filter((i) => !i.equipSlot).length;
+        if (bagCount >= 40) {
+          this.toast(s.ws, "warn", "Inventory full.");
+          return;
+        }
+        const drops = rollDrops("inferno_pack_common", { champion: true, boss: false });
+        const item = drops[0];
+        if (!item) {
+          this.toast(s.ws, "info", "The cache holds only dust.");
+          return;
+        }
+        s.lootedCache = true;
+        void grantInventoryItem(playerId, item).then(() => {
+          this.toast(s.ws, "loot", `Cache: ${item.rarity} ${item.name}`);
+          this.pushSnapshot(playerId);
+        });
+        return;
       } else if (e.poiKind === "shrine") {
         s.hp = s.maxHp;
         s.mana = s.maxMana;
@@ -795,6 +843,7 @@ class CantoRoom {
     for (const s of this.sessions.values()) {
       if (s.atkCd > 0) s.atkCd = Math.max(0, s.atkCd - dt);
       if (s.sipCd > 0) s.sipCd = Math.max(0, s.sipCd - dt);
+      if (s.dashCd > 0) s.dashCd = Math.max(0, s.dashCd - dt);
       if (s.iframes > 0) s.iframes = Math.max(0, s.iframes - dt);
       if (s.spellCd) {
         for (const k of Object.keys(s.spellCd)) {
@@ -829,6 +878,21 @@ class CantoRoom {
         }
       }
       if (!nearest) continue;
+      if (e.homeX == null) {
+        e.homeX = e.x;
+        e.homeY = e.y;
+      }
+      const homeD = Math.hypot(e.x - e.homeX, e.y - e.homeY);
+      const leash = e.kind === "boss" ? 16 : 11;
+      if (e.kind !== "boss" && homeD > leash) {
+        const hx = e.homeX - e.x;
+        const hy = e.homeY - e.y;
+        const hl = Math.hypot(hx, hy) || 1;
+        e.x += (hx / hl) * 4.2 * dt;
+        e.y += (hy / hl) * 4.2 * dt;
+        moved = true;
+        continue;
+      }
       const aggro = e.kind === "boss" ? 14 : 8;
       const winding = e.kind === "boss" && e.windupLeft > 0;
       // Hold still during slam windup so the ground ring matches the hit.
