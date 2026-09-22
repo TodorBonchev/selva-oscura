@@ -86,6 +86,16 @@
         "x": 100,
         "y": 50
       }
+    },
+    {
+      "id": "lust_bufera",
+      "name": "Bufera",
+      "archetype": "gale_champion",
+      "count": 1,
+      "elite": true,
+      "champion": true,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 122, "y": 58 }
     }
   ],
   "bosses": [

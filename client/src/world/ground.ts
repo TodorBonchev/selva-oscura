@@ -200,7 +200,7 @@ export function buildGround(
     }
 
     let placed = 0;
-    for (let i = 0; i < 420 && placed < 86; i++) {
+    for (let i = 0; i < 360 && placed < 64; i++) {
       const x = 4 + hash(i, 1) * (w - 8);
       const z = 4 + hash(i, 2) * (h - 8);
       if (blocked(x, z, 2.2) || onTrail(x, z, 2.9)) continue;
@@ -259,9 +259,11 @@ export function buildGround(
     }
   } else {
     const arenas: { x: number; z: number; r: number }[] = [
+      { x: 32, z: 56, r: 5 },
       { x: 48, z: 40, r: 7 },
       { x: 72, z: 70, r: 7 },
       { x: 100, z: 50, r: 8 },
+      { x: 122, z: 58, r: 6 },
       { x: 140, z: 60, r: 9 },
     ];
     const colors = new Float32Array(pos.count * 3);
@@ -313,7 +315,20 @@ export function buildGround(
       brazR.position.set(rx, heightAt(rx, rz), rz);
       group.add(brazL, brazR);
     }
-    const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 28), mats.stone);
+    for (let i = 0; i < LUST_HUNT.length - 1; i++) {
+      const a = LUST_HUNT[i];
+      const b = LUST_HUNT[i + 1];
+      const mx = (a[0] + b[0]) * 0.5;
+      const mz = (a[1] + b[1]) * 0.5;
+      const rib = makeGaleRibbon(mats, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.55);
+      rib.position.set(mx, heightAt(mx, mz) + 1.8, mz);
+      rib.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
+      const mat = rib.material as THREE.MeshBasicMaterial;
+      mat.side = THREE.DoubleSide;
+      mat.opacity = 0.45;
+      group.add(rib);
+    }
+    const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 20), mats.stone);
     dais.position.set(140, heightAt(140, 60) + 0.14, 60);
     dais.receiveShadow = true;
     group.add(dais);

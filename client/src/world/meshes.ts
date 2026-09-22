@@ -633,9 +633,7 @@ export function makeLootGem(mats: MatKit, rarity = "normal"): THREE.Group {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.03, 8, 18), mats.gold);
   ring.position.y = 0.28;
   ring.rotation.x = Math.PI / 2;
-  const glow = new THREE.PointLight(hex, rarity === "normal" ? 0.8 : 2.2, 5, 2);
-  glow.position.y = 0.6;
-  g.add(discShadow(mats, 0.3), gem, ring, glow, nose(mats, 0.55, -0.14));
+  g.add(discShadow(mats, 0.3), gem, ring, nose(mats, 0.55, -0.14));
   return g;
 }
 
@@ -681,7 +679,7 @@ export function makeTree(mats: MatKit, seed: number): THREE.Group {
     r = rTop;
   }
 
-  const nBr = 6 + ((rng() * 4) | 0);
+  const nBr = 4 + ((rng() * 2) | 0);
   for (let i = 0; i < nBr; i++) {
     const t = 0.38 + rng() * 0.55;
     const by = h * t;
@@ -717,7 +715,7 @@ export function makeTree(mats: MatKit, seed: number): THREE.Group {
   }
 
   if (!dead) {
-    for (let t = 0; t < 3; t++) {
+    for (let t = 0; t < 2; t++) {
       const tuft = new THREE.IcosahedronGeometry(0.7 + rng() * 0.55, 0);
       leafGeos.push(
         xform(
@@ -842,9 +840,7 @@ export function makeBrazier(mats: MatKit): THREE.Group {
   const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.42, 7), mats.ember);
   flame.position.y = 0.85;
   flame.name = "ember";
-  const light = new THREE.PointLight(0xff6622, 2.4, 8, 2);
-  light.position.y = 0.9;
-  g.add(discShadow(mats, 0.32), stem, bowl, flame, light);
+  g.add(discShadow(mats, 0.32), stem, bowl, flame);
   return g;
 }
 
