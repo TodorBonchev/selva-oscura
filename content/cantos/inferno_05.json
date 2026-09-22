@@ -61,7 +61,7 @@
       "archetype": "storm_heart",
       "count": 1,
       "elite": true,
-      "champion": false,
+      "champion": true,
       "drop_table": "inferno_pack_common",
       "anchor": { "x": 78, "y": 58 }
     },

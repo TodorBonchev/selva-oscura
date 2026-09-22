@@ -1148,6 +1148,16 @@ export class WorldApp {
       if ((n.kind === "whirl" || n.kind === "champion") && this.frameN % 2 === 0) {
         tickWhirl(n.group, this.animT, n.kind === "champion");
       }
+      const pulse = Number(n.group.userData.hitPulse) || 0;
+      if (pulse > 0.04) {
+        const base = Number(n.group.userData.baseScale) || 1;
+        n.group.userData.hitPulse = pulse * 0.82;
+        n.group.scale.setScalar(base * (1 + n.group.userData.hitPulse * 0.08));
+      } else if (pulse > 0) {
+        n.group.userData.hitPulse = 0;
+        const base = Number(n.group.userData.baseScale) || 1;
+        n.group.scale.setScalar(base);
+      }
       const aura = n.group.getObjectByName("judgeAura");
       if (aura) {
         const s = 1 + Math.sin(this.animT * 0.004) * 0.08;
@@ -1263,6 +1273,7 @@ export class WorldApp {
     }
     if (kind === "portal") label.position.set(0, 4.1, 0);
     group.add(label);
+    group.userData.baseScale = group.scale.x;
     this.scene.add(group);
     const rec: NodeRec = { id, kind, group, label, hpEl: wrap };
     this.nodes.set(id, rec);
@@ -1514,7 +1525,12 @@ export class WorldApp {
       const pos = this.entityRenderPos(ent);
       this.floatDmg(pos, msg.damage, false);
       const rec = this.nodes.get(String(ent.id));
-      if (rec) rec.group.scale.setScalar(heavy ? 1.28 : 1.2);
+      if (rec) {
+        const base = Number(rec.group.userData.baseScale) || rec.group.scale.x || 1;
+        rec.group.userData.baseScale = base;
+        rec.group.userData.hitPulse = 1;
+        rec.group.scale.setScalar(base * (heavy ? 1.1 : 1.06));
+      }
       this.spawnHitFx(pos, heavy ? 0xffd078 : 0xffe8a0, heavy || comboBoost > 0.2);
     }
   }
