@@ -26,7 +26,7 @@
         "to_canto": "inferno_06",
         "x": 150,
         "y": 60,
-        "label": "Toward Gluttony \u2192",
+        "label": "Toward Gluttony →",
         "require_clear": "inferno_05"
       }
     ],
@@ -36,21 +36,24 @@
         "kind": "bell",
         "x": 90,
         "y": 62,
-        "label": "Gale Bell"
+        "label": "Gale Bell",
+        "hint": "Stills nearby shades — then press the Judge"
       },
       {
         "id": "wind_cache",
         "kind": "cache",
         "x": 60,
         "y": 55,
-        "label": "Wind Cache"
+        "label": "Wind Cache",
+        "hint": "One champion drop per visit — E to claim"
       },
       {
         "id": "wind_shrine",
         "kind": "shrine",
         "x": 26,
         "y": 64,
-        "label": "Wind Shrine"
+        "label": "Wind Shrine",
+        "hint": "Restores life and breath — E to kneel"
       },
       {
         "id": "lust_portal_home",
@@ -221,7 +224,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_02_lust",
-    "notes": "Circle kit 2 of 12; red-black gale; Dor\u00e9 line weight"
+    "notes": "Circle kit 2 of 12; red-black gale; Doré line weight"
   },
   "loot_density": "raw_d2",
   "legal": {

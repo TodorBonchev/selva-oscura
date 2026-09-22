@@ -876,13 +876,19 @@ class CantoRoom {
         this.toast(
           s.ws,
           "info",
-          "Guide: Follow the gold arrow into Lust. Clear the Judge — then Gluttony (piova etterna) opens past his dais. Return and claim the writ."
+          "Guide: Follow the gold arrow into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais. Return for the writ, stash, and Auction House."
         );
       } else if (e.poiKind === "stash") {
-        this.toast(s.ws, "info", `Stash holds ${ledger.stash.length} items (stub — inventory only for now).`);
+        this.toast(
+          s.ws,
+          "info",
+          ledger.stash.length
+            ? `Stash holds ${ledger.stash.length} item${ledger.stash.length === 1 ? "" : "s"} — bank Lust and Gluttony drops here.`
+            : "Stash is empty — bank champion drops here after Lust or Gluttony."
+        );
       } else if (e.poiKind === "ah") {
         this.send(s.ws, { type: "ah_listings", listings: ah.getListings() });
-        this.toast(s.ws, "info", "Auction House opened (off-chain Ash ledger).");
+        this.toast(s.ws, "info", "Auction House — list gear for Ash, or bid on pilgrim lots.");
       } else if (e.poiKind === "quest") {
         this.tryDaily(playerId);
       } else if (e.poiKind === "portal") {

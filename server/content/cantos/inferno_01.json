@@ -6,8 +6,14 @@
   "subtitle_it": "Nel mezzo del cammin di nostra vita",
   "role": "hub",
   "geo": {
-    "bounds": { "width": 128, "height": 128 },
-    "spawn": { "x": 64, "y": 72 },
+    "bounds": {
+      "width": 128,
+      "height": 128
+    },
+    "spawn": {
+      "x": 64,
+      "y": 72
+    },
     "exits": [
       {
         "to_canto": "inferno_05",
@@ -17,11 +23,46 @@
       }
     ],
     "pois": [
-      { "id": "camp_pyre", "kind": "pyre", "x": 68, "y": 74, "label": "Camp pyre" },
-      { "id": "virgil_guide", "kind": "npc", "x": 60, "y": 70, "label": "Guide" },
-      { "id": "hub_stash", "kind": "stash", "x": 52, "y": 78, "label": "Stash" },
-      { "id": "hub_ah", "kind": "ah", "x": 76, "y": 78, "label": "Auction House" },
-      { "id": "daily_board", "kind": "quest", "x": 64, "y": 60, "label": "Daily writs" }
+      {
+        "id": "camp_pyre",
+        "kind": "pyre",
+        "x": 68,
+        "y": 74,
+        "label": "Camp pyre",
+        "hint": "Kneel to mend wounds before the road"
+      },
+      {
+        "id": "virgil_guide",
+        "kind": "npc",
+        "x": 60,
+        "y": 70,
+        "label": "Guide",
+        "hint": "Counsel for Lust and the writ — E to speak"
+      },
+      {
+        "id": "hub_stash",
+        "kind": "stash",
+        "x": 52,
+        "y": 78,
+        "label": "Stash",
+        "hint": "Bank champion drops from Lust and Gluttony"
+      },
+      {
+        "id": "hub_ah",
+        "kind": "ah",
+        "x": 76,
+        "y": 78,
+        "label": "Auction House",
+        "hint": "List and bid gear in off-chain Ash"
+      },
+      {
+        "id": "daily_board",
+        "kind": "quest",
+        "x": 64,
+        "y": 60,
+        "label": "Daily writs",
+        "hint": "Claim after speaking with the Guide and returning once"
+      }
     ]
   },
   "packs": [],
@@ -32,7 +73,7 @@
   "daily_quests": [
     {
       "id": "dw_daily_scout",
-      "objective": "Speak with the Guide and return from any Inferno instance once",
+      "objective": "Speak with the Guide, then return from Lust or Gluttony once",
       "emit_event": "DailyQuest"
     }
   ],

@@ -2806,6 +2806,9 @@ body:not(.in-gluttony) #mire-rain {
 body.tab-hidden.in-gluttony #mire-rain {
   opacity: 0.4;
 }
+body.tab-hidden #heat-haze {
+  animation: none !important;
+}
 body.in-gluttony #heat-haze {
   opacity: 0.4;
 }
@@ -2818,6 +2821,8 @@ body.in-gluttony.hud-compact #heat-haze {
 }
 @media (prefers-reduced-motion: reduce) {
   body.in-gluttony #mire-rain { animation: none; opacity: 0.5; }
+  body.in-lust #heat-haze,
+  body.in-gluttony #heat-haze { animation: none; }
 }
 
 
@@ -3931,6 +3936,7 @@ body.is-fullscreen {
   font-size: 12px;
   letter-spacing: 0.04em;
   white-space: nowrap;
+  text-shadow: 0 1px 2px #0a0806ee, 0 0 10px #1c181888;
 }
 .you-label .wl-name {
   color: var(--gold-2);

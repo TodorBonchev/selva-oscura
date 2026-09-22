@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { MatKit } from "./materials";
+import { isCompactUi } from "../ui/hud";
 
 const _eul = new THREE.Euler();
 const _quat = new THREE.Quaternion();
@@ -340,12 +341,18 @@ export function makeGuide(mats: MatKit): THREE.Group {
   if (wep) wep.visible = false;
   const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 2.2, 8), mats.bronze);
   staff.position.set(-0.38, 1.15, 0.08);
-  const lantern = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.14), mats.gold);
-  lantern.position.set(-0.38, 2.2, 0.08);
-  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), mats.ember);
-  flame.position.set(-0.38, 2.2, 0.08);
+  const lantern = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.16), mats.gold);
+  lantern.position.set(-0.38, 2.22, 0.08);
+  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), mats.ember);
+  flame.position.set(-0.38, 2.28, 0.08);
   flame.name = "ember";
-  g.add(staff, lantern, flame);
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), mats.gale.clone());
+  (halo.material as THREE.MeshBasicMaterial).opacity = 0.35;
+  (halo.material as THREE.MeshBasicMaterial).transparent = true;
+  (halo.material as THREE.MeshBasicMaterial).depthWrite = false;
+  halo.position.set(-0.38, 2.28, 0.08);
+  halo.name = "ember";
+  g.add(staff, lantern, flame, halo);
   return g;
 }
 
@@ -373,10 +380,11 @@ function mireShadeMat(mats: MatKit, goldTrim: boolean): THREE.Material {
   return mireShadeMats[key]!;
 }
 
-/** Lust uses TorusKnot ribbons; Gluttony uses cheap Torus rings (same anim hooks). */
+/** Lust: TorusKnot on desktop; cheap Torus on compact. Gluttony: Torus rings. */
 function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = false): THREE.Group {
   const g = new THREE.Group();
   const wraith = mire ? mireShadeMat(mats, goldTrim) : shadeMat(mats, goldTrim);
+  const cheapPlume = mire || isCompactUi();
   const pts = [
     new THREE.Vector2(0.02, 0),
     new THREE.Vector2(0.22, 0.18),
@@ -385,10 +393,10 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = fa
     new THREE.Vector2(0.12, 1.55),
     new THREE.Vector2(0.04, 1.85),
   ];
-  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, mire ? 10 : 12), wraith);
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, cheapPlume ? 10 : 12), wraith);
   body.position.y = 0.2;
   const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.26, mire ? 10 : 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
+    new THREE.SphereGeometry(0.26, cheapPlume ? 10 : 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
     goldTrim ? mats.gold : wraith
   );
   hood.position.set(0, 1.78, 0.04);
@@ -412,13 +420,17 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = fa
   const clawR = clawL.clone();
   clawR.position.x = 0.62;
   const ribbon = new THREE.Mesh(
-    mire ? new THREE.TorusGeometry(0.48, 0.045, 6, 16) : new THREE.TorusKnotGeometry(0.48, 0.04, 18, 5, 2, 3),
+    cheapPlume
+      ? new THREE.TorusGeometry(0.48, 0.045, 6, 16)
+      : new THREE.TorusKnotGeometry(0.48, 0.04, 18, 5, 2, 3),
     mire ? mats.mire : mats.gale
   );
   ribbon.position.y = 0.95;
   ribbon.name = "ribbon";
   const ribbon2 = new THREE.Mesh(
-    mire ? new THREE.TorusGeometry(0.62, 0.032, 5, 14) : new THREE.TorusKnotGeometry(0.62, 0.028, 14, 4, 2, 3),
+    cheapPlume
+      ? new THREE.TorusGeometry(0.62, 0.032, 5, 14)
+      : new THREE.TorusKnotGeometry(0.62, 0.028, 14, 4, 2, 3),
     mire ? mats.mire : mats.gale
   );
   ribbon2.position.y = 0.7;
@@ -453,7 +465,10 @@ export function makeChampion(mats: MatKit): THREE.Group {
   g.name = "champion";
   const crown = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.42, 6), mats.gold);
   crown.position.set(0, 2.15, 0);
-  const plume = new THREE.Mesh(new THREE.TorusKnotGeometry(0.22, 0.03, 14, 5, 2, 3), mats.gale);
+  const plumeGeo = isCompactUi()
+    ? new THREE.TorusGeometry(0.22, 0.032, 5, 12)
+    : new THREE.TorusKnotGeometry(0.22, 0.03, 14, 5, 2, 3);
+  const plume = new THREE.Mesh(plumeGeo, mats.gale);
   plume.position.set(0, 2.05, 0);
   plume.name = "ribbon";
   g.add(crown, plume);
@@ -832,7 +847,10 @@ export function makeChest(mats: MatKit): THREE.Group {
   lid.position.set(0, 0.62, 0);
   const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.08, 0.08), mats.gold);
   band.position.set(0, 0.32, 0.28);
-  g.add(discShadow(mats, 0.55), box, lid, band, nose(mats, 0.55, -0.3));
+  const gem = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), mats.ember);
+  gem.position.set(0, 0.72, 0.12);
+  gem.name = "ember";
+  g.add(discShadow(mats, 0.55), box, lid, band, gem, nose(mats, 0.55, -0.3));
   shadow(g);
   return g;
 }
@@ -848,7 +866,11 @@ export function makeLectern(mats: MatKit): THREE.Group {
   const book = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.32), mats.cloth);
   book.position.set(0, 1.14, 0.02);
   book.rotation.x = -0.35;
-  g.add(discShadow(mats, 0.4), post, top, book, nose(mats, 1.1, -0.2));
+  const quill = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.28, 5), mats.gold);
+  quill.position.set(0.18, 1.22, 0.06);
+  quill.rotation.z = -0.55;
+  quill.rotation.x = -0.35;
+  g.add(discShadow(mats, 0.4), post, top, book, quill, nose(mats, 1.1, -0.2));
   shadow(g);
   return g;
 }
@@ -862,7 +884,10 @@ export function makeWrit(mats: MatKit): THREE.Group {
   cap.position.y = 1.55;
   const tablet = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.42, 0.04), mats.bone);
   tablet.position.set(0, 0.95, -0.14);
-  g.add(discShadow(mats, 0.35), pillar, cap, tablet, nose(mats, 1.2, -0.18));
+  const seal = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), mats.ember);
+  seal.position.set(0, 1.55, -0.12);
+  seal.name = "ember";
+  g.add(discShadow(mats, 0.35), pillar, cap, tablet, seal, nose(mats, 1.2, -0.18));
   shadow(g);
   return g;
 }

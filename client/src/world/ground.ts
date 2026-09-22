@@ -204,9 +204,16 @@ export function buildGround(
       distToPoly(x, z, HUB_PATH) < pad ||
       distToPoly(x, z, HUB_SPUR) < pad ||
       distToPoly(x, z, HUB_WRIT) < pad;
+    const compactHub = isCompactUi();
+    const groveN = compactHub ? 16 : 28;
+    const treeCap = compactHub ? 36 : 64;
+    const stumpCap = compactHub ? 8 : 16;
+    const logCap = compactHub ? 6 : 12;
+    const mossCap = compactHub ? 22 : 48;
+    const rockCap = compactHub ? 12 : 22;
 
-    for (let i = 0; i < 28; i++) {
-      const ang = (i / 28) * Math.PI * 2 + hash(i, 71) * 0.2;
+    for (let i = 0; i < groveN; i++) {
+      const ang = (i / groveN) * Math.PI * 2 + hash(i, 71) * 0.2;
       let placedGrove = false;
       for (const rad of [6.4, 8.2, 10.4, 13.2]) {
         const x = 64 + Math.cos(ang) * rad;
@@ -224,7 +231,7 @@ export function buildGround(
     }
 
     let placed = 0;
-    for (let i = 0; i < 360 && placed < 64; i++) {
+    for (let i = 0; i < 360 && placed < treeCap; i++) {
       const x = 4 + hash(i, 1) * (w - 8);
       const z = 4 + hash(i, 2) * (h - 8);
       if (blocked(x, z, 2.2) || onTrail(x, z, 2.9)) continue;
@@ -237,7 +244,7 @@ export function buildGround(
       placed++;
     }
     placed = 0;
-    for (let i = 0; i < 110 && placed < 16; i++) {
+    for (let i = 0; i < 110 && placed < stumpCap; i++) {
       const x = 6 + hash(i, 11) * (w - 12);
       const z = 6 + hash(i, 12) * (h - 12);
       if (blocked(x, z, 1.4) || onTrail(x, z, 1.8)) continue;
@@ -249,7 +256,7 @@ export function buildGround(
       placed++;
     }
     placed = 0;
-    for (let i = 0; i < 90 && placed < 12; i++) {
+    for (let i = 0; i < 90 && placed < logCap; i++) {
       const x = 6 + hash(i, 21) * (w - 12);
       const z = 6 + hash(i, 22) * (h - 12);
       if (blocked(x, z, 1.8) || onTrail(x, z, 2.2)) continue;
@@ -261,7 +268,7 @@ export function buildGround(
       placed++;
     }
     placed = 0;
-    for (let i = 0; i < 220 && placed < 48; i++) {
+    for (let i = 0; i < 220 && placed < mossCap; i++) {
       const x = 5 + hash(i, 31) * (w - 10);
       const z = 5 + hash(i, 32) * (h - 10);
       if (blocked(x, z, 0.9)) continue;
@@ -271,7 +278,7 @@ export function buildGround(
       placed++;
     }
     placed = 0;
-    for (let i = 0; i < 140 && placed < 22; i++) {
+    for (let i = 0; i < 140 && placed < rockCap; i++) {
       const x = 5 + hash(i, 41) * (w - 10);
       const z = 5 + hash(i, 42) * (h - 10);
       if (blocked(x, z, 1.1) || onTrail(x, z, 1.4)) continue;
@@ -336,7 +343,7 @@ export function buildGround(
     geo.computeVertexNormals();
 
     const compactDecor = isCompactUi();
-    const obCap = isGlut ? (compactDecor ? 4 : 6) : 8;
+    const obCap = compactDecor ? (isGlut ? 4 : 5) : isGlut ? 6 : 8;
     let placed = 0;
     for (let i = 0; i < 70 && placed < obCap; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
@@ -357,7 +364,7 @@ export function buildGround(
       placed++;
     }
     const compact = isCompactUi();
-    const ringSegs = isGlut ? (compact ? 18 : 24) : 40;
+    const ringSegs = compact ? (isGlut ? 18 : 22) : isGlut ? 24 : 40;
     for (const a of arenas) {
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(a.r, isGlut ? 0.1 : 0.07, 6, ringSegs),
@@ -367,8 +374,8 @@ export function buildGround(
       ring.position.set(a.x, heightAt(a.x, a.z) + 0.12, a.z);
       ring.castShadow = false;
       group.add(ring);
-      // Gluttony compact: one brazier per arena; Lust keeps both
-      const placeBoth = !isGlut || !compact;
+      // Compact: one brazier per arena in all combat cantos
+      const placeBoth = !compact;
       const brazL = makeBrazier(mats);
       const lx = a.x - a.r * 0.72;
       const lz = a.z - a.r * 0.22;

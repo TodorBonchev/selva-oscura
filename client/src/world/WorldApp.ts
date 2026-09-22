@@ -216,6 +216,7 @@ export class WorldApp {
   netOffline = false;
   hubTipShown = false;
   glutEnterTipShown = false;
+  lustEnterTipShown = false;
   seenFirstClears = new Set<string>();
   lustClearRevelShown = false;
   lustReturnGlutNudgeShown = false;
@@ -255,10 +256,16 @@ export class WorldApp {
   cerberoApproachShown = false;
   mireHeartDownToastShown = false;
   mireHeartSeenAlive = false;
+  stormHeartDownToastShown = false;
+  stormHeartSeenAlive = false;
   glutClearStashTipShown = false;
-  glutPoiHintsShown = new Set<string>();
+  poiHintsShown = new Set<string>();
   mawPressureOn = false;
   glutFogBase = 0.022;
+  fogTargetDensity = 0.013;
+  fogTargetColor = new THREE.Color(0x1c1812);
+  clearTargetColor = new THREE.Color(0x1c1812);
+  _clearScratch = new THREE.Color(0x1c1812);
   bolts: Bolt[] = [];
   wardUntil = 0;
   wardMesh: THREE.Mesh | null = null;
@@ -970,13 +977,16 @@ export class WorldApp {
     } else if (this.slash) this.slash.visible = false;
 
     this.frameN++;
+    const inCombatRoom =
+      this.room?.cantoId === "inferno_05" || this.room?.cantoId === "inferno_06";
     const inGlut = this.room?.cantoId === "inferno_06";
-    const shadowEvery = inGlut && compact ? 3 : 2;
-    const labelEvery = inGlut && this.inCombat() ? 3 : 2;
+    const shadowEvery = compact && inCombatRoom ? 3 : 2;
+    const labelEvery = compact && this.inCombat() ? 3 : 2;
     if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
     if (inGlut && this.frameN % 4 === 0) this.tickMawPressure();
+    this.tickAtmosphere();
     this.fadeTreeOccluders();
     this.tickFx(dt);
     if (this.composer) this.composer.render();
@@ -1358,6 +1368,12 @@ export class WorldApp {
     if (isHeartArch) group.scale.setScalar(1.45);
     if (e.poiKind === "bell" && this.room?.cantoId !== "inferno_06") group.scale.setScalar(0.72);
     if (e.poiKind === "pyre") group.scale.setScalar(1.85);
+    if (this.room?.cantoId === "inferno_01") {
+      if (e.poiKind === "stash") group.scale.setScalar(1.28);
+      else if (e.poiKind === "ah") group.scale.setScalar(1.22);
+      else if (e.poiKind === "quest") group.scale.setScalar(1.18);
+      else if (e.poiKind === "npc") group.scale.setScalar(1.12);
+    }
     // Dedicated mire builders already olive; only tint heart shrine leftover
     if (isMire && isHeartArch) {
       tintMireEnemy(group, this.mats!, true);
@@ -1499,11 +1515,17 @@ export class WorldApp {
       this.mawPressureOn = near;
       document.body.classList.toggle("maw-pressure", near);
     }
-    const fog = this.scene.fog as THREE.FogExp2 | null;
-    if (fog && fog instanceof THREE.FogExp2) {
-      const target = near ? this.glutFogBase * 1.45 : this.glutFogBase;
-      fog.density += (target - fog.density) * 0.12;
-    }
+    this.fogTargetDensity = near ? this.glutFogBase * 1.45 : this.glutFogBase;
+  }
+
+  /** Soft fog/clear lerp on canto change — avoids hard pop. */
+  tickAtmosphere() {
+    const fog = this.scene.fog;
+    if (!(fog instanceof THREE.FogExp2)) return;
+    fog.color.lerp(this.fogTargetColor, 0.14);
+    fog.density += (this.fogTargetDensity - fog.density) * 0.14;
+    this._clearScratch.lerp(this.clearTargetColor, 0.14);
+    this.renderer.setClearColor(this._clearScratch, 1);
   }
 
   rebuildGround() {
@@ -1548,8 +1570,9 @@ export class WorldApp {
     document.body.classList.toggle("in-lust", lust);
     document.body.classList.toggle("in-gluttony", glut);
     if (lust) {
-      this.scene.fog = new THREE.FogExp2(0x3a140e, 0.018);
-      this.renderer.setClearColor(0x1a0c08, 1);
+      this.fogTargetColor.setHex(0x3a140e);
+      this.fogTargetDensity = 0.018;
+      this.clearTargetColor.setHex(0x1a0c08);
       this.hemi.color.set(0xffb080);
       this.hemi.groundColor.set(0x2a1008);
       this.sun.color.set(0xff9960);
@@ -1562,8 +1585,9 @@ export class WorldApp {
       this.glutFogBase = 0.022;
       this.mawPressureOn = false;
       document.body.classList.remove("maw-pressure");
-      this.scene.fog = new THREE.FogExp2(0x1e1c10, this.glutFogBase);
-      this.renderer.setClearColor(0x100e08, 1);
+      this.fogTargetColor.setHex(0x1e1c10);
+      this.fogTargetDensity = this.glutFogBase;
+      this.clearTargetColor.setHex(0x100e08);
       this.hemi.color.set(0xc8bc88);
       this.hemi.groundColor.set(0x18140c);
       this.hemi.intensity = 1.22;
@@ -1572,8 +1596,9 @@ export class WorldApp {
       this.rim.color.set(0xa8c060);
       this.rim.intensity = 1.55;
     } else {
-      this.scene.fog = new THREE.FogExp2(0x1c1812, 0.013);
-      this.renderer.setClearColor(0x1c1812, 1);
+      this.fogTargetColor.setHex(0x1c1812);
+      this.fogTargetDensity = 0.013;
+      this.clearTargetColor.setHex(0x1c1812);
       this.hemi.color.set(0xe8d4b0);
       this.hemi.groundColor.set(0x1a1410);
       this.hemi.intensity = 1.12;
@@ -1581,6 +1606,11 @@ export class WorldApp {
       this.sun.color.set(0xffe6c0);
       this.sun.intensity = 1.85;
       this.rim.color.set(0xffe0b0);
+    }
+    if (!(this.scene.fog instanceof THREE.FogExp2)) {
+      this.scene.fog = new THREE.FogExp2(this.fogTargetColor.getHex(), this.fogTargetDensity);
+      this._clearScratch.copy(this.clearTargetColor);
+      this.renderer.setClearColor(this._clearScratch, 1);
     }
     const portals = this.room.entities.filter((e: any) => e.kind === "exit" || e.poiKind === "portal");
     const clears = this.room.you?.firstClears;
@@ -1652,8 +1682,8 @@ export class WorldApp {
             : [];
           showToast(
             clears0.includes("inferno_05")
-              ? "Lust is clear — take the Gluttony gate past the Judge, or claim the writ."
-              : "No foes here — take the portal Toward Lust.",
+              ? "Lust is clear — Guide, writ, stash, then Gluttony past the Judge."
+              : "No foes here — speak with the Guide, then take Toward Lust.",
             "info"
           );
         }
@@ -1683,12 +1713,19 @@ export class WorldApp {
             }
           }
         }
+        if (msg.room.cantoId === "inferno_05" && (first || cantoChanged) && !this.lustEnterTipShown) {
+          this.lustEnterTipShown = true;
+          this.stormHeartDownToastShown = false;
+          this.stormHeartSeenAlive = false;
+          this.poiHintsShown.clear();
+          showToast("la bufera — break the Storm Heart, then the Judge", "info");
+        }
         if (msg.room.cantoId === "inferno_06" && (first || cantoChanged) && !this.glutEnterTipShown) {
           this.glutEnterTipShown = true;
           this.cerberoApproachShown = false;
           this.mireHeartDownToastShown = false;
           this.mireHeartSeenAlive = false;
-          this.glutPoiHintsShown.clear();
+          this.poiHintsShown.clear();
           showToast("piova etterna — clear the mire, then the Triple Maw", "info");
         }
         if (
@@ -1917,13 +1954,7 @@ export class WorldApp {
     this.impacts.push({ mesh: core, start: this.animT, dur: heavy ? 280 : 180 });
     // Skip particle bursts far from camera (off-screen combat still gets rings).
     const sparkDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
-    const sparkCap = this.room?.cantoId === "inferno_06"
-      ? isCompactUi()
-        ? 2
-        : 4
-      : isCompactUi()
-        ? 2
-        : 5;
+    const sparkCap = isCompactUi() ? 2 : 4;
     if (sparkDist < 36 && this.sparks.length < sparkCap) {
       const burst =
         this.room?.cantoId === "inferno_06" && heavy
@@ -2720,20 +2751,62 @@ export class WorldApp {
     }
     if (this.lastInteractHintId !== String(best.id)) {
       this.lastInteractHintId = String(best.id);
-      if (this.room?.cantoId === "inferno_06" && best.kind === "poi") {
+      if (best.kind === "poi") {
         const id = String(best.id);
-        if (!this.glutPoiHintsShown.has(id)) {
+        if (!this.poiHintsShown.has(id)) {
           const hint = String(best.hint || "").trim();
-          const label = String(best.label || best.name || "");
-          let line = "";
-          if (best.poiKind === "cache") line = hint || "Filth Cache — one champion drop per visit";
-          else if (best.poiKind === "shrine") line = hint || "Mire Shrine — restores life and breath";
-          else if (best.poiKind === "bell") line = hint || "Mire Bell — stills nearby filth";
+          let line = hint;
+          if (!line) {
+            if (best.poiKind === "cache") {
+              line =
+                this.room?.cantoId === "inferno_06"
+                  ? "Filth Cache — one champion drop per visit"
+                  : "Wind Cache — one champion drop per visit";
+            } else if (best.poiKind === "shrine") {
+              line =
+                this.room?.cantoId === "inferno_06"
+                  ? "Mire Shrine — restores life and breath"
+                  : "Wind Shrine — restores life and breath";
+            } else if (best.poiKind === "bell") {
+              line =
+                this.room?.cantoId === "inferno_06"
+                  ? "Mire Bell — stills nearby filth"
+                  : "Gale Bell — stills nearby shades";
+            } else if (best.poiKind === "stash") {
+              line = "Stash — bank champion drops here";
+            } else if (best.poiKind === "ah") {
+              line = "Auction House — list and bid in Ash";
+            } else if (best.poiKind === "quest") {
+              line = "Daily writs — speak with the Guide, then claim";
+            } else if (best.poiKind === "pyre") {
+              line = "Camp pyre — kneel to mend wounds";
+            } else if (best.poiKind === "npc") {
+              line = "Guide — counsel for the road ahead";
+            }
+          }
           if (line) {
-            this.glutPoiHintsShown.add(id);
+            this.poiHintsShown.add(id);
             showToast(line, "info");
           }
         }
+      }
+    }
+
+    // After Storm Heart falls: one soft beat toward the Judge
+    if (this.room?.cantoId === "inferno_05" && !this.stormHeartDownToastShown) {
+      const heartAlive = this.room.entities.some(
+        (e: any) => e.archetype === "storm_heart" && (e.hp == null || e.hp > 0)
+      );
+      if (heartAlive) this.stormHeartSeenAlive = true;
+      if (
+        this.stormHeartSeenAlive &&
+        !heartAlive &&
+        this.room.entities.some(
+          (e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)
+        )
+      ) {
+        this.stormHeartDownToastShown = true;
+        showToast("Storm Heart broken — the Judge waits at the gate", "emit");
       }
     }
 
