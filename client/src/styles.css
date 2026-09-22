@@ -50,7 +50,7 @@ html, body {
   user-select: none;
   -webkit-user-select: none;
 }
-input, textarea, .panel, #panels {
+input, textarea, .panel, #panels, #boot-veil, #boot-veil input, #boot-veil button {
   user-select: text;
   -webkit-user-select: text;
   touch-action: manipulation;
@@ -3707,6 +3707,109 @@ body.combo-void-ghost-pulse #combo-void-ghost {
   font-size: 1.6rem;
   color: var(--gold-2);
 }
+#boot-veil .boot-name-wrap {
+  display: none;
+  margin: 1.1rem auto 0;
+  max-width: 16rem;
+  text-align: left;
+}
+#boot-veil .boot-name-label {
+  display: block;
+  font-size: 0.58rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+  margin-bottom: 0.35rem;
+}
+#boot-veil #boot-name {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--bone);
+  background: #0e0d0aee;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px #000c, 0 0 0 1px #c9a22722;
+  touch-action: manipulation;
+  user-select: text;
+  -webkit-user-select: text;
+}
+#boot-veil #boot-name:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: inset 0 0 0 1px #000c, 0 0 0 1px #c9a22766, 0 0 12px #c9a22733;
+}
+#boot-veil .btn-enter-wood {
+  display: none;
+  margin: 0.85rem auto 0;
+  padding: 0.7rem 1.35rem;
+  min-width: min(16rem, 78vw);
+  min-height: var(--tap);
+  font: inherit;
+  font-size: 0.95rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #1a1408;
+  background:
+    linear-gradient(180deg, #f0d78a 0%, var(--gold) 45%, var(--gold-dim) 100%);
+  border: 1px solid #6a5e3f;
+  border-radius: 3px;
+  box-shadow:
+    inset 0 1px 0 #fff6,
+    inset 0 -2px 6px #0004,
+    0 2px 12px #000a,
+    0 0 18px #c9a22744;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#boot-veil .btn-enter-wood:active {
+  transform: translateY(1px);
+  filter: brightness(0.96);
+}
+#boot-veil .boot-hint {
+  display: none;
+  margin: 0.7rem 0 0;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+#boot-veil.await-enter .boot-name-wrap,
+#boot-veil.await-enter .btn-enter-wood,
+#boot-veil.await-enter .boot-hint {
+  display: block;
+}
+#boot-veil.await-enter .btn-enter-wood[hidden],
+#boot-veil.await-enter .boot-name-wrap[hidden],
+#boot-veil.await-enter .boot-hint[hidden] {
+  display: none;
+}
+
+/* Immersive / fullscreen phone chrome */
+html:fullscreen,
+html:-webkit-full-screen {
+  background: var(--pitch);
+}
+html:fullscreen body,
+html:-webkit-full-screen body,
+body.is-fullscreen {
+  height: 100%;
+  height: 100dvh;
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  #boot-veil .boot-plate {
+    transform: scale(0.92);
+  }
+  #boot-veil .btn-enter-wood {
+    margin-top: 0.55rem;
+    padding: 0.55rem 1.1rem;
+  }
+}
+
 .world-label {
   pointer-events: none;
   text-align: center;

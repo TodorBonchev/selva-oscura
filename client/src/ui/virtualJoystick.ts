@@ -52,8 +52,13 @@ export class VirtualJoystick {
     this.bind();
     this.syncVisibility();
     window.addEventListener("resize", () => this.syncVisibility());
+    window.addEventListener("orientationchange", () => {
+      this.syncVisibility();
+      window.setTimeout(() => this.syncVisibility(), 250);
+    });
     window.matchMedia("(pointer: coarse)").addEventListener?.("change", () => this.syncVisibility());
     window.matchMedia("(max-width: 640px)").addEventListener?.("change", () => this.syncVisibility());
+    window.matchMedia("(orientation: portrait)").addEventListener?.("change", () => this.syncVisibility());
   }
 
   /** Whether the stick should be shown (touch / narrow / coarse). */

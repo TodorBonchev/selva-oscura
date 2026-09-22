@@ -305,7 +305,17 @@ export class WorldApp {
     this.joystick = new VirtualJoystick();
     this.resize();
     window.addEventListener("resize", () => this.resize());
-    window.addEventListener("orientationchange", () => this.resize());
+    // iOS often reports stale sizes on the orientationchange event itself.
+    window.addEventListener("orientationchange", () => {
+      this.resize();
+      window.setTimeout(() => this.resize(), 200);
+      window.setTimeout(() => this.resize(), 450);
+    });
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener("resize", () => this.resize());
+      vv.addEventListener("scroll", () => this.resize());
+    }
   }
 
   async start() {
@@ -490,8 +500,15 @@ export class WorldApp {
   }
 
   resize() {
-    const w = this.root.clientWidth || window.innerWidth;
-    const h = this.root.clientHeight || window.innerHeight;
+    const vv = window.visualViewport;
+    // Prefer the fixed #game-root box; fall back to visualViewport on compact
+    // phones where browser chrome can leave clientWidth/Height stale for a beat.
+    let w = this.root.clientWidth || window.innerWidth;
+    let h = this.root.clientHeight || window.innerHeight;
+    if ((!w || !h) && vv) {
+      w = Math.round(vv.width) || w;
+      h = Math.round(vv.height) || h;
+    }
     this.camera.fov = this.camFov();
     this.camera.far = isCompactUi() ? 170 : 240;
     this.camera.aspect = w / Math.max(1, h);

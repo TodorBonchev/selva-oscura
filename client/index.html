@@ -2,9 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Selva Oscura" />
+  <meta name="theme-color" content="#07090a" />
+  <meta name="color-scheme" content="dark" />
   <title>Selva Oscura</title>
   <link rel="icon" href="/assets/items/item_gem.png" />
   <link rel="stylesheet" href="/src/styles.css" />
@@ -210,6 +214,12 @@
       <em>Nel mezzo del cammin</em>
       <strong>Selva Oscura</strong>
       <span class="finial finial-r"></span>
+      <label class="boot-name-wrap" for="boot-name">
+        <span class="boot-name-label">Wanderer name</span>
+        <input id="boot-name" type="text" maxlength="24" autocomplete="nickname" enterkeyhint="go" hidden />
+      </label>
+      <button type="button" id="btn-enter-wood" class="btn-enter-wood" hidden>Enter the wood</button>
+      <p class="boot-hint" hidden>Tap to enter · fullscreen on supported phones</p>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
