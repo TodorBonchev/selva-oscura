@@ -702,7 +702,8 @@ body.has-modal #toast.toast-show {
   border: 0;
   outline: 0;
   box-shadow: none;
-  filter: drop-shadow(0 1px 2px #000d) brightness(1.28) contrast(1.12) saturate(1.08);
+  /* Warm bone-gold etch read to match wanderer kit */
+  filter: drop-shadow(0 1px 2px #000c) sepia(0.35) saturate(1.15) brightness(1.12) contrast(1.08);
 }
 .inv-slot .inv-glyph { display: none; }
 .inv-actions { flex-wrap: wrap; gap: 0.35rem; }

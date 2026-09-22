@@ -71,6 +71,7 @@ import {
   tintMireEnemy,
   type KindKey,
 } from "./meshes";
+import { applyEquippedLook } from "./gearLook";
 import { buildGround, type GroundRig } from "./ground";
 import {
   AshField,
@@ -370,6 +371,7 @@ export class WorldApp {
     this.youGroup = makeByKind("player", this.mats);
     this.youGroup.userData.entityId = "you";
     this.youGroup.scale.setScalar(1.42);
+    applyEquippedLook(this.youGroup, {});
     this.heroLight.position.set(0.08, 1.15, -0.42);
     this.heroLight.intensity = 3.4;
     this.heroLight.distance = 9;
@@ -2048,6 +2050,7 @@ export class WorldApp {
         if (worn) this.socket.unequip({ slot });
       },
     });
+    if (this.youGroup) applyEquippedLook(this.youGroup, you.equipped || {});
   }
 
   noteNewInventoryLoot(you: any) {
