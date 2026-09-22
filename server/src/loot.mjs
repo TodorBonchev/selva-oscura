@@ -53,6 +53,7 @@ const BASE_CONTENT_SLOT = {
   ashen_signet: "misc",
   wisp_filament: "misc",
   heart_shard: "misc",
+  pyre_coal: "misc",
 };
 
 /**
