@@ -125,6 +125,16 @@
       "anchor": { "x": 110, "y": 72 }
     },
     {
+      "id": "lust_gate_warden",
+      "name": "Gate Warden",
+      "archetype": "gale_warden",
+      "count": 1,
+      "elite": true,
+      "champion": true,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 132, "y": 60 }
+    },
+    {
       "id": "lust_bufera",
       "name": "Bufera",
       "archetype": "gale_champion",

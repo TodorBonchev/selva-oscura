@@ -272,7 +272,8 @@ export function buildGround(
       const wz = pos.getZ(i) + h / 2;
       const pathD = distToPoly(wx, wz, LUST_HUNT);
       let k = 0.72 + hash((wx * 2) | 0, (wz * 2) | 0) * 0.18;
-      if (pathD < 4.2) k = 1.05 - (pathD / 4.2) * 0.18;
+      if (pathD < 4.2) k = 1.12 - (pathD / 4.2) * 0.16;
+      else if (pathD > 16) k *= 0.62;
       for (const a of arenas) {
         const d = Math.hypot(wx - a.x, wz - a.z);
         if (d < a.r) k = Math.max(k, 0.92 + (1 - d / a.r) * 0.18);

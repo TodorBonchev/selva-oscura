@@ -246,6 +246,8 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     emissive: 0x0a1208,
     emissiveIntensity: 0.12,
   });
+  hubMap.anisotropy = Math.min(2, hubMap.anisotropy);
+  lustMap.anisotropy = Math.min(2, lustMap.anisotropy);
   breakAlbedoTiling(groundHub, 0.088);
   breakAlbedoTiling(groundLust, 0.062);
   const bone = new THREE.MeshStandardMaterial({
