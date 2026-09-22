@@ -708,7 +708,11 @@ class CantoRoom {
               "Lust falls — the Gluttony gate past the dais opens."
             );
           } else if (this.cantoId === "inferno_06") {
-            this.toast(killer.ws, "emit", "The Triple Maw is broken. The rain still falls.");
+            this.toast(
+              killer.ws,
+              "emit",
+              "Triple Maw broken — return to Lust or the Dark Wood when ready."
+            );
           }
         } else if (killer && r2.reason === "already_cleared") {
           this.toast(killer.ws, "info", "First clear already claimed for this canto.");
@@ -909,7 +913,8 @@ class CantoRoom {
         }
         s.lootedCache = true;
         void grantInventoryItem(playerId, item).then(() => {
-          this.toast(s.ws, "loot", `Cache: ${item.rarity} ${item.name}`);
+          const prefix = this.cantoId === "inferno_06" ? "Filth Cache" : "Cache";
+          this.toast(s.ws, "loot", `${prefix}: ${item.rarity} ${item.name}`);
           this.pushSnapshot(playerId);
         });
         return;
@@ -926,39 +931,54 @@ class CantoRoom {
           mob.stunLeft = 2.4;
           stilled++;
         }
-        this.toast(s.ws, "emit", stilled ? `The bell stills ${stilled}` : "The bell rings, and nothing answers.");
+        const bellLine = stilled
+          ? this.cantoId === "inferno_06"
+            ? `Mire Bell stills ${stilled}`
+            : `The bell stills ${stilled}`
+          : this.cantoId === "inferno_06"
+            ? "The Mire Bell tolls — nothing answers."
+            : "The bell rings, and nothing answers.";
+        this.toast(s.ws, "emit", bellLine);
+        // Gluttony daily: first successful still can claim DailyQuest (shared UTC cap; quiet if ineligible)
+        if (this.cantoId === "inferno_06" && stilled > 0) {
+          this.tryDaily(playerId, "glut_daily_mire", { quiet: true });
+        }
       } else if (e.poiKind === "pyre" || e.poiKind === "shrine") {
         s.hp = s.maxHp;
         s.mana = s.maxMana;
-        this.toast(
-          s.ws,
-          "emit",
+        const shrineLine =
           e.poiKind === "pyre"
             ? "The camp pyre warms you. Life and breath restored."
-            : "The Wind Shrine knits your wounds and fills your breath."
-        );
+            : this.cantoId === "inferno_06"
+              ? "The Mire Shrine knits your wounds and fills your breath."
+              : "The Wind Shrine knits your wounds and fills your breath.";
+        this.toast(s.ws, "emit", shrineLine);
       }
     }
     this.pushSnapshot(playerId);
     return null;
   }
 
-  tryDaily(playerId) {
+  tryDaily(playerId, questId = "dw_daily_scout", opts = {}) {
+    const quiet = Boolean(opts?.quiet);
     const s = this.sessions.get(playerId);
     const ledger = players.get(playerId);
     if (!s || !ledger) return;
     if (!ledger.spokeToGuide) {
-      this.toast(s.ws, "warn", "Speak with the Guide first.");
+      if (!quiet) this.toast(s.ws, "warn", "Speak with the Guide first.");
       return;
     }
     if (!ledger.visitedInferno) {
-      this.toast(s.ws, "warn", "Return from any Inferno instance once (travel to Lust).");
+      if (!quiet) this.toast(s.ws, "warn", "Return from any Inferno instance once (travel to Lust).");
       return;
     }
-    const r = tryEmit(playerId, "DailyQuest", { questId: "dw_daily_scout" });
+    const qid = questId || "dw_daily_scout";
+    const r = tryEmit(playerId, "DailyQuest", { questId: qid });
     if (r.ok) {
-      this.toast(s.ws, "emit", `Writ accepted. +${r.payoutAsh.toLocaleString()} Ash set aside (pending).`);
+      const label = qid === "glut_daily_mire" ? "Mire writ" : "Writ";
+      this.toast(s.ws, "emit", `${label} accepted. +${r.payoutAsh.toLocaleString()} Ash set aside (pending).`);
     } else {
+      if (quiet) return; // bell path: don't drown combat toast
       const why = {
         daily_cap: "You already claimed today's writ.",
         no_player: "The ledger does not know you yet.",

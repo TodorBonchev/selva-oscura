@@ -14,6 +14,7 @@ import {
   makeStump,
   makeTree,
 } from "./meshes";
+import { isCompactUi } from "../ui/hud";
 
 export type GroundRig = {
   group: THREE.Group;
@@ -313,11 +314,18 @@ export function buildGround(
         if (d < a.r) k = Math.max(k, 0.92 + (1 - d / a.r) * 0.18);
       }
       if (isGlut) {
-        // Muddy olive-brown with darker off-path sinks
-        const sink = pathD > 10 ? 0.82 : 1;
-        colors[i * 3] = k * 0.78 * sink;
-        colors[i * 3 + 1] = k * 0.72 * sink;
-        colors[i * 3 + 2] = k * 0.38 * sink;
+        // Brighter packed path vs darker off-path mire sinks
+        const onPath = pathD < 3.8;
+        const sink = pathD > 11 ? 0.72 : pathD > 6 ? 0.88 : 1;
+        if (onPath) {
+          colors[i * 3] = k * 1.05;
+          colors[i * 3 + 1] = k * 0.95;
+          colors[i * 3 + 2] = k * 0.55;
+        } else {
+          colors[i * 3] = k * 0.7 * sink;
+          colors[i * 3 + 1] = k * 0.62 * sink;
+          colors[i * 3 + 2] = k * 0.32 * sink;
+        }
       } else {
         colors[i * 3] = k * 1.05;
         colors[i * 3 + 1] = k * 0.72;
@@ -327,8 +335,10 @@ export function buildGround(
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
 
+    const compactDecor = isCompactUi();
+    const obCap = isGlut ? (compactDecor ? 4 : 6) : 8;
     let placed = 0;
-    for (let i = 0; i < 70 && placed < 8; i++) {
+    for (let i = 0; i < 70 && placed < obCap; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
       const z = 8 + hash(i, 8) * (h - 16);
       if (blocked(x, z, 3.2) || distToPoly(x, z, hunt) < 4.5) continue;
@@ -337,26 +347,40 @@ export function buildGround(
       ob.position.set(x, heightAt(x, z), z);
       ob.rotation.y = hash(i, 9) * Math.PI * 2;
       ob.scale.setScalar(0.85 + hash(i, 10) * 0.7);
+      if (isGlut) {
+        ob.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh) m.castShadow = false;
+        });
+      }
       group.add(ob);
       placed++;
     }
+    const compact = isCompactUi();
+    const ringSegs = isGlut ? (compact ? 18 : 24) : 40;
     for (const a of arenas) {
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(a.r, isGlut ? 0.09 : 0.07, 8, 40),
+        new THREE.TorusGeometry(a.r, isGlut ? 0.1 : 0.07, 6, ringSegs),
         isGlut ? mats.mire : mats.gold
       );
       ring.rotation.x = Math.PI / 2;
       ring.position.set(a.x, heightAt(a.x, a.z) + 0.12, a.z);
+      ring.castShadow = false;
       group.add(ring);
+      // Gluttony compact: one brazier per arena; Lust keeps both
+      const placeBoth = !isGlut || !compact;
       const brazL = makeBrazier(mats);
       const lx = a.x - a.r * 0.72;
       const lz = a.z - a.r * 0.22;
       brazL.position.set(lx, heightAt(lx, lz), lz);
-      const brazR = makeBrazier(mats);
-      const rx = a.x + a.r * 0.72;
-      const rz = a.z + a.r * 0.22;
-      brazR.position.set(rx, heightAt(rx, rz), rz);
-      group.add(brazL, brazR);
+      group.add(brazL);
+      if (placeBoth) {
+        const brazR = makeBrazier(mats);
+        const rx = a.x + a.r * 0.72;
+        const rz = a.z + a.r * 0.22;
+        brazR.position.set(rx, heightAt(rx, rz), rz);
+        group.add(brazR);
+      }
     }
     for (let i = 0; i < hunt.length - 1; i++) {
       const a = hunt[i];
@@ -385,65 +409,107 @@ export function buildGround(
         roughness: 0.95,
         metalness: 0.04,
         emissive: 0x1a180c,
-        emissiveIntensity: 0.2,
+        emissiveIntensity: 0.22,
       });
-      const dais = new THREE.Mesh(new THREE.CylinderGeometry(7.4, 8.2, 0.55, 22), mud);
-      dais.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.18, daisPos.z);
+      const hy = heightAt(daisPos.x, daisPos.z);
+      // Stepped dais: plinth + lip + dual sludge rings (readable boss arena)
+      const dais = new THREE.Mesh(new THREE.CylinderGeometry(7.6, 8.6, 0.62, compact ? 14 : 18), mud);
+      dais.position.set(daisPos.x, hy + 0.22, daisPos.z);
       dais.receiveShadow = true;
+      dais.castShadow = false;
       group.add(dais);
-      const lip = new THREE.Mesh(new THREE.TorusGeometry(7.6, 0.12, 8, 40), mats.gold);
+      const step = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.8, 0.28, compact ? 12 : 16), mud);
+      step.position.set(daisPos.x, hy + 0.58, daisPos.z);
+      step.receiveShadow = true;
+      step.castShadow = false;
+      group.add(step);
+      const lipSegs = compact ? 20 : 28;
+      const lip = new THREE.Mesh(new THREE.TorusGeometry(7.8, 0.14, 6, lipSegs), mats.gold);
       lip.rotation.x = Math.PI / 2;
-      lip.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.48, daisPos.z);
+      lip.position.set(daisPos.x, hy + 0.55, daisPos.z);
+      lip.castShadow = false;
       group.add(lip);
-      const filth = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.09, 8, 36), mats.mire);
+      const filth = new THREE.Mesh(new THREE.TorusGeometry(5.4, 0.1, 6, lipSegs), mats.mire);
       filth.rotation.x = Math.PI / 2;
-      filth.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.52, daisPos.z);
+      filth.position.set(daisPos.x, hy + 0.72, daisPos.z);
+      filth.castShadow = false;
       group.add(filth);
-      // Puddles along the hunt path
-      for (let i = 0; i < hunt.length; i++) {
-        const [px, pz] = hunt[i];
-        const puddle = new THREE.Mesh(
-          new THREE.CircleGeometry(1.4 + hash(i, 91) * 1.1, 18),
-          new THREE.MeshStandardMaterial({
-            color: 0x2a2818,
-            roughness: 0.35,
-            metalness: 0.25,
-            emissive: 0x3a4018,
-            emissiveIntensity: 0.18,
-            transparent: true,
-            opacity: 0.72,
-          })
-        );
-        puddle.rotation.x = -Math.PI / 2;
-        puddle.position.set(px + (hash(i, 92) - 0.5) * 2.2, heightAt(px, pz) + 0.06, pz + (hash(i, 93) - 0.5) * 2.2);
-        puddle.receiveShadow = true;
-        group.add(puddle);
+      const filth2 = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.07, 5, compact ? 16 : 22), mats.mire);
+      filth2.rotation.x = Math.PI / 2;
+      filth2.position.set(daisPos.x, hy + 0.76, daisPos.z);
+      filth2.castShadow = false;
+      group.add(filth2);
+
+      // Shared puddle geo/mat + InstancedMesh (was N unique Mesh+Material)
+      const puddleMat = new THREE.MeshStandardMaterial({
+        color: 0x2a2818,
+        roughness: 0.35,
+        metalness: 0.25,
+        emissive: 0x3a4018,
+        emissiveIntensity: 0.2,
+        transparent: true,
+        opacity: 0.74,
+      });
+      const puddleGeo = new THREE.CircleGeometry(1, 12);
+      const puddleN = compact ? Math.min(4, hunt.length) : hunt.length + 3;
+      const puddles = new THREE.InstancedMesh(puddleGeo, puddleMat, puddleN);
+      puddles.castShadow = false;
+      puddles.receiveShadow = true;
+      puddles.frustumCulled = true;
+      const _m = new THREE.Matrix4();
+      const _p = new THREE.Vector3();
+      const _q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+      const _s = new THREE.Vector3();
+      for (let i = 0; i < puddleN; i++) {
+        const [px, pz] =
+          i < hunt.length
+            ? hunt[i]
+            : ([20 + hash(i, 90) * (w - 40), 20 + hash(i, 91) * (h - 40)] as [number, number]);
+        const sc = 1.3 + hash(i, 92) * 1.2;
+        _p.set(px + (hash(i, 93) - 0.5) * 2.4, heightAt(px, pz) + 0.05, pz + (hash(i, 94) - 0.5) * 2.4);
+        _s.set(sc, sc, sc);
+        _m.compose(_p, _q, _s);
+        puddles.setMatrixAt(i, _m);
       }
-      // Sludge mounds off-path
+      puddles.instanceMatrix.needsUpdate = true;
+      group.add(puddles);
+
+      // Instanced sludge mounds — one Icosahedron + shared moss mat
+      const moundCap = compact ? 7 : 12;
+      const moundGeo = new THREE.IcosahedronGeometry(0.7, 0);
+      const moundsMesh = new THREE.InstancedMesh(moundGeo, mats.moss, moundCap);
+      moundsMesh.castShadow = false;
+      moundsMesh.receiveShadow = true;
+      moundsMesh.frustumCulled = true;
       let mounds = 0;
-      for (let i = 0; i < 90 && mounds < 14; i++) {
+      for (let i = 0; i < 100 && mounds < moundCap; i++) {
         const x = 10 + hash(i, 61) * (w - 20);
         const z = 10 + hash(i, 62) * (h - 20);
         if (blocked(x, z, 2.2) || distToPoly(x, z, hunt) < 3.8) continue;
         if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.2)) continue;
-        const mound = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55 + hash(i, 63) * 0.7, 0), mats.moss);
-        mound.position.set(x, heightAt(x, z) + 0.12, z);
-        mound.scale.set(1.4, 0.35 + hash(i, 64) * 0.25, 1.2);
-        mound.rotation.y = hash(i, 65) * Math.PI * 2;
-        group.add(mound);
-        mounds++;
+        _p.set(x, heightAt(x, z) + 0.1, z);
+        _q.setFromEuler(new THREE.Euler(0, hash(i, 65) * Math.PI * 2, 0));
+        _s.set(1.35 + hash(i, 63) * 0.5, 0.32 + hash(i, 64) * 0.22, 1.15 + hash(i, 66) * 0.35);
+        _m.compose(_p, _q, _s);
+        moundsMesh.setMatrixAt(mounds++, _m);
       }
-      // Low mire haze ribbons (olive) instead of high gale streamers
-      for (let i = 0; i < 6; i++) {
-        const ribbon = makeGaleRibbon(mats, 12 + i * 2);
+      moundsMesh.count = mounds;
+      moundsMesh.instanceMatrix.needsUpdate = true;
+      group.add(moundsMesh);
+
+      // Fewer low olive haze ribbons (compact: 3, desktop: 4)
+      const hazeN = compact ? 3 : 4;
+      for (let i = 0; i < hazeN; i++) {
+        const ribbon = makeGaleRibbon(mats, 14 + i * 3);
         const mat = ribbon.material as THREE.MeshBasicMaterial;
         mat.color.set(0x6a7a30);
-        mat.opacity = 0.28;
-        const rx = 22 + i * 20;
-        const rz = 46 + (i % 2) * 10;
-        ribbon.position.set(rx, heightAt(rx, rz) + 0.85, rz);
+        mat.opacity = compact ? 0.2 : 0.26;
+        const rx = 28 + i * 28;
+        const rz = 44 + (i % 2) * 12;
+        ribbon.position.set(rx, heightAt(rx, rz) + 0.7, rz);
         ribbon.rotation.y = 0.12 * (i % 2 ? -1 : 1);
-        ribbon.rotation.x = Math.PI * 0.08;
+        ribbon.rotation.x = Math.PI * 0.06;
+        ribbon.castShadow = false;
         group.add(ribbon);
       }
     } else {

@@ -361,9 +361,22 @@ function shadeMat(mats: MatKit, goldTrim: boolean): THREE.Material {
   return shadeMats[key]!;
 }
 
-function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Group {
+const mireShadeMats: { plain?: THREE.Material; gold?: THREE.Material } = {};
+
+function mireShadeMat(mats: MatKit, goldTrim: boolean): THREE.Material {
+  const key = goldTrim ? "gold" : "plain";
+  if (!mireShadeMats[key]) {
+    mireShadeMats[key] = goldTrim
+      ? std(mats.leather.map, 0x5a4a28, { roughness: 0.7, metalness: 0.14, emissive: 0x3a4020, emissiveIntensity: 0.4 })
+      : std(mats.leather.map, 0x3a3420, { roughness: 0.82, metalness: 0.06, emissive: 0x2a3010, emissiveIntensity: 0.3 });
+  }
+  return mireShadeMats[key]!;
+}
+
+/** Lust uses TorusKnot ribbons; Gluttony uses cheap Torus rings (same anim hooks). */
+function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = false): THREE.Group {
   const g = new THREE.Group();
-  const wraith = shadeMat(mats, goldTrim);
+  const wraith = mire ? mireShadeMat(mats, goldTrim) : shadeMat(mats, goldTrim);
   const pts = [
     new THREE.Vector2(0.02, 0),
     new THREE.Vector2(0.22, 0.18),
@@ -372,18 +385,18 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Gr
     new THREE.Vector2(0.12, 1.55),
     new THREE.Vector2(0.04, 1.85),
   ];
-  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 12), wraith);
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, mire ? 10 : 12), wraith);
   body.position.y = 0.2;
   const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.26, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
+    new THREE.SphereGeometry(0.26, mire ? 10 : 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
     goldTrim ? mats.gold : wraith
   );
   hood.position.set(0, 1.78, 0.04);
   hood.rotation.x = -0.35;
-  const voidFace = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), mats.ember);
+  const voidFace = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), mats.ember);
   voidFace.position.set(0, 1.68, -0.14);
   voidFace.name = "ember";
-  const rib = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 6, 16), goldTrim ? mats.gold : mats.bronze);
+  const rib = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 6, 14), goldTrim ? mats.gold : mire ? mats.mire : mats.bronze);
   rib.position.set(0, 1.15, 0.04);
   rib.rotation.x = 0.4;
   const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.045, 0.85, 6), wraith);
@@ -398,10 +411,16 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Gr
   clawL.rotation.x = 0.9;
   const clawR = clawL.clone();
   clawR.position.x = 0.62;
-  const ribbon = new THREE.Mesh(new THREE.TorusKnotGeometry(0.48, 0.04, 18, 5, 2, 3), mats.gale);
+  const ribbon = new THREE.Mesh(
+    mire ? new THREE.TorusGeometry(0.48, 0.045, 6, 16) : new THREE.TorusKnotGeometry(0.48, 0.04, 18, 5, 2, 3),
+    mire ? mats.mire : mats.gale
+  );
   ribbon.position.y = 0.95;
   ribbon.name = "ribbon";
-  const ribbon2 = new THREE.Mesh(new THREE.TorusKnotGeometry(0.62, 0.028, 14, 4, 2, 3), mats.gale);
+  const ribbon2 = new THREE.Mesh(
+    mire ? new THREE.TorusGeometry(0.62, 0.032, 5, 14) : new THREE.TorusKnotGeometry(0.62, 0.028, 14, 4, 2, 3),
+    mire ? mats.mire : mats.gale
+  );
   ribbon2.position.y = 0.7;
   ribbon2.name = "ribbon2";
   g.add(
@@ -438,6 +457,128 @@ export function makeChampion(mats: MatKit): THREE.Group {
   plume.position.set(0, 2.05, 0);
   plume.name = "ribbon";
   g.add(crown, plume);
+  return g;
+}
+
+export function makeMireShade(mats: MatKit): THREE.Group {
+  const g = makeShadeBody(mats, 1.12, false, true);
+  g.name = "whirl";
+  return g;
+}
+
+export function makeMireChampion(mats: MatKit): THREE.Group {
+  const g = makeShadeBody(mats, 1.72, true, true);
+  g.name = "champion";
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.48, 6), mats.gold);
+  crown.position.set(0, 2.18, 0);
+  const plume = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 5, 12), mats.mire);
+  plume.position.set(0, 2.08, 0);
+  plume.name = "ribbon";
+  g.add(crown, plume);
+  return g;
+}
+
+/** Mud wisp — low blob, twin ember eyes, olive halo (silhouette ≠ shade). */
+export function makeMudWisp(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "whirl";
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.32, 10, 8),
+    std(null, 0x3a4020, { roughness: 0.55, metalness: 0.08, emissive: 0x4a5820, emissiveIntensity: 0.55 })
+  );
+  core.position.y = 0.55;
+  core.scale.set(1.15, 0.85, 1.15);
+  const drip = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.42, 6), mats.moss);
+  drip.position.set(0, 0.22, 0);
+  drip.rotation.x = Math.PI;
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 6), mats.ember);
+  eyeL.position.set(-0.1, 0.62, -0.28);
+  eyeL.name = "ember";
+  const eyeR = eyeL.clone();
+  eyeR.position.x = 0.1;
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.04, 5, 14), mats.mire);
+  halo.position.y = 0.55;
+  halo.rotation.x = Math.PI / 2.2;
+  halo.name = "ribbon";
+  g.add(discShadow(mats, 0.35), core, drip, eyeL, eyeR, halo, nose(mats, 0.62, -0.32));
+  g.scale.setScalar(0.95);
+  shadow(g);
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) m.castShadow = false;
+  });
+  return g;
+}
+
+/** Mire warden — broad shield silhouette, no TorusKnot. */
+export function makeMireWarden(mats: MatKit): THREE.Group {
+  const g = makeShadeBody(mats, 1.35, true, true);
+  g.name = "champion";
+  const shield = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.95, 0.08),
+    std(mats.armor.map, 0x5a5030, { roughness: 0.55, metalness: 0.35, emissive: 0x2a3010, emissiveIntensity: 0.25 })
+  );
+  shield.position.set(-0.55, 1.15, -0.15);
+  shield.rotation.y = 0.35;
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), mats.gold);
+  boss.position.set(-0.55, 1.15, -0.22);
+  const crest = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.55, 5), mats.gold);
+  crest.position.set(0, 2.2, 0.05);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.05, 5, 16), mats.mire);
+  ring.position.y = 0.95;
+  ring.name = "ribbon";
+  g.add(shield, boss, crest, ring);
+  return g;
+}
+
+/** Cerbero — mid elite with three stub heads (approach foreshadow of Triple Maw). */
+export function makeCerbero(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "champion";
+  const hide = std(null, 0x4a3a28, { roughness: 0.8, metalness: 0.1, emissive: 0x2a3010, emissiveIntensity: 0.35 });
+  const body = new THREE.Mesh(new THREE.LatheGeometry([
+    new THREE.Vector2(0.15, 0),
+    new THREE.Vector2(0.72, 0.3),
+    new THREE.Vector2(0.78, 1.05),
+    new THREE.Vector2(0.48, 1.85),
+    new THREE.Vector2(0.28, 2.25),
+  ], 14), hide);
+  const neck = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), hide);
+  neck.position.set(0, 2.15, 0.05);
+  neck.scale.set(1.4, 0.55, 1.05);
+  const mkHead = (ox: number, oy: number, oz: number, yaw: number, s: number) => {
+    const h = new THREE.Group();
+    h.position.set(ox, oy, oz);
+    h.rotation.y = yaw;
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.22 * s, 10, 8), mats.bone);
+    skull.scale.set(1, 0.9, 1.15);
+    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.14 * s, 0.32 * s, 6), mats.bronze);
+    jaw.position.set(0, -0.14 * s, -0.18 * s);
+    jaw.rotation.x = 1.8;
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04 * s, 6, 6), mats.ember);
+    eye.position.set(0, 0.04 * s, -0.2 * s);
+    eye.name = "ember";
+    h.add(skull, jaw, eye);
+    return h;
+  };
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.06, 6, 18), mats.gold);
+  sash.position.y = 1.55;
+  sash.rotation.x = Math.PI / 2;
+  const sludge = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.05, 5, 16), mats.mire);
+  sludge.position.y = 1.05;
+  sludge.name = "ribbon";
+  g.add(
+    discShadow(mats, 0.85),
+    body,
+    neck,
+    mkHead(0, 2.55, -0.12, 0, 1.15),
+    mkHead(-0.55, 2.35, 0.08, 0.5, 0.95),
+    mkHead(0.55, 2.35, 0.08, -0.5, 0.95),
+    sash,
+    sludge,
+    nose(mats, 2.65, -0.35)
+  );
+  shadow(g);
   return g;
 }
 
@@ -531,16 +672,16 @@ export function makeJudge(mats: MatKit): THREE.Group {
 }
 
 
-/** Triple Maw — three-headed cerberine mass on a mud dais, olive-filth aura. */
+/** Triple Maw — three-headed cerberine mass; telegraph ring + sludge tori (no TorusKnot). */
 export function makeTripleMaw(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "triple_maw";
   const bodyPts = [
-    new THREE.Vector2(0.22, 0),
-    new THREE.Vector2(1.35, 0.45),
-    new THREE.Vector2(1.45, 1.55),
-    new THREE.Vector2(1.05, 2.65),
-    new THREE.Vector2(0.62, 3.35),
+    new THREE.Vector2(0.28, 0),
+    new THREE.Vector2(1.55, 0.4),
+    new THREE.Vector2(1.65, 1.45),
+    new THREE.Vector2(1.2, 2.55),
+    new THREE.Vector2(0.78, 3.25),
   ];
   const hide = new THREE.MeshStandardMaterial({
     color: 0x4a3a28,
@@ -549,76 +690,113 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
     emissive: 0x2a3010,
     emissiveIntensity: 0.32,
   });
-  const body = new THREE.Mesh(new THREE.LatheGeometry(bodyPts, 24), hide);
-  const neckBase = new THREE.Mesh(new THREE.SphereGeometry(0.72, 14, 12), hide);
-  neckBase.position.set(0, 3.15, 0.1);
-  neckBase.scale.set(1.35, 0.7, 1.1);
+  const body = new THREE.Mesh(new THREE.LatheGeometry(bodyPts, 20), hide);
+  const neckBase = new THREE.Mesh(new THREE.SphereGeometry(0.85, 12, 10), hide);
+  neckBase.position.set(0, 3.05, 0.12);
+  neckBase.scale.set(1.55, 0.65, 1.15);
+  // Three thick neck stalks for readable silhouette at distance
+  const stalkGeo = new THREE.CylinderGeometry(0.22, 0.32, 0.85, 8);
+  const stalkC = new THREE.Mesh(stalkGeo, hide);
+  stalkC.position.set(0, 3.55, -0.05);
+  stalkC.rotation.x = 0.25;
+  const stalkL = new THREE.Mesh(stalkGeo, hide);
+  stalkL.position.set(-0.85, 3.35, 0.12);
+  stalkL.rotation.z = 0.55;
+  stalkL.rotation.x = 0.15;
+  const stalkR = new THREE.Mesh(stalkGeo, hide);
+  stalkR.position.set(0.85, 3.35, 0.12);
+  stalkR.rotation.z = -0.55;
+  stalkR.rotation.x = 0.15;
 
-  const makeHead = (ox: number, oy: number, oz: number, yaw: number) => {
+  const makeHead = (ox: number, oy: number, oz: number, yaw: number, s = 1) => {
     const head = new THREE.Group();
     head.position.set(ox, oy, oz);
     head.rotation.y = yaw;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.38, 14, 12), mats.bone);
-    skull.scale.set(1.05, 0.95, 1.2);
-    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.55, 7), mats.bronze);
-    jaw.position.set(0, -0.28, -0.32);
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.42 * s, 12, 10), mats.bone);
+    skull.scale.set(1.1, 0.95, 1.25);
+    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.32 * s, 0.62 * s, 7), mats.bronze);
+    jaw.position.set(0, -0.32 * s, -0.36 * s);
     jaw.rotation.x = 1.85;
-    const fangL = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.22, 5), mats.bone);
-    fangL.position.set(-0.12, -0.18, -0.48);
+    const fangL = new THREE.Mesh(new THREE.ConeGeometry(0.055 * s, 0.26 * s, 5), mats.bone);
+    fangL.position.set(-0.14 * s, -0.2 * s, -0.55 * s);
     fangL.rotation.x = 0.9;
     const fangR = fangL.clone();
-    fangR.position.x = 0.12;
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), mats.ember);
-    eyeL.position.set(-0.14, 0.08, -0.34);
+    fangR.position.x = 0.14 * s;
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.07 * s, 8, 8), mats.ember);
+    eyeL.position.set(-0.15 * s, 0.1 * s, -0.38 * s);
     eyeL.name = "ember";
     const eyeR = eyeL.clone();
-    eyeR.position.x = 0.14;
-    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.55, 6), mats.gold);
-    horn.position.set(0, 0.42, -0.05);
+    eyeR.position.x = 0.15 * s;
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.08 * s, 0.62 * s, 6), mats.gold);
+    horn.position.set(0, 0.48 * s, -0.05 * s);
     horn.rotation.x = -0.45;
     head.add(skull, jaw, fangL, fangR, eyeL, eyeR, horn);
     return head;
   };
 
-  const headC = makeHead(0, 3.85, -0.15, 0);
-  const headL = makeHead(-0.95, 3.55, 0.15, 0.55);
-  const headR = makeHead(0.95, 3.55, 0.15, -0.55);
+  const headC = makeHead(0, 4.15, -0.22, 0, 1.12);
+  const headL = makeHead(-1.15, 3.75, 0.18, 0.58, 1);
+  const headR = makeHead(1.15, 3.75, 0.18, -0.58, 1);
 
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.08, 8, 28), mats.gold);
-  sash.position.y = 2.4;
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.09, 6, 22), mats.gold);
+  sash.position.y = 2.35;
   sash.rotation.x = Math.PI / 2;
-  const sludge = new THREE.Mesh(new THREE.TorusKnotGeometry(0.95, 0.07, 28, 6, 2, 3), mats.mire);
-  sludge.position.y = 1.6;
+  // Cheap sludge rings (readable telegraph, no TorusKnot)
+  const sludge = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.08, 6, 20), mats.mire);
+  sludge.position.y = 1.55;
+  sludge.rotation.x = Math.PI / 2.4;
   sludge.name = "ribbon";
+  const sludge2 = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.055, 5, 18), mats.mire);
+  sludge2.position.y = 1.15;
+  sludge2.rotation.x = Math.PI / 2.1;
+  sludge2.name = "ribbon2";
   const aura = new THREE.Mesh(
-    new THREE.RingGeometry(1.85, 2.35, 36),
+    new THREE.RingGeometry(2.05, 2.65, 28),
     new THREE.MeshBasicMaterial({
-      color: 0xa8b848,
+      color: 0xc8d858,
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.48,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
   );
   aura.rotation.x = -Math.PI / 2;
-  aura.position.y = 0.08;
+  aura.position.y = 0.1;
   aura.name = "judgeAura";
-  const glow = new THREE.PointLight(0xaabb44, 4.8, 18, 1.5);
-  glow.position.set(0, 3.2, 0.5);
+  const telegraph = new THREE.Mesh(
+    new THREE.RingGeometry(3.1, 3.35, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0xa8b040,
+      transparent: true,
+      opacity: 0.28,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  telegraph.rotation.x = -Math.PI / 2;
+  telegraph.position.y = 0.06;
+  telegraph.name = "mawTelegraph";
+  const glow = new THREE.PointLight(0xaabb44, 5.2, 20, 1.5);
+  glow.position.set(0, 3.4, 0.5);
 
   g.add(
-    discShadow(mats, 1.55),
+    discShadow(mats, 1.7),
     body,
     neckBase,
+    stalkC,
+    stalkL,
+    stalkR,
     headC,
     headL,
     headR,
     sash,
     sludge,
+    sludge2,
     aura,
+    telegraph,
     glow,
-    nose(mats, 4.05, -0.55)
+    nose(mats, 4.35, -0.6)
   );
   shadow(g);
   return g;
@@ -762,39 +940,57 @@ export function setPortalGateVisual(root: THREE.Object3D, locked: boolean, openT
   });
 }
 
-/** Olive-filth tint for mire archetypes (reuses shade meshes). */
+/** Shared olive tints — one clone per weight, not per mesh (avoids .clone() storms). */
+const mireTintShared: {
+  hideL?: THREE.MeshStandardMaterial;
+  hideH?: THREE.MeshStandardMaterial;
+  ribL?: THREE.MeshBasicMaterial;
+  ribH?: THREE.MeshBasicMaterial;
+} = {};
+
+function mireSharedHide(heavy: boolean): THREE.MeshStandardMaterial {
+  const key = heavy ? "hideH" : "hideL";
+  if (!mireTintShared[key]) {
+    mireTintShared[key] = new THREE.MeshStandardMaterial({
+      color: heavy ? 0x5a4a28 : 0x3a3420,
+      roughness: 0.8,
+      metalness: 0.08,
+      emissive: heavy ? 0x4a5020 : 0x2a3010,
+      emissiveIntensity: heavy ? 0.42 : 0.3,
+    });
+  }
+  return mireTintShared[key]!;
+}
+
+function mireSharedRibbon(mats: MatKit, heavy: boolean): THREE.MeshBasicMaterial {
+  const key = heavy ? "ribH" : "ribL";
+  if (!mireTintShared[key]) {
+    const c = mats.mire.clone();
+    c.color.setHex(heavy ? 0xb0c050 : 0x8a9a44);
+    mireTintShared[key] = c;
+  }
+  return mireTintShared[key]!;
+}
+
+/** Olive-filth tint for leftover mire archetypes (prefer dedicated mire builders). */
 export function tintMireEnemy(root: THREE.Object3D, mats: MatKit, heavy = false) {
-  const mud = heavy ? 0x5a4a28 : 0x3a3420;
-  const em = heavy ? 0x4a5020 : 0x2a3010;
+  const hide = mireSharedHide(heavy);
+  const rib = mireSharedRibbon(mats, heavy);
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
     const mat = m.material as THREE.Material & {
       color?: THREE.Color;
-      map?: THREE.Texture | null;
-      emissive?: THREE.Color;
-      emissiveIntensity?: number;
-      clone: () => THREE.Material;
       isMeshStandardMaterial?: boolean;
     };
     if (!mat || !("color" in mat)) return;
     if (m.name === "ember") return;
     if (mat === (mats.gold as any) || mat === (mats.bone as any) || mat === (mats.ember as any)) return;
     if (mat === (mats.gale as any) || mat === (mats.mire as any) || m.name === "ribbon" || m.name === "ribbon2") {
-      const clone = mats.mire.clone();
-      clone.color.setHex(heavy ? 0xb0c050 : 0x8a9a44);
-      m.material = clone;
+      m.material = rib;
       return;
     }
-    if (mat.isMeshStandardMaterial) {
-      const c = (mat as THREE.MeshStandardMaterial).clone();
-      c.color.setHex(mud);
-      if (c.emissive) {
-        c.emissive.setHex(em);
-        c.emissiveIntensity = heavy ? 0.42 : 0.3;
-      }
-      m.material = c;
-    }
+    if (mat.isMeshStandardMaterial) m.material = hide;
   });
 }
 

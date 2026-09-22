@@ -35,21 +35,24 @@
         "kind": "bell",
         "x": 86,
         "y": 58,
-        "label": "Mire Bell"
+        "label": "Mire Bell",
+        "hint": "Stills nearby filth"
       },
       {
         "id": "filth_cache",
         "kind": "cache",
         "x": 54,
         "y": 68,
-        "label": "Filth Cache"
+        "label": "Filth Cache",
+        "hint": "One champion drop per visit"
       },
       {
         "id": "mire_shrine",
         "kind": "shrine",
         "x": 28,
         "y": 56,
-        "label": "Mire Shrine"
+        "label": "Mire Shrine",
+        "hint": "Restores life and breath"
       },
       {
         "id": "gluttony_portal_lust",
@@ -70,57 +73,75 @@
       "elite": true,
       "champion": true,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 74, "y": 64 }
+      "anchor": {
+        "x": 74,
+        "y": 64
+      }
     },
     {
       "id": "glut_wisps",
-      "name": "Filth Wisp",
+      "name": "Filth Wisps",
       "archetype": "mud_wisp",
       "count": 4,
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 36, "y": 70 }
+      "anchor": {
+        "x": 38,
+        "y": 72
+      }
     },
     {
       "id": "glut_road_wardens",
-      "name": "Sludge Shade",
+      "name": "Sludge Shades",
       "archetype": "mire_shade",
       "count": 2,
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 30, "y": 48 }
+      "anchor": {
+        "x": 28,
+        "y": 50
+      }
     },
     {
       "id": "glut_mire_a",
-      "name": "Mire Shade",
+      "name": "North Mire",
       "archetype": "mire_shade",
       "count": 3,
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 52, "y": 38 }
+      "anchor": {
+        "x": 52,
+        "y": 36
+      }
     },
     {
       "id": "glut_mire_b",
-      "name": "Mire Shade",
+      "name": "South Filth",
       "archetype": "mire_shade",
       "count": 3,
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 68, "y": 78 }
+      "anchor": {
+        "x": 66,
+        "y": 80
+      }
     },
     {
       "id": "glut_champion_pair",
-      "name": "Mire Champion",
+      "name": "Mire Champions",
       "archetype": "mire_champion",
       "count": 2,
       "elite": true,
       "champion": true,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 98, "y": 44 }
+      "anchor": {
+        "x": 96,
+        "y": 42
+      }
     },
     {
       "id": "glut_strays",
@@ -130,7 +151,10 @@
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 90, "y": 72 }
+      "anchor": {
+        "x": 88,
+        "y": 74
+      }
     },
     {
       "id": "glut_chorus",
@@ -140,7 +164,23 @@
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 112, "y": 66 }
+      "anchor": {
+        "x": 110,
+        "y": 68
+      }
+    },
+    {
+      "id": "glut_approach_flank",
+      "name": "Approach Flank",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 122,
+        "y": 42
+      }
     },
     {
       "id": "glut_gate_warden",
@@ -150,7 +190,10 @@
       "elite": true,
       "champion": true,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 128, "y": 50 }
+      "anchor": {
+        "x": 126,
+        "y": 56
+      }
     },
     {
       "id": "glut_cerbero",
@@ -160,7 +203,10 @@
       "elite": true,
       "champion": true,
       "drop_table": "inferno_pack_common",
-      "anchor": { "x": 118, "y": 54 }
+      "anchor": {
+        "x": 130,
+        "y": 50
+      }
     }
   ],
   "bosses": [
@@ -180,11 +226,18 @@
     "event": "FirstClear",
     "requires": "triple_maw"
   },
-  "daily_quests": [],
+  "daily_quests": [
+    {
+      "id": "glut_daily_mire",
+      "objective": "Ring the Mire Bell to still a pack, then break the Triple Maw (or return from Gluttony once)",
+      "emit_event": "DailyQuest",
+      "notes": "Flavor + alternate claim path via Mire Bell after Guide; shares UTC daily cap with Dark Wood writ"
+    }
+  ],
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_03_gluttony",
-    "notes": "Circle kit 3 of 12; mud-rain filth; Doré line weight"
+    "notes": "Circle kit 3 of 12; mud-rain filth; Dor\u00e9 line weight"
   },
   "loot_density": "raw_d2",
   "legal": {

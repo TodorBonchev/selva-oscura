@@ -2744,6 +2744,7 @@ body.in-gluttony #heat-haze {
 .world-label.foe.mire .wl-name { color: #c8d890; }
 .world-label.foe.mire.boss .wl-name { color: #e8f0a8; text-shadow: 0 0 8px #6a8020aa; }
 
+/* Single animated layer + static veil — cheaper than dual animated gradients */
 #mire-rain {
   position: fixed;
   inset: 0;
@@ -2752,33 +2753,35 @@ body.in-gluttony #heat-haze {
   opacity: 0;
   background:
     repeating-linear-gradient(
-      112deg,
-      transparent 0 11px,
-      #c8c09014 11px 12px,
-      transparent 12px 23px
+      108deg,
+      transparent 0 13px,
+      #c8c09018 13px 14px,
+      transparent 14px 28px
     ),
-    repeating-linear-gradient(
-      98deg,
-      transparent 0 17px,
-      #8a9a4410 17px 18px,
-      transparent 18px 37px
-    );
+    radial-gradient(ellipse 90% 70% at 50% 20%, #6a783022 0%, transparent 62%);
   mix-blend-mode: soft-light;
-  transition: opacity 0.5s ease;
+  transition: opacity 0.45s ease;
 }
 body.in-gluttony #mire-rain {
-  opacity: 0.85;
-  animation: mire-rain-fall 2.8s linear infinite;
+  opacity: 0.78;
+  animation: mire-rain-fall 3.4s linear infinite;
+}
+body.in-gluttony.hud-compact #mire-rain {
+  opacity: 0.55;
+  animation-duration: 4.6s;
 }
 body.in-gluttony #heat-haze {
-  opacity: 0.48;
+  opacity: 0.4;
+}
+body.in-gluttony.hud-compact #heat-haze {
+  opacity: 0.28;
 }
 @keyframes mire-rain-fall {
   0% { background-position: 0 0, 0 0; }
-  100% { background-position: 28px 120px, -18px 160px; }
+  100% { background-position: 22px 140px, 0 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  body.in-gluttony #mire-rain { animation: none; opacity: 0.55; }
+  body.in-gluttony #mire-rain { animation: none; opacity: 0.5; }
 }
 
 

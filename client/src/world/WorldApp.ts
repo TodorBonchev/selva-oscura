@@ -55,7 +55,19 @@ import {
 } from "../render/smoothing";
 import { camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from "./frames";
 import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
-import { makeByKind, modelFrontWorld, resolveKind, setPortalGateVisual, tintMireEnemy, type KindKey } from "./meshes";
+import {
+  makeByKind,
+  makeCerbero,
+  makeMireChampion,
+  makeMireShade,
+  makeMireWarden,
+  makeMudWisp,
+  modelFrontWorld,
+  resolveKind,
+  setPortalGateVisual,
+  tintMireEnemy,
+  type KindKey,
+} from "./meshes";
 import { buildGround, type GroundRig } from "./ground";
 import {
   AshField,
@@ -1267,18 +1279,35 @@ export class WorldApp {
 
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
     const isHeartArch = e.archetype === "storm_heart" || e.archetype === "mire_heart";
-    const group = makeByKind(isHeartArch ? "shrine" : kind, this.mats!, e.item?.rarity);
     const arch = String(e.archetype || "");
     const isMire = arch.startsWith("mire_") || arch === "mud_wisp";
-    if (e.archetype === "gale_wisp" || e.archetype === "mud_wisp") group.scale.setScalar(0.62);
-    if (e.archetype === "gale_warden" || e.archetype === "mire_warden") group.scale.setScalar(1.15);
+    const nm = String(e.name || "");
+    let group: THREE.Group;
+    if (isHeartArch) {
+      group = makeByKind("shrine", this.mats!, e.item?.rarity);
+    } else if (arch === "mud_wisp") {
+      group = makeMudWisp(this.mats!);
+    } else if (arch === "mire_warden") {
+      group = makeMireWarden(this.mats!);
+    } else if (/^cerbero$/i.test(nm)) {
+      group = makeCerbero(this.mats!);
+    } else if (isMire && kind === "champion") {
+      group = makeMireChampion(this.mats!);
+    } else if (isMire && kind === "whirl") {
+      group = makeMireShade(this.mats!);
+    } else {
+      group = makeByKind(kind, this.mats!, e.item?.rarity);
+    }
+    if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
+    if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
     if (e.archetype === "mire_shade") group.scale.setScalar(1.05);
-    if (e.archetype === "mire_champion") group.scale.setScalar(1.08);
+    if (e.archetype === "mire_champion" && !/^cerbero$/i.test(nm)) group.scale.setScalar(1.08);
     if (isHeartArch) group.scale.setScalar(1.45);
     if (e.poiKind === "bell") group.scale.setScalar(0.72);
     if (e.poiKind === "pyre") group.scale.setScalar(1.85);
-    if (isMire && (kind === "whirl" || kind === "champion" || isHeartArch)) {
-      tintMireEnemy(group, this.mats!, Boolean(e.champion) || isHeartArch);
+    // Dedicated mire builders already olive; only tint heart shrine leftover
+    if (isMire && isHeartArch) {
+      tintMireEnemy(group, this.mats!, true);
     }
     if (kind === "whirl" || kind === "champion") {
       const ring = new THREE.Mesh(
@@ -1391,7 +1420,15 @@ export class WorldApp {
 
   rebuildGround() {
     if (!this.room || !this.mats) return;
-    if (this.ground) this.scene.remove(this.ground.group);
+    if (this.ground) {
+      this.scene.remove(this.ground.group);
+      this.ground.group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        m.geometry?.dispose();
+        // Shared MatKit materials must not be disposed
+      });
+    }
     const keepouts = [
       { x: this.room.you.x, y: this.room.you.y, r: 4.2 },
       ...this.room.entities
@@ -1524,7 +1561,7 @@ export class WorldApp {
               }
               if (c === "inferno_06") {
                 this.camPunch = Math.max(this.camPunch, 1.2);
-                showToast("The Triple Maw is broken. The rain still falls.", "emit");
+                showToast("Triple Maw broken — return to Lust or the Dark Wood when ready", "emit");
               }
             }
           }
