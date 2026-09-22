@@ -987,7 +987,7 @@ export class WorldApp {
       const bright = u >= 0.22 && u < 0.45 ? 1 : 0.85;
       sm.opacity = bright * (1 - u * u);
       sm.color.setHex(u >= 0.22 && u < 0.4 ? 0xfff6d8 : 0xffe8a8);
-      const punch = u >= 0.22 && u < 0.4 ? 1.15 : 1;
+      const punch = u >= 0.22 && u < 0.4 ? 1.24 : 1;
       this.slash.scale.setScalar((0.82 + swing * 0.55) * punch * (compact ? 0.92 : 1));
     } else if (this.slash) this.slash.visible = false;
 
@@ -1396,6 +1396,9 @@ export class WorldApp {
     } else {
       group = makeByKind(kind, this.mats!, e.item?.rarity);
     }
+    if (kind === "player") {
+      group.scale.setScalar(1.42);
+    }
     if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
     if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
     if (e.archetype === "mire_shade") group.scale.setScalar(1.05);
@@ -1606,7 +1609,7 @@ export class WorldApp {
     document.body.classList.toggle("in-gluttony", glut);
     if (lust) {
       this.fogTargetColor.setHex(0x3a140e);
-      this.fogTargetDensity = 0.018;
+      this.fogTargetDensity = 0.015;
       this.clearTargetColor.setHex(0x1a0c08);
       this.hemi.color.set(0xffb080);
       this.hemi.groundColor.set(0x2a1008);
@@ -1615,6 +1618,9 @@ export class WorldApp {
       this.rim.color.set(0xff8844);
       this.hemi.intensity = 1.12;
       this.rim.intensity = 1.7;
+      // Small hero fill so silhouette reads through Lust fog (point light, cheap).
+      this.heroLight.intensity = 4.05;
+      this.heroLight.distance = 10;
     } else if (glut) {
       // Slightly brighter hemi + cooler rim so mire labels read through olive fog.
       this.glutFogBase = 0.022;
@@ -1630,6 +1636,8 @@ export class WorldApp {
       this.sun.intensity = 1.78;
       this.rim.color.set(0xa8c060);
       this.rim.intensity = 1.55;
+      this.heroLight.intensity = 3.4;
+      this.heroLight.distance = 9;
     } else {
       this.fogTargetColor.setHex(0x1c1812);
       this.fogTargetDensity = 0.013;
@@ -1641,6 +1649,8 @@ export class WorldApp {
       this.sun.color.set(0xffe6c0);
       this.sun.intensity = 1.85;
       this.rim.color.set(0xffe0b0);
+      this.heroLight.intensity = 3.4;
+      this.heroLight.distance = 9;
     }
     if (!(this.scene.fog instanceof THREE.FogExp2)) {
       this.scene.fog = new THREE.FogExp2(this.fogTargetColor.getHex(), this.fogTargetDensity);

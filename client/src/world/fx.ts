@@ -385,22 +385,25 @@ export function tickPortalHoldFx(fx: PortalHoldFx, u: number) {
 
 export function makeSlashTrail(): THREE.Mesh {
   // Brighter bone-gold arc; fewer segments on compact via caller scale, not geometry thrash.
+  // depthTest off so Lust fog/haze doesn't bury the trail; tube ~+8% for combat read.
   const m = new THREE.Mesh(
-    new THREE.TorusGeometry(1.22, 0.07, 6, 24, Math.PI * 1.22),
+    new THREE.TorusGeometry(1.22, 0.076, 6, 24, Math.PI * 1.22),
     new THREE.MeshBasicMaterial({
-      color: 0xfff0c4,
+      color: 0xfff6d8,
       transparent: true,
       opacity: 1,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
+      depthTest: false,
     })
   );
   m.name = "slashTrail";
-  // Hand-local (parent: slashAnchor on handR). Blade mid ~ weapon rest rx=0.55.
+  // Hand-local (parent: slashAnchor on handR). Mid-blade ~ weapon rest rx=0.55.
   // youGroup root scale (~1.42) still applies; offsets are model-space.
-  m.position.set(0.04, -0.42, -0.18);
-  m.rotation.x = Math.PI * 0.28;
-  m.rotation.z = 0.18;
+  // Tuned so arc sits along the blade when weapon shown and still reads when hidden.
+  m.position.set(0.02, -0.40, -0.22);
+  m.rotation.x = Math.PI * 0.24;
+  m.rotation.z = 0.22;
   m.renderOrder = 4;
   return m;
 }

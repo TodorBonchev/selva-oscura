@@ -96,6 +96,41 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+
+/** Public look-only fields for remote player equipped slots (no affixes/stats). */
+function slimEquippedLook(equipped) {
+  const out = {};
+  if (!equipped || typeof equipped !== "object") return out;
+  for (const [slot, it] of Object.entries(equipped)) {
+    if (!it || typeof it !== "object") continue;
+    out[slot] = {
+      id: it.id,
+      baseId: it.baseId,
+      name: it.name,
+      slot: it.slot,
+      equipSlot: it.equipSlot ?? slot,
+      rarity: it.rarity,
+    };
+  }
+  return out;
+}
+
+/** Strip private ledger fields from other players in room.players. */
+function slimRemotePlayerSnap(full) {
+  return {
+    id: full.id,
+    name: full.name,
+    x: full.x,
+    y: full.y,
+    hp: full.hp,
+    maxHp: full.maxHp,
+    mana: full.mana,
+    maxMana: full.maxMana,
+    cantoId: full.cantoId,
+    equipped: slimEquippedLook(full.equipped),
+  };
+}
+
 /** One authoritative instance per canto (Slice 1 single shard). */
 class CantoRoom {
   constructor(cantoId) {
@@ -282,17 +317,18 @@ class CantoRoom {
     const playerSnaps = [];
     for (const [pid, s] of this.sessions) {
       const led = players.get(pid);
-      playerSnaps.push(
-        snapshotPlayer(led, {
-          x: s.x,
-          y: s.y,
-          hp: s.hp,
-          maxHp: s.maxHp,
-          mana: s.mana,
-          maxMana: s.maxMana,
-          cantoId: this.cantoId,
-        })
-      );
+      const full = snapshotPlayer(led, {
+        x: s.x,
+        y: s.y,
+        hp: s.hp,
+        maxHp: s.maxHp,
+        mana: s.mana,
+        maxMana: s.maxMana,
+        cantoId: this.cantoId,
+      });
+      // Remotes: slim equipped for look only; strip inventory/ash/private fields.
+      // Local "you" snapshot below stays full.
+      playerSnaps.push(pid === forPlayerId ? full : slimRemotePlayerSnap(full));
     }
     return {
       cantoId: this.cantoId,

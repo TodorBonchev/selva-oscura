@@ -2717,7 +2717,7 @@ body.slam-sting #slam-sting {
 
 /* Subtle heat-haze fringe at screen edges while ×75+ */
 body.in-lust #heat-haze {
-  opacity: 0.42;
+  opacity: 0.25;
   animation: heat-haze-shimmer 4.5s ease-in-out infinite;
 }
 body.in-gluttony #heat-haze {
