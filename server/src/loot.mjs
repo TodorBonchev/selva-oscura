@@ -50,6 +50,7 @@ const BASE_CONTENT_SLOT = {
   road_pike: "weapon",
   minos_band: "misc",
   storm_cowl: "helm",
+  ashen_signet: "misc",
 };
 
 /**

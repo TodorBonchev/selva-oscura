@@ -11,6 +11,7 @@
     { "name": "Cinder Veil", "slot": "armor", "baseId": "cinder_veil" },
     { "name": "Road Pike", "slot": "weapon", "baseId": "road_pike" },
     { "name": "Minos Band", "slot": "misc", "baseId": "minos_band" },
-    { "name": "Storm Cowl", "slot": "helm", "baseId": "storm_cowl" }
+    { "name": "Storm Cowl", "slot": "helm", "baseId": "storm_cowl" },
+    { "name": "Ashen Signet", "slot": "misc", "baseId": "ashen_signet" }
   ]
 }
