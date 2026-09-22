@@ -252,6 +252,12 @@ async function handleMessage(ws, meta, msg) {
       room.handleSip(playerId);
       break;
     }
+    case "dash": {
+      const room = world.getRoom(playerId);
+      if (!room) return;
+      room.handleDash(playerId, Number(msg.x), Number(msg.y));
+      break;
+    }
     default:
       send(ws, { type: "error", code: "unknown_type", message: `Unknown: ${msg.type}` });
   }

@@ -131,4 +131,7 @@ export class GameSocket {
   sip() {
     this.send({ type: "sip" });
   }
+  dash(x: number, y: number) {
+    this.send({ type: "dash", x, y });
+  }
 }

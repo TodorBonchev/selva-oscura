@@ -3843,6 +3843,7 @@ body.combo-void-ghost-pulse #combo-void-ghost {
   width: 100%;
   background: linear-gradient(90deg, #6a1010, #d63a2a);
 }
+#btn-dash .action-label { color: #d7ecff; }
 #btn-sip {
   border-color: #8a3030;
 }
