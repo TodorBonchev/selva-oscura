@@ -87,58 +87,111 @@ function std(map: THREE.Texture | null, color: number, extra: THREE.MeshStandard
   });
 }
 
+function segCount(hi: number, lo: number) {
+  return isCompactUi() ? lo : hi;
+}
+
 function makeLeg(side: number, leather: THREE.Material, bootM: THREE.Material, gold: THREE.Material) {
+  const rad = segCount(12, 8);
   const g = new THREE.Group();
   g.name = side < 0 ? "legL" : "legR";
-  g.position.set(0.145 * side, 0.98, 0.01);
+  // Hip pivot ~ adult pelvis width; feet land near y=0 with thigh+calf+boot stack.
+  g.position.set(0.125 * side, 0.96, 0.015);
 
-  const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.1, 0.48, 12), leather);
-  thigh.position.y = -0.24;
+  const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.098, 0.44, rad), leather);
+  thigh.position.y = -0.22;
+  thigh.scale.set(1.05, 1, 1.12);
+  const thighPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.092, 0.16, segCount(10, 7)), gold);
+  thighPlate.position.y = -0.12;
+  thighPlate.scale.set(1.05, 1, 0.85);
 
   const knee = new THREE.Group();
   knee.name = side < 0 ? "kneeL" : "kneeR";
-  knee.position.y = -0.48;
-  const knurl = new THREE.Mesh(new THREE.SphereGeometry(0.072, 10, 8), leather);
-  const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.068, 0.4, 12), leather);
-  shin.position.y = -0.2;
-  const greave = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.072, 0.16, 10), gold);
-  greave.position.y = -0.22;
-  const boot = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.13, 0.3), bootM);
-  boot.position.set(0, -0.42, -0.06);
-  const toe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.12), bootM);
+  knee.position.y = -0.44;
+  const knurl = new THREE.Mesh(new THREE.SphereGeometry(0.062, segCount(10, 7), segCount(8, 6)), leather);
+  knurl.scale.set(1.15, 0.85, 1.05);
+  const calf = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.066, 0.4, rad), leather);
+  calf.position.y = -0.2;
+  calf.scale.set(1.02, 1, 1.08);
+  const greave = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.18, segCount(10, 7)), gold);
+  greave.position.y = -0.24;
+  greave.scale.set(1.05, 1, 0.9);
+
+  const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.042, segCount(8, 6), 6), bootM);
+  ankle.position.y = -0.4;
+  ankle.scale.set(1.15, 0.7, 1.25);
+
+  const boot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.26), bootM);
+  boot.position.set(0, -0.455, -0.05);
+  const sole = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.028, 0.28), lambert(0x0e0a08));
+  sole.position.set(0, -0.51, -0.055);
+  const toe = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.055, 0.1), bootM);
   toe.name = side < 0 ? "toeL" : "toeR";
-  toe.position.set(0, -0.43, -0.2);
-  knee.add(knurl, shin, greave, boot, toe);
-  g.add(thigh, knee);
+  toe.position.set(0, -0.46, -0.175);
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.052, 0.08, segCount(8, 6)), bootM);
+  cuff.position.y = -0.36;
+
+  knee.add(knurl, calf, greave, ankle, boot, sole, toe, cuff);
+  g.add(thigh, thighPlate, knee);
   return g;
 }
 
+function makeHand(side: number, glove: THREE.Material): THREE.Group {
+  const hand = new THREE.Group();
+  hand.name = side < 0 ? "handL" : "handR";
+  hand.position.y = -0.32;
+
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.055, 0.095), glove);
+  palm.position.set(0, 0, 0.01);
+  palm.scale.set(1, 1, 1.05);
+
+  // Finger mass — readable mitten + slight splits (cheap, compact-safe).
+  const fingers = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.035, 0.055), glove);
+  fingers.position.set(0, -0.01, -0.055);
+  const knuckle = new THREE.Mesh(new THREE.SphereGeometry(0.028, segCount(8, 5), 5), glove);
+  knuckle.position.set(0, 0.01, -0.03);
+  knuckle.scale.set(1.35, 0.7, 0.9);
+
+  const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.028, 3, segCount(6, 4)), glove);
+  thumb.position.set(0.042 * side, -0.005, 0.01);
+  thumb.rotation.z = side * 0.55;
+  thumb.rotation.x = 0.35;
+
+  const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.038, 0.04, segCount(8, 6)), glove);
+  wrist.position.y = 0.035;
+
+  hand.add(palm, fingers, knuckle, thumb, wrist);
+  return hand;
+}
+
 function makeArm(side: number, leather: THREE.Material, armor: THREE.Material, glove: THREE.Material) {
+  const rad = segCount(12, 8);
   const g = new THREE.Group();
   g.name = side < 0 ? "armL" : "armR";
+  // Rest flare matches tickHumanoid arm.rotation.z = ±0.16
   g.rotation.z = side * 0.16;
 
-  const ua = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.078, 0.34, 12), leather);
-  ua.position.y = -0.16;
+  const ua = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.07, 0.32, rad), leather);
+  ua.position.y = -0.15;
+  ua.scale.set(1.05, 1, 1.08);
+  const deltoid = new THREE.Mesh(new THREE.SphereGeometry(0.055, segCount(10, 7), 7), leather);
+  deltoid.position.y = -0.02;
+  deltoid.scale.set(1.25, 0.85, 1.15);
 
   const elbow = new THREE.Group();
   elbow.name = side < 0 ? "elbowL" : "elbowR";
-  elbow.position.y = -0.33;
-  const joint = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 8), leather);
-  const la = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.3, 12), leather);
-  la.position.y = -0.15;
-  const bracer = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.056, 0.13, 10), armor);
-  bracer.position.y = -0.22;
+  elbow.position.y = -0.31;
+  const joint = new THREE.Mesh(new THREE.SphereGeometry(0.042, segCount(10, 7), 7), leather);
+  joint.scale.set(1.1, 0.9, 1.05);
+  const la = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.05, 0.28, rad), leather);
+  la.position.y = -0.14;
+  const bracer = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.052, 0.14, segCount(10, 7)), armor);
+  bracer.position.y = -0.2;
+  bracer.scale.set(1.05, 1, 0.95);
 
-  const hand = new THREE.Group();
-  hand.name = side < 0 ? "handL" : "handR";
-  hand.position.y = -0.34;
-  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.07, 0.11), glove);
-  palm.position.z = 0.01;
-  hand.add(palm);
-
+  const hand = makeHand(side, glove);
   elbow.add(joint, la, bracer, hand);
-  g.add(ua, elbow);
+  g.add(deltoid, ua, elbow);
   return g;
 }
 
@@ -169,10 +222,13 @@ function makeLongsword(steel: THREE.Material, gold: THREE.Material): THREE.Group
   return weapon;
 }
 
-/** Dark-fantasy wanderer (D4/PoE2 silhouette). Local forward −z, feet on y=0. */
+/** Dark-fantasy wanderer — adult human proportions, Doré bone-gold silhouette. Local forward −z, feet on y=0. */
 export function makeWanderer(mats: MatKit): THREE.Group {
   const root = new THREE.Group();
   root.name = "wanderer";
+  const latheSeg = segCount(14, 10);
+  const bodyRad = segCount(14, 9);
+  const headSeg = segCount(16, 10);
 
   const leather = std(mats.leather.map, 0x7a6248, { roughness: 0.82, metalness: 0.08 });
   const armor = std(mats.armor.map, 0xc49a52, { roughness: 0.38, metalness: 0.58, emissive: 0x3a2408, emissiveIntensity: 0.28 });
@@ -188,7 +244,7 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   });
 
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.4, 0.46, 40),
+    new THREE.RingGeometry(0.38, 0.44, segCount(36, 24)),
     new THREE.MeshBasicMaterial({
       color: 0xc9a227,
       transparent: true,
@@ -201,60 +257,110 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   ring.position.y = 0.03;
   ring.renderOrder = 2;
 
+  // --- Hips / pelvis (~0.96) — shoulders will sit wider than this ---
   const hips = new THREE.Group();
   hips.name = "hips";
-  const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.155, 12, 10), leather);
-  pelvis.scale.set(1.35, 0.62, 0.95);
-  pelvis.position.y = 0.98;
-  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.028, 8, 20), gold);
+
+  const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.14, bodyRad, segCount(10, 7)), leather);
+  pelvis.scale.set(1.28, 0.55, 0.92);
+  pelvis.position.y = 0.96;
+
+  const abdomen = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.155, 0.16, bodyRad), leather);
+  abdomen.position.y = 1.05;
+  abdomen.scale.set(1.05, 1, 0.88);
+
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.024, segCount(8, 6), segCount(18, 12)), gold);
   belt.rotation.x = Math.PI / 2;
-  belt.position.y = 0.98;
+  belt.position.y = 0.97;
+
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.04, 0.02), gold);
+  buckle.position.set(0, 0.97, -0.175);
+
   const tabard = new THREE.Mesh(
     new THREE.LatheGeometry(
-      [new THREE.Vector2(0.1, 0), new THREE.Vector2(0.16, -0.12), new THREE.Vector2(0.14, -0.5)],
-      12,
+      [
+        new THREE.Vector2(0.08, 0),
+        new THREE.Vector2(0.14, -0.1),
+        new THREE.Vector2(0.155, -0.28),
+        new THREE.Vector2(0.13, -0.52),
+      ],
+      latheSeg,
       Math.PI * 0.82,
       Math.PI * 0.36
     ),
     tabardM
   );
   tabard.name = "tabard";
-  tabard.position.set(0, 0.96, -0.04);
+  tabard.position.set(0, 0.95, -0.03);
   tabard.rotation.y = Math.PI;
-  hips.add(pelvis, belt, tabard, makeLeg(-1, leather, bootM, gold), makeLeg(1, leather, bootM, gold));
 
+  hips.add(
+    pelvis,
+    abdomen,
+    belt,
+    buckle,
+    tabard,
+    makeLeg(-1, leather, bootM, gold),
+    makeLeg(1, leather, bootM, gold)
+  );
+
+  // --- Torso pivot near waist (anim rotates this group) ---
   const torso = new THREE.Group();
   torso.name = "torso";
-  torso.position.y = 1.08;
-  const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.25, 0.58, 14), leather);
-  chest.position.y = 0.28;
-  chest.scale.set(1.08, 1, 0.82);
-  const breast = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), armor);
-  breast.position.set(0, 0.42, -0.09);
-  breast.scale.set(1.32, 0.68, 0.58);
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.028, 8, 22), gold);
-  sash.rotation.x = Math.PI / 2;
-  sash.position.y = 0.04;
-  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.032, 8, 16), leather);
-  collar.rotation.x = Math.PI / 2.15;
-  collar.position.y = 0.56;
+  torso.position.y = 1.06;
 
-  const pauldronL = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), armor);
-  pauldronL.position.set(-0.28, 0.54, 0.02);
-  pauldronL.scale.set(1.5, 0.55, 1.2);
+  // Lathe torso: narrow waist → wider chest with depth via scale
+  const ribcage = new THREE.Mesh(
+    new THREE.LatheGeometry(
+      [
+        new THREE.Vector2(0.13, 0),
+        new THREE.Vector2(0.155, 0.12),
+        new THREE.Vector2(0.195, 0.32),
+        new THREE.Vector2(0.185, 0.5),
+        new THREE.Vector2(0.12, 0.58),
+      ],
+      latheSeg
+    ),
+    leather
+  );
+  ribcage.position.y = 0.02;
+  ribcage.scale.set(1.12, 1, 0.78);
+
+  const breast = new THREE.Mesh(new THREE.SphereGeometry(0.175, bodyRad, segCount(10, 7)), armor);
+  breast.position.set(0, 0.38, -0.08);
+  breast.scale.set(1.38, 0.58, 0.55);
+
+  const sternum = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.02), gold);
+  sternum.position.set(0, 0.36, -0.155);
+
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.022, segCount(8, 6), segCount(18, 12)), gold);
+  sash.rotation.x = Math.PI / 2;
+  sash.position.y = 0.06;
+
+  // Shoulders wider than hips (~0.56 span vs ~0.25 hip)
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.028, segCount(8, 6), segCount(14, 10)), leather);
+  collar.rotation.x = Math.PI / 2.2;
+  collar.position.y = 0.55;
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.1, segCount(10, 7)), skin);
+  neck.position.y = 0.62;
+
+  const pauldronL = new THREE.Mesh(new THREE.SphereGeometry(0.11, bodyRad, segCount(10, 7)), armor);
+  pauldronL.position.set(-0.26, 0.5, 0.01);
+  pauldronL.scale.set(1.45, 0.5, 1.15);
   const pauldronR = pauldronL.clone();
-  pauldronR.position.x = 0.28;
-  const pauldronTrimL = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.018, 6, 14), gold);
-  pauldronTrimL.position.set(-0.3, 0.54, 0.02);
+  pauldronR.position.x = 0.26;
+  const pauldronTrimL = new THREE.Mesh(new THREE.TorusGeometry(0.095, 0.015, segCount(6, 5), segCount(12, 8)), gold);
+  pauldronTrimL.position.set(-0.275, 0.5, 0.01);
   pauldronTrimL.rotation.z = Math.PI / 2.4;
   const pauldronTrimR = pauldronTrimL.clone();
-  pauldronTrimR.position.x = 0.3;
+  pauldronTrimR.position.x = 0.275;
   pauldronTrimR.rotation.z = -Math.PI / 2.4;
 
   const armL = makeArm(-1, leather, armor, glove);
   const armR = makeArm(1, leather, armor, glove);
-  armL.position.set(-0.27, 0.5, 0);
-  armR.position.set(0.27, 0.5, 0);
+  armL.position.set(-0.29, 0.48, 0);
+  armR.position.set(0.29, 0.48, 0);
 
   const weapon = makeLongsword(steel, gold);
   weapon.position.set(0.01, 0.02, 0.03);
@@ -262,55 +368,87 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   weapon.rotation.z = 0.12;
   armR.getObjectByName("handR")?.add(weapon);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.132, 16, 14), skin);
-  head.position.y = 0.7;
-  const faceShade = new THREE.Mesh(
-    new THREE.CircleGeometry(0.09, 12),
-    new THREE.MeshLambertMaterial({ color: 0x1a100c, emissive: 0x120c08, emissiveIntensity: 0.15 })
-  );
-  faceShade.position.set(0, 0.7, -0.118);
-  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), mats.ember);
-  eyeL.position.set(-0.038, 0.715, -0.125);
+  // --- Head: oval skull ~1/7.5 of ~1.82 height ---
+  const headY = 0.66;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, headSeg, segCount(14, 9)), skin);
+  head.position.y = headY;
+  head.scale.set(0.92, 1.12, 0.95);
+
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.07, segCount(10, 7), 7), skin);
+  jaw.position.set(0, headY - 0.07, -0.02);
+  jaw.scale.set(0.95, 0.55, 0.85);
+
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.04), skin);
+  brow.position.set(0, headY + 0.035, -0.1);
+  brow.scale.set(1, 0.7, 0.8);
+
+  const noseBridge = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.05, 0.035), skin);
+  noseBridge.position.set(0, headY - 0.01, -0.12);
+
+  const cheekL = new THREE.Mesh(new THREE.SphereGeometry(0.035, segCount(8, 5), 5), skin);
+  cheekL.position.set(-0.055, headY - 0.025, -0.07);
+  cheekL.scale.set(0.7, 0.65, 0.55);
+  const cheekR = cheekL.clone();
+  cheekR.position.x = 0.055;
+
+  const socketM = new THREE.MeshLambertMaterial({ color: 0x1a100c, emissive: 0x120c08, emissiveIntensity: 0.18 });
+  const socketL = new THREE.Mesh(new THREE.SphereGeometry(0.028, segCount(8, 5), 5), socketM);
+  socketL.position.set(-0.038, headY + 0.01, -0.105);
+  socketL.scale.set(1.1, 0.7, 0.55);
+  const socketR = socketL.clone();
+  socketR.position.x = 0.038;
+
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.014, segCount(8, 5), 5), mats.ember);
+  eyeL.position.set(-0.038, headY + 0.01, -0.118);
   const eyeR = eyeL.clone();
   eyeR.position.x = 0.038;
 
+  // Hood drapes over crown without swallowing face (anim rest hood.rotation.x = -0.38)
   const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.175, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    new THREE.SphereGeometry(0.155, headSeg, segCount(12, 8), 0, Math.PI * 2, 0, Math.PI * 0.58),
     leather
   );
   hood.name = "hood";
-  hood.position.set(0, 0.76, 0.03);
+  hood.position.set(0, headY + 0.05, 0.025);
   hood.rotation.x = -0.38;
-  const cowl = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.028, 8, 18, Math.PI * 1.2), leather);
-  cowl.position.set(0, 0.66, -0.02);
+  hood.scale.set(1.05, 1.0, 1.08);
+
+  const cowl = new THREE.Mesh(
+    new THREE.TorusGeometry(0.13, 0.024, segCount(8, 5), segCount(16, 10), Math.PI * 1.15),
+    leather
+  );
+  cowl.position.set(0, headY - 0.08, -0.015);
   cowl.rotation.x = 0.55;
 
   const cloak = new THREE.Mesh(
     new THREE.LatheGeometry(
       [
-        new THREE.Vector2(0.16, 0),
-        new THREE.Vector2(0.28, -0.18),
-        new THREE.Vector2(0.32, -0.55),
-        new THREE.Vector2(0.26, -0.95),
-        new THREE.Vector2(0.18, -1.18),
+        new THREE.Vector2(0.14, 0),
+        new THREE.Vector2(0.24, -0.16),
+        new THREE.Vector2(0.3, -0.48),
+        new THREE.Vector2(0.26, -0.88),
+        new THREE.Vector2(0.17, -1.12),
       ],
-      16,
+      latheSeg,
       Math.PI * 0.55,
       Math.PI * 0.9
     ),
     capeM
   );
   cloak.name = "cloak";
-  cloak.position.set(0, 0.48, 0.1);
+  cloak.position.set(0, 0.46, 0.09);
   cloak.rotation.y = Math.PI;
-  const clasp = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), gold);
-  clasp.position.set(0, 0.5, -0.16);
+
+  const clasp = new THREE.Mesh(new THREE.SphereGeometry(0.03, segCount(8, 5), 5), gold);
+  clasp.position.set(0, 0.48, -0.15);
 
   torso.add(
-    chest,
+    ribcage,
     breast,
+    sternum,
     sash,
     collar,
+    neck,
     pauldronL,
     pauldronR,
     pauldronTrimL,
@@ -318,27 +456,44 @@ export function makeWanderer(mats: MatKit): THREE.Group {
     armL,
     armR,
     head,
-    faceShade,
+    jaw,
+    brow,
+    noseBridge,
+    cheekL,
+    cheekR,
+    socketL,
+    socketR,
     eyeL,
     eyeR,
     hood,
     cowl,
     cloak,
     clasp,
-    nose(mats, 0.7, -0.13)
+    nose(mats, headY, -0.135)
   );
-  root.add(discShadow(mats, 0.4), ring, hips, torso);
+  root.add(discShadow(mats, 0.38), ring, hips, torso);
   shadow(root);
   return root;
 }
 
-/** Cloaked guide with lantern staff. */
+/** Cloaked guide with lantern staff — same rig as wanderer, softer cloth read. */
 export function makeGuide(mats: MatKit): THREE.Group {
   const g = makeWanderer(mats);
   g.name = "guide";
   g.scale.setScalar(1.08);
   const wep = g.getObjectByName("weapon");
   if (wep) wep.visible = false;
+  // Soften metal plates toward scholar-robes (keep silhouette / joints).
+  const robe = std(mats.cloth.map, 0x5a4a3a, { roughness: 0.9, metalness: 0.04 });
+  const robeGold = std(mats.gold.map, 0xb89850, { roughness: 0.45, metalness: 0.4, emissive: 0x3a2808, emissiveIntensity: 0.18 });
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.material) return;
+    const mat = m.material as THREE.MeshStandardMaterial;
+    if (!mat.isMeshStandardMaterial) return;
+    if (mat.metalness != null && mat.metalness >= 0.5) m.material = robeGold;
+    else if (mat.metalness != null && mat.metalness >= 0.08 && mat.roughness != null && mat.roughness < 0.5) m.material = robe;
+  });
   const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 2.2, 8), mats.bronze);
   staff.position.set(-0.38, 1.15, 0.08);
   const lantern = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.16), mats.gold);
