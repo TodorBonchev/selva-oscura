@@ -33,12 +33,14 @@ const PLAYER_ATK_CD = 0.42;
 
 const MOB_HP = {
   whirl_shade: 36,
+  gale_wisp: 16,
   gale_champion: 80,
   boss: 200,
 };
 
 const MOB_DMG = {
   whirl_shade: 3,
+  gale_wisp: 2,
   gale_champion: 7,
   boss: 12,
 };
@@ -231,6 +233,7 @@ class CantoRoom {
         packId: e.packId,
         champion: e.champion,
         elite: e.elite,
+        archetype: e.archetype,
         poiKind: e.poiKind,
         label: e.label,
         toCanto: e.toCanto,
@@ -328,19 +331,30 @@ class CantoRoom {
     s.atkCd = PLAYER_ATK_CD;
     const gear = computeGearStats(players.get(playerId) || { inventory: [] });
     const dmg = PLAYER_BASE_DMG + gear.dmg + Math.floor(Math.random() * 6);
-    target.hp = Math.max(0, target.hp - dmg);
-    this.broadcast({
-      type: "combat",
-      attackerId: playerId,
-      targetId,
-      damage: dmg,
-      targetHp: target.hp,
-    });
-    if (target.hp <= 0) {
-      this.onEntityKilled(playerId, target);
-    } else {
-      this.pushAllSnapshots();
+    const victims = [target];
+    for (const e of this.entities.values()) {
+      if (e === target || (e.kind !== "mob" && e.kind !== "boss")) continue;
+      if (dist(s, e) > ATTACK_RANGE + 0.35) continue;
+      if (dist(target, e) > 2.6) continue;
+      victims.push(e);
     }
+    let anyDead = false;
+    for (const v of victims) {
+      const hit = v === target ? dmg : Math.max(8, Math.round(dmg * 0.55));
+      v.hp = Math.max(0, v.hp - hit);
+      this.broadcast({
+        type: "combat",
+        attackerId: playerId,
+        targetId: v.id,
+        damage: hit,
+        targetHp: v.hp,
+      });
+      if (v.hp <= 0) {
+        anyDead = true;
+        this.onEntityKilled(playerId, v);
+      }
+    }
+    if (!anyDead) this.pushAllSnapshots();
   }
 
   handleCast(playerId, spellId, aimX, aimY) {
@@ -921,7 +935,7 @@ class CantoRoom {
         const dx = nearest.x - e.x;
         const dy = nearest.y - e.y;
         const len = Math.hypot(dx, dy) || 1;
-        const speed = e.kind === "boss" ? 2.2 : 3.0;
+        const speed = e.archetype === "gale_wisp" ? 5.4 : e.kind === "boss" ? 2.2 : 3.0;
         e.x += (dx / len) * speed * dt;
         e.y += (dy / len) * speed * dt;
         moved = true;

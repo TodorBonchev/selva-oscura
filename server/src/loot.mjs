@@ -51,6 +51,7 @@ const BASE_CONTENT_SLOT = {
   minos_band: "misc",
   storm_cowl: "helm",
   ashen_signet: "misc",
+  wisp_filament: "misc",
 };
 
 /**

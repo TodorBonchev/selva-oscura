@@ -17,6 +17,7 @@ const BASE_CONTENT_SLOT: Record<string, string> = {
   minos_band: "misc",
   storm_cowl: "helm",
   ashen_signet: "misc",
+  wisp_filament: "misc",
 };
 
 /** Content slot for an item (weapon/armor/helm/…); mirrors server inferContentSlot. */
