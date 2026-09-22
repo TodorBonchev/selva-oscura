@@ -34,6 +34,7 @@ const PLAYER_ATK_CD = 0.42;
 const MOB_HP = {
   whirl_shade: 36,
   gale_wisp: 16,
+  gale_warden: 120,
   gale_champion: 80,
   boss: 200,
 };
@@ -41,6 +42,7 @@ const MOB_HP = {
 const MOB_DMG = {
   whirl_shade: 3,
   gale_wisp: 2,
+  gale_warden: 6,
   gale_champion: 7,
   boss: 12,
 };
@@ -935,7 +937,8 @@ class CantoRoom {
         const dx = nearest.x - e.x;
         const dy = nearest.y - e.y;
         const len = Math.hypot(dx, dy) || 1;
-        const speed = e.archetype === "gale_wisp" ? 5.4 : e.kind === "boss" ? 2.2 : 3.0;
+        const speed =
+          e.archetype === "gale_wisp" ? 5.4 : e.archetype === "gale_warden" ? 1.6 : e.kind === "boss" ? 2.2 : 3.0;
         e.x += (dx / len) * speed * dt;
         e.y += (dy / len) * speed * dt;
         moved = true;

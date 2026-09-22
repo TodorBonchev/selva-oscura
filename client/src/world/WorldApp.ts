@@ -16,6 +16,7 @@ import {
   flashManaDeny,
   noteWardBuff,
   noteAttackCd,
+  noteUtilityCd,
   pulseInvBag,
   noteComboHit,
   isComboMilestone,
@@ -414,7 +415,7 @@ export class WorldApp {
         this.socket.unequip({ itemId: String(id) });
       },
       meltBag: () => this.socket.salvageBag(),
-      sip: () => this.socket.sip(),
+      sip: () => this.sip(),
       dash: () => this.dash(),
       castSpell: (spellId) => this.castSpell(spellId),
       onSpellHoldStart: (spellId, ev) => this.beginSpellHold(spellId, { fromKey: false, pointer: ev }),
@@ -516,7 +517,7 @@ export class WorldApp {
         this.cancelSpellHold();
         this.cancelPortalHold();
       }
-      if (e.code === "KeyQ") this.socket.sip();
+      if (e.code === "KeyQ") this.sip();
       if (e.code === "Space") {
         e.preventDefault();
         this.dash();
@@ -1214,6 +1215,7 @@ export class WorldApp {
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
     const group = makeByKind(kind, this.mats!, e.item?.rarity);
     if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
+    if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
     group.userData.entityId = id.replace(/^pl:/, "");
     const wrap = document.createElement("div");
     wrap.className = "world-label";
@@ -1785,10 +1787,21 @@ export class WorldApp {
     return best;
   }
 
+  sip() {
+    const you = this.room?.you;
+    if (you && you.hp >= you.maxHp && you.mana >= (you.maxMana || 100)) {
+      showToast("You are already whole.", "info");
+      return;
+    }
+    noteUtilityCd("btn-sip", 8);
+    this.socket.sip();
+  }
+
   dash() {
     const now = Date.now();
     if (now < this.dashReadyAt) return;
     this.dashReadyAt = now + 4000;
+    noteUtilityCd("btn-dash", 4);
     const len = Math.hypot(this.aimX, this.aimY) || 1;
     const nx = this.aimX / len;
     const ny = this.aimY / len;

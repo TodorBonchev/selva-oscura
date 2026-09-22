@@ -791,6 +791,15 @@ export function noteSpellCast(spellId: string, cooldownSec: number) {
 }
 
 /** Optimistic melee CD radial on the Attack button (matches spell-style sweep). */
+const utilCd = new Map<string, { until: number; total: number }>();
+
+/** Radial cooldown on Dash / Flask. */
+export function noteUtilityCd(btnId: string, cooldownSec: number) {
+  const total = Math.max(0.05, Number(cooldownSec) || 0) * 1000;
+  utilCd.set(btnId, { until: Date.now() + total, total });
+  kickSpellCdLoop();
+}
+
 export function noteAttackCd(cooldownSec: number) {
   const ms = Math.max(0.05, Number(cooldownSec) || 0) * 1000;
   attackCdTotalMs = ms;
@@ -1186,6 +1195,28 @@ function updateAttackCdButton() {
   if (was && !onCd) pingSpellReady(btn);
 }
 
+function updateUtilityCds() {
+  const now = Date.now();
+  for (const [id, cd] of utilCd) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    const onCd = cd.until > now;
+    btn.classList.toggle("on-cooldown", onCd);
+    const cdEl = btn.querySelector<HTMLElement>(".spell-cd");
+    if (!cdEl) continue;
+    if (onCd) {
+      const left = Math.max(0, (cd.until - now) / 1000);
+      cdEl.hidden = false;
+      cdEl.textContent = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
+      const frac = Math.max(0, Math.min(1, (cd.until - now) / cd.total));
+      cdEl.style.setProperty("--cd-deg", `${(frac * 360).toFixed(1)}deg`);
+    } else {
+      cdEl.hidden = true;
+      cdEl.textContent = "";
+    }
+  }
+}
+
 function updateSpellButtons(mana: number) {
   const now = Date.now();
   for (const id of SPELL_HOTBAR) {
@@ -1217,6 +1248,7 @@ function updateSpellButtons(mana: number) {
     spellWasOnCd.set(id, onCd);
   }
   updateAttackCdButton();
+  updateUtilityCds();
 }
 
 function kickSpellCdLoop() {

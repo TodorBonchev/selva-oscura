@@ -2005,7 +2005,9 @@ body.has-modal #virtual-joystick { display: none; }
 
 /* Attack radial CD — same conic sweep as spells */
 #btn-attack .spell-cd,
-#btn-attack .attack-cd {
+#btn-attack .attack-cd,
+#btn-dash .spell-cd,
+#btn-sip .spell-cd {
   position: absolute;
   inset: 4px;
   z-index: 3;
