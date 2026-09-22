@@ -54,6 +54,7 @@ const BASE_CONTENT_SLOT = {
   wisp_filament: "misc",
   heart_shard: "misc",
   pyre_coal: "misc",
+  writ_quill: "misc",
 };
 
 /**

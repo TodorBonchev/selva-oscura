@@ -630,6 +630,15 @@ class CantoRoom {
       }
       if (left === 0) this.toast(killer.ws, "info", "The gust breaks. Press on.");
     }
+    if (killer && entity.kind === "mob") {
+      let mobs = 0;
+      let bossUp = false;
+      for (const e of this.entities.values()) {
+        if (e.kind === "mob" && e.hp > 0) mobs++;
+        if (e.kind === "boss" && e.hp > 0) bossUp = true;
+      }
+      if (mobs === 0 && bossUp) this.toast(killer.ws, "emit", "The road is clear. The Judge waits.");
+    }
 
     if (drops.length && killer) {
       this.toast(
@@ -882,9 +891,14 @@ class CantoRoom {
     }
     const r = tryEmit(playerId, "DailyQuest", { questId: "dw_daily_scout" });
     if (r.ok) {
-      this.toast(s.ws, "emit", `DailyQuest pending +${r.payoutAsh} Ash`);
+      this.toast(s.ws, "emit", `Writ accepted. +${r.payoutAsh.toLocaleString()} Ash set aside (pending).`);
     } else {
-      this.toast(s.ws, "warn", `Daily writ: ${r.reason}`);
+      const why = {
+        daily_cap: "You already claimed today's writ.",
+        no_player: "The ledger does not know you yet.",
+        ineligible_event: "This writ cannot be claimed.",
+      };
+      this.toast(s.ws, "warn", why[r.reason] || "The writ cannot be claimed right now.");
     }
     this.pushSnapshot(playerId);
   }

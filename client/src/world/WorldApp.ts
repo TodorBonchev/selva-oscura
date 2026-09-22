@@ -1243,6 +1243,7 @@ export class WorldApp {
     if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
     if (e.archetype === "storm_heart") group.scale.setScalar(1.45);
     if (e.poiKind === "bell") group.scale.setScalar(0.72);
+    if (e.poiKind === "pyre") group.scale.setScalar(1.85);
     if (kind === "whirl" || kind === "champion") {
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(0.62, 0.74, 18),
