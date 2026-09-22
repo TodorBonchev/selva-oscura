@@ -36,7 +36,7 @@
         "x": 86,
         "y": 58,
         "label": "Mire Bell",
-        "hint": "Stills nearby filth"
+        "hint": "Stills nearby filth — then press the Maw"
       },
       {
         "id": "filth_cache",
@@ -44,7 +44,7 @@
         "x": 54,
         "y": 68,
         "label": "Filth Cache",
-        "hint": "One champion drop per visit"
+        "hint": "One champion drop per visit — E to claim"
       },
       {
         "id": "mire_shrine",
@@ -52,7 +52,7 @@
         "x": 28,
         "y": 56,
         "label": "Mire Shrine",
-        "hint": "Restores life and breath"
+        "hint": "Restores life and breath — E to kneel"
       },
       {
         "id": "gluttony_portal_lust",
@@ -206,7 +206,8 @@
       "anchor": {
         "x": 130,
         "y": 50
-      }
+      },
+      "notes": "Mid-lane elite telegraph before Triple Maw"
     }
   ],
   "bosses": [
@@ -224,7 +225,8 @@
   "first_clear": {
     "enabled": true,
     "event": "FirstClear",
-    "requires": "triple_maw"
+    "requires": "triple_maw",
+    "notes": "Triple Maw broken — Gluttony yields"
   },
   "daily_quests": [
     {
@@ -237,7 +239,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_03_gluttony",
-    "notes": "Circle kit 3 of 12; mud-rain filth; Dor\u00e9 line weight"
+    "notes": "Circle kit 3 of 12; mud-rain filth; Doré line weight"
   },
   "loot_density": "raw_d2",
   "legal": {

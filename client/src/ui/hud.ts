@@ -109,7 +109,7 @@ export function armHelpFade(ms = HELP_FADE_MS) {
   }, ms);
 }
 
-export function updateStats(you: any, title: string) {
+export function updateStats(you: any, title: string, subtitleIt?: string | null) {
   const canto = document.getElementById("canto-title");
   const hp = document.getElementById("hp");
   const hpFill = document.getElementById("hp-fill");
@@ -120,6 +120,8 @@ export function updateStats(you: any, title: string) {
     const txt = `${title}`;
     if (canto.textContent !== txt) canto.textContent = txt;
     canto.setAttribute("data-canto", String(you.cantoId ?? ""));
+    const epi = subtitleIt ? String(subtitleIt) : "";
+    if (canto.getAttribute("data-epigraph") !== epi) canto.setAttribute("data-epigraph", epi);
   }
   const maxHp = Number(you.maxHp) || 1;
   const cur = Math.max(0, Number(you.hp) || 0);

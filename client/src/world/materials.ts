@@ -229,10 +229,11 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   const groundGlut = new THREE.MeshStandardMaterial({
     map: lustMap.clone(),
     color: 0x9a8860,
-    roughness: 0.94,
-    metalness: 0.04,
+    // Wet mud: lower roughness + a touch of metalness for cheap specular (no new maps).
+    roughness: 0.72,
+    metalness: 0.14,
     emissive: 0x2a2810,
-    emissiveIntensity: 0.16,
+    emissiveIntensity: 0.18,
     vertexColors: true,
   });
   const mire = new THREE.MeshBasicMaterial({

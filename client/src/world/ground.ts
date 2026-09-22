@@ -433,12 +433,31 @@ export function buildGround(
       filth.rotation.x = Math.PI / 2;
       filth.position.set(daisPos.x, hy + 0.72, daisPos.z);
       filth.castShadow = false;
+      filth.name = "daisPulse";
       group.add(filth);
       const filth2 = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.07, 5, compact ? 16 : 22), mats.mire);
       filth2.rotation.x = Math.PI / 2;
       filth2.position.set(daisPos.x, hy + 0.76, daisPos.z);
       filth2.castShadow = false;
+      filth2.name = "daisPulse";
       group.add(filth2);
+      // Cheap boss-arena telegraph: additive ring, pulsed in WorldApp (no custom shaders).
+      const tele = new THREE.Mesh(
+        new THREE.RingGeometry(6.2, 6.55, compact ? 24 : 32),
+        new THREE.MeshBasicMaterial({
+          color: 0xa8b040,
+          transparent: true,
+          opacity: 0.22,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      tele.rotation.x = -Math.PI / 2;
+      tele.position.set(daisPos.x, hy + 0.82, daisPos.z);
+      tele.castShadow = false;
+      tele.name = "daisTelegraph";
+      group.add(tele);
 
       // Shared puddle geo/mat + InstancedMesh (was N unique Mesh+Material)
       const puddleMat = new THREE.MeshStandardMaterial({

@@ -122,6 +122,7 @@ class CantoRoom {
         y: poi.y,
         poiKind: poi.kind,
         label: poi.label,
+        hint: poi.hint || null,
         toCanto: poi.to_canto || null,
         requireClear: poi.require_clear || null,
       });
@@ -272,6 +273,7 @@ class CantoRoom {
         archetype: e.archetype,
         poiKind: e.poiKind,
         label: e.label,
+        hint: e.hint || null,
         toCanto: e.toCanto,
         requireClear: e.requireClear || null,
         item: e.item,
@@ -295,6 +297,7 @@ class CantoRoom {
     return {
       cantoId: this.cantoId,
       title: this.canto.title,
+      subtitleIt: this.canto.subtitle_it || this.canto.subtitleIt || null,
       role: this.canto.role,
       bounds: this.canto.geo.bounds,
       entities,
@@ -871,7 +874,7 @@ class CantoRoom {
         this.toast(
           s.ws,
           "info",
-          "Guide: Follow the gold arrow into Lust. Clear the Judge, then the Gluttony gate past his dais opens. Return and claim the writ."
+          "Guide: Follow the gold arrow into Lust. Clear the Judge — then Gluttony (piova etterna) opens past his dais. Return and claim the writ."
         );
       } else if (e.poiKind === "stash") {
         this.toast(s.ws, "info", `Stash holds ${ledger.stash.length} items (stub — inventory only for now).`);

@@ -151,15 +151,17 @@ input, textarea, .panel, #panels, #boot-veil, #boot-veil input, #boot-veil butto
   text-shadow: 0 1px 0 #000, 0 0 12px #0008;
 }
 #canto-title::after {
-  content: attr(data-canto);
+  content: attr(data-epigraph);
   display: block;
   font-variant: normal;
+  font-style: italic;
   font-size: 0.62rem;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.12em;
   color: var(--muted);
-  text-transform: uppercase;
+  text-transform: none;
 }
-#canto-title[data-canto=""]::after { display: none; }
+#canto-title[data-epigraph=""]::after,
+#canto-title:not([data-epigraph])::after { display: none; }
 
 /* Vitals */
 #stats {
@@ -2741,8 +2743,20 @@ body.in-gluttony #heat-haze {
   background: #2a2414cc;
   border-color: #8a7840;
 }
-.world-label.foe.mire .wl-name { color: #c8d890; }
-.world-label.foe.mire.boss .wl-name { color: #e8f0a8; text-shadow: 0 0 8px #6a8020aa; }
+.world-label.foe.mire .wl-name {
+  color: #e0f0a8;
+  text-shadow:
+    0 0 1px #0a0c04,
+    0 1px 2px #000c,
+    0 0 8px #6a802066;
+}
+.world-label.foe.mire.boss .wl-name {
+  color: #f2f8c0;
+  text-shadow:
+    0 0 1px #0a0c04,
+    0 1px 2px #000e,
+    0 0 10px #8aa028aa;
+}
 
 /* Single animated layer + static veil — cheaper than dual animated gradients */
 #mire-rain {
@@ -2763,12 +2777,19 @@ body.in-gluttony #heat-haze {
   transition: opacity 0.45s ease;
 }
 body.in-gluttony #mire-rain {
-  opacity: 0.78;
-  animation: mire-rain-fall 3.4s linear infinite;
+  opacity: 0.72;
+  animation: mire-rain-fall 3.8s linear infinite;
 }
 body.in-gluttony.hud-compact #mire-rain {
-  opacity: 0.55;
-  animation-duration: 4.6s;
+  opacity: 0.48;
+  animation: none; /* static veil on compact — saves mobile composite cost */
+}
+body.tab-hidden #mire-rain,
+body:not(.in-gluttony) #mire-rain {
+  animation: none !important;
+}
+body.tab-hidden.in-gluttony #mire-rain {
+  opacity: 0.4;
 }
 body.in-gluttony #heat-haze {
   opacity: 0.4;

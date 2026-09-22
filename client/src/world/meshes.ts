@@ -531,52 +531,71 @@ export function makeMireWarden(mats: MatKit): THREE.Group {
   return g;
 }
 
-/** Cerbero — mid elite with three stub heads (approach foreshadow of Triple Maw). */
+/** Cerbero — broader three-headed silhouette foreshadowing the Triple Maw. */
 export function makeCerbero(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "champion";
   const hide = std(null, 0x4a3a28, { roughness: 0.8, metalness: 0.1, emissive: 0x2a3010, emissiveIntensity: 0.35 });
   const body = new THREE.Mesh(new THREE.LatheGeometry([
-    new THREE.Vector2(0.15, 0),
-    new THREE.Vector2(0.72, 0.3),
-    new THREE.Vector2(0.78, 1.05),
-    new THREE.Vector2(0.48, 1.85),
-    new THREE.Vector2(0.28, 2.25),
+    new THREE.Vector2(0.18, 0),
+    new THREE.Vector2(0.82, 0.28),
+    new THREE.Vector2(0.92, 0.95),
+    new THREE.Vector2(0.55, 1.75),
+    new THREE.Vector2(0.3, 2.15),
   ], 14), hide);
-  const neck = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), hide);
-  neck.position.set(0, 2.15, 0.05);
-  neck.scale.set(1.4, 0.55, 1.05);
+  // Stub legs for a grounded quadruped read at distance
+  const legGeo = new THREE.CylinderGeometry(0.12, 0.16, 0.7, 6);
+  for (const [lx, lz] of [[-0.38, 0.28], [0.38, 0.28], [-0.32, -0.35], [0.32, -0.35]] as [number, number][]) {
+    const leg = new THREE.Mesh(legGeo, hide);
+    leg.position.set(lx, 0.35, lz);
+    g.add(leg);
+  }
+  const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), hide);
+  shoulder.position.set(0, 1.85, 0.05);
+  shoulder.scale.set(1.55, 0.55, 1.05);
   const mkHead = (ox: number, oy: number, oz: number, yaw: number, s: number) => {
     const h = new THREE.Group();
     h.position.set(ox, oy, oz);
     h.rotation.y = yaw;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.22 * s, 10, 8), mats.bone);
-    skull.scale.set(1, 0.9, 1.15);
-    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.14 * s, 0.32 * s, 6), mats.bronze);
-    jaw.position.set(0, -0.14 * s, -0.18 * s);
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.24 * s, 10, 8), mats.bone);
+    skull.scale.set(1, 0.9, 1.2);
+    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.15 * s, 0.34 * s, 6), mats.bronze);
+    jaw.position.set(0, -0.15 * s, -0.2 * s);
     jaw.rotation.x = 1.8;
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04 * s, 6, 6), mats.ember);
-    eye.position.set(0, 0.04 * s, -0.2 * s);
-    eye.name = "ember";
-    h.add(skull, jaw, eye);
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.035 * s, 6, 6), mats.ember);
+    eyeL.position.set(-0.07 * s, 0.05 * s, -0.22 * s);
+    eyeL.name = "ember";
+    const eyeR = eyeL.clone();
+    eyeR.position.x = 0.07 * s;
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.05 * s, 0.22 * s, 5), mats.bronze);
+    ear.position.set(0, 0.22 * s, 0.02 * s);
+    ear.rotation.x = -0.4;
+    h.add(skull, jaw, eyeL, eyeR, ear);
     return h;
   };
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.06, 6, 18), mats.gold);
-  sash.position.y = 1.55;
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.06, 6, 18), mats.gold);
+  sash.position.y = 1.45;
   sash.rotation.x = Math.PI / 2;
-  const sludge = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.05, 5, 16), mats.mire);
-  sludge.position.y = 1.05;
+  const sludge = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.05, 5, 16), mats.mire);
+  sludge.position.y = 0.95;
   sludge.name = "ribbon";
+  // Cheap drip cones (static) for sludge read without particle cost
+  for (const [dx, dy] of [[-0.35, 0.55], [0.4, 0.42], [0.05, 0.7]] as [number, number][]) {
+    const drip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.28, 5), mats.moss);
+    drip.position.set(dx, dy, 0.45);
+    drip.rotation.x = Math.PI;
+    g.add(drip);
+  }
   g.add(
-    discShadow(mats, 0.85),
+    discShadow(mats, 0.95),
     body,
-    neck,
-    mkHead(0, 2.55, -0.12, 0, 1.15),
-    mkHead(-0.55, 2.35, 0.08, 0.5, 0.95),
-    mkHead(0.55, 2.35, 0.08, -0.5, 0.95),
+    shoulder,
+    mkHead(0, 2.55, -0.15, 0, 1.2),
+    mkHead(-0.62, 2.32, 0.1, 0.55, 0.98),
+    mkHead(0.62, 2.32, 0.1, -0.55, 0.98),
     sash,
     sludge,
-    nose(mats, 2.65, -0.35)
+    nose(mats, 2.7, -0.38)
   );
   shadow(g);
   return g;
@@ -1220,14 +1239,26 @@ export function makeBrazier(mats: MatKit): THREE.Group {
   return g;
 }
 
+const _galePlaneCache = new Map<number, THREE.PlaneGeometry>();
+function galePlaneGeo(len: number): THREE.PlaneGeometry {
+  const key = Math.round(len * 10);
+  let g = _galePlaneCache.get(key);
+  if (!g) {
+    g = new THREE.PlaneGeometry(len, 2.6, 1, 1);
+    _galePlaneCache.set(key, g);
+  }
+  return g;
+}
+
 export function makeGaleRibbon(mats: MatKit, len = 8): THREE.Mesh {
   const mat = mats.gale.clone();
   mat.opacity = 0.8;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(len, 2.6, 1, 1), mat);
+  const m = new THREE.Mesh(galePlaneGeo(len), mat);
   m.rotation.x = Math.PI * 0.16;
   m.position.y = 1.7;
   m.name = "galeRibbon";
   m.renderOrder = 2;
+  m.frustumCulled = true;
   return m;
 }
 

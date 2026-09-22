@@ -85,6 +85,7 @@ import {
   makeWardRing,
   placeBolt,
   spawnSparks,
+  spawnSludgeSplash,
   tickImpact,
   tickPortalHoldFx,
   tickSlamTelegraph,
@@ -247,6 +248,8 @@ export class WorldApp {
   portalHoldFx: PortalHoldFx | null = null;
   nearestInteract: { id: string; kind: string; label: string } | null = null;
   lastInteractHintId: string | null = null;
+  cerberoApproachShown = false;
+  glutPoiHintsShown = new Set<string>();
   bolts: Bolt[] = [];
   wardUntil = 0;
   wardMesh: THREE.Mesh | null = null;
@@ -291,6 +294,11 @@ export class WorldApp {
     this.labelRenderer.domElement.style.pointerEvents = "none";
     this.labelRenderer.domElement.className = "world-labels";
     root.appendChild(this.labelRenderer.domElement);
+
+    document.addEventListener("visibilitychange", () => {
+      document.body.classList.toggle("tab-hidden", document.hidden);
+    });
+    document.body.classList.toggle("tab-hidden", document.hidden);
 
     this.scene.fog = new THREE.FogExp2(0x1c1812, 0.009);
     this.hemi = new THREE.HemisphereLight(0xe8d4b0, 0x1a1410, 1.12);
@@ -948,14 +956,17 @@ export class WorldApp {
     } else if (this.slash) this.slash.visible = false;
 
     this.frameN++;
-    if (this.renderer.shadowMap.enabled && this.frameN % 2 === 0) {
+    const inGlut = this.room?.cantoId === "inferno_06";
+    const shadowEvery = inGlut && compact ? 3 : 2;
+    const labelEvery = inGlut && this.inCombat() ? 3 : 2;
+    if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
     this.fadeTreeOccluders();
     this.tickFx(dt);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
-    if (this.frameN % 2 === 0) {
+    if (this.frameN % labelEvery === 0) {
       this.labelRenderer.render(this.scene, this.camera);
     }
     this.paintChrome();
@@ -1205,6 +1216,17 @@ export class WorldApp {
           const s = 0.92 + Math.sin(this.animT * 0.009 + o.id) * 0.14;
           o.scale.setScalar(s);
         }
+        if (o.name === "daisPulse") {
+          o.rotation.z = this.animT * 0.0012;
+          const s = 1 + Math.sin(this.animT * 0.0035) * 0.045;
+          o.scale.set(s, s, 1);
+        }
+        if (o.name === "daisTelegraph") {
+          const mat = (o as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          mat.opacity = 0.14 + Math.sin(this.animT * 0.004) * 0.1;
+          const s = 1 + Math.sin(this.animT * 0.003) * 0.06;
+          o.scale.set(s, s, 1);
+        }
       }
     }
     if (!this.inCombat() || this.frameN % 2 === 0) {
@@ -1373,17 +1395,20 @@ export class WorldApp {
       rec.kind === "triple_maw";
     const far = rec.kind === "loot" ? 22 : foe ? 26 : 16;
     if (d > far) {
-      rec.hpEl.style.opacity = "0";
+      if (rec.hpEl.style.opacity !== "0") rec.hpEl.style.opacity = "0";
       return;
     }
-    rec.hpEl.style.opacity = d > 10 && !foe && rec.kind !== "loot" ? "0.45" : "1";
-    if (nameEl) nameEl.textContent = foe || rec.kind === "loot" || d <= 8 ? name : "•";
+    const nextOp = d > 10 && !foe && rec.kind !== "loot" ? "0.45" : "1";
+    if (rec.hpEl.style.opacity !== nextOp) rec.hpEl.style.opacity = nextOp;
+    const shown = foe || rec.kind === "loot" || d <= 8 ? name : "•";
+    if (nameEl && nameEl.textContent !== shown) nameEl.textContent = shown;
     if (e.hp != null && e.maxHp) {
-      hp.style.display = "block";
+      if (hp.style.display !== "block") hp.style.display = "block";
       const ratio = Math.max(0, Math.min(1, e.hp / e.maxHp));
-      fill.style.width = `${(ratio * 100).toFixed(1)}%`;
+      const w = `${(ratio * 100).toFixed(0)}%`;
+      if (fill.style.width !== w) fill.style.width = w;
       fill.classList.toggle("low", ratio <= 0.3);
-    } else {
+    } else if (hp.style.display !== "none") {
       hp.style.display = "none";
     }
   }
@@ -1446,7 +1471,14 @@ export class WorldApp {
     this.propAnims = [];
     this.ground.group.traverse((o) => {
       if (o.name === "tree") this.trees.push(o);
-      if (o.name === "galeRibbon" || o.name === "ember") this.propAnims.push(o);
+      if (
+        o.name === "galeRibbon" ||
+        o.name === "ember" ||
+        o.name === "daisPulse" ||
+        o.name === "daisTelegraph"
+      ) {
+        this.propAnims.push(o);
+      }
     });
     const lust = this.room.cantoId === "inferno_05";
     const glut = this.room.cantoId === "inferno_06";
@@ -1460,19 +1492,26 @@ export class WorldApp {
       this.sun.color.set(0xff9960);
       this.sun.intensity = 2.15;
       this.rim.color.set(0xff8844);
+      this.hemi.intensity = 1.12;
+      this.rim.intensity = 1.7;
     } else if (glut) {
-      this.scene.fog = new THREE.FogExp2(0x221e10, 0.026);
+      // Slightly brighter hemi + cooler rim so mire labels read through olive fog.
+      this.scene.fog = new THREE.FogExp2(0x1e1c10, 0.022);
       this.renderer.setClearColor(0x100e08, 1);
-      this.hemi.color.set(0xb8a870);
-      this.hemi.groundColor.set(0x141208);
-      this.sun.color.set(0xc4a848);
-      this.sun.intensity = 1.72;
-      this.rim.color.set(0x8a7840);
+      this.hemi.color.set(0xc8bc88);
+      this.hemi.groundColor.set(0x18140c);
+      this.hemi.intensity = 1.22;
+      this.sun.color.set(0xc8b060);
+      this.sun.intensity = 1.78;
+      this.rim.color.set(0xa8c060);
+      this.rim.intensity = 1.55;
     } else {
       this.scene.fog = new THREE.FogExp2(0x1c1812, 0.013);
       this.renderer.setClearColor(0x1c1812, 1);
       this.hemi.color.set(0xe8d4b0);
       this.hemi.groundColor.set(0x1a1410);
+      this.hemi.intensity = 1.12;
+      this.rim.intensity = 1.7;
       this.sun.color.set(0xffe6c0);
       this.sun.intensity = 1.85;
       this.rim.color.set(0xffe0b0);
@@ -1507,7 +1546,7 @@ export class WorldApp {
       case "snapshot": {
         const prevCanto = this.lastCantoId;
         this.room = msg.room;
-        updateStats(msg.room.you, msg.room.title);
+        updateStats(msg.room.you, msg.room.title, msg.room.subtitleIt || msg.room.subtitle_it);
         this.lastYouSnapshot = msg.room.you;
         this.refreshInventoryUi();
         this.noteNewInventoryLoot(msg.room.you);
@@ -1542,7 +1581,15 @@ export class WorldApp {
         const isHub = msg.room.role === "hub" || msg.room.cantoId === "inferno_01";
         if (isHub && !this.hubTipShown) {
           this.hubTipShown = true;
-          showToast("No foes here — take the portal Toward Lust.", "info");
+          const clears0: string[] = Array.isArray(msg.room.you?.firstClears)
+            ? msg.room.you.firstClears
+            : [];
+          showToast(
+            clears0.includes("inferno_05")
+              ? "Lust is clear — take the Gluttony gate past the Judge, or claim the writ."
+              : "No foes here — take the portal Toward Lust.",
+            "info"
+          );
         }
         const clears: string[] = Array.isArray(msg.room.you?.firstClears)
           ? msg.room.you.firstClears
@@ -1568,6 +1615,8 @@ export class WorldApp {
         }
         if (msg.room.cantoId === "inferno_06" && (first || cantoChanged) && !this.glutEnterTipShown) {
           this.glutEnterTipShown = true;
+          this.cerberoApproachShown = false;
+          this.glutPoiHintsShown.clear();
           showToast("piova etterna — clear the mire, then the Triple Maw", "info");
         }
         if (
@@ -1795,7 +1844,16 @@ export class WorldApp {
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: heavy ? 280 : 180 });
     if (this.sparks.length < (isCompactUi() ? 2 : 5)) {
-      const burst = spawnSparks(pos.x, pos.y, this.standY(pos.x, pos.y, heavy ? 1.35 : 1.1), color, this.animT);
+      const burst =
+        this.room?.cantoId === "inferno_06" && heavy
+          ? spawnSludgeSplash(pos.x, pos.y, this.standY(pos.x, pos.y, 1.35), this.animT)
+          : spawnSparks(
+              pos.x,
+              pos.y,
+              this.standY(pos.x, pos.y, heavy ? 1.35 : 1.1),
+              color,
+              this.animT
+            );
       burst.dur = heavy ? 640 : 420;
       this.scene.add(burst.points);
       this.sparks.push(burst);
@@ -2573,6 +2631,35 @@ export class WorldApp {
     }
     if (this.lastInteractHintId !== String(best.id)) {
       this.lastInteractHintId = String(best.id);
+      if (this.room?.cantoId === "inferno_06" && best.kind === "poi") {
+        const id = String(best.id);
+        if (!this.glutPoiHintsShown.has(id)) {
+          const hint = String(best.hint || "").trim();
+          const label = String(best.label || best.name || "");
+          let line = "";
+          if (best.poiKind === "cache") line = hint || "Filth Cache — one champion drop per visit";
+          else if (best.poiKind === "shrine") line = hint || "Mire Shrine — restores life and breath";
+          else if (best.poiKind === "bell") line = hint || "Mire Bell — stills nearby filth";
+          if (line) {
+            this.glutPoiHintsShown.add(id);
+            showToast(line, "info");
+          }
+        }
+      }
+    }
+
+    // Mid-lane elite telegraph: Cerbero once when first in highlight range
+    if (this.room?.cantoId === "inferno_06" && !this.cerberoApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob" && e.kind !== "champion") continue;
+        if (!/^cerbero$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
+          this.cerberoApproachShown = true;
+          showToast("Cerbero ahead — three maws taste the road", "warn");
+          break;
+        }
+      }
     }
   }
 

@@ -455,6 +455,11 @@ export function tickSparks(b: SparkBurst, t: number) {
   (b.points.material as THREE.PointsMaterial).opacity = Math.max(0, 1 - u);
 }
 
+/** Olive sludge splash — reuses spark particles (caller should cap concurrent bursts). */
+export function spawnSludgeSplash(x: number, z: number, y: number, t: number): SparkBurst {
+  return spawnSparks(x, z, y, 0xb8c858, t);
+}
+
 export function makeDustPuff(): THREE.Mesh {
   const m = new THREE.Mesh(
     new THREE.RingGeometry(0.08, 0.22, 16),
