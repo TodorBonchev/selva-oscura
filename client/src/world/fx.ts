@@ -409,26 +409,21 @@ export type SparkBurst = {
   dur: number;
 };
 
-export function spawnSparks(x: number, z: number, y: number, color: number, t: number): SparkBurst {
-  const n = 22;
-  const pos = new Float32Array(n * 3);
-  const vel = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    pos[i * 3] = x;
-    pos[i * 3 + 1] = y;
-    pos[i * 3 + 2] = z;
-    const a = Math.random() * Math.PI * 2;
-    const sp = 1.6 + Math.random() * 3.4;
-    vel[i * 3] = Math.cos(a) * sp;
-    vel[i * 3 + 1] = 2.2 + Math.random() * 4.2;
-    vel[i * 3 + 2] = Math.sin(a) * sp;
-  }
+const SPARK_N = 18;
+const sparkPool: SparkBurst[] = [];
+const SPARK_POOL_MAX = 8;
+
+function acquireSparkBurst(): SparkBurst {
+  const pooled = sparkPool.pop();
+  if (pooled) return pooled;
+  const pos = new Float32Array(SPARK_N * 3);
+  const vel = new Float32Array(SPARK_N * 3);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   const points = new THREE.Points(
     geo,
     new THREE.PointsMaterial({
-      color,
+      color: 0xffffff,
       size: 0.14,
       transparent: true,
       opacity: 1,
@@ -437,14 +432,47 @@ export function spawnSparks(x: number, z: number, y: number, color: number, t: n
       sizeAttenuation: true,
     })
   );
-  return { points, vel, start: t, dur: 420 };
+  return { points, vel, start: 0, dur: 420 };
+}
+
+/** Return a finished burst to the pool (caller must scene.remove first). */
+export function releaseSparkBurst(b: SparkBurst) {
+  if (sparkPool.length >= SPARK_POOL_MAX) {
+    b.points.geometry.dispose();
+    (b.points.material as THREE.Material).dispose();
+    return;
+  }
+  sparkPool.push(b);
+}
+
+export function spawnSparks(x: number, z: number, y: number, color: number, t: number): SparkBurst {
+  const b = acquireSparkBurst();
+  const pos = b.points.geometry.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < SPARK_N; i++) {
+    const o = i * 3;
+    pos.array[o] = x;
+    pos.array[o + 1] = y;
+    pos.array[o + 2] = z;
+    const a = Math.random() * Math.PI * 2;
+    const sp = 1.6 + Math.random() * 3.4;
+    b.vel[o] = Math.cos(a) * sp;
+    b.vel[o + 1] = 2.2 + Math.random() * 4.2;
+    b.vel[o + 2] = Math.sin(a) * sp;
+  }
+  pos.needsUpdate = true;
+  const mat = b.points.material as THREE.PointsMaterial;
+  mat.color.setHex(color);
+  mat.opacity = 1;
+  b.start = t;
+  b.dur = 420;
+  return b;
 }
 
 export function tickSparks(b: SparkBurst, t: number) {
   const u = (t - b.start) / b.dur;
   const pos = b.points.geometry.attributes.position as THREE.BufferAttribute;
   const dt = 0.016;
-  for (let i = 0; i < b.vel.length / 3; i++) {
+  for (let i = 0; i < SPARK_N; i++) {
     const o = i * 3;
     b.vel[o + 1] -= 9 * dt;
     pos.array[o] += b.vel[o] * dt;
@@ -455,7 +483,7 @@ export function tickSparks(b: SparkBurst, t: number) {
   (b.points.material as THREE.PointsMaterial).opacity = Math.max(0, 1 - u);
 }
 
-/** Olive sludge splash — reuses spark particles (caller should cap concurrent bursts). */
+/** Olive sludge splash — pooled sparks (caller should cap concurrent bursts). */
 export function spawnSludgeSplash(x: number, z: number, y: number, t: number): SparkBurst {
   return spawnSparks(x, z, y, 0xb8c858, t);
 }

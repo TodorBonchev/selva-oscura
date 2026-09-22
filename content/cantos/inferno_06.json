@@ -36,7 +36,7 @@
         "x": 86,
         "y": 58,
         "label": "Mire Bell",
-        "hint": "Stills nearby filth — then press the Maw"
+        "hint": "Stills nearby filth \u2014 then press the Maw"
       },
       {
         "id": "filth_cache",
@@ -44,7 +44,7 @@
         "x": 54,
         "y": 68,
         "label": "Filth Cache",
-        "hint": "One champion drop per visit — E to claim"
+        "hint": "One champion drop per visit \u2014 E to claim"
       },
       {
         "id": "mire_shrine",
@@ -52,7 +52,7 @@
         "x": 28,
         "y": 56,
         "label": "Mire Shrine",
-        "hint": "Restores life and breath — E to kneel"
+        "hint": "Restores life and breath \u2014 E to kneel"
       },
       {
         "id": "gluttony_portal_lust",
@@ -93,7 +93,7 @@
     },
     {
       "id": "glut_road_wardens",
-      "name": "Sludge Shades",
+      "name": "Road Sludge",
       "archetype": "mire_shade",
       "count": 2,
       "elite": false,
@@ -106,7 +106,7 @@
     },
     {
       "id": "glut_mire_a",
-      "name": "North Mire",
+      "name": "Bog Ward",
       "archetype": "mire_shade",
       "count": 3,
       "elite": false,
@@ -119,7 +119,7 @@
     },
     {
       "id": "glut_mire_b",
-      "name": "South Filth",
+      "name": "South Slough",
       "archetype": "mire_shade",
       "count": 3,
       "elite": false,
@@ -145,7 +145,7 @@
     },
     {
       "id": "glut_strays",
-      "name": "Stray Filth",
+      "name": "Stray Greed",
       "archetype": "mire_shade",
       "count": 2,
       "elite": false,
@@ -158,7 +158,7 @@
     },
     {
       "id": "glut_chorus",
-      "name": "Chorus Filth",
+      "name": "Glut Chorus",
       "archetype": "mire_shade",
       "count": 3,
       "elite": false,
@@ -171,7 +171,7 @@
     },
     {
       "id": "glut_approach_flank",
-      "name": "Approach Flank",
+      "name": "Maw Approach",
       "archetype": "mire_shade",
       "count": 2,
       "elite": false,
@@ -226,7 +226,7 @@
     "enabled": true,
     "event": "FirstClear",
     "requires": "triple_maw",
-    "notes": "Triple Maw broken — Gluttony yields"
+    "notes": "Triple Maw broken \u2014 Gluttony yields; bank loot at Dark Wood stash"
   },
   "daily_quests": [
     {
@@ -239,7 +239,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_03_gluttony",
-    "notes": "Circle kit 3 of 12; mud-rain filth; Doré line weight"
+    "notes": "Circle kit 3 of 12; mud-rain filth; Dor\u00e9 line weight"
   },
   "loot_density": "raw_d2",
   "legal": {

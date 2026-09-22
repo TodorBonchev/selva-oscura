@@ -258,3 +258,35 @@ export function tickWhirl(root: THREE.Object3D, tMs: number, champion: boolean) 
   const bob = root.getObjectByName("ribbon");
   if (bob) bob.position.y = 0.95 + Math.sin(tMs * 0.0022) * 0.08;
 }
+
+/** Cheap Triple Maw idle: ribbon spin + staggered head/jaw hints (named mawHead / mawJaw). */
+export function tickTripleMaw(root: THREE.Object3D, tMs: number) {
+  const ribbon = root.getObjectByName("ribbon");
+  if (ribbon) {
+    ribbon.rotation.y = tMs * 0.0018;
+    ribbon.position.y = 1.55 + Math.sin(tMs * 0.002) * 0.05;
+  }
+  const ribbon2 = root.getObjectByName("ribbon2");
+  if (ribbon2) {
+    ribbon2.rotation.y = -tMs * 0.0014;
+    ribbon2.position.y = 1.15 + Math.sin(tMs * 0.0017 + 1.2) * 0.04;
+  }
+  const tele = root.getObjectByName("mawTelegraph");
+  if (tele) {
+    const s = 1 + Math.sin(tMs * 0.0024) * 0.05;
+    tele.scale.set(s, s, 1);
+  }
+  let hi = 0;
+  root.traverse((o) => {
+    if (o.name === "mawHead") {
+      const phase = hi * 1.7;
+      if (o.userData.baseY == null) o.userData.baseY = o.position.y;
+      o.rotation.x = Math.sin(tMs * 0.0016 + phase) * 0.07;
+      o.position.y = o.userData.baseY + Math.sin(tMs * 0.0013 + phase) * 0.04;
+      hi++;
+    } else if (o.name === "mawJaw") {
+      if (o.userData.jawPhase == null) o.userData.jawPhase = hi + 0.4;
+      o.rotation.x = 1.85 + Math.sin(tMs * 0.0031 + o.userData.jawPhase) * 0.12;
+    }
+  });
+}

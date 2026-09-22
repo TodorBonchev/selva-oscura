@@ -709,8 +709,8 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
     emissive: 0x2a3010,
     emissiveIntensity: 0.32,
   });
-  const body = new THREE.Mesh(new THREE.LatheGeometry(bodyPts, 20), hide);
-  const neckBase = new THREE.Mesh(new THREE.SphereGeometry(0.85, 12, 10), hide);
+  const body = new THREE.Mesh(new THREE.LatheGeometry(bodyPts, 14), hide);
+  const neckBase = new THREE.Mesh(new THREE.SphereGeometry(0.85, 10, 8), hide);
   neckBase.position.set(0, 3.05, 0.12);
   neckBase.scale.set(1.55, 0.65, 1.15);
   // Three thick neck stalks for readable silhouette at distance
@@ -729,11 +729,13 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
 
   const makeHead = (ox: number, oy: number, oz: number, yaw: number, s = 1) => {
     const head = new THREE.Group();
+    head.name = "mawHead";
     head.position.set(ox, oy, oz);
     head.rotation.y = yaw;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.42 * s, 12, 10), mats.bone);
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.42 * s, 10, 8), mats.bone);
     skull.scale.set(1.1, 0.95, 1.25);
-    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.32 * s, 0.62 * s, 7), mats.bronze);
+    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.32 * s, 0.62 * s, 6), mats.bronze);
+    jaw.name = "mawJaw";
     jaw.position.set(0, -0.32 * s, -0.36 * s);
     jaw.rotation.x = 1.85;
     const fangL = new THREE.Mesh(new THREE.ConeGeometry(0.055 * s, 0.26 * s, 5), mats.bone);
@@ -757,20 +759,20 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
   const headL = makeHead(-1.15, 3.75, 0.18, 0.58, 1);
   const headR = makeHead(1.15, 3.75, 0.18, -0.58, 1);
 
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.09, 6, 22), mats.gold);
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.09, 5, 16), mats.gold);
   sash.position.y = 2.35;
   sash.rotation.x = Math.PI / 2;
   // Cheap sludge rings (readable telegraph, no TorusKnot)
-  const sludge = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.08, 6, 20), mats.mire);
+  const sludge = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.08, 5, 14), mats.mire);
   sludge.position.y = 1.55;
   sludge.rotation.x = Math.PI / 2.4;
   sludge.name = "ribbon";
-  const sludge2 = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.055, 5, 18), mats.mire);
+  const sludge2 = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.055, 5, 12), mats.mire);
   sludge2.position.y = 1.15;
   sludge2.rotation.x = Math.PI / 2.1;
   sludge2.name = "ribbon2";
   const aura = new THREE.Mesh(
-    new THREE.RingGeometry(2.05, 2.65, 28),
+    new THREE.RingGeometry(2.05, 2.65, 20),
     new THREE.MeshBasicMaterial({
       color: 0xc8d858,
       transparent: true,
@@ -784,7 +786,7 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
   aura.position.y = 0.1;
   aura.name = "judgeAura";
   const telegraph = new THREE.Mesh(
-    new THREE.RingGeometry(3.1, 3.35, 32),
+    new THREE.RingGeometry(3.1, 3.35, 22),
     new THREE.MeshBasicMaterial({
       color: 0xa8b040,
       transparent: true,
@@ -1309,6 +1311,64 @@ export type KindKey =
   | "pyre"
   | "portal"
   | "loot";
+
+
+/** Filth Cache — chest with olive sludge band (Gluttony-readable vs Wind Cache). */
+export function makeFilthCache(mats: MatKit): THREE.Group {
+  const g = makeChest(mats);
+  g.name = "filth_cache";
+  const drip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.28, 5), mats.mire);
+  drip.position.set(0.28, 0.48, 0.22);
+  drip.rotation.x = Math.PI;
+  const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.1, 0.08), mats.mire);
+  band.position.set(0, 0.32, 0.28);
+  g.add(drip, band);
+  return g;
+}
+
+/** Mire Shrine — olive mend pillar (distinct from Lust Wind Shrine gale ring). */
+export function makeMireShrine(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "mire_shrine";
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 2.2, 8), mats.stone);
+  pillar.position.y = 1.1;
+  const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), mats.mire);
+  bowl.position.y = 2.3;
+  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.15, 7, 7), mats.ember);
+  flame.position.y = 2.58;
+  flame.name = "ember";
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.045, 5, 16), mats.mire);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.08;
+  const drip = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 5), mats.mire);
+  drip.position.set(0.2, 2.05, 0.18);
+  drip.rotation.x = 0.4;
+  g.add(discShadow(mats, 0.55), pillar, bowl, flame, ring, drip);
+  shadow(g);
+  return g;
+}
+
+/** Mire Bell — squat toll post with hanging cone (readable vs shrine). */
+export function makeMireBell(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "mire_bell";
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 2.05, 7), mats.stone);
+  post.position.y = 1.05;
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.1, 0.1), mats.bronze);
+  arm.position.set(0.25, 2.05, 0);
+  const bell = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.48, 8), mats.gold);
+  bell.position.set(0.48, 1.55, 0);
+  bell.rotation.x = Math.PI;
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.035, 5, 12), mats.mire);
+  lip.position.set(0.48, 1.32, 0);
+  lip.rotation.x = Math.PI / 2;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 5, 14), mats.mire);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.06;
+  g.add(discShadow(mats, 0.45), post, arm, bell, lip, ring);
+  shadow(g);
+  return g;
+}
 
 export function makeByKind(kind: KindKey, mats: MatKit, rarity?: string): THREE.Group {
   switch (kind) {

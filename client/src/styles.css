@@ -2729,6 +2729,21 @@ body.in-gluttony #heat-haze {
     radial-gradient(ellipse 110% 36% at 50% 105%, #3a302018 0%, transparent 55%);
 }
 
+/* Audio-free Triple Maw pressure fringe (toggled near boss) */
+body.in-gluttony.maw-pressure #heat-haze {
+  opacity: 0.72;
+  animation-duration: 3.4s;
+  background:
+    radial-gradient(ellipse 110% 42% at 50% -5%, #a0903848 0%, transparent 55%),
+    radial-gradient(ellipse 42% 110% at -5% 50%, #4a3a1818 0%, transparent 50%),
+    radial-gradient(ellipse 42% 110% at 105% 50%, #5a4a2018 0%, transparent 50%),
+    radial-gradient(ellipse 110% 40% at 50% 105%, #2a241018 0%, transparent 55%),
+    radial-gradient(ellipse 88% 78% at 50% 48%, transparent 48%, #1a180c55 100%);
+}
+body.in-gluttony.maw-pressure.hud-compact #heat-haze {
+  opacity: 0.58;
+}
+
 /* Gluttony locked-portal + mire rain atmosphere */
 .compass-arrow[data-dest="locked"] .compass-chevron {
   border-bottom-color: #8a8060;

@@ -58,8 +58,11 @@ import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
 import {
   makeByKind,
   makeCerbero,
+  makeFilthCache,
+  makeMireBell,
   makeMireChampion,
   makeMireShade,
+  makeMireShrine,
   makeMireWarden,
   makeMudWisp,
   modelFrontWorld,
@@ -84,6 +87,7 @@ import {
   makeTelegraph,
   makeWardRing,
   placeBolt,
+  releaseSparkBurst,
   spawnSparks,
   spawnSludgeSplash,
   tickImpact,
@@ -96,7 +100,7 @@ import {
   type SlamTele,
   type SparkBurst,
 } from "./fx";
-import { tickHumanoid, tickWhirl } from "./anim";
+import { tickHumanoid, tickTripleMaw, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
@@ -249,7 +253,12 @@ export class WorldApp {
   nearestInteract: { id: string; kind: string; label: string } | null = null;
   lastInteractHintId: string | null = null;
   cerberoApproachShown = false;
+  mireHeartDownToastShown = false;
+  mireHeartSeenAlive = false;
+  glutClearStashTipShown = false;
   glutPoiHintsShown = new Set<string>();
+  mawPressureOn = false;
+  glutFogBase = 0.022;
   bolts: Bolt[] = [];
   wardUntil = 0;
   wardMesh: THREE.Mesh | null = null;
@@ -713,6 +722,11 @@ export class WorldApp {
   loop = () => {
     if (!this.running) return;
     requestAnimationFrame(this.loop);
+    // Tab hidden: drain clock, skip sim/draw (rain CSS already pauses via .tab-hidden).
+    if (document.hidden) {
+      this.clock.getDelta();
+      return;
+    }
     let dt = this.clock.getDelta();
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
     dt = Math.min(0.05, dt);
@@ -962,6 +976,7 @@ export class WorldApp {
     if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
+    if (inGlut && this.frameN % 4 === 0) this.tickMawPressure();
     this.fadeTreeOccluders();
     this.tickFx(dt);
     if (this.composer) this.composer.render();
@@ -1095,8 +1110,7 @@ export class WorldApp {
       tickSparks(s, this.animT);
       if (this.animT - s.start > s.dur) {
         this.scene.remove(s.points);
-        s.points.geometry.dispose();
-        (s.points.material as THREE.Material).dispose();
+        releaseSparkBurst(s);
         return false;
       }
       return true;
@@ -1193,6 +1207,9 @@ export class WorldApp {
       if ((n.kind === "whirl" || n.kind === "champion") && this.frameN % 2 === 0) {
         tickWhirl(n.group, this.animT, n.kind === "champion");
       }
+      if (n.kind === "triple_maw" && this.frameN % 2 === 0) {
+        tickTripleMaw(n.group, this.animT);
+      }
       const pulse = Number(n.group.userData.hitPulse) || 0;
       if (pulse > 0.04) {
         const base = Number(n.group.userData.baseScale) || 1;
@@ -1210,12 +1227,20 @@ export class WorldApp {
       }
     }
     if (!this.inCombat() || this.frameN % 2 === 0) {
+      const glut = this.room?.cantoId === "inferno_06";
+      // Freeze Maw-arena pulse when camera is far (big win on compact Gluttony).
+      const daisNear =
+        !glut ||
+        (this.camFollow.x - 138) * (this.camFollow.x - 138) +
+          (this.camFollow.z - 48) * (this.camFollow.z - 48) <
+          48 * 48;
       for (const o of this.propAnims) {
         if (o.name === "galeRibbon") o.rotation.y = Math.sin(this.animT * 0.0009) * 0.18;
         if (o.name === "ember") {
           const s = 0.92 + Math.sin(this.animT * 0.009 + o.id) * 0.14;
           o.scale.setScalar(s);
         }
+        if (!daisNear && (o.name === "daisPulse" || o.name === "daisTelegraph")) continue;
         if (o.name === "daisPulse") {
           o.rotation.z = this.animT * 0.0012;
           const s = 1 + Math.sin(this.animT * 0.0035) * 0.045;
@@ -1317,6 +1342,12 @@ export class WorldApp {
       group = makeMireChampion(this.mats!);
     } else if (isMire && kind === "whirl") {
       group = makeMireShade(this.mats!);
+    } else if (this.room?.cantoId === "inferno_06" && e.poiKind === "cache") {
+      group = makeFilthCache(this.mats!);
+    } else if (this.room?.cantoId === "inferno_06" && e.poiKind === "shrine") {
+      group = makeMireShrine(this.mats!);
+    } else if (this.room?.cantoId === "inferno_06" && e.poiKind === "bell") {
+      group = makeMireBell(this.mats!);
     } else {
       group = makeByKind(kind, this.mats!, e.item?.rarity);
     }
@@ -1325,7 +1356,7 @@ export class WorldApp {
     if (e.archetype === "mire_shade") group.scale.setScalar(1.05);
     if (e.archetype === "mire_champion" && !/^cerbero$/i.test(nm)) group.scale.setScalar(1.08);
     if (isHeartArch) group.scale.setScalar(1.45);
-    if (e.poiKind === "bell") group.scale.setScalar(0.72);
+    if (e.poiKind === "bell" && this.room?.cantoId !== "inferno_06") group.scale.setScalar(0.72);
     if (e.poiKind === "pyre") group.scale.setScalar(1.85);
     // Dedicated mire builders already olive; only tint heart shrine leftover
     if (isMire && isHeartArch) {
@@ -1393,7 +1424,12 @@ export class WorldApp {
       rec.kind === "champion" ||
       rec.kind === "judge" ||
       rec.kind === "triple_maw";
-    const far = rec.kind === "loot" ? 22 : foe ? 26 : 16;
+    const boss = rec.kind === "judge" || rec.kind === "triple_maw";
+    const glutCompact = this.room?.cantoId === "inferno_06" && isCompactUi();
+    let far = rec.kind === "loot" ? 22 : foe ? 26 : 16;
+    if (glutCompact) {
+      far = rec.kind === "loot" ? 14 : boss ? 20 : foe ? 15 : 10;
+    }
     if (d > far) {
       if (rec.hpEl.style.opacity !== "0") rec.hpEl.style.opacity = "0";
       return;
@@ -1441,6 +1477,33 @@ export class WorldApp {
   denyLockedPortal(e: any) {
     const need = e?.requireClear === "inferno_05" ? "the Judge" : "the prior circle";
     showToast(`Sealed — clear ${need} first`, "warn");
+  }
+
+
+  /** Audio-free boss pressure: denser fog + CSS fringe within Maw range. */
+  tickMawPressure() {
+    if (!this.room || this.room.cantoId !== "inferno_06") {
+      if (this.mawPressureOn) {
+        this.mawPressureOn = false;
+        document.body.classList.remove("maw-pressure");
+      }
+      return;
+    }
+    const boss = this.room.entities.find(
+      (e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)
+    );
+    const near = Boolean(
+      boss && Math.hypot(boss.x - this.renderYou.x, boss.y - this.renderYou.y) < 26
+    );
+    if (near !== this.mawPressureOn) {
+      this.mawPressureOn = near;
+      document.body.classList.toggle("maw-pressure", near);
+    }
+    const fog = this.scene.fog as THREE.FogExp2 | null;
+    if (fog && fog instanceof THREE.FogExp2) {
+      const target = near ? this.glutFogBase * 1.45 : this.glutFogBase;
+      fog.density += (target - fog.density) * 0.12;
+    }
   }
 
   rebuildGround() {
@@ -1496,7 +1559,10 @@ export class WorldApp {
       this.rim.intensity = 1.7;
     } else if (glut) {
       // Slightly brighter hemi + cooler rim so mire labels read through olive fog.
-      this.scene.fog = new THREE.FogExp2(0x1e1c10, 0.022);
+      this.glutFogBase = 0.022;
+      this.mawPressureOn = false;
+      document.body.classList.remove("maw-pressure");
+      this.scene.fog = new THREE.FogExp2(0x1e1c10, this.glutFogBase);
       this.renderer.setClearColor(0x100e08, 1);
       this.hemi.color.set(0xc8bc88);
       this.hemi.groundColor.set(0x18140c);
@@ -1609,6 +1675,10 @@ export class WorldApp {
               if (c === "inferno_06") {
                 this.camPunch = Math.max(this.camPunch, 1.2);
                 showToast("Triple Maw broken — return to Lust or the Dark Wood when ready", "emit");
+                if (!this.glutClearStashTipShown) {
+                  this.glutClearStashTipShown = true;
+                  showToast("Bank champion drops at the Dark Wood stash when you return", "info");
+                }
               }
             }
           }
@@ -1616,6 +1686,8 @@ export class WorldApp {
         if (msg.room.cantoId === "inferno_06" && (first || cantoChanged) && !this.glutEnterTipShown) {
           this.glutEnterTipShown = true;
           this.cerberoApproachShown = false;
+          this.mireHeartDownToastShown = false;
+          this.mireHeartSeenAlive = false;
           this.glutPoiHintsShown.clear();
           showToast("piova etterna — clear the mire, then the Triple Maw", "info");
         }
@@ -1843,7 +1915,16 @@ export class WorldApp {
     core.scale.setScalar(0.55);
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: heavy ? 280 : 180 });
-    if (this.sparks.length < (isCompactUi() ? 2 : 5)) {
+    // Skip particle bursts far from camera (off-screen combat still gets rings).
+    const sparkDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+    const sparkCap = this.room?.cantoId === "inferno_06"
+      ? isCompactUi()
+        ? 2
+        : 4
+      : isCompactUi()
+        ? 2
+        : 5;
+    if (sparkDist < 36 && this.sparks.length < sparkCap) {
       const burst =
         this.room?.cantoId === "inferno_06" && heavy
           ? spawnSludgeSplash(pos.x, pos.y, this.standY(pos.x, pos.y, 1.35), this.animT)
@@ -2045,12 +2126,20 @@ export class WorldApp {
           (e.hp == null || e.hp > 0)
       );
       const isGlut = canto === "inferno_06";
+      const cerberoUp =
+        isGlut &&
+        this.room.entities.some(
+          (e: any) =>
+            /^cerbero$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
+        );
       if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.7) {
         line = isGlut ? "Mire Shrine on the road will mend you" : "Wind Shrine on the road will mend you";
       } else if (heart) {
         line = isGlut
           ? "Break the Mire Heart — nearby shades are warded"
           : "Break the Storm Heart — nearby shades are warded";
+      } else if (isGlut && !heart && cerberoUp) {
+        line = "Cerbero stirs — then the Triple Maw";
       } else if (shades >= 8 && this.room.entities.some((e: any) => e.poiKind === "bell")) {
         line = isGlut ? "Ring the Mire Bell to still a pack" : "Ring the Gale Bell to still a pack";
       } else if (shades > 0) {
@@ -2058,7 +2147,7 @@ export class WorldApp {
       } else if (boss) {
         line = isGlut ? "Slay the Triple Maw" : "Slay the Judge of the Gate";
       } else if (isGlut) {
-        line = "Return to Lust, or press deeper another day";
+        line = "Return to Lust — bank loot at the Dark Wood stash";
       } else {
         const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
         line = cleared
@@ -2645,6 +2734,26 @@ export class WorldApp {
             showToast(line, "info");
           }
         }
+      }
+    }
+
+    // After Mire Heart falls: one soft beat toward Cerbero / Maw
+    if (this.room?.cantoId === "inferno_06" && !this.mireHeartDownToastShown) {
+      const heartAlive = this.room.entities.some(
+        (e: any) => e.archetype === "mire_heart" && (e.hp == null || e.hp > 0)
+      );
+      if (heartAlive) this.mireHeartSeenAlive = true;
+      if (
+        this.mireHeartSeenAlive &&
+        !heartAlive &&
+        this.room.entities.some(
+          (e: any) =>
+            (e.kind === "boss" || /^cerbero$/i.test(String(e.name || ""))) &&
+            (e.hp == null || e.hp > 0)
+        )
+      ) {
+        this.mireHeartDownToastShown = true;
+        showToast("Cerbero stirs — the Maw waits beyond", "emit");
       }
     }
 

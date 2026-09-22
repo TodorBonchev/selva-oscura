@@ -649,7 +649,9 @@ class CantoRoom {
       if (killer) this.toast(
         killer.ws,
         "emit",
-        entity.archetype === "mire_heart" ? "The Mire Heart bursts." : "The Storm Heart shatters."
+        entity.archetype === "mire_heart"
+          ? "The Mire Heart bursts — Cerbero stirs."
+          : "The Storm Heart shatters."
       );
     }
 
@@ -714,7 +716,7 @@ class CantoRoom {
             this.toast(
               killer.ws,
               "emit",
-              "Triple Maw broken — return to Lust or the Dark Wood when ready."
+              "Triple Maw broken — return to Lust or the Dark Wood; bank loot at the stash."
             );
           }
         } else if (killer && r2.reason === "already_cleared") {
