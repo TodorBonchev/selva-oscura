@@ -160,6 +160,13 @@ export class WorldApp {
   dashReadyAt = 0;
   lockedId: string | null = null;
   lockRing: THREE.Mesh | null = null;
+  wardMat = new THREE.MeshBasicMaterial({
+    color: 0xff5533,
+    transparent: true,
+    opacity: 0.5,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
   slowFrames = 0;
   gfxDropped = false;
   propAnims: THREE.Object3D[] = [];
@@ -1191,6 +1198,18 @@ export class WorldApp {
         const you = this.youPos();
         rec.group.rotation.y = yawFromPlanar(you.x - pos.x, you.y - pos.y);
       }
+      const ward = rec.group.getObjectByName("wardRing");
+      if (ward) {
+        const heart = this.room.entities.find(
+          (h: any) => h.archetype === "storm_heart" && (h.hp == null || h.hp > 0)
+        );
+        const near =
+          heart &&
+          e.kind === "mob" &&
+          e.archetype !== "storm_heart" &&
+          Math.hypot(heart.x - e.x, heart.y - e.y) <= 14;
+        ward.visible = Boolean(near);
+      }
       this.updateLabel(rec, e, pos);
     }
     for (const pl of this.room.players) {
@@ -1217,6 +1236,18 @@ export class WorldApp {
     if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
     if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
     if (e.archetype === "storm_heart") group.scale.setScalar(1.45);
+    if (e.poiKind === "bell") group.scale.setScalar(0.72);
+    if (kind === "whirl" || kind === "champion") {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.62, 0.74, 18),
+        this.wardMat
+      );
+      ring.name = "wardRing";
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.08;
+      ring.visible = false;
+      group.add(ring);
+    }
     group.userData.entityId = id.replace(/^pl:/, "");
     const wrap = document.createElement("div");
     wrap.className = "world-label";
@@ -1746,6 +1777,9 @@ export class WorldApp {
       if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.7) {
         line = "Wind Shrine on the road will mend you";
       } else if (heart) line = "Break the Storm Heart — nearby shades are warded";
+      else if (shades >= 8 && this.room.entities.some((e: any) => e.poiKind === "bell")) {
+        line = "Ring the Gale Bell to still a pack";
+      }
       else if (shades > 0) line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
       else if (boss) line = "Slay the Judge of the Gate";
       else line = "Return through the portal";

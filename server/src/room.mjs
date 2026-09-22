@@ -602,6 +602,25 @@ class CantoRoom {
       });
     }
 
+    if (entity.archetype === "storm_heart") {
+      for (const e of [...this.entities.values()]) {
+        if (e === entity || e.kind !== "mob") continue;
+        if (Math.hypot(e.x - entity.x, e.y - entity.y) > 14) continue;
+        const burst = 22;
+        e.hp = Math.max(0, e.hp - burst);
+        this.broadcast({
+          type: "combat",
+          attackerId: killerId,
+          targetId: e.id,
+          damage: burst,
+          targetHp: e.hp,
+          spellId: "heart",
+        });
+        if (e.hp <= 0) this.onEntityKilled(killerId, e);
+      }
+      if (killer) this.toast(killer.ws, "emit", "The Storm Heart shatters.");
+    }
+
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
     if (entity.packId && killer) {
@@ -819,6 +838,20 @@ class CantoRoom {
           this.pushSnapshot(playerId);
         });
         return;
+      } else if (e.poiKind === "bell") {
+        if (s.bellCd > 0) {
+          this.toast(s.ws, "warn", `The bell is quiet (${Math.ceil(s.bellCd)}s)`);
+          return;
+        }
+        s.bellCd = 18;
+        let stilled = 0;
+        for (const mob of this.entities.values()) {
+          if (mob.kind !== "mob") continue;
+          if (dist(s, mob) > 10) continue;
+          mob.stunLeft = 2.4;
+          stilled++;
+        }
+        this.toast(s.ws, "emit", stilled ? `The bell stills ${stilled}` : "The bell rings, and nothing answers.");
       } else if (e.poiKind === "shrine") {
         s.hp = s.maxHp;
         s.mana = s.maxMana;
@@ -895,6 +928,7 @@ class CantoRoom {
       if (s.atkCd > 0) s.atkCd = Math.max(0, s.atkCd - dt);
       if (s.sipCd > 0) s.sipCd = Math.max(0, s.sipCd - dt);
       if (s.dashCd > 0) s.dashCd = Math.max(0, s.dashCd - dt);
+      if (s.bellCd > 0) s.bellCd = Math.max(0, s.bellCd - dt);
       if (s.iframes > 0) s.iframes = Math.max(0, s.iframes - dt);
       if (s.spellCd) {
         for (const k of Object.keys(s.spellCd)) {
@@ -919,6 +953,10 @@ class CantoRoom {
     for (const e of this.entities.values()) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
       if (e.atkCd > 0) e.atkCd = Math.max(0, e.atkCd - dt);
+      if (e.stunLeft > 0) {
+        e.stunLeft = Math.max(0, e.stunLeft - dt);
+        continue;
+      }
       if (e.archetype === "storm_heart") continue;
       let nearest = null;
       let nearestD = 999;

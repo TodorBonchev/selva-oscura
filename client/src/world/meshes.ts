@@ -349,11 +349,21 @@ export function makeGuide(mats: MatKit): THREE.Group {
   return g;
 }
 
+const shadeMats: { plain?: THREE.Material; gold?: THREE.Material } = {};
+
+function shadeMat(mats: MatKit, goldTrim: boolean): THREE.Material {
+  const key = goldTrim ? "gold" : "plain";
+  if (!shadeMats[key]) {
+    shadeMats[key] = goldTrim
+      ? std(mats.leather.map, 0x5a3020, { roughness: 0.62, metalness: 0.2, emissive: 0x6a2010, emissiveIntensity: 0.35 })
+      : std(mats.leather.map, 0x3a2824, { roughness: 0.74, metalness: 0.08, emissive: 0x4a180c, emissiveIntensity: 0.28 });
+  }
+  return shadeMats[key]!;
+}
+
 function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Group {
   const g = new THREE.Group();
-  const wraith = goldTrim
-    ? std(mats.leather.map, 0x5a3020, { roughness: 0.62, metalness: 0.2, emissive: 0x6a2010, emissiveIntensity: 0.35 })
-    : std(mats.leather.map, 0x3a2824, { roughness: 0.74, metalness: 0.08, emissive: 0x4a180c, emissiveIntensity: 0.28 });
+  const wraith = shadeMat(mats, goldTrim);
   const pts = [
     new THREE.Vector2(0.02, 0),
     new THREE.Vector2(0.22, 0.18),
@@ -362,7 +372,7 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Gr
     new THREE.Vector2(0.12, 1.55),
     new THREE.Vector2(0.04, 1.85),
   ];
-  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 20), wraith);
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 12), wraith);
   body.position.y = 0.2;
   const hood = new THREE.Mesh(
     new THREE.SphereGeometry(0.26, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
@@ -942,7 +952,7 @@ export function resolveKind(ent: {
     if (ent.poiKind === "stash" || ent.poiKind === "cache") return "stash";
     if (ent.poiKind === "ah") return "ah";
     if (ent.poiKind === "quest") return "quest";
-    if (ent.poiKind === "shrine") return "shrine";
+    if (ent.poiKind === "shrine" || ent.poiKind === "bell") return "shrine";
     return "guide";
   }
   if (ent.kind === "mob") return ent.champion ? "champion" : "whirl";

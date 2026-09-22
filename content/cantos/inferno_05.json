@@ -25,6 +25,13 @@
     ],
     "pois": [
       {
+        "id": "gale_bell",
+        "kind": "bell",
+        "x": 90,
+        "y": 62,
+        "label": "Gale Bell"
+      },
+      {
         "id": "wind_cache",
         "kind": "cache",
         "x": 60,
