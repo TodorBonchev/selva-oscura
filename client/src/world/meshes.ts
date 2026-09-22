@@ -908,6 +908,7 @@ export type KindKey =
   | "ah"
   | "quest"
   | "shrine"
+  | "pyre"
   | "portal"
   | "loot";
 
@@ -931,6 +932,8 @@ export function makeByKind(kind: KindKey, mats: MatKit, rarity?: string): THREE.
       return makeWrit(mats);
     case "shrine":
       return makeShrine(mats);
+    case "pyre":
+      return makeBrazier(mats);
     case "portal":
       return makePortal(mats);
     case "loot":
@@ -953,6 +956,7 @@ export function resolveKind(ent: {
     if (ent.poiKind === "ah") return "ah";
     if (ent.poiKind === "quest") return "quest";
     if (ent.poiKind === "shrine" || ent.poiKind === "bell") return "shrine";
+    if (ent.poiKind === "pyre") return "pyre";
     return "guide";
   }
   if (ent.kind === "mob") return ent.champion ? "champion" : "whirl";
