@@ -327,6 +327,12 @@ export function buildGround(
       mat.side = THREE.DoubleSide;
       mat.opacity = 0.45;
       group.add(rib);
+      const crack = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.62, 0.05, 0.22), mats.ember);
+      crack.position.set(mx, heightAt(mx, mz) + 0.05, mz);
+      crack.rotation.y = rib.rotation.y;
+      crack.castShadow = false;
+      crack.receiveShadow = false;
+      group.add(crack);
     }
     const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 20), mats.stone);
     dais.position.set(140, heightAt(140, 60) + 0.14, 60);

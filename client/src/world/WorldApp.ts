@@ -914,7 +914,9 @@ export class WorldApp {
     this.tickFx(dt);
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
-    this.labelRenderer.render(this.scene, this.camera);
+    if (!this.inCombat() || this.frameN % 2 === 0) {
+      this.labelRenderer.render(this.scene, this.camera);
+    }
     this.paintChrome();
     if (this.radar && this.room) {
       this.radar.tick({
@@ -1211,6 +1213,7 @@ export class WorldApp {
 
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
     const group = makeByKind(kind, this.mats!, e.item?.rarity);
+    if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
     group.userData.entityId = id.replace(/^pl:/, "");
     const wrap = document.createElement("div");
     wrap.className = "world-label";

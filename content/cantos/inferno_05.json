@@ -49,6 +49,16 @@
   },
   "packs": [
     {
+      "id": "lust_wisps",
+      "name": "Gale Wisp",
+      "archetype": "gale_wisp",
+      "count": 4,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 40, "y": 72 }
+    },
+    {
       "id": "lust_road_wardens",
       "name": "Road Shade",
       "archetype": "whirl_shade",
