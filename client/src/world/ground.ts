@@ -286,7 +286,7 @@ export function buildGround(
     geo.computeVertexNormals();
 
     let placed = 0;
-    for (let i = 0; i < 90 && placed < 16; i++) {
+    for (let i = 0; i < 70 && placed < 8; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
       const z = 8 + hash(i, 8) * (h - 16);
       if (blocked(x, z, 3.2) || distToPoly(x, z, LUST_HUNT) < 4.5) continue;

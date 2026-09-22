@@ -35,6 +35,7 @@ const MOB_HP = {
   whirl_shade: 36,
   gale_wisp: 16,
   gale_warden: 120,
+  storm_heart: 90,
   gale_champion: 80,
   boss: 200,
 };
@@ -48,6 +49,15 @@ const MOB_DMG = {
 };
 
 let entitySeq = 0;
+function heartWards(room, e) {
+  if (!e || e.archetype === "storm_heart" || e.kind === "boss") return false;
+  for (const h of room.entities.values()) {
+    if (h.archetype !== "storm_heart" || !(h.hp > 0)) continue;
+    if (Math.hypot(h.x - e.x, h.y - e.y) <= 14) return true;
+  }
+  return false;
+}
+
 function eid(prefix) {
   entitySeq += 1;
   return `${prefix}_${entitySeq}`;
@@ -342,7 +352,8 @@ class CantoRoom {
     }
     let anyDead = false;
     for (const v of victims) {
-      const hit = v === target ? dmg : Math.max(8, Math.round(dmg * 0.55));
+      let hit = v === target ? dmg : Math.max(8, Math.round(dmg * 0.55));
+      if (heartWards(this, v)) hit = Math.max(1, Math.round(hit * 0.7));
       v.hp = Math.max(0, v.hp - hit);
       this.broadcast({
         type: "combat",
@@ -464,10 +475,11 @@ class CantoRoom {
       tx = target.x;
       ty = target.y;
       const gear = computeGearStats(players.get(playerId) || { inventory: [] });
-      const dmg =
+      let dmg =
         spell.baseDamage +
         Math.floor(gear.dmg * 0.55) +
         Math.floor(Math.random() * (spell.damageVar + 1));
+      if (heartWards(this, target)) dmg = Math.max(1, Math.round(dmg * 0.7));
       target.hp = Math.max(0, target.hp - dmg);
       this.broadcast({
         type: "combat",
@@ -534,7 +546,8 @@ class CantoRoom {
     for (const e of [...this.entities.values()]) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
       if (dist(s, e) > spell.radius) continue;
-      const dmg = base + Math.floor(Math.random() * 5);
+      let dmg = base + Math.floor(Math.random() * 5);
+      if (heartWards(this, e)) dmg = Math.max(1, Math.round(dmg * 0.7));
       e.hp = Math.max(0, e.hp - dmg);
       hit.push({ id: e.id, dmg, hp: e.hp, ent: e });
       this.broadcast({
@@ -661,7 +674,8 @@ class CantoRoom {
       const d0 = Math.hypot(e.x - fromX, e.y - fromY);
       const d1 = Math.hypot(e.x - s.x, e.y - s.y);
       if (Math.min(d0, d1) > 2.2) continue;
-      const dmg = e.kind === "boss" ? 12 : 18;
+      let dmg = e.kind === "boss" ? 12 : 18;
+      if (heartWards(this, e)) dmg = Math.max(1, Math.round(dmg * 0.7));
       e.hp = Math.max(0, e.hp - dmg);
       cut++;
       this.broadcast({
@@ -905,6 +919,7 @@ class CantoRoom {
     for (const e of this.entities.values()) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
       if (e.atkCd > 0) e.atkCd = Math.max(0, e.atkCd - dt);
+      if (e.archetype === "storm_heart") continue;
       let nearest = null;
       let nearestD = 999;
       for (const s of this.sessions.values()) {

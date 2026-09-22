@@ -49,6 +49,16 @@
   },
   "packs": [
     {
+      "id": "lust_storm_heart",
+      "name": "Storm Heart",
+      "archetype": "storm_heart",
+      "count": 1,
+      "elite": true,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 78, "y": 58 }
+    },
+    {
       "id": "lust_wisps",
       "name": "Gale Wisp",
       "archetype": "gale_wisp",

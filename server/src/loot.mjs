@@ -52,6 +52,7 @@ const BASE_CONTENT_SLOT = {
   storm_cowl: "helm",
   ashen_signet: "misc",
   wisp_filament: "misc",
+  heart_shard: "misc",
 };
 
 /**

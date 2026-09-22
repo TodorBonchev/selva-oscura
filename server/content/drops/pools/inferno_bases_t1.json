@@ -13,6 +13,7 @@
     { "name": "Minos Band", "slot": "misc", "baseId": "minos_band" },
     { "name": "Storm Cowl", "slot": "helm", "baseId": "storm_cowl" },
     { "name": "Ashen Signet", "slot": "misc", "baseId": "ashen_signet" },
-    { "name": "Wisp Filament", "slot": "misc", "baseId": "wisp_filament" }
+    { "name": "Wisp Filament", "slot": "misc", "baseId": "wisp_filament" },
+    { "name": "Heart Shard", "slot": "misc", "baseId": "heart_shard" }
   ]
 }
