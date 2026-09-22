@@ -637,7 +637,28 @@ class CantoRoom {
     s._lastFaceY = dy;
     s.iframes = Math.max(s.iframes || 0, 0.35);
     s.dashCd = 4;
-    this.toast(s.ws, "info", "Dash");
+    const fromX = s.x - dx * step;
+    const fromY = s.y - dy * step;
+    let cut = 0;
+    for (const e of [...this.entities.values()]) {
+      if (e.kind !== "mob" && e.kind !== "boss") continue;
+      const d0 = Math.hypot(e.x - fromX, e.y - fromY);
+      const d1 = Math.hypot(e.x - s.x, e.y - s.y);
+      if (Math.min(d0, d1) > 2.2) continue;
+      const dmg = e.kind === "boss" ? 12 : 18;
+      e.hp = Math.max(0, e.hp - dmg);
+      cut++;
+      this.broadcast({
+        type: "combat",
+        attackerId: playerId,
+        targetId: e.id,
+        damage: dmg,
+        targetHp: e.hp,
+        spellId: "dash",
+      });
+      if (e.hp <= 0) this.onEntityKilled(playerId, e);
+    }
+    this.toast(s.ws, cut ? "loot" : "info", cut ? `Dash cuts ${cut}` : "Dash");
     this.markDirty();
     this.pushSnapshot(playerId);
   }

@@ -352,8 +352,8 @@ export function makeGuide(mats: MatKit): THREE.Group {
 function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Group {
   const g = new THREE.Group();
   const wraith = goldTrim
-    ? std(mats.leather.map, 0x3a2418, { roughness: 0.7, metalness: 0.15, emissive: 0x2a1008, emissiveIntensity: 0.18 })
-    : std(mats.leather.map, 0x2a2420, { roughness: 0.82, metalness: 0.06, emissive: 0x1a0804, emissiveIntensity: 0.12 });
+    ? std(mats.leather.map, 0x5a3020, { roughness: 0.62, metalness: 0.2, emissive: 0x6a2010, emissiveIntensity: 0.35 })
+    : std(mats.leather.map, 0x3a2824, { roughness: 0.74, metalness: 0.08, emissive: 0x4a180c, emissiveIntensity: 0.28 });
   const pts = [
     new THREE.Vector2(0.02, 0),
     new THREE.Vector2(0.22, 0.18),
@@ -388,10 +388,10 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Gr
   clawL.rotation.x = 0.9;
   const clawR = clawL.clone();
   clawR.position.x = 0.62;
-  const ribbon = new THREE.Mesh(new THREE.TorusKnotGeometry(0.48, 0.035, 90, 8, 2, 5), mats.gale);
+  const ribbon = new THREE.Mesh(new THREE.TorusKnotGeometry(0.48, 0.04, 18, 5, 2, 3), mats.gale);
   ribbon.position.y = 0.95;
   ribbon.name = "ribbon";
-  const ribbon2 = new THREE.Mesh(new THREE.TorusKnotGeometry(0.62, 0.022, 70, 6, 3, 4), mats.gale);
+  const ribbon2 = new THREE.Mesh(new THREE.TorusKnotGeometry(0.62, 0.028, 14, 4, 2, 3), mats.gale);
   ribbon2.position.y = 0.7;
   ribbon2.name = "ribbon2";
   g.add(

@@ -105,6 +105,16 @@
       "anchor": { "x": 86, "y": 38 }
     },
     {
+      "id": "lust_chorus",
+      "name": "Chorus Shade",
+      "archetype": "whirl_shade",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 110, "y": 72 }
+    },
+    {
       "id": "lust_bufera",
       "name": "Bufera",
       "archetype": "gale_champion",

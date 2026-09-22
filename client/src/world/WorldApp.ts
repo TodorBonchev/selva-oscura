@@ -258,6 +258,7 @@ export class WorldApp {
     this.renderer.toneMappingExposure = 1.22;
     this.renderer.shadowMap.enabled = !isCompactUi();
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
     root.appendChild(this.renderer.domElement);
 
     this.labelRenderer = new CSS2DRenderer();
@@ -906,6 +907,9 @@ export class WorldApp {
     } else if (this.slash) this.slash.visible = false;
 
     this.frameN++;
+    if (this.renderer.shadowMap.enabled && this.frameN % 2 === 0) {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
     this.fadeTreeOccluders();
     this.tickFx(dt);
     if (this.composer) this.composer.render();
