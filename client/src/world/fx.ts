@@ -396,10 +396,11 @@ export function makeSlashTrail(): THREE.Mesh {
     })
   );
   m.name = "slashTrail";
-  // Rough hand/weapon height on scaled wanderer (youGroup scale ~1.42).
-  m.position.set(0.28, 1.28, -0.55);
-  m.rotation.x = Math.PI * 0.58;
-  m.rotation.z = 0.42;
+  // Hand-local (parent: slashAnchor on handR). Blade mid ~ weapon rest rx=0.55.
+  // youGroup root scale (~1.42) still applies; offsets are model-space.
+  m.position.set(0.04, -0.42, -0.18);
+  m.rotation.x = Math.PI * 0.28;
+  m.rotation.z = 0.18;
   m.renderOrder = 4;
   return m;
 }

@@ -47,3 +47,16 @@ export function applyEquippedLook(
     o.visible = filled[slot];
   });
 }
+
+/** Stable fingerprint of equipped slots for remote look caching. */
+export function equipLookKey(
+  equipped: Partial<Record<string, { baseId?: string; id?: string } | null | undefined>> | null | undefined
+): string {
+  if (!equipped) return "";
+  return GEAR_SLOTS.map((s) => {
+    const it = equipped[s] as { baseId?: string; id?: string } | null | undefined;
+    if (!it || typeof it !== "object") return `${s}:`;
+    return `${s}:${it.baseId ?? it.id ?? ""}`;
+  }).join("|");
+}
+

@@ -71,7 +71,7 @@ import {
   tintMireEnemy,
   type KindKey,
 } from "./meshes";
-import { applyEquippedLook } from "./gearLook";
+import { applyEquippedLook, equipLookKey } from "./gearLook";
 import { buildGround, type GroundRig } from "./ground";
 import {
   AshField,
@@ -428,7 +428,13 @@ export class WorldApp {
     }
     this.slash = makeSlashTrail();
     this.slash.visible = false;
-    this.youGroup.add(this.slash);
+    {
+      const anchor =
+        this.youGroup.getObjectByName("slashAnchor") ||
+        this.youGroup.getObjectByName("handR") ||
+        this.youGroup;
+      anchor.add(this.slash);
+    }
     this.portalHoldFx = makePortalHoldFx();
     this.scene.add(this.portalHoldFx.group);
 
@@ -1347,6 +1353,12 @@ export class WorldApp {
       const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
       rec.group.rotation.y = yawFromPlanar(this.renderYou.x - pos.x, this.renderYou.y - pos.y);
+      const eq = pl.equipped || {};
+      const lookKey = equipLookKey(eq);
+      if (rec.group.userData.equipLookKey !== lookKey) {
+        applyEquippedLook(rec.group, eq);
+        rec.group.userData.equipLookKey = lookKey;
+      }
       this.updateLabel(rec, { name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp }, pos);
     }
     for (const [id, rec] of this.nodes) {

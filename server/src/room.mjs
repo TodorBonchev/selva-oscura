@@ -1013,7 +1013,8 @@ class CantoRoom {
     s.maxHp = PLAYER_MAX_HP + gear.maxHp;
     s.hp = Math.max(1, Math.min(s.maxHp, Math.round(s.maxHp * ratio)));
     this.toast(s.ws, "info", `Equipped ${r.item.name} → ${r.slot}`);
-    this.pushSnapshot(playerId);
+    // Remotes need equipped on room.players to refresh gear look.
+    this.pushAllSnapshots();
   }
 
   async handleUnequip(playerId, itemId, slot) {
@@ -1031,7 +1032,7 @@ class CantoRoom {
     s.maxHp = PLAYER_MAX_HP + gear.maxHp;
     s.hp = Math.max(1, Math.min(s.maxHp, Math.round(s.maxHp * ratio)));
     this.toast(s.ws, "info", `Unequipped ${r.item.name}`);
-    this.pushSnapshot(playerId);
+    this.pushAllSnapshots();
   }
 
   markDirty() {

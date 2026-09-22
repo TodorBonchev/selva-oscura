@@ -437,7 +437,12 @@ export function makeWanderer(mats: MatKit): THREE.Group {
   weapon.rotation.x = 0.55;
   weapon.rotation.z = 0.12;
   tagGearSlot(weapon, "MainHand");
-  armR.getObjectByName("handR")?.add(weapon);
+  const handR = armR.getObjectByName("handR");
+  handR?.add(weapon);
+  // Always-present anchor for attack slash FX (sibling of weapon; survives gear hide).
+  const slashAnchor = new THREE.Group();
+  slashAnchor.name = "slashAnchor";
+  handR?.add(slashAnchor);
 
   const offhand = makeOffhandBuckler(steel, gold);
   armL.getObjectByName("handL")?.add(offhand);
