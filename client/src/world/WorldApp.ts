@@ -1087,17 +1087,25 @@ export class WorldApp {
     }
     this.paintChrome();
     if (this.radar && this.room) {
-      this.radar.tick({
-        you: this.renderYou,
-        aimX: this.aimX,
-        aimY: this.aimY,
-        bounds: this.room.bounds,
-        entities: this.room.entities,
-        cantoId: this.room.cantoId,
-        camera: this.camera,
-        compact: compact,
-        firstClears: Array.isArray(this.room.you?.firstClears) ? this.room.you.firstClears : [],
-      });
+      {
+        const yu = this.room.you;
+        const day = new Date().toISOString().slice(0, 10);
+        const dailyWritOpen = Boolean(yu?.spokeToGuide) && yu?.dailyQuestDoneUtc !== day;
+        this.radar.tick({
+          you: this.renderYou,
+          aimX: this.aimX,
+          aimY: this.aimY,
+          bounds: this.room.bounds,
+          entities: this.room.entities,
+          cantoId: this.room.cantoId,
+          camera: this.camera,
+          compact: compact,
+          firstClears: Array.isArray(yu?.firstClears) ? yu.firstClears : [],
+          bellCd: Number(yu?.bellCd) || 0,
+          dailyWritOpen,
+          spokeToGuide: Boolean(yu?.spokeToGuide),
+        });
+      }
     }
   }
 
@@ -3090,13 +3098,17 @@ export class WorldApp {
       const avaOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_07");
       const glutOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_06");
       const lustOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
-      line = avaOk
-        ? "Claim the daily writ, or hunt Lust / Gluttony / Avarice again"
-        : glutOk
-          ? "Claim the daily writ, or hunt Lust / Gluttony / Avarice"
-          : lustOk
-            ? "Claim the daily writ, or hunt Lust / Gluttony"
-            : "Claim the daily writ, or hunt Lust again";
+      const day = new Date().toISOString().slice(0, 10);
+      const writOpen = you.dailyQuestDoneUtc !== day;
+      line = writOpen
+        ? "Daily writ — speak with the Guide"
+        : avaOk
+          ? "Writ claimed — hunt Lust / Gluttony / Avarice again"
+          : glutOk
+            ? "Writ claimed — hunt Lust / Gluttony / Avarice"
+            : lustOk
+              ? "Writ claimed — hunt Lust / Gluttony"
+              : "Writ claimed — hunt Lust again";
     }
     setQuestLine(line);
     const near = this.nearestFoe(16);

@@ -415,6 +415,8 @@ class CantoRoom {
         }),
         armorBuff: youSess.armorBuff || 0,
         wardUntil: youSess.wardUntil || 0,
+        // Client: Ledger/Mire/Gale bell quiet → Guide / measure pathing
+        bellCd: youSess.bellCd > 0 ? Number(youSess.bellCd) : 0,
       },
     };
   }

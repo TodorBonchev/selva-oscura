@@ -102,6 +102,9 @@ export class Radar {
     camera: PerspectiveCamera;
     compact: boolean;
     firstClears?: string[];
+    bellCd?: number;
+    dailyWritOpen?: boolean;
+    spokeToGuide?: boolean;
   }) {
     if (opts.cantoId !== "inferno_07") {
       this.avaSawCw = false;
@@ -275,10 +278,30 @@ export class Radar {
     compact: boolean;
     cantoId?: string;
     firstClears?: string[];
+    bellCd?: number;
+    dailyWritOpen?: boolean;
+    spokeToGuide?: boolean;
   }) {
     const wanted: { id: string; dest: string; label: string; e: any }[] = [];
     const portal = this.portalPreferred(opts.entities, opts.cantoId || "", opts.firstClears);
-    if (portal) {
+    const guideEnt = opts.entities.find(
+      (e: any) => e.poiKind === "npc" || (e.kind === "poi" && (e.label === "Guide" || e.name === "Guide"))
+    );
+    // Hub: daily writ path → Guide chevron (beats portal spam when writ is open)
+    const hubWrit =
+      (opts.cantoId === "inferno_01" || !opts.cantoId) &&
+      opts.dailyWritOpen &&
+      guideEnt &&
+      (opts.spokeToGuide || opts.dailyWritOpen);
+    if (hubWrit && guideEnt) {
+      wanted.push({
+        id: "guide",
+        dest: "wood",
+        label: "Daily writ",
+        e: guideEnt,
+      });
+    }
+    if (portal && !hubWrit) {
       const clears = opts.firstClears || [];
       const locked = Boolean(portal.requireClear && !clears.includes(portal.requireClear));
       wanted.push({
@@ -435,7 +458,15 @@ export class Radar {
     };
   }
 
-  private writeHint(opts: { you: Vec2; entities: any[]; cantoId: string; firstClears?: string[] }) {
+  private writeHint(opts: {
+    you: Vec2;
+    entities: any[];
+    cantoId: string;
+    firstClears?: string[];
+    bellCd?: number;
+    dailyWritOpen?: boolean;
+    spokeToGuide?: boolean;
+  }) {
     const portal = this.portalPreferred(opts.entities, opts.cantoId, opts.firstClears);
     const guide = opts.entities.find(
       (e) => e.poiKind === "npc" || (e.kind === "poi" && (e.label === "Guide" || e.name === "Guide"))
@@ -493,7 +524,17 @@ export class Radar {
           Math.hypot(bell.x - opts.you.x, bell.y - opts.you.y) < 22 &&
           !heart
         ) {
-          text = "Ring Ledger Bell";
+          // Bell quiet: point the measure onward (CW/Crush) — daily writ waits with the Guide
+          if ((opts.bellCd || 0) > 0.4) {
+            if (cw) text = "Bell quiet — Tip Counterweight";
+            else if (opts.entities.some((e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)))
+              text = "Bell quiet — Press Hoard Crush";
+            else if (opts.dailyWritOpen)
+              text = "Bell quiet — Guide for daily writ (Dark Wood)";
+            else text = "Bell quiet — measure holds";
+          } else {
+            text = "Ring Ledger Bell";
+          }
         } else if (cw && Math.hypot(cw.x - opts.you.x, cw.y - opts.you.y) < 28) {
           this.avaSawCw = true;
           text = "Tip Counterweight";
@@ -534,7 +575,13 @@ export class Radar {
       text = `Hunt ${destLabel(foe)}`;
     } else if (clears.includes("inferno_07")) {
       const stash = opts.entities.find((e: any) => e.poiKind === "stash");
-      if (guide) {
+      if (opts.dailyWritOpen && guide) {
+        const gd = Math.hypot(guide.x - opts.you.x, guide.y - opts.you.y);
+        text =
+          gd < 10
+            ? "Guide — claim the daily writ"
+            : "Daily writ — follow the Guide (Avarice is clear)";
+      } else if (guide) {
         const gd = Math.hypot(guide.x - opts.you.x, guide.y - opts.you.y);
         text = gd < 10 ? "Guide — counsel after Avarice" : "Speak with the Guide (Avarice is clear)";
       } else if (stash) {
@@ -543,6 +590,9 @@ export class Radar {
         const dest = cantoShort(portal.toCanto) || "Lust";
         text = `Hunt again — ${dest}`;
       } else text = "Avarice is clear — writ, stash, or hunt again";
+    } else if (opts.dailyWritOpen && guide) {
+      const gd = Math.hypot(guide.x - opts.you.x, guide.y - opts.you.y);
+      text = gd < 10 ? "Guide — claim the daily writ" : "Daily writ — speak with the Guide";
     } else if (portal) {
       const d = Math.hypot(portal.x - opts.you.x, portal.y - opts.you.y);
       const dest = cantoShort(portal.toCanto) || "Lust";
