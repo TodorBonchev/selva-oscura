@@ -1222,7 +1222,9 @@ class CantoRoom {
               ? 1.6
               : e.kind === "boss"
                 ? 2.2
-                : 3.0;
+                : e.archetype === "weight_shade" || e.archetype === "weight_champion"
+                  ? 2.65
+                  : 3.0;
         e.x += (dx / len) * speed * dt;
         e.y += (dy / len) * speed * dt;
         moved = true;

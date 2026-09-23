@@ -1034,6 +1034,7 @@ export class WorldApp {
       this.room?.cantoId === "inferno_06" ||
       this.room?.cantoId === "inferno_07";
     const inGlut = this.room?.cantoId === "inferno_06";
+    const inAva = this.room?.cantoId === "inferno_07";
     const fighting = this.inCombat();
     // Compact combat: ease pixel ratio slightly when still at the soft cap (skip if already gfx-dropped).
     if (compact && !this.gfxDropped && this.frameN % 30 === 0) {
@@ -1042,12 +1043,11 @@ export class WorldApp {
         this.renderer.setPixelRatio(want);
       }
     }
-    const shadowEvery = compact && inCombatRoom ? 3 : 2;
+    const shadowEvery = compact && inCombatRoom ? (inAva ? 4 : 3) : 2;
     const labelEvery = compact && fighting ? 3 : 2;
     if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
-    const inAva = this.room?.cantoId === "inferno_07";
     if (inGlut && this.frameN % 4 === 0) this.tickMawPressure();
     if (inAva && this.frameN % 4 === 0) this.tickCrushPressure();
     this.tickAtmosphere();
@@ -2090,7 +2090,12 @@ export class WorldApp {
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
-          showToast("peso e contrapeso — measure the road, then break Hoard Crush", "info");
+          // Gluttony-portal side: weigh the first road; hub/DEV travel keeps the classic line
+          if (prevCanto === "inferno_06") {
+            showToast("di qua dal peso — Road Weights measure the gate road", "info");
+          } else {
+            showToast("peso e contrapeso — measure the road, then break Hoard Crush", "info");
+          }
         }
         if (
           cantoChanged &&
