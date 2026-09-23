@@ -2586,9 +2586,12 @@ export class WorldApp {
         this.lastCantoId = msg.room.cantoId;
         this.serverYou = { x: sx, y: sy };
         if (first || cantoChanged) {
-          // Memory: dispose Avarice-only meshes when leaving Inferno VII
-          if (cantoChanged && prevCanto === "inferno_07" && msg.room.cantoId !== "inferno_07") {
-            this.disposeAvaEphemerals();
+          // Memory: flush combat ephemerals on canto leave (Lust/Glut/Ava)
+          if (cantoChanged && prevCanto && prevCanto !== msg.room.cantoId) {
+            if (prevCanto === "inferno_07") this.disposeAvaEphemerals();
+            else if (prevCanto === "inferno_05" || prevCanto === "inferno_06") {
+              this.disposeCombatEphemerals();
+            }
           }
           this.renderYou = { x: sx, y: sy };
           this.remoteSmooth.clear();
@@ -4037,6 +4040,18 @@ export class WorldApp {
 
   /** Avarice: faint empty ledger cell after a fodder pack is wiped, until they refill. */
 
+  /** Flush shared combat impact rings/motes (Lust/Glut leave — memory). */
+  disposeCombatEphemerals() {
+    for (const r of this.impacts) {
+      this.scene.remove(r.mesh);
+      if (r.mesh.geometry && r.mesh.geometry !== this.sharedCoinDiscGeo) {
+        r.mesh.geometry.dispose();
+      }
+      (r.mesh.material as THREE.Material).dispose();
+    }
+    this.impacts = [];
+  }
+
   /** Drop Avarice-only ephemeral meshes/geo when leaving the circle (memory). */
   disposeAvaEphemerals() {
     for (const cell of this.emptyPackCells.values()) {
@@ -4048,15 +4063,7 @@ export class WorldApp {
     this.lastPackAlive.clear();
     this.lastPackPos.clear();
     // Flush impact rings/motes immediately so shared coin discs aren't held across cantos
-    for (const r of this.impacts) {
-      this.scene.remove(r.mesh);
-      // Shared coin disc geo is disposed once below — skip double-free
-      if (r.mesh.geometry && r.mesh.geometry !== this.sharedCoinDiscGeo) {
-        r.mesh.geometry.dispose();
-      }
-      (r.mesh.material as THREE.Material).dispose();
-    }
-    this.impacts = [];
+    this.disposeCombatEphemerals();
     this.avaDeathBurstActive = 0;
     if (this.sharedCoinDiscGeo) {
       this.sharedCoinDiscGeo.dispose();
