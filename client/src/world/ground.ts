@@ -793,6 +793,52 @@ export function buildGround(
         trim.castShadow = false;
         group.add(slab, trim);
       }
+
+      // South / north edge props — unpaid tallies on the empty ledger rims (cheap instances)
+      const edgeCap = compact ? 4 : 8;
+      const edgeGeo = new THREE.CylinderGeometry(0.42, 0.5, 0.28, compact ? 7 : 9);
+      const edgeMesh = new THREE.InstancedMesh(edgeGeo, mats.bronze, edgeCap);
+      edgeMesh.castShadow = false;
+      edgeMesh.receiveShadow = true;
+      edgeMesh.frustumCulled = true;
+      const edgeCoinGeo = new THREE.CircleGeometry(1, compact ? 7 : 9);
+      const edgeCoinMat = new THREE.MeshStandardMaterial({
+        color: 0x8a6840,
+        roughness: 0.42,
+        metalness: 0.5,
+        emissive: 0x3a2a10,
+        emissiveIntensity: 0.22,
+        transparent: true,
+        opacity: 0.78,
+      });
+      const edgeCoins = new THREE.InstancedMesh(edgeCoinGeo, edgeCoinMat, edgeCap);
+      edgeCoins.castShadow = false;
+      edgeCoins.receiveShadow = true;
+      edgeCoins.frustumCulled = true;
+      let edgeN = 0;
+      for (let i = 0; i < 40 && edgeN < edgeCap; i++) {
+        const south = i % 2 === 0;
+        const x = 16 + hash(i, 101) * (w - 32);
+        const z = south ? 10 + hash(i, 102) * 10 : h - 20 + hash(i, 103) * 10;
+        if (blocked(x, z, 2.0)) continue;
+        if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.5)) continue;
+        _p.set(x, heightAt(x, z) + 0.16, z);
+        _q.setFromEuler(new THREE.Euler(0, hash(i, 104) * Math.PI * 2, Math.PI / 2));
+        _s.set(1 + hash(i, 105) * 0.35, 1, 1 + hash(i, 106) * 0.3);
+        _m.compose(_p, _q, _s);
+        edgeMesh.setMatrixAt(edgeN, _m);
+        _q.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, hash(i, 107) * Math.PI));
+        _s.set(0.85 + hash(i, 108) * 0.5, 0.85 + hash(i, 108) * 0.5, 0.85);
+        _p.y = heightAt(x, z) + 0.05;
+        _m.compose(_p, _q, _s);
+        edgeCoins.setMatrixAt(edgeN, _m);
+        edgeN++;
+      }
+      edgeMesh.count = edgeN;
+      edgeCoins.count = edgeN;
+      edgeMesh.instanceMatrix.needsUpdate = true;
+      edgeCoins.instanceMatrix.needsUpdate = true;
+      group.add(edgeMesh, edgeCoins);
     } else {
       const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 20), mats.stone);
       dais.position.set(daisPos.x, heightAt(daisPos.x, daisPos.z) + 0.14, daisPos.z);
