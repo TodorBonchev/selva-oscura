@@ -36,7 +36,7 @@ Use one kit id per combat circle / major band. Hub uses `hub_dark_wood` outside 
 | 1 | `circle_01_limbo` | Inferno | Soft grey hatch, classical shades |
 | 2 | `circle_02_lust` | Inferno | Gale streaks, red-black ribbons (Lust / Inf V) |
 | 3 | `circle_03_gluttony` | Inferno | Mire, heavy rain hatch |
-| 4 | `circle_04_avarice` | Inferno | Rolling weights, gold-on-black irony |
+| 4 | `circle_04_avarice` | Inferno | Rolling weights, gold-on-black irony — **live:** scorched gold road, ledger POIs, Hoard Crush measure (peso e contrapeso) |
 | 5 | `circle_05_wrath` | Inferno | Styx murk, silhouette brawls |
 | 6 | `circle_06_heresy` | Inferno | Burning tombs, ember windows |
 | 7 | `circle_07_violence` | Inferno | Blood river / wood / sand variants |
