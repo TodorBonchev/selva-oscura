@@ -1776,11 +1776,11 @@ export class WorldApp {
         rec.group.userData.avaHubHomeGlow = hubHome;
         rec.hpEl.classList.toggle("ava-hub-home", Boolean(hubHome));
       }
-      // Hub stash glow after Ava bank tip (Crush clear → Dark Wood)
+      // Hub stash glow after Ava/Glut bank tip (Crush/Maw clear → Dark Wood)
       if (
         this.room?.cantoId === "inferno_01" &&
         e?.poiKind === "stash" &&
-        this.avaClearStashTipShown
+        (this.avaClearStashTipShown || this.glutClearStashTipShown)
       ) {
         rec.hpEl.classList.add("ava-stash-glow");
         rec.group.userData.avaStashGlow = true;

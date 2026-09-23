@@ -4751,7 +4751,7 @@ body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-canto_unique {
   animation: weighed-rarity-pulse 1.6s ease-in-out 1;
 }
 
-/* Hub stash glow after Crush bank tip — bone-gold measure, no neon */
+/* Hub stash glow after Crush/Maw bank tip — bone-gold measure, no neon */
 body:not(.in-avarice) .world-label.ava-stash-glow .wl-name,
 .world-label.ava-stash-glow .wl-name {
   color: #fff6d8;
