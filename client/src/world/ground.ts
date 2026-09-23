@@ -709,7 +709,7 @@ export function buildGround(
         const ribbon = makeGaleRibbon(mats, 14 + i * 3);
         const mat = ribbon.material as THREE.MeshBasicMaterial;
         mat.color.set(0xa88a40);
-        mat.opacity = compact ? 0.12 : 0.16;
+        mat.opacity = compact ? 0.1 : 0.13;
         const rx = 28 + i * 28;
         const rz = 44 + (i % 2) * 12;
         ribbon.position.set(rx, heightAt(rx, rz) + 0.7, rz);

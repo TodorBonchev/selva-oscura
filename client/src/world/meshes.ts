@@ -1323,10 +1323,21 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
   crown.name = "weightDisc";
   const spike = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.55, 6), mats.bone);
   spike.position.set(0, 2.25, 0);
-  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), mats.ember);
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), mats.ember);
   eye.position.set(0, 1.35, -0.9);
   eye.name = "ember";
-  g.add(discShadow(mats, 0.95), body, stubL, stubR, discEnd, discEndR, rim, rim2, crown, spike, eye, nose(mats, 1.4, -0.98));
+  const eyeGlow = new THREE.Mesh(
+    new THREE.RingGeometry(0.14, 0.2, 10),
+    new THREE.MeshBasicMaterial({
+      color: 0xd4a840,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  eyeGlow.position.set(0, 1.35, -0.92);
+  g.add(discShadow(mats, 0.95), body, stubL, stubR, discEnd, discEndR, rim, rim2, crown, spike, eye, eyeGlow, nose(mats, 1.4, -0.98));
   shadow(g);
   return g;
 }
@@ -1594,7 +1605,7 @@ export function makePortal(mats: MatKit): THREE.Group {
   inner.name = "portalInner";
   const glow = new THREE.PointLight(0xff6633, 1.6, 8, 2);
   glow.position.set(0, 2.1, 0.2);
-  const n = 48;
+  const n = isCompactUi() ? 28 : 40;
   const pos = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;

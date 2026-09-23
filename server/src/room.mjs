@@ -1397,7 +1397,7 @@ export class World {
         "No foes in the Dark Wood — take the eastern portal Toward Lust."
       );
     } else if (room.cantoId === "inferno_07") {
-      room.toast(ws, "info", "The weights roll. Measure the road, then break Hoard Crush.");
+      room.toast(ws, "info", "peso e contrapeso — measure the road, then break Hoard Crush.");
     } else if (room.cantoId === "inferno_06") {
       room.toast(ws, "info", "The eternal rain falls. Clear the mire, then the Triple Maw.");
       if (hasCleared(playerId, "inferno_06")) {

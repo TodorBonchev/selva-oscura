@@ -2117,7 +2117,13 @@ export class WorldApp {
         rec.group.userData.hitPulse = 1;
         rec.group.scale.setScalar(base * (heavy ? 1.1 : 1.06));
       }
-      this.spawnHitFx(pos, heavy ? 0xffd078 : 0xffe8a0, heavy || comboBoost > 0.2);
+      const dustElite =
+        this.room?.cantoId === "inferno_07" &&
+        (Boolean(ent.champion) ||
+          ent.archetype === "hoard_heart" ||
+          ent.archetype === "ledger_warden" ||
+          /^counterweight$/i.test(String(ent.name || "")));
+      this.spawnHitFx(pos, heavy ? 0xffd078 : 0xffe8a0, heavy || comboBoost > 0.2, dustElite);
     }
   }
 
@@ -2187,7 +2193,7 @@ export class WorldApp {
     else if (d <= s.r + 1.25) flashSlamSafeRim();
   }
 
-  spawnHitFx(pos: Vec2, color: number, heavy = false) {
+  spawnHitFx(pos: Vec2, color: number, heavy = false, dustElite = false) {
     const ring = makeImpactRing(color);
     setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.07));
     this.scene.add(ring);
@@ -2200,11 +2206,12 @@ export class WorldApp {
     // Skip particle bursts far from camera (off-screen combat still gets rings).
     const sparkDist = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
     const sparkCap = isCompactUi() ? 1 : 3;
+    const avaDust = this.room?.cantoId === "inferno_07" && (heavy || dustElite);
     if (sparkDist < 36 && this.sparks.length < sparkCap) {
       const burst =
         this.room?.cantoId === "inferno_06" && heavy
           ? spawnSludgeSplash(pos.x, pos.y, this.standY(pos.x, pos.y, 1.35), this.animT)
-          : this.room?.cantoId === "inferno_07" && heavy
+          : avaDust
             ? spawnGoldDustSplash(pos.x, pos.y, this.standY(pos.x, pos.y, 1.35), this.animT)
             : spawnSparks(
                 pos.x,
@@ -2213,13 +2220,15 @@ export class WorldApp {
                 color,
                 this.animT
               );
-      burst.dur = heavy ? 640 : 420;
+      burst.dur = heavy ? 640 : avaDust ? 520 : 420;
       this.scene.add(burst.points);
       this.sparks.push(burst);
     }
     this.noteCombat();
     this.hitLight.color.setHex(color);
-    this.hitLight.intensity = heavy ? 14 : 8.5;
+    // Avarice: keep slash readable — softer wash than Lust/Glut punch lights
+    const ava = this.room?.cantoId === "inferno_07";
+    this.hitLight.intensity = ava ? (heavy ? 9.5 : 5.5) : heavy ? 14 : 8.5;
     setPlanar(this.hitLight.position, pos.x, pos.y, this.standY(pos.x, pos.y, 1.2));
   }
 

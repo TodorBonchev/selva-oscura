@@ -89,6 +89,14 @@ async function boot() {
   socket.on((msg) => {
     if (msg.type === "welcome") {
       showToast(`Connected as ${name}`, "info");
+      // Vite DEV only — browser console jump: __selvaTravel("inferno_07")
+      if (import.meta.env.DEV) {
+        (window as unknown as { __selvaTravel?: (canto: string) => void }).__selvaTravel = (
+          canto: string
+        ) => {
+          socket.travel(canto);
+        };
+      }
     }
   });
 
