@@ -198,11 +198,18 @@ class CantoRoom {
     this.sessions = new Map(); // playerId -> { ws, x, y, hp, maxHp, mana, maxMana, atkCd, spellCd }
     this.dirty = false;
     this._snapAcc = 0;
+    /** Pending fodder pack respawns: { packId, atSec, x, y } */
+    this.packRespawns = [];
+    this._packRespawnStagger = 0;
+    this._packRespawnClock = 0;
     this.spawnWorld();
   }
 
   spawnWorld() {
     this.entities.clear();
+    this.packRespawns = [];
+    this._packRespawnStagger = 0;
+    this._packRespawnClock = 0;
     const g = this.canto.geo;
 
     for (const poi of g.pois || []) {
@@ -236,36 +243,7 @@ class CantoRoom {
     }
 
     for (const pack of this.canto.packs || []) {
-      const count = pack.count;
-      for (let i = 0; i < count; i++) {
-        const id = eid("mob");
-        // Avarice: wider ring so weight packs don't stack on the scorched road
-        const ava = this.cantoId === "inferno_07";
-        const ring = (ava ? 2.9 : 2.4) + count * (ava ? 0.58 : 0.45);
-        const ang = (i / Math.max(1, count)) * Math.PI * 2 + Math.random() * 0.2;
-        const jit = ava ? 0.85 : 0.6;
-        const ox = Math.cos(ang) * ring + (Math.random() - 0.5) * jit;
-        const oy = Math.sin(ang) * ring + (Math.random() - 0.5) * jit;
-        const arch = pack.archetype || "whirl_shade";
-        let maxHp = MOB_HP[arch] || (pack.champion ? MOB_HP.gale_champion : MOB_HP.whirl_shade);
-        // Counterweight mid-boss: tankier than other weight champions
-        if (pack.id === "ava_counterweight") maxHp = Math.round(maxHp * 1.35);
-        this.entities.set(id, {
-          id,
-          kind: "mob",
-          name: pack.name || (pack.champion ? "Gale Champion" : "Whirl Shade"),
-          x: pack.anchor.x + ox,
-          y: pack.anchor.y + oy,
-          hp: maxHp,
-          maxHp,
-          packId: pack.id,
-          champion: Boolean(pack.champion),
-          elite: Boolean(pack.elite),
-          dropTable: pack.drop_table,
-          archetype: arch,
-          atkCd: 0,
-        });
-      }
+      this.spawnPackMembers(pack);
     }
 
     for (const boss of this.canto.bosses || []) {
@@ -328,6 +306,108 @@ class CantoRoom {
     }
     return sess;
   }
+
+
+  /** Spawn all members of one content pack (world seed + fair respawn). */
+  spawnPackMembers(pack) {
+    const count = pack.count;
+    for (let i = 0; i < count; i++) {
+      const id = eid("mob");
+      // Avarice: wider ring so weight packs don't stack on the scorched road
+      const ava = this.cantoId === "inferno_07";
+      const ring = (ava ? 2.9 : 2.4) + count * (ava ? 0.58 : 0.45);
+      const ang = (i / Math.max(1, count)) * Math.PI * 2 + Math.random() * 0.2;
+      const jit = ava ? 0.85 : 0.6;
+      const ox = Math.cos(ang) * ring + (Math.random() - 0.5) * jit;
+      const oy = Math.sin(ang) * ring + (Math.random() - 0.5) * jit;
+      const arch = pack.archetype || "whirl_shade";
+      let maxHp = MOB_HP[arch] || (pack.champion ? MOB_HP.gale_champion : MOB_HP.whirl_shade);
+      // Counterweight mid-boss: tankier than other weight champions
+      if (pack.id === "ava_counterweight") maxHp = Math.round(maxHp * 1.35);
+      this.entities.set(id, {
+        id,
+        kind: "mob",
+        name: pack.name || (pack.champion ? "Gale Champion" : "Whirl Shade"),
+        x: pack.anchor.x + ox,
+        y: pack.anchor.y + oy,
+        hp: maxHp,
+        maxHp,
+        packId: pack.id,
+        champion: Boolean(pack.champion),
+        elite: Boolean(pack.elite),
+        dropTable: pack.drop_table,
+        archetype: arch,
+        atkCd: 0,
+      });
+    }
+  }
+
+  /**
+   * Fair Avarice fodder pack refill. Hearts / Counterweight / Warden / champion pair
+   * stay down until the room empties (spawnWorld). Nearby players delay the pop.
+   */
+  schedulePackRespawn(packId, x, y) {
+    if (this.cantoId !== "inferno_07" || !packId) return;
+    const noRespawn = new Set([
+      "ava_hoard_heart",
+      "ava_counterweight",
+      "ava_ledger_warden",
+      "ava_champion_pair",
+    ]);
+    if (noRespawn.has(packId)) return;
+    if (this.packRespawns.some((r) => r.packId === packId)) return;
+    const pack = (this.canto.packs || []).find((p) => p.id === packId);
+    if (!pack) return;
+    const count = Number(pack.count) || 1;
+    this._packRespawnStagger = (this._packRespawnStagger || 0) + 1;
+    const delay = 48 + count * 6 + this._packRespawnStagger * 4.5 + Math.random() * 10;
+    this.packRespawns.push({
+      packId,
+      atSec: this._packRespawnClock + delay,
+      x,
+      y,
+    });
+  }
+
+  tickPackRespawns(dt) {
+    if (!this.packRespawns.length) return;
+    this._packRespawnClock += dt;
+    const keep = [];
+    for (const r of this.packRespawns) {
+      if (this._packRespawnClock < r.atSec) {
+        keep.push(r);
+        continue;
+      }
+      let near = false;
+      for (const s of this.sessions.values()) {
+        if (Math.hypot(s.x - r.x, s.y - r.y) < 14) {
+          near = true;
+          break;
+        }
+      }
+      if (near) {
+        r.atSec = this._packRespawnClock + 8 + Math.random() * 6;
+        keep.push(r);
+        continue;
+      }
+      let alive = 0;
+      for (const e of this.entities.values()) {
+        if (e.packId === r.packId && e.kind === "mob" && (e.hp == null || e.hp > 0)) alive++;
+      }
+      if (alive > 0) continue;
+      const pack = (this.canto.packs || []).find((p) => p.id === r.packId);
+      if (!pack) continue;
+      this.spawnPackMembers(pack);
+      this.markDirty();
+      for (const s of this.sessions.values()) {
+        if (Math.hypot(s.x - r.x, s.y - r.y) < 36) {
+          this.toast(s.ws, "info", "contrapeso — weights return to the measure");
+        }
+      }
+    }
+    this.packRespawns = keep;
+  }
+
 
   leave(playerId) {
     this.sessions.delete(playerId);
@@ -847,6 +927,8 @@ class CantoRoom {
                 : "The gust breaks. Press on.";
           this.toast(killer.ws, "info", line);
         }
+        // Fair fodder refill on Avarice (hearts / CW / warden stay down)
+        this.schedulePackRespawn(entity.packId, entity.x, entity.y);
       }
     }
     if (killer && entity.kind === "mob") {
@@ -1304,6 +1386,7 @@ class CantoRoom {
 
   tick(dt) {
     if (this.sessions.size === 0) return;
+    this.tickPackRespawns(dt);
     let manaDirty = false;
     for (const s of this.sessions.values()) {
       if (s.atkCd > 0) s.atkCd = Math.max(0, s.atkCd - dt);
