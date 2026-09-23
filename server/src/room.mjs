@@ -375,7 +375,7 @@ class CantoRoom {
         item: e.item,
         // Avarice/Lust/Glut bell still — client gold measure tint
         stunLeft: e.stunLeft > 0.05 ? Math.round(e.stunLeft * 5) / 5 : undefined,
-        windupLeft: e.kind === "boss" && e.windupLeft > 0 ? e.windupLeft : undefined,
+        windupLeft: (e.kind === "boss" || e.champion || e.archetype === "weight_champion") && e.windupLeft > 0 ? e.windupLeft : undefined,
         phase: e.kind === "boss" && e.phase ? e.phase : undefined,
       });
     }
@@ -1390,7 +1390,9 @@ class CantoRoom {
                       (e.archetype === "weight_champion" || e.champion)
                     ? 9.5
                     : 8;
-      const winding = e.kind === "boss" && e.windupLeft > 0;
+      const winding =
+        (e.kind === "boss" || e.champion || e.archetype === "weight_champion") &&
+        e.windupLeft > 0;
       // Hold still during slam windup so the ground ring matches the hit.
       if (!winding && nearestD < aggro && nearestD > 1.2) {
         const dx = nearest.x - e.x;
@@ -1450,15 +1452,19 @@ class CantoRoom {
         if (e.windupLeft <= 0) {
           const target = this.sessions.get(e.windupTargetId);
           e.windupTargetId = null;
-          e.atkCd = 1.35;
+          const isChampWind =
+            e.kind !== "boss" && (e.champion || e.archetype === "weight_champion");
+          e.atkCd = isChampWind ? 1.05 : 1.35;
           if (target && !(target.iframes > 0)) {
             const dHit = dist(e, target);
-            const slamR = e.slamRadius || 3.2;
+            const slamR = isChampWind ? 2.45 : e.slamRadius || 3.2;
             if (dHit <= slamR) {
-              const arch = e.archetype || "boss";
-              let dmg = MOB_DMG[arch] || MOB_DMG.boss || 18;
+              const arch = e.archetype || (isChampWind ? "weight_champion" : "boss");
+              let dmg = isChampWind
+                ? MOB_DMG[arch] || MOB_DMG.weight_champion || MOB_DMG.gale_champion
+                : MOB_DMG[arch] || MOB_DMG.boss || 18;
               // Crush phase 2: slightly heavier coin-iron blow
-              if (e.phase === 2 && e.id === "hoard_crush") dmg = Math.floor(dmg * 1.2);
+              if (!isChampWind && e.phase === 2 && e.id === "hoard_crush") dmg = Math.floor(dmg * 1.2);
               const led = players.get(target.playerId);
               const armor =
                 (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
@@ -1475,6 +1481,7 @@ class CantoRoom {
                 soaked,
                 wardActive: !!(target.armorBuff > 0),
                 targetHp: target.hp,
+                champTele: isChampWind || undefined,
               });
               this.markDirty();
               if (target.hp <= 0) {
@@ -1521,6 +1528,24 @@ class CantoRoom {
             radius: rad,
             duration: wind,
             phase: crushP2 ? 2 : 1,
+          });
+          this.markDirty();
+          continue;
+        }
+        // Champions telegraph a short coin-iron raise; shades stay instant swipes
+        if (e.champion || e.archetype === "weight_champion") {
+          const wind = this.cantoId === "inferno_07" ? 0.62 : 0.55;
+          e.windupLeft = wind;
+          e.windupTargetId = nearest.playerId;
+          e.atkCd = wind + 0.55;
+          this.broadcast({
+            type: "champ_telegraph",
+            id: e.id,
+            attackerId: e.id,
+            x: e.x,
+            y: e.y,
+            radius: 2.35,
+            duration: wind,
           });
           this.markDirty();
           continue;

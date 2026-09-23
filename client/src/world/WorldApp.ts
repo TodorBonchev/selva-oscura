@@ -2794,6 +2794,24 @@ export class WorldApp {
       case "spell_fx":
         this.onSpellFx(msg);
         break;
+      case "champ_telegraph": {
+        // Weight champions: short bone-gold raise — distinct from shade swipe + Crush slam
+        const x = Number(msg.x) || 0;
+        const y = Number(msg.y) || 0;
+        const radius = Number(msg.radius) || 2.35;
+        const dur = Number(msg.duration) || 0.6;
+        this.spawnJudgeSlam(x, y, radius, dur);
+        this.camPunch = Math.max(this.camPunch, 0.14);
+        this.camShake = Math.max(this.camShake, 0.06);
+        if (this.room?.cantoId === "inferno_07") {
+          document.body.classList.add("champ-windup");
+          window.setTimeout(
+            () => document.body.classList.remove("champ-windup"),
+            Math.max(280, dur * 1000)
+          );
+        }
+        break;
+      }
       case "boss_telegraph": {
         const x = Number(msg.x) || 0;
         const y = Number(msg.y) || 0;
