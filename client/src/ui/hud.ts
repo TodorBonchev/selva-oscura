@@ -184,7 +184,7 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
 
   if (pending) {
     const p = Number(you.pendingAsh) || 0;
-    pending.textContent = p > 0 ? `+${formatAsh(p)} pending` : "";
+    pending.textContent = p > 0 ? `+${formatAsh(p)} Ash (${ashToStelleDisplay(p)} Stelle) pending` : "";
     pending.classList.toggle("hidden", p <= 0);
   }
 }

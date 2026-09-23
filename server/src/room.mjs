@@ -72,6 +72,15 @@ const MOB_DMG = {
 
 const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart"]);
 
+/** Compact Ash+Stelle tag for emit/daily toasts (1 Stelle = 1000 Ash). */
+function ashStelleTag(ash) {
+  const n = Math.max(0, Math.floor(Number(ash) || 0));
+  const whole = Math.trunc(n / 1000);
+  const frac = Math.abs(n % 1000);
+  return `${n.toLocaleString()} Ash (${whole}.${String(frac).padStart(3, "0")} Stelle)`;
+}
+
+
 let entitySeq = 0;
 function heartWards(room, e) {
   if (!e || HEART_ARCHETYPES.has(e.archetype) || e.kind === "boss") return false;
@@ -805,19 +814,19 @@ class CantoRoom {
     if (isChampion) {
       const r = tryEmit(killerId, "ChampionPack", { packId: entity.packId });
       if (r.ok && killer) {
-        this.toast(killer.ws, "emit", `ChampionPack pending +${r.payoutAsh} Ash`);
+        this.toast(killer.ws, "emit", `ChampionPack pending +${ashStelleTag(r.payoutAsh)}`);
       }
     }
     if (isBoss) {
       const r = tryEmit(killerId, "Boss", { bossId: entity.id, cantoId: this.cantoId });
       if (r.ok && killer) {
-        this.toast(killer.ws, "emit", `Boss pending +${r.payoutAsh} Ash`);
+        this.toast(killer.ws, "emit", `Boss pending +${ashStelleTag(r.payoutAsh)}`);
       }
       const fc = this.canto.first_clear;
       if (fc?.enabled && entity.firstClearEmit) {
         const r2 = tryEmit(killerId, "FirstClear", { cantoId: this.cantoId, requires: entity.id });
         if (r2.ok && killer) {
-          this.toast(killer.ws, "emit", `FirstClear pending +${r2.payoutAsh} Ash`);
+          this.toast(killer.ws, "emit", `FirstClear pending +${ashStelleTag(r2.payoutAsh)}`);
           if (this.cantoId === "inferno_05") {
             this.toast(
               killer.ws,
@@ -1161,8 +1170,17 @@ class CantoRoom {
     const qid = questId || "dw_daily_scout";
     const r = tryEmit(playerId, "DailyQuest", { questId: qid });
     if (r.ok) {
-      const label = qid === "glut_daily_mire" ? "Mire writ" : "Writ";
-      this.toast(s.ws, "emit", `${label} accepted. +${r.payoutAsh.toLocaleString()} Ash set aside (pending).`);
+      const label =
+        qid === "glut_daily_mire"
+          ? "Mire writ"
+          : qid === "ava_daily_ledger"
+            ? "Ledger writ"
+            : "Writ";
+      this.toast(
+        s.ws,
+        "emit",
+        `${label} accepted. +${ashStelleTag(r.payoutAsh)} set aside (pending).`
+      );
     } else {
       if (quiet) return; // bell path: don't drown combat toast
       const why = {
