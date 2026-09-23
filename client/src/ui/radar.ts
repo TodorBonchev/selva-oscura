@@ -59,6 +59,28 @@ function destClass(toCanto: string | undefined): string {
   return "wood";
 }
 
+
+/** Collapse exit + portal-POI twins (same toCanto, nearby) to one minimap blip. Prefer exit. */
+function portalPlotKeepIds(entities: any[]): Set<string> {
+  const portals = entities.filter((e) => e.kind === "exit" || e.poiKind === "portal");
+  const kept: any[] = [];
+  for (const e of portals) {
+    const twinIdx = kept.findIndex(
+      (k) =>
+        k.toCanto &&
+        k.toCanto === e.toCanto &&
+        Math.hypot((k.x || 0) - (e.x || 0), (k.y || 0) - (e.y || 0)) < 6
+    );
+    if (twinIdx >= 0) {
+      const twin = kept[twinIdx];
+      if (twin.kind !== "exit" && e.kind === "exit") kept[twinIdx] = e;
+      continue;
+    }
+    kept.push(e);
+  }
+  return new Set(kept.map((e) => String(e.id)));
+}
+
 export class Radar {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
@@ -223,6 +245,7 @@ export class Radar {
       ctx.restore();
     }
 
+    const portalKeep = portalPlotKeepIds(opts.entities);
     for (const e of opts.entities) {
       const { px, py } = plot(e.x, e.y);
       const dx = px - cx;
@@ -234,6 +257,7 @@ export class Radar {
       const sy = on ? py : cy + (dy / d) * rim;
 
       if (e.kind === "exit" || e.poiKind === "portal") {
+        if (!portalKeep.has(String(e.id))) continue;
         const clears = opts.firstClears || [];
         const locked = Boolean(e.requireClear && !clears.includes(e.requireClear));
         const towardGlut = e.toCanto === "inferno_06";
