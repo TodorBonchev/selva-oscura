@@ -417,6 +417,8 @@ class CantoRoom {
         wardUntil: youSess.wardUntil || 0,
         // Client: Ledger/Mire/Gale bell quiet → Guide / measure pathing
         bellCd: youSess.bellCd > 0 ? Number(youSess.bellCd) : 0,
+        // Client: Ledger Cache empty mesh (session-local claim)
+        lootedCache: Boolean(youSess.lootedCache),
       },
     };
   }

@@ -4684,3 +4684,14 @@ body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-canto_unique {
     box-shadow: inset 0 0 0 1px #000a, inset 0 0 16px var(--rc-dim), 0 0 0 1px color-mix(in srgb, var(--rc) 70%, #e8c86a), 0 0 14px color-mix(in srgb, var(--rc) 45%, transparent);
   }
 }
+
+
+/* Ledger Cache empty — spent misura plate (no neon) */
+body.in-avarice .world-label.ava-cache-empty .wl-name {
+  color: #8a7a58;
+  opacity: 0.75;
+  letter-spacing: 0.04em;
+}
+body.in-avarice .world-label.ava-cache-empty {
+  filter: grayscale(0.35) brightness(0.85);
+}

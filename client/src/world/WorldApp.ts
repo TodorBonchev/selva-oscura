@@ -1651,6 +1651,27 @@ export class WorldApp {
         rec.group.userData.avaHubHomeGlow = hubHome;
         rec.hpEl.classList.toggle("ava-hub-home", Boolean(hubHome));
       }
+      // Avarice Ledger Cache — empty mesh after claim (session)
+      if (
+        this.room?.cantoId === "inferno_07" &&
+        (e?.poiKind === "cache" || e?.id === "ledger_cache" || rec.group.name === "ledger_cache")
+      ) {
+        const empty = Boolean(this.room?.you?.lootedCache);
+        if (rec.group.userData.cacheEmpty !== empty) {
+          rec.group.userData.cacheEmpty = empty;
+          rec.group.traverse((o) => {
+            if (o.name === "weightDisc" || o.name === "ribbon") o.visible = !empty;
+          });
+          // Dim gold band / coins leftover children without names: scale chest slightly
+          if (empty) {
+            rec.group.scale.setScalar((Number(rec.group.userData.baseScale) || 1) * 0.96);
+            rec.hpEl.classList.add("ava-cache-empty");
+          } else {
+            rec.group.scale.setScalar(Number(rec.group.userData.baseScale) || 1);
+            rec.hpEl.classList.remove("ava-cache-empty");
+          }
+        }
+      }
       this.updateLabel(rec, e, pos);
     }
     for (const pl of this.room.players) {
