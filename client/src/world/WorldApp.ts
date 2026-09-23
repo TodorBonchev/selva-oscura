@@ -1210,6 +1210,7 @@ export class WorldApp {
           bellCd: Number(yu?.bellCd) || 0,
           dailyWritOpen,
           spokeToGuide: Boolean(yu?.spokeToGuide),
+          stashBankTip: this.avaClearStashTipShown || this.glutClearStashTipShown,
         });
       }
     }

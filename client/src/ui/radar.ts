@@ -129,6 +129,7 @@ export class Radar {
     bellCd?: number;
     dailyWritOpen?: boolean;
     spokeToGuide?: boolean;
+    stashBankTip?: boolean;
   }) {
     if (opts.cantoId !== "inferno_07") {
       this.avaSawCw = false;
@@ -558,6 +559,7 @@ export class Radar {
     bellCd?: number;
     dailyWritOpen?: boolean;
     spokeToGuide?: boolean;
+    stashBankTip?: boolean;
   }) {
     const portal = this.portalPreferred(opts.entities, opts.cantoId, opts.firstClears);
     const guide = opts.entities.find(
@@ -682,6 +684,17 @@ export class Radar {
         const dest = cantoShort(portal.toCanto) || "Lust";
         text = `Hunt again — ${dest}`;
       } else text = "Avarice is clear — writ, stash, or hunt again";
+    } else if (opts.stashBankTip) {
+      const stash = opts.entities.find((e: any) => e.poiKind === "stash");
+      if (stash) {
+        const sd = Math.hypot(stash.x - opts.you.x, stash.y - opts.you.y);
+        text = sd < 12 ? "Hold E — bank at the stash" : "Bank drops at the Dark Wood stash";
+      } else if (opts.dailyWritOpen && guide) {
+        text = "Daily writ — speak with the Guide";
+      } else if (portal) {
+        const dest = cantoShort(portal.toCanto) || "Lust";
+        text = `Follow the gold arrow to ${dest}`;
+      } else text = "Bank drops, then hunt again";
     } else if (opts.dailyWritOpen && guide) {
       const gd = Math.hypot(guide.x - opts.you.x, guide.y - opts.you.y);
       text = gd < 10 ? "Guide — claim the daily writ" : "Daily writ — speak with the Guide";
