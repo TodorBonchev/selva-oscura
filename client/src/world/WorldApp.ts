@@ -826,15 +826,17 @@ export class WorldApp {
 
     if (this.ash) {
       const fight = this.inCombat();
+      const ava = this.room.cantoId === "inferno_07";
+      // Avarice: stride harder while fighting (gold ash is denser on retint)
       this.ash.tick(
         dt,
         this.room.bounds,
         this.room.cantoId === "inferno_05" ||
           this.room.cantoId === "inferno_06" ||
-          this.room.cantoId === "inferno_07",
+          ava,
         this.renderYou.x,
         this.renderYou.y,
-        fight || isCompactUi() ? 2 : 1,
+        fight || isCompactUi() || ava ? 2 : 1,
         this.frameN
       );
     }
@@ -1750,6 +1752,12 @@ export class WorldApp {
     document.body.classList.toggle("in-lust", lust);
     document.body.classList.toggle("in-gluttony", glut);
     document.body.classList.toggle("in-avarice", ava);
+    if (this.ash) {
+      if (ava) this.ash.setColor(0xd4a840, isCompactUi() ? 0.32 : 0.4);
+      else if (glut) this.ash.setColor(0xb8c070, isCompactUi() ? 0.4 : 0.5);
+      else if (lust) this.ash.setColor(0xffb090, isCompactUi() ? 0.45 : 0.55);
+      else this.ash.setColor(0xe8d4b0, 0.55);
+    }
     if (lust) {
       this.fogTargetColor.setHex(0x3a140e);
       this.fogTargetDensity = 0.015;

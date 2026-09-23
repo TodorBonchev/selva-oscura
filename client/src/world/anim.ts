@@ -395,6 +395,9 @@ export function tickHoardCrush(root: THREE.Object3D, tMs: number) {
   if (cache.ironMat) {
     cache.ironMat.emissiveIntensity = 0.34 + Math.sin(tMs * 0.0028) * 0.08;
   }
+  if (cache.body) {
+    cache.body.position.y = 1.55 + Math.sin(tMs * 0.0021) * 0.045;
+  }
   for (let i = 0; i < cache.rollers.length; i++) {
     const o = cache.rollers[i]!;
     o.rotation.x = tMs * (0.0022 + i * 0.0004) * (i % 2 ? -1 : 1);

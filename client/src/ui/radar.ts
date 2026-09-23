@@ -410,7 +410,20 @@ export class Radar {
             ? "Slay the Triple Maw"
             : "Slay the Judge";
       const portalLocked = portal && portal.requireClear && !clears.includes(portal.requireClear);
-      if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
+      if (opts.cantoId === "inferno_07") {
+        const heart = opts.entities.find(
+          (e: any) => e.archetype === "hoard_heart" && (e.hp == null || e.hp > 0)
+        );
+        const cw = opts.entities.find(
+          (e: any) => /^counterweight$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
+        );
+        if (heart && Math.hypot(heart.x - opts.you.x, heart.y - opts.you.y) < 28) {
+          text = "Break Hoard Heart";
+        } else if (cw && Math.hypot(cw.x - opts.you.x, cw.y - opts.you.y) < 22) {
+          text = "Tip Counterweight";
+        } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
+        else if (portal) text = `Travel — ${cantoShort(portal.toCanto) || "portal"}`;
+      } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
       else if (portal && portalLocked) {
         text =
           portal.requireClear === "inferno_06"

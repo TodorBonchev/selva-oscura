@@ -274,7 +274,7 @@
     "enabled": true,
     "event": "FirstClear",
     "requires": "hoard_crush",
-    "notes": "Hoard Crush broken \u2014 Avarice yields its measure; bank loot at the Dark Wood stash"
+    "notes": "Hoard Crush broken \u2014 Avarice yields its measure; return via Gluttony gate or bank at the Dark Wood stash"
   },
   "daily_quests": [
     {

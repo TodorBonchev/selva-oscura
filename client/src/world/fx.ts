@@ -39,6 +39,12 @@ export class AshField {
     this.vel[o + 2] = (Math.random() - 0.5) * 0.55;
   }
 
+  setColor(color: number, opacity = 0.55) {
+    const mat = this.points.material as THREE.PointsMaterial;
+    mat.color.setHex(color);
+    mat.opacity = opacity;
+  }
+
   tick(
     dt: number,
     _bounds: { width: number; height: number },
