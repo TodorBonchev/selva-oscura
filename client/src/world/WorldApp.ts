@@ -3346,7 +3346,16 @@ export class WorldApp {
     if (near) {
       const hp = Number(near.e.hp) || 0;
       const max = Number(near.e.maxHp) || hp || 1;
-      setTargetPlate(near.e.name || "Foe", hp / max);
+      const isBoss =
+        near.e.kind === "boss" ||
+        near.e.archetype === "hoard_heart" ||
+        near.e.archetype === "storm_heart" ||
+        near.e.archetype === "mire_heart" ||
+        /^counterweight$/i.test(String(near.e.name || ""));
+      setTargetPlate(near.e.name || "Foe", hp / max, {
+        boss: isBoss,
+        avarice: this.room?.cantoId === "inferno_07",
+      });
     } else {
       setTargetPlate(null, 0);
     }

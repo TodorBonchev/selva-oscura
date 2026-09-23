@@ -4747,3 +4747,46 @@ body.hoard-heart-death::after {
   0% { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* Boss / mid-boss HP plate — taller bar + % for Crush readability */
+#target-plate.tp-boss {
+  min-width: 14rem;
+  padding: 0.35rem 0.7rem 0.42rem;
+  border-color: #a85830cc;
+  background: #160e0acc;
+}
+#target-plate.tp-boss.tp-avarice {
+  border-color: #c9a84acc;
+  background: #14100acc;
+  box-shadow: 0 0 18px #c9a84a22;
+}
+#target-plate.tp-boss #target-name {
+  font-size: 0.88rem;
+  letter-spacing: 0.1em;
+  color: #ffe8c0;
+}
+#target-plate.tp-boss.tp-avarice #target-name { color: #ffe8a0; }
+#target-plate.tp-boss .tp-hp {
+  height: 10px;
+  margin-top: 0.28rem;
+  border-color: #6a4020;
+  background: #1a1008;
+}
+#target-plate.tp-boss.tp-avarice .tp-hp {
+  border-color: #6a5820;
+  background: #1a1608;
+}
+#target-plate.tp-boss .tp-hp i {
+  background: linear-gradient(90deg, #8a2810, #e85830);
+}
+#target-plate.tp-boss.tp-avarice .tp-hp i {
+  background: linear-gradient(90deg, #6a4810, #d4a840);
+}
+#target-hp-pct {
+  margin-top: 0.12rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: #c8b898;
+  font-variant-numeric: tabular-nums;
+}
+#target-plate.tp-avarice #target-hp-pct { color: #d4c090; }

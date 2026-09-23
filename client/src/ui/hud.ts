@@ -384,18 +384,31 @@ export function setQuestLine(text: string) {
   el.textContent = text;
 }
 
-export function setTargetPlate(name: string | null, ratio: number) {
+export function setTargetPlate(
+  name: string | null,
+  ratio: number,
+  opts?: { boss?: boolean; avarice?: boolean }
+) {
   const el = document.getElementById("target-plate");
   if (!el) return;
   if (!name) {
     if (!el.classList.contains("hidden")) el.classList.add("hidden");
+    el.classList.remove("tp-boss", "tp-avarice");
     return;
   }
   el.classList.remove("hidden");
+  el.classList.toggle("tp-boss", Boolean(opts?.boss));
+  el.classList.toggle("tp-avarice", Boolean(opts?.avarice));
   const n = el.querySelector("#target-name");
   if (n && n.textContent !== name) n.textContent = name;
   const bar = el.querySelector("#target-hp") as HTMLElement | null;
   if (bar) bar.style.width = `${Math.max(0, Math.min(100, Math.round(ratio * 100)))}%`;
+  const pct = el.querySelector("#target-hp-pct") as HTMLElement | null;
+  if (pct) {
+    const show = Boolean(opts?.boss);
+    pct.hidden = !show;
+    if (show) pct.textContent = `${Math.max(0, Math.min(100, Math.round(ratio * 100)))}%`;
+  }
 }
 
 export function renderAh(
