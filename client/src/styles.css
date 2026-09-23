@@ -4350,3 +4350,16 @@ body.in-avarice.hud-compact #btn-interact.interact-ready .action-icon {
   color: #f2dea0;
   opacity: 0.75;
 }
+
+
+/* Avarice loot claim flash — brief bone-gold plate (no neon) */
+body.in-avarice.ava-loot-flash #toast.toast-loot {
+  box-shadow: 0 2px 16px #000c, 0 0 18px #d4a84066;
+  border-left-color: #f2dea0;
+}
+body.in-avarice #toast.toast-loot {
+  text-shadow: 0 1px 0 #000, 0 0 12px #d4a84066;
+}
+body.in-avarice.hud-compact #toast.toast-loot {
+  text-shadow: 0 1px 0 #000, 0 0 8px #d4a84044;
+}

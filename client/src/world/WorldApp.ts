@@ -1275,9 +1275,24 @@ export class WorldApp {
       }
       const beam = n.group.getObjectByName("lootBeam");
       if (beam) {
-        beam.rotation.y = this.animT * 0.002;
-        const mat = (beam as THREE.Mesh).material as THREE.MeshBasicMaterial;
-        mat.opacity = 0.28 + Math.sin(this.animT * 0.006) * 0.12;
+        const avaLoot = this.room?.cantoId === "inferno_07";
+        // Far cull on compact Avarice — beam tick is free when off-screen
+        if (avaLoot && isCompactUi()) {
+          const bx = n.group.position.x - this.camFollow.x;
+          const bz = n.group.position.z - this.camFollow.z;
+          if (bx * bx + bz * bz > 30 * 30) {
+            beam.visible = false;
+          } else {
+            beam.visible = true;
+          }
+        }
+        if ((beam as THREE.Object3D).visible !== false) {
+          beam.rotation.y = this.animT * (avaLoot ? 0.0032 : 0.002);
+          const mat = (beam as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          mat.opacity = avaLoot
+            ? 0.38 + Math.sin(this.animT * 0.008) * 0.2
+            : 0.28 + Math.sin(this.animT * 0.006) * 0.12;
+        }
       }
       const gem = n.group.getObjectByName("gem");
       if (gem) {
@@ -1644,8 +1659,8 @@ export class WorldApp {
       // Avarice: slightly stronger weighed-drop read (still no neon)
       if (this.room?.cantoId === "inferno_07") {
         const mat = beam.material as THREE.MeshBasicMaterial;
-        mat.opacity = rarity === "normal" ? 0.5 : 0.62;
-        beam.scale.set(1.08, 1.12, 1.08);
+        mat.opacity = rarity === "normal" ? 0.55 : rarity === "unique" || rarity === "canto_unique" ? 0.78 : 0.68;
+        beam.scale.set(1.1, 1.18, 1.1);
       }
       group.add(beam);
       wrap.classList.add("loot-label");
@@ -1738,9 +1753,11 @@ export class WorldApp {
   lootRenderPos(e: any): Vec2 {
     const you = this.youPos();
     const d = Math.hypot(e.x - you.x, e.y - you.y);
-    if (d > MAGNET_RANGE || d < 0.01) return this.entityRenderPos(e);
-    const t = 1 - d / MAGNET_RANGE;
-    const pull = t * t * 0.55;
+    const range = this.room?.cantoId === "inferno_07" ? MAGNET_RANGE + 1.4 : MAGNET_RANGE;
+    if (d > range || d < 0.01) return this.entityRenderPos(e);
+    const t = 1 - d / range;
+    // Avarice: greed pulls harder (gold-on-black irony)
+    const pull = t * t * (this.room?.cantoId === "inferno_07" ? 0.72 : 0.55);
     return { x: e.x + (you.x - e.x) * pull, y: e.y + (you.y - e.y) * pull };
   }
 
@@ -2158,6 +2175,16 @@ export class WorldApp {
         showToast(text, msg.level);
         if (/out of range|nothing to strike|no foe in range|lashes empty air/i.test(text)) resetCombo();
         if (/slain/i.test(text)) this.triggerDeathRevive();
+        if (
+          this.room?.cantoId === "inferno_07" &&
+          msg.level === "loot" &&
+          (/^Dropped:/i.test(text) || /^Picked up /i.test(text) || /^Ledger Cache:/i.test(text))
+        ) {
+          this.camPunch = Math.max(this.camPunch, /^Picked up /i.test(text) ? 0.32 : 0.18);
+          this.hitFlashAmt = Math.max(this.hitFlashAmt, /^Picked up /i.test(text) ? 0.12 : 0.06);
+          document.body.classList.add("ava-loot-flash");
+          window.setTimeout(() => document.body.classList.remove("ava-loot-flash"), 220);
+        }
         if (/Gluttony gate|gate past the dais opens/i.test(text)) {
           this.camPunch = Math.max(this.camPunch, 1.25);
           this.lustClearRevelShown = true;
