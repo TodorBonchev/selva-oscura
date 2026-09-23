@@ -417,8 +417,27 @@ export class Radar {
         const cw = opts.entities.find(
           (e: any) => /^counterweight$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
         );
-        if (heart && Math.hypot(heart.x - opts.you.x, heart.y - opts.you.y) < 28) {
+        const bell = opts.entities.find((e: any) => e.poiKind === "bell");
+        const roadW = opts.entities.find(
+          (e: any) => /^road weights$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
+        );
+        // Gluttony-portal approach: first weights before mid-lane
+        if (
+          roadW &&
+          opts.you.x < 40 &&
+          Math.hypot(roadW.x - opts.you.x, roadW.y - opts.you.y) < 18
+        ) {
+          text = "Weigh the road";
+        } else if (heart && Math.hypot(heart.x - opts.you.x, heart.y - opts.you.y) < 28) {
           text = "Break Hoard Heart";
+        } else if (
+          bell &&
+          opts.you.x > 55 &&
+          opts.you.x < 100 &&
+          Math.hypot(bell.x - opts.you.x, bell.y - opts.you.y) < 22 &&
+          !heart
+        ) {
+          text = "Ring Ledger Bell";
         } else if (cw && Math.hypot(cw.x - opts.you.x, cw.y - opts.you.y) < 22) {
           text = "Tip Counterweight";
         } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;

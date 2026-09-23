@@ -278,6 +278,8 @@ export class WorldApp {
   southSpillApproachShown = false;
   weightChampApproachShown = false;
   nwDriftApproachShown = false;
+  roadWeightsApproachShown = false;
+  goldChorusApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1301,7 +1303,8 @@ export class WorldApp {
         const hx = n.group.position.x - this.camFollow.x;
         const hz = n.group.position.z - this.camFollow.z;
         const d2 = hx * hx + hz * hz;
-        if (d2 < 52 * 52) {
+        const crushIdleR = isCompactUi() ? 38 : 52;
+        if (d2 < crushIdleR * crushIdleR) {
           tickHoardCrush(n.group, this.animT);
         }
         let glow = n.group.userData.crushGlow as THREE.PointLight | undefined;
@@ -1551,7 +1554,14 @@ export class WorldApp {
     label.position.set(0, kind === "portal" ? 4.1 : kind === "loot" ? 1.35 : bossY, 0);
     if (kind === "loot") {
       const rarity = String(e?.item?.rarity || "normal");
-      group.add(makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a));
+      const beam = makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a);
+      // Avarice: slightly stronger weighed-drop read (still no neon)
+      if (this.room?.cantoId === "inferno_07") {
+        const mat = beam.material as THREE.MeshBasicMaterial;
+        mat.opacity = rarity === "normal" ? 0.5 : 0.62;
+        beam.scale.set(1.08, 1.12, 1.08);
+      }
+      group.add(beam);
       wrap.classList.add("loot-label");
     }
     if (
@@ -1984,6 +1994,8 @@ export class WorldApp {
           this.southSpillApproachShown = false;
           this.weightChampApproachShown = false;
           this.nwDriftApproachShown = false;
+          this.roadWeightsApproachShown = false;
+          this.goldChorusApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -2154,7 +2166,13 @@ export class WorldApp {
   }
 
   spawnJudgeSlam(x: number, y: number, radius = 3.2, durationSec = 1.4) {
-    const built = makeSlamTelegraph();
+    const pal =
+      this.room?.cantoId === "inferno_07"
+        ? "avarice"
+        : this.room?.cantoId === "inferno_06"
+          ? "gluttony"
+          : "lust";
+    const built = makeSlamTelegraph(pal);
     // Sit above the Lust dais (top ~0.34) so the disc isn't buried in stone.
     setPlanar(built.group.position, x, y, this.standY(x, y, 0.38));
     built.group.scale.setScalar(Math.max(0.6, radius));
@@ -2171,10 +2189,16 @@ export class WorldApp {
   }
 
   resolveSlam(s: SlamTele) {
+    const pal = s.group.userData.slamPalette as string | undefined;
+    const ava = pal === "avarice";
+    const glut = pal === "gluttony";
+    const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
+    const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
+    const sparkHex = coreHex;
     const shock = new THREE.Mesh(
       new THREE.RingGeometry(0.9, 1.08, 48),
       new THREE.MeshBasicMaterial({
-        color: 0xffe08a,
+        color: shockHex,
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,
@@ -2189,7 +2213,7 @@ export class WorldApp {
     const core = new THREE.Mesh(
       new THREE.RingGeometry(0.72, 1.0, 48),
       new THREE.MeshBasicMaterial({
-        color: 0xff5533,
+        color: coreHex,
         transparent: true,
         opacity: 0.9,
         side: THREE.DoubleSide,
@@ -2202,14 +2226,14 @@ export class WorldApp {
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: s.r * 0.2, to: s.r * 1.05 });
     if (this.sparks.length < 3) {
-      const burst = spawnSparks(s.x, s.y, this.standY(s.x, s.y, 1.55), 0xff5533, this.animT);
+      const burst = spawnSparks(s.x, s.y, this.standY(s.x, s.y, 1.55), sparkHex, this.animT);
       burst.dur = 640;
       this.scene.add(burst.points);
       this.sparks.push(burst);
     }
     this.noteCombat();
-    this.hitLight.color.setHex(0xff5533);
-    this.hitLight.intensity = 16;
+    this.hitLight.color.setHex(coreHex);
+    this.hitLight.intensity = ava ? 12 : 16;
     setPlanar(this.hitLight.position, s.x, s.y, this.standY(s.x, s.y, 1.4));
     this.camShake = Math.max(this.camShake, 0.5);
     this.camPunch = Math.max(this.camPunch, 0.78);
@@ -3274,6 +3298,33 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
           this.nwDriftApproachShown = true;
           showToast("Northwest Drift — scorched flats still hold weight", "info");
+          break;
+        }
+      }
+    }
+
+    // Gluttony-portal side: first weights on the scorched ledger road
+    if (this.room?.cantoId === "inferno_07" && !this.roadWeightsApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^road weights$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.roadWeightsApproachShown = true;
+          showToast("Road Weights — first measure past the Gluttony gate", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.goldChorusApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^gold chorus$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.goldChorusApproachShown = true;
+          showToast("Gold Chorus — undervalued choir off the crush lane", "info");
           break;
         }
       }

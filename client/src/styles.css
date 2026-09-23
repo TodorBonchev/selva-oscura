@@ -2630,6 +2630,14 @@ body.low-hp.low-mana #mana-vignette {
   50% { transform: scale(1.28); filter: brightness(1.35) saturate(1.35); }
 }
 
+/* Avarice Crush slam — bone-gold sting (no Lust crimson wash) */
+body.in-avarice.slam-sting #slam-sting {
+  background:
+    linear-gradient(90deg, #4a3810cc 0%, transparent 14%, transparent 86%, #4a3810cc 100%),
+    linear-gradient(0deg, #2a2008bb 0%, transparent 16%, transparent 84%, #2a2008bb 100%),
+    radial-gradient(ellipse 95% 90% at 50% 50%, transparent 55%, #1a140866 100%);
+}
+
 /* Judge slam screen-edge crimson sting */
 #slam-sting {
   position: fixed;

@@ -191,10 +191,13 @@ class CantoRoom {
       const count = pack.count;
       for (let i = 0; i < count; i++) {
         const id = eid("mob");
-        const ring = 2.4 + count * 0.45;
+        // Avarice: wider ring so weight packs don't stack on the scorched road
+        const ava = this.cantoId === "inferno_07";
+        const ring = (ava ? 2.9 : 2.4) + count * (ava ? 0.58 : 0.45);
         const ang = (i / Math.max(1, count)) * Math.PI * 2 + Math.random() * 0.2;
-        const ox = Math.cos(ang) * ring + (Math.random() - 0.5) * 0.6;
-        const oy = Math.sin(ang) * ring + (Math.random() - 0.5) * 0.6;
+        const jit = ava ? 0.85 : 0.6;
+        const ox = Math.cos(ang) * ring + (Math.random() - 0.5) * jit;
+        const oy = Math.sin(ang) * ring + (Math.random() - 0.5) * jit;
         const arch = pack.archetype || "whirl_shade";
         const maxHp = MOB_HP[arch] || (pack.champion ? MOB_HP.gale_champion : MOB_HP.whirl_shade);
         this.entities.set(id, {
@@ -1218,6 +1221,21 @@ class CantoRoom {
         e.x += (dx / len) * speed * dt;
         e.y += (dy / len) * speed * dt;
         moved = true;
+      }
+      // Avarice: soft pack spacing so weights don't stack into one silhouette
+      if (this.cantoId === "inferno_07" && e.kind === "mob" && !winding) {
+        for (const o of this.entities.values()) {
+          if (o === e || o.kind !== "mob" || (o.hp != null && o.hp <= 0)) continue;
+          const sd = dist(e, o);
+          if (sd < 1.4 && sd > 0.05) {
+            const sx = (e.x - o.x) / sd;
+            const sy = (e.y - o.y) / sd;
+            e.x += sx * 0.85 * dt;
+            e.y += sy * 0.85 * dt;
+            moved = true;
+            break;
+          }
+        }
       }
       // Boss: telegraph windup before the hit so players can dodge
       if (winding) {

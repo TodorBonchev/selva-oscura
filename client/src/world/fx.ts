@@ -157,35 +157,50 @@ function slamMat(color: number, opacity: number, additive = false): THREE.MeshBa
   });
 }
 
-export function makeSlamTelegraph(): Pick<SlamTele, "group" | "fill" | "rim" | "sweep" | "light"> {
+export type SlamPalette = "lust" | "avarice" | "gluttony";
+
+/** Judge/Maw/Crush slam — filled danger disc; Avarice uses bone-gold irony (no Lust crimson). */
+export function makeSlamTelegraph(
+  palette: SlamPalette = "lust"
+): Pick<SlamTele, "group" | "fill" | "rim" | "sweep" | "light"> {
   const group = new THREE.Group();
   group.name = "slamTele";
+  group.userData.slamPalette = palette;
 
-  const fill = new THREE.Mesh(new THREE.CircleGeometry(1, 48), slamMat(0xa01810, 0.22));
+  const ava = palette === "avarice";
+  const glut = palette === "gluttony";
+  const fillHex = ava ? 0x3a2a10 : glut ? 0x2a3010 : 0xa01810;
+  const sweepHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff4a22;
+  const rimHex = ava ? 0xe8c86a : glut ? 0xc8d878 : 0xff6644;
+  const glowHex = ava ? 0xa07828 : glut ? 0x708030 : 0xff2208;
+  const tickHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffd078;
+  const lightHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff4418;
+
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(1, 48), slamMat(fillHex, ava ? 0.2 : 0.22));
   fill.rotation.x = -Math.PI / 2;
   fill.name = "slamFill";
   fill.renderOrder = 2;
 
-  const sweep = new THREE.Mesh(new THREE.CircleGeometry(1, 48), slamMat(0xff4a22, 0.32, true));
+  const sweep = new THREE.Mesh(new THREE.CircleGeometry(1, 48), slamMat(sweepHex, ava ? 0.28 : 0.32, true));
   sweep.rotation.x = -Math.PI / 2;
   sweep.position.y = 0.02;
   sweep.scale.setScalar(0.06);
   sweep.name = "slamSweep";
   sweep.renderOrder = 3;
 
-  const rim = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 48), slamMat(0xff6644, 0.92, true));
+  const rim = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 48), slamMat(rimHex, 0.92, true));
   rim.rotation.x = -Math.PI / 2;
   rim.position.y = 0.03;
   rim.name = "slamRim";
   rim.renderOrder = 4;
 
-  const glow = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.2, 48), slamMat(0xff2208, 0.28, true));
+  const glow = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.2, 48), slamMat(glowHex, ava ? 0.24 : 0.28, true));
   glow.rotation.x = -Math.PI / 2;
   glow.position.y = 0.025;
   glow.name = "slamGlow";
   glow.renderOrder = 3;
 
-  const tickMat = slamMat(0xffd078, 0.85, true);
+  const tickMat = slamMat(tickHex, 0.85, true);
   const tickGeo = new THREE.PlaneGeometry(0.16, 0.04);
   for (let i = 0; i < 16; i++) {
     const tick = new THREE.Mesh(tickGeo, tickMat);
@@ -197,7 +212,7 @@ export function makeSlamTelegraph(): Pick<SlamTele, "group" | "fill" | "rim" | "
     group.add(tick);
   }
 
-  const light = new THREE.PointLight(0xff4418, 1.2, 10, 2);
+  const light = new THREE.PointLight(lightHex, ava ? 1.0 : 1.2, 10, 2);
   light.position.y = 1.15;
   light.name = "slamLight";
 
@@ -219,7 +234,14 @@ export function tickSlamTelegraph(s: SlamTele, t: number) {
     const flash = (u - 0.82) / 0.18;
     fillMat.opacity = 0.42 + flash * 0.28;
     sweepMat.opacity = 0.5 + flash * 0.4;
-    rimMat.color.setHex(flash > 0.55 ? 0xfff1c4 : 0xffe08a);
+    const pal = s.group.userData.slamPalette as SlamPalette | undefined;
+    if (pal === "avarice") {
+      rimMat.color.setHex(flash > 0.55 ? 0xfff6d8 : 0xf2dea0);
+    } else if (pal === "gluttony") {
+      rimMat.color.setHex(flash > 0.55 ? 0xe8f0c0 : 0xd0e080);
+    } else {
+      rimMat.color.setHex(flash > 0.55 ? 0xfff1c4 : 0xffe08a);
+    }
     s.light.intensity = 7 + flash * 6;
   }
 }
