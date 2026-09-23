@@ -2239,6 +2239,9 @@ body.respawn-fade #death-flash {
   border-bottom-color: #d63a2a;
   filter: drop-shadow(0 0 5px #d63a2a99);
 }
+.compass-arrow[data-dest="avarice"] .compass-chevron {
+  border-bottom-color: #e8c86a;
+}
 .compass-arrow[data-dest="gluttony"] .compass-chevron {
   border-bottom-color: #8a9a3a;
   filter: drop-shadow(0 0 5px #8a9a3a99);
@@ -2269,6 +2272,8 @@ body.respawn-fade #death-flash {
 .compass-arrow[data-dest="lust"] .compass-dist { color: #e8a090; }
 .compass-arrow[data-dest="gluttony"] .compass-label { color: #d8e8a0; }
 .compass-arrow[data-dest="gluttony"] .compass-dist { color: #b0c070; }
+.compass-arrow[data-dest="avarice"] .compass-label { color: #f0d890; }
+.compass-arrow[data-dest="avarice"] .compass-dist { color: #c8a860; }
 @media (max-width: 640px) {
   .compass-arrow { width: 2.1rem; height: 2.4rem; margin: -1.05rem 0 0 -1.05rem; }
   .compass-chevron {
@@ -2720,6 +2725,14 @@ body.in-lust #heat-haze {
   opacity: 0.25;
   animation: heat-haze-shimmer 4.5s ease-in-out infinite;
 }
+body.in-avarice #heat-haze {
+  opacity: 0.22;
+  animation: heat-haze-shimmer 5.6s ease-in-out infinite;
+  background:
+    radial-gradient(ellipse 80% 55% at 50% 40%, rgba(212, 168, 64, 0.12), transparent 70%),
+    radial-gradient(ellipse 100% 80% at 50% 100%, rgba(20, 14, 6, 0.35), transparent 55%);
+  filter: saturate(0.9);
+}
 body.in-gluttony #heat-haze {
   opacity: 0.48;
   animation: heat-haze-shimmer 5.2s ease-in-out infinite;
@@ -2816,6 +2829,51 @@ body.in-gluttony #heat-haze {
 body.in-gluttony.hud-compact #heat-haze {
   opacity: 0.28;
 }
+
+/* Avarice gold-black irony haze (restrained — slash stays readable) */
+body.in-avarice.hud-compact #heat-haze {
+  opacity: 0.18;
+}
+body.tab-hidden.in-avarice #heat-haze {
+  animation: none;
+}
+body.in-avarice #gold-dust {
+  opacity: 0.35;
+  animation: gold-dust-drift 12s linear infinite;
+}
+body.in-avarice.hud-compact #gold-dust {
+  opacity: 0.22;
+  animation-duration: 16s;
+}
+body:not(.in-avarice) #gold-dust {
+  opacity: 0;
+  pointer-events: none;
+}
+body.tab-hidden.in-avarice #gold-dust {
+  animation: none;
+  opacity: 0.2;
+}
+@keyframes gold-dust-drift {
+  0% { background-position: 0 0, 40px 20px; }
+  100% { background-position: 80px -120px, -40px -80px; }
+}
+#gold-dust {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(232, 200, 106, 0.55), transparent),
+    radial-gradient(1.5px 1.5px at 70% 60%, rgba(200, 160, 64, 0.4), transparent);
+  background-size: 120px 160px, 180px 220px;
+  mix-blend-mode: screen;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.in-avarice #heat-haze { animation: none; }
+  body.in-avarice #gold-dust { animation: none; opacity: 0.2; }
+}
+.world-label.foe.avarice .wl-name { color: #e8c86a; }
 @keyframes mire-rain-fall {
   0% { background-position: 0 0, 0 0; }
   100% { background-position: 22px 140px, 0 0; }
@@ -2823,7 +2881,8 @@ body.in-gluttony.hud-compact #heat-haze {
 @media (prefers-reduced-motion: reduce) {
   body.in-gluttony #mire-rain { animation: none; opacity: 0.5; }
   body.in-lust #heat-haze,
-  body.in-gluttony #heat-haze { animation: none; }
+  body.in-gluttony #heat-haze,
+  body.in-avarice #heat-haze { animation: none; }
 }
 
 

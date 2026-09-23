@@ -1,11 +1,11 @@
 {
-  "id": "inferno_06",
+  "id": "inferno_07",
   "canticle": "inferno",
-  "number": 6,
-  "title": "Gluttony",
-  "subtitle_it": "piova etterna",
+  "number": 7,
+  "title": "Avarice",
+  "subtitle_it": "peso e contrapeso",
   "role": "combat",
-  "circle": 3,
+  "circle": 4,
   "geo": {
     "bounds": {
       "width": 160,
@@ -17,74 +17,58 @@
     },
     "exits": [
       {
-        "to_canto": "inferno_05",
+        "to_canto": "inferno_06",
         "x": 10,
         "y": 52,
-        "label": "Return to Lust"
+        "label": "Return to Gluttony"
       },
       {
         "to_canto": "inferno_01",
         "x": 14,
         "y": 44,
         "label": "Return to Dark Wood"
-      },
-      {
-        "to_canto": "inferno_07",
-        "x": 150,
-        "y": 52,
-        "label": "Toward Avarice →",
-        "require_clear": "inferno_06"
       }
     ],
     "pois": [
       {
-        "id": "mire_bell",
+        "id": "ledger_bell",
         "kind": "bell",
         "x": 86,
         "y": 58,
-        "label": "Mire Bell",
-        "hint": "Stills nearby filth — then press the Maw"
+        "label": "Ledger Bell",
+        "hint": "Stills nearby weights — then press the Crush"
       },
       {
-        "id": "filth_cache",
+        "id": "ledger_cache",
         "kind": "cache",
         "x": 54,
         "y": 68,
-        "label": "Filth Cache",
+        "label": "Ledger Cache",
         "hint": "One champion drop per visit — E to claim"
       },
       {
-        "id": "mire_shrine",
+        "id": "ledger_shrine",
         "kind": "shrine",
         "x": 28,
         "y": 56,
-        "label": "Mire Shrine",
+        "label": "Ledger Shrine",
         "hint": "Restores life and breath — E to kneel"
       },
       {
-        "id": "gluttony_portal_lust",
+        "id": "avarice_portal_gluttony",
         "kind": "portal",
         "x": 12,
         "y": 50,
-        "label": "Lust portal",
-        "to_canto": "inferno_05"
-      },
-      {
-        "id": "gluttony_portal_avarice",
-        "kind": "portal",
-        "x": 148,
-        "y": 50,
-        "label": "Avarice portal",
-        "to_canto": "inferno_07",
-        "require_clear": "inferno_06"
+        "label": "Gluttony portal",
+        "to_canto": "inferno_06"
       }
     ]
   },
   "packs": [
     {
-      "id": "glut_mire_heart",
-      "name": "Mire Heart",
-      "archetype": "mire_heart",
+      "id": "ava_hoard_heart",
+      "name": "Hoard Heart",
+      "archetype": "hoard_heart",
       "count": 1,
       "elite": true,
       "champion": true,
@@ -95,9 +79,9 @@
       }
     },
     {
-      "id": "glut_wisps",
-      "name": "Filth Wisps",
-      "archetype": "mud_wisp",
+      "id": "ava_coin_wisps",
+      "name": "Coin Wisps",
+      "archetype": "coin_wisp",
       "count": 4,
       "elite": false,
       "champion": false,
@@ -108,9 +92,9 @@
       }
     },
     {
-      "id": "glut_road_wardens",
-      "name": "Road Sludge",
-      "archetype": "mire_shade",
+      "id": "ava_road_weights",
+      "name": "Road Weights",
+      "archetype": "weight_shade",
       "count": 2,
       "elite": false,
       "champion": false,
@@ -121,9 +105,9 @@
       }
     },
     {
-      "id": "glut_mire_a",
-      "name": "Bog Ward",
-      "archetype": "mire_shade",
+      "id": "ava_ledger_a",
+      "name": "Ledger Ward",
+      "archetype": "weight_shade",
       "count": 3,
       "elite": false,
       "champion": false,
@@ -134,9 +118,9 @@
       }
     },
     {
-      "id": "glut_mire_b",
-      "name": "South Slough",
-      "archetype": "mire_shade",
+      "id": "ava_ledger_b",
+      "name": "South Balance",
+      "archetype": "weight_shade",
       "count": 3,
       "elite": false,
       "champion": false,
@@ -147,9 +131,9 @@
       }
     },
     {
-      "id": "glut_champion_pair",
-      "name": "Mire Champions",
-      "archetype": "mire_champion",
+      "id": "ava_champion_pair",
+      "name": "Weight Champions",
+      "archetype": "weight_champion",
       "count": 2,
       "elite": true,
       "champion": true,
@@ -160,9 +144,9 @@
       }
     },
     {
-      "id": "glut_strays",
-      "name": "Stray Greed",
-      "archetype": "mire_shade",
+      "id": "ava_strays",
+      "name": "Stray Coin",
+      "archetype": "weight_shade",
       "count": 2,
       "elite": false,
       "champion": false,
@@ -173,9 +157,9 @@
       }
     },
     {
-      "id": "glut_chorus",
-      "name": "Glut Chorus",
-      "archetype": "mire_shade",
+      "id": "ava_chorus",
+      "name": "Gold Chorus",
+      "archetype": "weight_shade",
       "count": 3,
       "elite": false,
       "champion": false,
@@ -186,9 +170,9 @@
       }
     },
     {
-      "id": "glut_approach_flank",
-      "name": "Maw Approach",
-      "archetype": "mire_shade",
+      "id": "ava_approach_flank",
+      "name": "Crush Approach",
+      "archetype": "weight_shade",
       "count": 2,
       "elite": false,
       "champion": false,
@@ -199,9 +183,9 @@
       }
     },
     {
-      "id": "glut_gate_warden",
-      "name": "Mire Warden",
-      "archetype": "mire_warden",
+      "id": "ava_ledger_warden",
+      "name": "Ledger Warden",
+      "archetype": "ledger_warden",
       "count": 1,
       "elite": true,
       "champion": true,
@@ -212,9 +196,9 @@
       }
     },
     {
-      "id": "glut_cerbero",
-      "name": "Cerbero",
-      "archetype": "mire_champion",
+      "id": "ava_counterweight",
+      "name": "Counterweight",
+      "archetype": "weight_champion",
       "count": 1,
       "elite": true,
       "champion": true,
@@ -223,13 +207,13 @@
         "x": 130,
         "y": 50
       },
-      "notes": "Mid-lane elite telegraph before Triple Maw"
+      "notes": "Mid-lane elite telegraph before Hoard Crush"
     }
   ],
   "bosses": [
     {
-      "id": "triple_maw",
-      "name": "Triple Maw",
+      "id": "hoard_crush",
+      "name": "Hoard Crush",
       "drop_table": "inferno_pack_common",
       "anchor": {
         "x": 138,
@@ -241,21 +225,21 @@
   "first_clear": {
     "enabled": true,
     "event": "FirstClear",
-    "requires": "triple_maw",
-    "notes": "Triple Maw broken — Avarice (peso e contrapeso) opens past the Maw; bank loot at Dark Wood stash"
+    "requires": "hoard_crush",
+    "notes": "Hoard Crush broken — Avarice yields; bank loot at Dark Wood stash"
   },
   "daily_quests": [
     {
-      "id": "glut_daily_mire",
-      "objective": "Ring the Mire Bell to still a pack, then break the Triple Maw (or return from Gluttony once)",
+      "id": "ava_daily_ledger",
+      "objective": "Ring the Ledger Bell to still a pack, then break Hoard Crush (or return from Avarice once)",
       "emit_event": "DailyQuest",
-      "notes": "Flavor + alternate claim path via Mire Bell after Guide; shares UTC daily cap with Dark Wood writ"
+      "notes": "Flavor + alternate claim path via Ledger Bell after Guide; shares UTC daily cap with Dark Wood writ"
     }
   ],
   "style_kit": {
     "palette": "inferno_red_black",
-    "kit_id": "circle_03_gluttony",
-    "notes": "Circle kit 3 of 12; mud-rain filth; Doré line weight"
+    "kit_id": "circle_04_avarice",
+    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony; Doré line weight"
   },
   "loot_density": "raw_d2",
   "legal": {

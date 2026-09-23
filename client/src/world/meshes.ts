@@ -1101,6 +1101,248 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
   return g;
 }
 
+
+/** Weight shade — Doré silhouette with rolling coin-weight rings (gold-on-black). */
+function weightShadeMat(mats: MatKit, goldTrim: boolean): THREE.MeshStandardMaterial {
+  return goldTrim
+    ? std(mats.leather.map, 0x5a4a28, { roughness: 0.62, metalness: 0.28, emissive: 0x3a2a10, emissiveIntensity: 0.42 })
+    : std(mats.leather.map, 0x2a2418, { roughness: 0.78, metalness: 0.18, emissive: 0x2a1c08, emissiveIntensity: 0.32 });
+}
+
+function makeWeightShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Group {
+  const g = new THREE.Group();
+  const hide = weightShadeMat(mats, goldTrim);
+  const cheap = isCompactUi();
+  const pts = [
+    new THREE.Vector2(0.02, 0),
+    new THREE.Vector2(0.22, 0.18),
+    new THREE.Vector2(0.32, 0.55),
+    new THREE.Vector2(0.24, 1.05),
+    new THREE.Vector2(0.12, 1.55),
+    new THREE.Vector2(0.04, 1.85),
+  ];
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, cheap ? 10 : 12), hide);
+  body.position.y = 0.2;
+  const hood = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, cheap ? 10 : 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
+    goldTrim ? mats.gold : hide
+  );
+  hood.position.set(0, 1.78, 0.04);
+  hood.rotation.x = -0.35;
+  const voidFace = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), mats.ember);
+  voidFace.position.set(0, 1.68, -0.14);
+  voidFace.name = "ember";
+  const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.18, 10), mats.gold);
+  weight.position.set(0, 1.05, 0.08);
+  weight.rotation.x = Math.PI / 2;
+  weight.name = "weightDisc";
+  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.045, 0.85, 6), hide);
+  armL.position.set(-0.38, 1.15, -0.15);
+  armL.rotation.z = 0.55;
+  armL.rotation.x = 0.35;
+  const armR = armL.clone();
+  armR.position.x = 0.38;
+  armR.rotation.z = -0.55;
+  const ribbon = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.045, 6, 16), mats.gold);
+  ribbon.position.y = 0.95;
+  ribbon.name = "ribbon";
+  const ribbon2 = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.032, 5, 14), mats.bronze);
+  ribbon2.position.y = 0.7;
+  ribbon2.name = "ribbon2";
+  g.add(discShadow(mats, 0.55), body, hood, voidFace, weight, armL, armR, ribbon, ribbon2, nose(mats, 1.68, -0.22));
+  g.scale.setScalar(scale);
+  shadow(g);
+  return g;
+}
+
+export function makeWeightShade(mats: MatKit): THREE.Group {
+  const g = makeWeightShadeBody(mats, 1.12, false);
+  g.name = "whirl";
+  return g;
+}
+
+export function makeWeightChampion(mats: MatKit): THREE.Group {
+  const g = makeWeightShadeBody(mats, 1.72, true);
+  g.name = "champion";
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.48, 6), mats.gold);
+  crown.position.set(0, 2.18, 0);
+  const plume = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 5, 12), mats.gold);
+  plume.position.set(0, 2.08, 0);
+  plume.name = "ribbon";
+  g.add(crown, plume);
+  return g;
+}
+
+/** Coin wisp — low gold disc + twin ember eyes. */
+export function makeCoinWisp(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "whirl";
+  const core = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.34, 0.34, 0.12, 12),
+    std(mats.gold.map, 0xd4a840, { roughness: 0.35, metalness: 0.7, emissive: 0x6a4a10, emissiveIntensity: 0.55 })
+  );
+  core.position.y = 0.55;
+  core.rotation.x = Math.PI / 2;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.04, 5, 14), mats.bronze);
+  rim.position.y = 0.55;
+  rim.rotation.x = Math.PI / 2;
+  rim.name = "ribbon";
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), mats.ember);
+  eyeL.position.set(-0.1, 0.62, -0.2);
+  eyeL.name = "ember";
+  const eyeR = eyeL.clone();
+  eyeR.position.x = 0.1;
+  g.add(discShadow(mats, 0.35), core, rim, eyeL, eyeR, nose(mats, 0.62, -0.28));
+  g.scale.setScalar(0.95);
+  shadow(g);
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) m.castShadow = false;
+  });
+  return g;
+}
+
+/** Ledger warden — broad tablet shield + gold crest. */
+export function makeLedgerWarden(mats: MatKit): THREE.Group {
+  const g = makeWeightShadeBody(mats, 1.35, true);
+  g.name = "champion";
+  const tablet = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.95, 0.08),
+    std(mats.armor.map, 0x6a5a30, { roughness: 0.5, metalness: 0.4, emissive: 0x3a2a10, emissiveIntensity: 0.28 })
+  );
+  tablet.position.set(-0.55, 1.15, -0.15);
+  tablet.rotation.y = 0.35;
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), mats.gold);
+  boss.position.set(-0.55, 1.15, -0.22);
+  const crest = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.55, 5), mats.gold);
+  crest.position.set(0, 2.2, 0.05);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.05, 5, 16), mats.gold);
+  ring.position.y = 0.95;
+  ring.name = "ribbon";
+  g.add(tablet, boss, crest, ring);
+  return g;
+}
+
+/** Counterweight — mid-lane elite foreshadowing Hoard Crush (rolling iron weight). */
+export function makeCounterweight(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "champion";
+  const hide = std(null, 0x3a3428, { roughness: 0.7, metalness: 0.35, emissive: 0x2a1c08, emissiveIntensity: 0.35 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 1.4, 14), hide);
+  body.position.y = 1.0;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.1, 6, 18), mats.gold);
+  rim.position.y = 1.0;
+  rim.rotation.x = Math.PI / 2;
+  rim.name = "weightDisc";
+  const rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.07, 5, 14), mats.bronze);
+  rim2.position.y = 1.55;
+  rim2.rotation.x = Math.PI / 2;
+  rim2.name = "ribbon";
+  const spike = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.7, 6), mats.gold);
+  spike.position.set(0, 2.05, 0);
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), mats.ember);
+  eye.position.set(0, 1.35, -0.85);
+  eye.name = "ember";
+  g.add(discShadow(mats, 0.95), body, rim, rim2, spike, eye, nose(mats, 1.4, -0.95));
+  shadow(g);
+  return g;
+}
+
+/** Hoard Crush — crushing gold-coin iron Doré mass; rolling weights + readable silhouette. */
+export function makeHoardCrush(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "hoard_crush";
+  const iron = new THREE.MeshStandardMaterial({
+    color: 0x3a3428,
+    roughness: 0.55,
+    metalness: 0.48,
+    emissive: 0x2a1c08,
+    emissiveIntensity: 0.35,
+  });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.55, 2.4, 14), iron);
+  body.position.y = 1.55;
+  const shoulder = new THREE.Mesh(new THREE.SphereGeometry(1.05, 12, 10), iron);
+  shoulder.position.set(0, 2.85, 0.05);
+  shoulder.scale.set(1.35, 0.55, 1.05);
+  // Twin crushing weight rollers
+  const rollerGeo = new THREE.CylinderGeometry(0.55, 0.55, 1.8, 12);
+  const rollerL = new THREE.Mesh(rollerGeo, mats.bronze);
+  rollerL.position.set(-1.15, 1.35, 0.15);
+  rollerL.rotation.z = Math.PI / 2;
+  rollerL.name = "crushRoller";
+  const rollerR = rollerL.clone();
+  rollerR.position.x = 1.15;
+  // Coin crowns
+  const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.14, 14), mats.gold);
+  coin.position.set(0, 3.45, 0);
+  coin.rotation.x = Math.PI / 2;
+  coin.name = "weightDisc";
+  const coin2 = coin.clone();
+  coin2.position.y = 3.65;
+  coin2.scale.setScalar(0.82);
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), mats.ember);
+  eyeL.position.set(-0.35, 2.95, -0.85);
+  eyeL.name = "ember";
+  const eyeR = eyeL.clone();
+  eyeR.position.x = 0.35;
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.1, 6, 18), mats.gold);
+  sash.position.y = 2.15;
+  sash.rotation.x = Math.PI / 2;
+  sash.name = "ribbon";
+  const sash2 = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.07, 5, 16), mats.bronze);
+  sash2.position.y = 1.45;
+  sash2.rotation.x = Math.PI / 2;
+  sash2.name = "ribbon2";
+  const aura = new THREE.Mesh(
+    new THREE.RingGeometry(2.05, 2.65, 20),
+    new THREE.MeshBasicMaterial({
+      color: 0xd4a840,
+      transparent: true,
+      opacity: 0.42,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  aura.rotation.x = -Math.PI / 2;
+  aura.position.y = 0.1;
+  aura.name = "judgeAura";
+  const telegraph = new THREE.Mesh(
+    new THREE.RingGeometry(3.1, 3.35, 22),
+    new THREE.MeshBasicMaterial({
+      color: 0xc8a040,
+      transparent: true,
+      opacity: 0.26,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  telegraph.rotation.x = -Math.PI / 2;
+  telegraph.position.y = 0.06;
+  telegraph.name = "mawTelegraph";
+  const glow = new THREE.PointLight(0xd4a840, 5.0, 20, 1.5);
+  glow.position.set(0, 3.2, 0.5);
+  g.add(
+    discShadow(mats, 1.7),
+    body,
+    shoulder,
+    rollerL,
+    rollerR,
+    coin,
+    coin2,
+    eyeL,
+    eyeR,
+    sash,
+    sash2,
+    aura,
+    telegraph,
+    glow,
+    nose(mats, 3.1, -1.0)
+  );
+  shadow(g);
+  return g;
+}
+
 export function makeChest(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "stash";
@@ -1592,6 +1834,7 @@ export type KindKey =
   | "champion"
   | "judge"
   | "triple_maw"
+  | "hoard_crush"
   | "stash"
   | "ah"
   | "quest"
@@ -1658,6 +1901,64 @@ export function makeMireBell(mats: MatKit): THREE.Group {
   return g;
 }
 
+
+/** Ledger Cache — chest with gold coin band (Avarice-readable vs Filth/Wind). */
+export function makeLedgerCache(mats: MatKit): THREE.Group {
+  const g = makeChest(mats);
+  g.name = "ledger_cache";
+  const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.04, 10), mats.gold);
+  coin.position.set(0.28, 0.55, 0.22);
+  coin.rotation.x = Math.PI / 2;
+  const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.1, 0.08), mats.gold);
+  band.position.set(0, 0.32, 0.28);
+  g.add(coin, band);
+  return g;
+}
+
+/** Ledger Shrine — gold mend pillar. */
+export function makeLedgerShrine(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "ledger_shrine";
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 2.2, 8), mats.stone);
+  pillar.position.y = 1.1;
+  const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), mats.gold);
+  bowl.position.y = 2.3;
+  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.15, 7, 7), mats.ember);
+  flame.position.y = 2.58;
+  flame.name = "ember";
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.045, 5, 16), mats.gold);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.08;
+  const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.12, 8), mats.bronze);
+  weight.position.set(0.22, 2.05, 0.18);
+  weight.rotation.x = Math.PI / 2;
+  g.add(discShadow(mats, 0.55), pillar, bowl, flame, ring, weight);
+  shadow(g);
+  return g;
+}
+
+/** Ledger Bell — toll post with hanging gold weight-bell. */
+export function makeLedgerBell(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "ledger_bell";
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 2.05, 7), mats.stone);
+  post.position.y = 1.05;
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.1, 0.1), mats.bronze);
+  arm.position.set(0.25, 2.05, 0);
+  const bell = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.48, 8), mats.gold);
+  bell.position.set(0.48, 1.55, 0);
+  bell.rotation.x = Math.PI;
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.035, 5, 12), mats.bronze);
+  lip.position.set(0.48, 1.32, 0);
+  lip.rotation.x = Math.PI / 2;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 5, 14), mats.gold);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.06;
+  g.add(discShadow(mats, 0.45), post, arm, bell, lip, ring);
+  shadow(g);
+  return g;
+}
+
 export function makeByKind(kind: KindKey, mats: MatKit, rarity?: string): THREE.Group {
   switch (kind) {
     case "player":
@@ -1672,6 +1973,8 @@ export function makeByKind(kind: KindKey, mats: MatKit, rarity?: string): THREE.
       return makeJudge(mats);
     case "triple_maw":
       return makeTripleMaw(mats);
+    case "hoard_crush":
+      return makeHoardCrush(mats);
     case "stash":
       return makeChest(mats);
     case "ah":
@@ -1702,6 +2005,7 @@ export function resolveKind(ent: {
     const id = String(ent.id || "");
     const nm = String(ent.name || "");
     if (id.includes("triple_maw") || /triple maw/i.test(nm)) return "triple_maw";
+    if (id.includes("hoard_crush") || /hoard crush/i.test(nm)) return "hoard_crush";
     return "judge";
   }
   if (ent.kind === "loot") return "loot";

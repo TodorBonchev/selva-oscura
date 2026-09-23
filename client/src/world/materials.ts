@@ -11,6 +11,7 @@ export type MatKit = {
   groundHub: THREE.MeshStandardMaterial;
   groundLust: THREE.MeshStandardMaterial;
   groundGlut: THREE.MeshStandardMaterial;
+  groundAvarice: THREE.MeshStandardMaterial;
   mire: THREE.MeshBasicMaterial;
   bone: THREE.MeshStandardMaterial;
   ember: THREE.MeshStandardMaterial;
@@ -236,6 +237,16 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     emissiveIntensity: 0.18,
     vertexColors: true,
   });
+  // Gold map albedo, dark-metal tint — scorched coin ground (distinct from olive glut).
+  const groundAvarice = new THREE.MeshStandardMaterial({
+    map: goldMap.clone(),
+    color: 0x6a5a38,
+    roughness: 0.62,
+    metalness: 0.38,
+    emissive: 0x2a1c08,
+    emissiveIntensity: 0.2,
+    vertexColors: true,
+  });
   const mire = new THREE.MeshBasicMaterial({
     color: 0x8a9a44,
     transparent: true,
@@ -272,6 +283,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   breakAlbedoTiling(groundHub, 0.088);
   breakAlbedoTiling(groundLust, 0.062);
   breakAlbedoTiling(groundGlut, 0.048);
+  breakAlbedoTiling(groundAvarice, 0.055);
   const bone = new THREE.MeshStandardMaterial({
     color: 0xf4ead4,
     roughness: 0.45,
@@ -293,7 +305,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     depthWrite: false,
   });
 
-  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, groundGlut, leather, armor, canopyA, canopyB, moss]) {
+  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, groundGlut, groundAvarice, leather, armor, canopyA, canopyB, moss]) {
     engrave(m, hatch);
   }
 
@@ -308,6 +320,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     groundHub,
     groundLust,
     groundGlut,
+    groundAvarice,
     mire,
     bone,
     ember,

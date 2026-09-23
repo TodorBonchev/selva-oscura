@@ -58,13 +58,21 @@ import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
 import {
   makeByKind,
   makeCerbero,
+  makeCoinWisp,
+  makeCounterweight,
   makeFilthCache,
+  makeLedgerBell,
+  makeLedgerCache,
+  makeLedgerShrine,
+  makeLedgerWarden,
   makeMireBell,
   makeMireChampion,
   makeMireShade,
   makeMireShrine,
   makeMireWarden,
   makeMudWisp,
+  makeWeightChampion,
+  makeWeightShade,
   modelFrontWorld,
   resolveKind,
   setPortalGateVisual,
@@ -101,7 +109,7 @@ import {
   type SlamTele,
   type SparkBurst,
 } from "./fx";
-import { tickHumanoid, tickTripleMaw, tickWhirl } from "./anim";
+import { tickHumanoid, tickHoardCrush, tickTripleMaw, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
@@ -219,6 +227,7 @@ export class WorldApp {
   netOffline = false;
   hubTipShown = false;
   glutEnterTipShown = false;
+  avaEnterTipShown = false;
   lustEnterTipShown = false;
   seenFirstClears = new Set<string>();
   lustClearRevelShown = false;
@@ -259,9 +268,13 @@ export class WorldApp {
   cerberoApproachShown = false;
   mireHeartDownToastShown = false;
   mireHeartSeenAlive = false;
+  counterweightApproachShown = false;
+  hoardHeartDownToastShown = false;
+  hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
   stormHeartSeenAlive = false;
   glutClearStashTipShown = false;
+  avaClearStashTipShown = false;
   poiHintsShown = new Set<string>();
   mawPressureOn = false;
   glutFogBase = 0.022;
@@ -807,7 +820,9 @@ export class WorldApp {
       this.ash.tick(
         dt,
         this.room.bounds,
-        this.room.cantoId === "inferno_05" || this.room.cantoId === "inferno_06",
+        this.room.cantoId === "inferno_05" ||
+          this.room.cantoId === "inferno_06" ||
+          this.room.cantoId === "inferno_07",
         this.renderYou.x,
         this.renderYou.y,
         fight || isCompactUi() ? 2 : 1,
@@ -993,7 +1008,9 @@ export class WorldApp {
 
     this.frameN++;
     const inCombatRoom =
-      this.room?.cantoId === "inferno_05" || this.room?.cantoId === "inferno_06";
+      this.room?.cantoId === "inferno_05" ||
+      this.room?.cantoId === "inferno_06" ||
+      this.room?.cantoId === "inferno_07";
     const inGlut = this.room?.cantoId === "inferno_06";
     const fighting = this.inCombat();
     // Compact combat: ease pixel ratio slightly when still at the soft cap (skip if already gfx-dropped).
@@ -1249,6 +1266,9 @@ export class WorldApp {
       if (n.kind === "triple_maw" && this.frameN % 2 === 0) {
         tickTripleMaw(n.group, this.animT);
       }
+      if (n.kind === "hoard_crush" && this.frameN % 2 === 0) {
+        tickHoardCrush(n.group, this.animT);
+      }
       const pulse = Number(n.group.userData.hitPulse) || 0;
       if (pulse > 0.04) {
         const base = Number(n.group.userData.baseScale) || 1;
@@ -1267,9 +1287,10 @@ export class WorldApp {
     }
     if (!this.inCombat() || this.frameN % 2 === 0) {
       const glut = this.room?.cantoId === "inferno_06";
-      // Freeze Maw-arena pulse when camera is far (big win on compact Gluttony).
+      const ava = this.room?.cantoId === "inferno_07";
+      // Freeze boss-arena pulse when camera is far (big win on compact Gluttony/Avarice).
       const daisNear =
-        !glut ||
+        !(glut || ava) ||
         (this.camFollow.x - 138) * (this.camFollow.x - 138) +
           (this.camFollow.z - 48) * (this.camFollow.z - 48) <
           48 * 48;
@@ -1326,7 +1347,8 @@ export class WorldApp {
       }
       const ward = rec.group.getObjectByName("wardRing");
       if (ward) {
-        const isHeart = (a: string | undefined) => a === "storm_heart" || a === "mire_heart";
+        const isHeart = (a: string | undefined) =>
+          a === "storm_heart" || a === "mire_heart" || a === "hoard_heart";
         const heart = this.room.entities.find(
           (h: any) => isHeart(h.archetype) && (h.hp == null || h.hp > 0)
         );
@@ -1370,29 +1392,48 @@ export class WorldApp {
   }
 
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
-    const isHeartArch = e.archetype === "storm_heart" || e.archetype === "mire_heart";
+    const isHeartArch =
+      e.archetype === "storm_heart" || e.archetype === "mire_heart" || e.archetype === "hoard_heart";
     const arch = String(e.archetype || "");
     const isMire = arch.startsWith("mire_") || arch === "mud_wisp";
+    const isAvaArch =
+      arch.startsWith("weight_") || arch === "coin_wisp" || arch === "ledger_warden" || arch === "hoard_heart";
     const nm = String(e.name || "");
     let group: THREE.Group;
     if (isHeartArch) {
       group = makeByKind("shrine", this.mats!, e.item?.rarity);
     } else if (arch === "mud_wisp") {
       group = makeMudWisp(this.mats!);
+    } else if (arch === "coin_wisp") {
+      group = makeCoinWisp(this.mats!);
     } else if (arch === "mire_warden") {
       group = makeMireWarden(this.mats!);
+    } else if (arch === "ledger_warden") {
+      group = makeLedgerWarden(this.mats!);
     } else if (/^cerbero$/i.test(nm)) {
       group = makeCerbero(this.mats!);
+    } else if (/^counterweight$/i.test(nm)) {
+      group = makeCounterweight(this.mats!);
     } else if (isMire && kind === "champion") {
       group = makeMireChampion(this.mats!);
     } else if (isMire && kind === "whirl") {
       group = makeMireShade(this.mats!);
+    } else if (isAvaArch && kind === "champion") {
+      group = makeWeightChampion(this.mats!);
+    } else if (isAvaArch && kind === "whirl") {
+      group = makeWeightShade(this.mats!);
     } else if (this.room?.cantoId === "inferno_06" && e.poiKind === "cache") {
       group = makeFilthCache(this.mats!);
     } else if (this.room?.cantoId === "inferno_06" && e.poiKind === "shrine") {
       group = makeMireShrine(this.mats!);
     } else if (this.room?.cantoId === "inferno_06" && e.poiKind === "bell") {
       group = makeMireBell(this.mats!);
+    } else if (this.room?.cantoId === "inferno_07" && e.poiKind === "cache") {
+      group = makeLedgerCache(this.mats!);
+    } else if (this.room?.cantoId === "inferno_07" && e.poiKind === "shrine") {
+      group = makeLedgerShrine(this.mats!);
+    } else if (this.room?.cantoId === "inferno_07" && e.poiKind === "bell") {
+      group = makeLedgerBell(this.mats!);
     } else {
       group = makeByKind(kind, this.mats!, e.item?.rarity);
     }
@@ -1403,8 +1444,16 @@ export class WorldApp {
     if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
     if (e.archetype === "mire_shade") group.scale.setScalar(1.05);
     if (e.archetype === "mire_champion" && !/^cerbero$/i.test(nm)) group.scale.setScalar(1.08);
+    if (e.archetype === "weight_shade") group.scale.setScalar(1.05);
+    if (e.archetype === "weight_champion" && !/^counterweight$/i.test(nm)) group.scale.setScalar(1.08);
+    if (e.archetype === "coin_wisp") group.scale.setScalar(0.7);
     if (isHeartArch) group.scale.setScalar(1.45);
-    if (e.poiKind === "bell" && this.room?.cantoId !== "inferno_06") group.scale.setScalar(0.72);
+    if (
+      e.poiKind === "bell" &&
+      this.room?.cantoId !== "inferno_06" &&
+      this.room?.cantoId !== "inferno_07"
+    )
+      group.scale.setScalar(0.72);
     if (e.poiKind === "pyre") group.scale.setScalar(1.85);
     if (this.room?.cantoId === "inferno_01") {
       if (e.poiKind === "stash") group.scale.setScalar(1.28);
@@ -1436,18 +1485,26 @@ export class WorldApp {
     wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div><div class="interact-prompt" hidden></div>`;
     const label = new CSS2DObject(wrap);
     label.center.set(0.5, 1);
-    const bossY = kind === "triple_maw" ? 5.9 : kind === "judge" ? 5.6 : 2.05;
+    const bossY =
+      kind === "triple_maw" || kind === "hoard_crush" ? 5.9 : kind === "judge" ? 5.6 : 2.05;
     label.position.set(0, kind === "portal" ? 4.1 : kind === "loot" ? 1.35 : bossY, 0);
     if (kind === "loot") {
       const rarity = String(e?.item?.rarity || "normal");
       group.add(makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a));
       wrap.classList.add("loot-label");
     }
-    if (kind === "whirl" || kind === "champion" || kind === "judge" || kind === "triple_maw") {
+    if (
+      kind === "whirl" ||
+      kind === "champion" ||
+      kind === "judge" ||
+      kind === "triple_maw" ||
+      kind === "hoard_crush"
+    ) {
       wrap.classList.add("foe");
       if (kind === "champion") wrap.classList.add("elite");
-      if (kind === "judge" || kind === "triple_maw") wrap.classList.add("boss");
+      if (kind === "judge" || kind === "triple_maw" || kind === "hoard_crush") wrap.classList.add("boss");
       if (isMire) wrap.classList.add("mire");
+      if (isAvaArch) wrap.classList.add("avarice");
     }
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
@@ -1477,9 +1534,11 @@ export class WorldApp {
       rec.kind === "whirl" ||
       rec.kind === "champion" ||
       rec.kind === "judge" ||
-      rec.kind === "triple_maw";
-    const boss = rec.kind === "judge" || rec.kind === "triple_maw";
-    const glutCompact = this.room?.cantoId === "inferno_06" && isCompactUi();
+      rec.kind === "triple_maw" ||
+      rec.kind === "hoard_crush";
+    const boss = rec.kind === "judge" || rec.kind === "triple_maw" || rec.kind === "hoard_crush";
+    const glutCompact =
+      (this.room?.cantoId === "inferno_06" || this.room?.cantoId === "inferno_07") && isCompactUi();
     let far = rec.kind === "loot" ? 22 : foe ? 26 : 16;
     if (glutCompact) {
       far = rec.kind === "loot" ? 14 : boss ? 20 : foe ? 15 : 10;
@@ -1521,15 +1580,22 @@ export class WorldApp {
   }
 
   portalOpenTint(e: any): number {
+    if (e?.toCanto === "inferno_07") return 0xd4a840;
     if (e?.toCanto === "inferno_06") return 0xa8c050;
     if (e?.toCanto === "inferno_05") return 0x66ffaa;
+    if (this.room?.cantoId === "inferno_07") return 0xc8a040;
     if (this.room?.cantoId === "inferno_06") return 0x88aa44;
     if (this.room?.cantoId === "inferno_05") return 0xff8844;
     return 0xff6633;
   }
 
   denyLockedPortal(e: any) {
-    const need = e?.requireClear === "inferno_05" ? "the Judge" : "the prior circle";
+    const need =
+      e?.requireClear === "inferno_05"
+        ? "the Judge"
+        : e?.requireClear === "inferno_06"
+          ? "Triple Maw"
+          : "the prior circle";
     showToast(`Sealed — clear ${need} first`, "warn");
   }
 
@@ -1605,8 +1671,10 @@ export class WorldApp {
     });
     const lust = this.room.cantoId === "inferno_05";
     const glut = this.room.cantoId === "inferno_06";
+    const ava = this.room.cantoId === "inferno_07";
     document.body.classList.toggle("in-lust", lust);
     document.body.classList.toggle("in-gluttony", glut);
+    document.body.classList.toggle("in-avarice", ava);
     if (lust) {
       this.fogTargetColor.setHex(0x3a140e);
       this.fogTargetDensity = 0.015;
@@ -1638,6 +1706,22 @@ export class WorldApp {
       this.rim.intensity = 1.55;
       this.heroLight.intensity = 3.4;
       this.heroLight.distance = 9;
+    } else if (ava) {
+      // Gold-on-black irony — restrained fog so slash stays readable.
+      this.mawPressureOn = false;
+      document.body.classList.remove("maw-pressure");
+      this.fogTargetColor.setHex(0x18140c);
+      this.fogTargetDensity = 0.016;
+      this.clearTargetColor.setHex(0x100c08);
+      this.hemi.color.set(0xd4c090);
+      this.hemi.groundColor.set(0x14100a);
+      this.hemi.intensity = 1.18;
+      this.sun.color.set(0xd4a860);
+      this.sun.intensity = 1.85;
+      this.rim.color.set(0xc8a040);
+      this.rim.intensity = 1.6;
+      this.heroLight.intensity = 3.5;
+      this.heroLight.distance = 9;
     } else {
       this.fogTargetColor.setHex(0x1c1812);
       this.fogTargetDensity = 0.013;
@@ -1660,7 +1744,11 @@ export class WorldApp {
     const portals = this.room.entities.filter((e: any) => e.kind === "exit" || e.poiKind === "portal");
     const clears = this.room.you?.firstClears;
     const lustCleared = Array.isArray(clears) && clears.includes("inferno_05");
+    const glutCleared = Array.isArray(clears) && clears.includes("inferno_06");
     const portal =
+      (glut &&
+        glutCleared &&
+        portals.find((e: any) => e.toCanto === "inferno_07" && !this.portalIsLocked(e))) ||
       (lust && lustCleared && portals.find((e: any) => e.toCanto === "inferno_06" && !this.portalIsLocked(e))) ||
       portals.find((e: any) => e.toCanto && e.toCanto !== "inferno_01") ||
       portals[0];
@@ -1668,15 +1756,21 @@ export class WorldApp {
       const locked = this.portalIsLocked(portal);
       this.portalLight.intensity = locked ? 1.2 : 4.5;
       this.portalLight.color.set(
-        portal.toCanto === "inferno_06"
+        portal.toCanto === "inferno_07"
           ? locked
             ? 0x5a5040
-            : 0xa8c050
-          : lust
-            ? 0x66ffaa
-            : glut
-              ? 0x88aa44
-              : 0xff6633
+            : 0xd4a840
+          : portal.toCanto === "inferno_06"
+            ? locked
+              ? 0x5a5040
+              : 0xa8c050
+            : lust
+              ? 0x66ffaa
+              : ava
+                ? 0xc8a040
+                : glut
+                  ? 0x88aa44
+                  : 0xff6633
       );
       setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
     }
@@ -1726,9 +1820,11 @@ export class WorldApp {
             ? msg.room.you.firstClears
             : [];
           showToast(
-            clears0.includes("inferno_05")
-              ? "Lust is clear — Guide, writ, stash, then Gluttony past the Judge."
-              : "No foes here — speak with the Guide, then take Toward Lust.",
+            clears0.includes("inferno_06")
+              ? "Gluttony is clear — Guide, writ, stash, then Avarice past the Maw."
+              : clears0.includes("inferno_05")
+                ? "Lust is clear — Guide, writ, stash, then Gluttony past the Judge."
+                : "No foes here — speak with the Guide, then take Toward Lust.",
             "info"
           );
         }
@@ -1749,9 +1845,17 @@ export class WorldApp {
               }
               if (c === "inferno_06") {
                 this.camPunch = Math.max(this.camPunch, 1.2);
-                showToast("Triple Maw broken — return to Lust or the Dark Wood when ready", "emit");
+                showToast("Triple Maw broken — the Avarice gate past the Maw opens", "emit");
                 if (!this.glutClearStashTipShown) {
                   this.glutClearStashTipShown = true;
+                  showToast("Bank champion drops at the Dark Wood stash when you return", "info");
+                }
+              }
+              if (c === "inferno_07") {
+                this.camPunch = Math.max(this.camPunch, 1.2);
+                showToast("Hoard Crush broken — return to Gluttony or the Dark Wood when ready", "emit");
+                if (!this.avaClearStashTipShown) {
+                  this.avaClearStashTipShown = true;
                   showToast("Bank champion drops at the Dark Wood stash when you return", "info");
                 }
               }
@@ -1773,6 +1877,14 @@ export class WorldApp {
           this.poiHintsShown.clear();
           showToast("piova etterna — clear the mire, then the Triple Maw", "info");
         }
+        if (msg.room.cantoId === "inferno_07" && (first || cantoChanged) && !this.avaEnterTipShown) {
+          this.avaEnterTipShown = true;
+          this.counterweightApproachShown = false;
+          this.hoardHeartDownToastShown = false;
+          this.hoardHeartSeenAlive = false;
+          this.poiHintsShown.clear();
+          showToast("peso e contrapeso — clear the ledger, then Hoard Crush", "info");
+        }
         if (
           cantoChanged &&
           msg.room.cantoId === "inferno_05" &&
@@ -1781,6 +1893,13 @@ export class WorldApp {
         ) {
           this.lustReturnGlutNudgeShown = true;
           showToast("The Gluttony portal waits past the Judge's dais", "info");
+        }
+        if (
+          cantoChanged &&
+          msg.room.cantoId === "inferno_06" &&
+          clears.includes("inferno_06")
+        ) {
+          showToast("The Avarice portal waits past the Maw", "info");
         }
         const lootIds = new Set<string>();
         for (const e of msg.room.entities) {
@@ -1816,6 +1935,9 @@ export class WorldApp {
         if (/Gluttony gate|gate past the dais opens/i.test(text)) {
           this.camPunch = Math.max(this.camPunch, 1.25);
           this.lustClearRevelShown = true;
+        }
+        if (/Avarice gate|gate past the Maw opens/i.test(text)) {
+          this.camPunch = Math.max(this.camPunch, 1.25);
         }
         break;
       }
@@ -2172,9 +2294,11 @@ export class WorldApp {
           ? "Lust"
           : best.toCanto === "inferno_06"
             ? "Gluttony"
-            : best.toCanto === "inferno_01"
-              ? "Dark Wood"
-              : best.label || best.name || "portal";
+            : best.toCanto === "inferno_07"
+              ? "Avarice"
+              : best.toCanto === "inferno_01"
+                ? "Dark Wood"
+                : best.label || best.name || "portal";
       showToast(`Entering ${dest}…`, "emit");
       this.doInteract(best);
     } else if (best.poiKind === "ah") {
@@ -2194,37 +2318,63 @@ export class WorldApp {
       (e: any) => (e.kind === "mob" || e.kind === "boss") && (e.hp == null || e.hp > 0)
     );
     let line = "Explore the wood";
-    if (canto === "inferno_05" || canto === "inferno_06") {
+    if (canto === "inferno_05" || canto === "inferno_06" || canto === "inferno_07") {
       const boss = foes.find((e: any) => e.kind === "boss");
       const shades = foes.filter((e: any) => e.kind === "mob").length;
       const heart = this.room.entities.some(
         (e: any) =>
-          (e.archetype === "storm_heart" || e.archetype === "mire_heart") &&
+          (e.archetype === "storm_heart" ||
+            e.archetype === "mire_heart" ||
+            e.archetype === "hoard_heart") &&
           (e.hp == null || e.hp > 0)
       );
       const isGlut = canto === "inferno_06";
+      const isAva = canto === "inferno_07";
       const cerberoUp =
         isGlut &&
         this.room.entities.some(
           (e: any) =>
             /^cerbero$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
         );
+      const counterUp =
+        isAva &&
+        this.room.entities.some(
+          (e: any) =>
+            /^counterweight$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
+        );
       if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.7) {
-        line = isGlut ? "Mire Shrine on the road will mend you" : "Wind Shrine on the road will mend you";
+        line = isAva
+          ? "Ledger Shrine on the road will mend you"
+          : isGlut
+            ? "Mire Shrine on the road will mend you"
+            : "Wind Shrine on the road will mend you";
       } else if (heart) {
-        line = isGlut
-          ? "Break the Mire Heart — nearby shades are warded"
-          : "Break the Storm Heart — nearby shades are warded";
+        line = isAva
+          ? "Break the Hoard Heart — nearby shades are warded"
+          : isGlut
+            ? "Break the Mire Heart — nearby shades are warded"
+            : "Break the Storm Heart — nearby shades are warded";
       } else if (isGlut && !heart && cerberoUp) {
         line = "Cerbero stirs — then the Triple Maw";
+      } else if (isAva && !heart && counterUp) {
+        line = "Counterweight stirs — then Hoard Crush";
       } else if (shades >= 8 && this.room.entities.some((e: any) => e.poiKind === "bell")) {
-        line = isGlut ? "Ring the Mire Bell to still a pack" : "Ring the Gale Bell to still a pack";
+        line = isAva
+          ? "Ring the Ledger Bell to still a pack"
+          : isGlut
+            ? "Ring the Mire Bell to still a pack"
+            : "Ring the Gale Bell to still a pack";
       } else if (shades > 0) {
         line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
       } else if (boss) {
-        line = isGlut ? "Slay the Triple Maw" : "Slay the Judge of the Gate";
+        line = isAva ? "Slay Hoard Crush" : isGlut ? "Slay the Triple Maw" : "Slay the Judge of the Gate";
+      } else if (isAva) {
+        line = "Return to Gluttony — bank loot at the Dark Wood stash";
       } else if (isGlut) {
-        line = "Return to Lust — bank loot at the Dark Wood stash";
+        const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_06");
+        line = cleared
+          ? "Hold E at the gold gate — Avarice awaits"
+          : "Return to Lust — bank loot at the Dark Wood stash";
       } else {
         const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
         line = cleared
@@ -2238,10 +2388,13 @@ export class WorldApp {
     } else if (!you.visitedInferno) {
       line = "Follow the gold arrow into Lust";
     } else {
-      const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
-      line = cleared
-        ? "Claim the daily writ, or hunt Lust / Gluttony"
-        : "Claim the daily writ, or hunt Lust again";
+      const glutOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_06");
+      const lustOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
+      line = glutOk
+        ? "Claim the daily writ, or hunt Lust / Gluttony / Avarice"
+        : lustOk
+          ? "Claim the daily writ, or hunt Lust / Gluttony"
+          : "Claim the daily writ, or hunt Lust again";
     }
     setQuestLine(line);
     const near = this.nearestFoe(16);
@@ -2632,6 +2785,7 @@ export class WorldApp {
   portalDestName(target: any): string {
     if (target?.toCanto === "inferno_05") return "Lust";
     if (target?.toCanto === "inferno_06") return "Gluttony";
+    if (target?.toCanto === "inferno_07") return "Avarice";
     if (target?.toCanto === "inferno_01") return "Dark Wood";
     return String(target?.label || target?.name || "portal");
   }
@@ -2805,19 +2959,25 @@ export class WorldApp {
           if (!line) {
             if (best.poiKind === "cache") {
               line =
-                this.room?.cantoId === "inferno_06"
-                  ? "Filth Cache — one champion drop per visit"
-                  : "Wind Cache — one champion drop per visit";
+                this.room?.cantoId === "inferno_07"
+                  ? "Ledger Cache — one champion drop per visit"
+                  : this.room?.cantoId === "inferno_06"
+                    ? "Filth Cache — one champion drop per visit"
+                    : "Wind Cache — one champion drop per visit";
             } else if (best.poiKind === "shrine") {
               line =
-                this.room?.cantoId === "inferno_06"
-                  ? "Mire Shrine — restores life and breath"
-                  : "Wind Shrine — restores life and breath";
+                this.room?.cantoId === "inferno_07"
+                  ? "Ledger Shrine — restores life and breath"
+                  : this.room?.cantoId === "inferno_06"
+                    ? "Mire Shrine — restores life and breath"
+                    : "Wind Shrine — restores life and breath";
             } else if (best.poiKind === "bell") {
               line =
-                this.room?.cantoId === "inferno_06"
-                  ? "Mire Bell — stills nearby filth"
-                  : "Gale Bell — stills nearby shades";
+                this.room?.cantoId === "inferno_07"
+                  ? "Ledger Bell — stills nearby weights"
+                  : this.room?.cantoId === "inferno_06"
+                    ? "Mire Bell — stills nearby filth"
+                    : "Gale Bell — stills nearby shades";
             } else if (best.poiKind === "stash") {
               line = "Stash — bank champion drops here";
             } else if (best.poiKind === "ah") {
@@ -2876,6 +3036,26 @@ export class WorldApp {
       }
     }
 
+    // After Hoard Heart falls: one soft beat toward Counterweight / Crush
+    if (this.room?.cantoId === "inferno_07" && !this.hoardHeartDownToastShown) {
+      const heartAlive = this.room.entities.some(
+        (e: any) => e.archetype === "hoard_heart" && (e.hp == null || e.hp > 0)
+      );
+      if (heartAlive) this.hoardHeartSeenAlive = true;
+      if (
+        this.hoardHeartSeenAlive &&
+        !heartAlive &&
+        this.room.entities.some(
+          (e: any) =>
+            (e.kind === "boss" || /^counterweight$/i.test(String(e.name || ""))) &&
+            (e.hp == null || e.hp > 0)
+        )
+      ) {
+        this.hoardHeartDownToastShown = true;
+        showToast("Counterweight stirs — the Crush waits beyond", "emit");
+      }
+    }
+
     // Mid-lane elite telegraph: Cerbero once when first in highlight range
     if (this.room?.cantoId === "inferno_06" && !this.cerberoApproachShown) {
       for (const e of this.room.entities) {
@@ -2885,6 +3065,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
           this.cerberoApproachShown = true;
           showToast("Cerbero ahead — three maws taste the road", "warn");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.counterweightApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob" && e.kind !== "champion") continue;
+        if (!/^counterweight$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
+          this.counterweightApproachShown = true;
+          showToast("Counterweight ahead — the ledger tips toward Crush", "warn");
           break;
         }
       }

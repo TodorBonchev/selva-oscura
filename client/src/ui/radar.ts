@@ -13,6 +13,7 @@ const _ndc = new Vector3();
 function cantoShort(id: string | undefined): string | null {
   if (id === "inferno_05") return "Lust";
   if (id === "inferno_06") return "Gluttony";
+  if (id === "inferno_07") return "Avarice";
   if (id === "inferno_01") return "Wood";
   return null;
 }
@@ -30,6 +31,7 @@ function destLabel(e: any): string {
 function destClass(toCanto: string | undefined): string {
   if (toCanto === "inferno_05") return "lust";
   if (toCanto === "inferno_06") return "gluttony";
+  if (toCanto === "inferno_07") return "avarice";
   if (toCanto === "inferno_01") return "wood";
   return "wood";
 }
@@ -87,7 +89,7 @@ export class Radar {
     if (!portals.length) return null;
     const cleared = Array.isArray(firstClears) ? firstClears : [];
     const unlocked = (e: any) => !e.requireClear || cleared.includes(e.requireClear);
-    // After Lust clear, prefer the Gluttony gate
+    // After Lust clear, prefer the Gluttony gate; after Gluttony clear, prefer Avarice
     if (cantoId === "inferno_05") {
       const glut = portals.find((e) => e.toCanto === "inferno_06" && unlocked(e));
       if (glut) return glut;
@@ -95,8 +97,16 @@ export class Radar {
       if (glutLocked) return glutLocked;
     }
     if (cantoId === "inferno_06") {
+      const ava = portals.find((e) => e.toCanto === "inferno_07" && unlocked(e));
+      if (ava) return ava;
+      const avaLocked = portals.find((e) => e.toCanto === "inferno_07");
+      if (avaLocked) return avaLocked;
       const lust = portals.find((e) => e.toCanto === "inferno_05");
       if (lust) return lust;
+    }
+    if (cantoId === "inferno_07") {
+      const glut = portals.find((e) => e.toCanto === "inferno_06");
+      if (glut) return glut;
     }
     return portals.find((e) => e.toCanto && e.toCanto !== "inferno_01") || portals[0];
   }
@@ -170,7 +180,14 @@ export class Radar {
         const clears = opts.firstClears || [];
         const locked = Boolean(e.requireClear && !clears.includes(e.requireClear));
         const towardGlut = e.toCanto === "inferno_06";
-        const fill = locked ? "#6a6048" : towardGlut ? "#c8e070" : "#e8c86a";
+        const towardAva = e.toCanto === "inferno_07";
+        const fill = locked
+          ? "#6a6048"
+          : towardAva
+            ? "#e8c86a"
+            : towardGlut
+              ? "#c8e070"
+              : "#e8c86a";
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(Math.PI / 4);
@@ -242,7 +259,9 @@ export class Radar {
         label: locked
           ? portal.requireClear === "inferno_05"
             ? "Clear Judge"
-            : "Sealed"
+            : portal.requireClear === "inferno_06"
+              ? "Clear Maw"
+              : "Sealed"
           : destLabel(portal),
         e: portal,
       });
@@ -259,14 +278,23 @@ export class Radar {
     }
     if (bestFoe) {
       const bossDest =
-        opts.cantoId === "inferno_06"
-          ? "gluttony"
-          : bestFoe.kind === "boss"
-            ? "lust"
-            : "wood";
+        opts.cantoId === "inferno_07"
+          ? "avarice"
+          : opts.cantoId === "inferno_06"
+            ? "gluttony"
+            : bestFoe.kind === "boss"
+              ? "lust"
+              : "wood";
       wanted.push({
         id: "foe",
-        dest: bestFoe.kind === "boss" ? bossDest : opts.cantoId === "inferno_06" ? "gluttony" : "wood",
+        dest:
+          bestFoe.kind === "boss"
+            ? bossDest
+            : opts.cantoId === "inferno_07"
+              ? "avarice"
+              : opts.cantoId === "inferno_06"
+                ? "gluttony"
+                : "wood",
         label: destLabel(bestFoe),
         e: bestFoe,
       });
@@ -374,12 +402,21 @@ export class Radar {
     }
     const clears = opts.firstClears || [];
     let text = "Explore the wood";
-    if (opts.cantoId === "inferno_05" || opts.cantoId === "inferno_06") {
-      const bossLabel = opts.cantoId === "inferno_06" ? "Slay the Triple Maw" : "Slay the Judge";
+    if (opts.cantoId === "inferno_05" || opts.cantoId === "inferno_06" || opts.cantoId === "inferno_07") {
+      const bossLabel =
+        opts.cantoId === "inferno_07"
+          ? "Slay Hoard Crush"
+          : opts.cantoId === "inferno_06"
+            ? "Slay the Triple Maw"
+            : "Slay the Judge";
       const portalLocked = portal && portal.requireClear && !clears.includes(portal.requireClear);
       if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
-      else if (portal && portalLocked) text = "Clear the Judge — then Gluttony opens";
-      else if (portal) {
+      else if (portal && portalLocked) {
+        text =
+          portal.requireClear === "inferno_06"
+            ? "Clear Triple Maw — then Avarice opens"
+            : "Clear the Judge — then Gluttony opens";
+      } else if (portal) {
         const dest = cantoShort(portal.toCanto) || "portal";
         text = `Travel — ${dest}`;
       }

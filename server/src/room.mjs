@@ -43,6 +43,12 @@ const MOB_HP = {
   mire_warden: 130,
   mire_heart: 100,
   mire_champion: 88,
+  // Avarice / weight archetypes (circle 4)
+  weight_shade: 44,
+  coin_wisp: 20,
+  ledger_warden: 140,
+  hoard_heart: 110,
+  weight_champion: 96,
   boss: 200,
 };
 
@@ -55,10 +61,14 @@ const MOB_DMG = {
   mud_wisp: 2,
   mire_warden: 7,
   mire_champion: 8,
+  weight_shade: 4,
+  coin_wisp: 2,
+  ledger_warden: 8,
+  weight_champion: 8,
   boss: 12,
 };
 
-const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart"]);
+const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart"]);
 
 let entitySeq = 0;
 function heartWards(room, e) {
@@ -685,9 +695,11 @@ class CantoRoom {
       if (killer) this.toast(
         killer.ws,
         "emit",
-        entity.archetype === "mire_heart"
-          ? "The Mire Heart bursts — Cerbero stirs."
-          : "The Storm Heart shatters."
+        entity.archetype === "hoard_heart"
+          ? "The Hoard Heart bursts — Counterweight stirs."
+          : entity.archetype === "mire_heart"
+            ? "The Mire Heart bursts — Cerbero stirs."
+            : "The Storm Heart shatters."
       );
     }
 
@@ -700,7 +712,11 @@ class CantoRoom {
       }
       if (left === 0) {
         const line =
-          this.cantoId === "inferno_06" ? "The sludge settles. Press on." : "The gust breaks. Press on.";
+          this.cantoId === "inferno_07"
+            ? "The weights settle. Press on."
+            : this.cantoId === "inferno_06"
+              ? "The sludge settles. Press on."
+              : "The gust breaks. Press on.";
         this.toast(killer.ws, "info", line);
       }
     }
@@ -752,7 +768,13 @@ class CantoRoom {
             this.toast(
               killer.ws,
               "emit",
-              "Triple Maw broken — return to Lust or the Dark Wood; bank loot at the stash."
+              "Triple Maw broken — the Avarice gate past the Maw opens."
+            );
+          } else if (this.cantoId === "inferno_07") {
+            this.toast(
+              killer.ws,
+              "emit",
+              "Hoard Crush broken — return to Gluttony or the Dark Wood; bank loot at the stash."
             );
           }
         } else if (killer && r2.reason === "already_cleared") {
@@ -894,7 +916,9 @@ class CantoRoom {
         const tip =
           e.requireClear === "inferno_05"
             ? "Clear the Judge first — then the Gluttony gate opens."
-            : `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
+            : e.requireClear === "inferno_06"
+              ? "Clear Triple Maw first — then Avarice opens."
+              : `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
         this.toast(s.ws, "warn", tip);
         return;
       }
@@ -912,15 +936,15 @@ class CantoRoom {
         this.toast(
           s.ws,
           "info",
-          "Guide: Follow the gold arrow into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais. Return for the writ, stash, and Auction House."
+          "Guide: Follow the gold arrow into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso). Return for the writ, stash, and Auction House."
         );
       } else if (e.poiKind === "stash") {
         this.toast(
           s.ws,
           "info",
           ledger.stash.length
-            ? `Stash holds ${ledger.stash.length} item${ledger.stash.length === 1 ? "" : "s"} — bank Lust and Gluttony drops here.`
-            : "Stash is empty — bank champion drops here after Lust or Gluttony."
+            ? `Stash holds ${ledger.stash.length} item${ledger.stash.length === 1 ? "" : "s"} — bank Lust, Gluttony, and Avarice drops here.`
+            : "Stash is empty — bank champion drops here after Lust, Gluttony, or Avarice."
         );
       } else if (e.poiKind === "ah") {
         this.send(s.ws, { type: "ah_listings", listings: ah.getListings() });
@@ -933,7 +957,9 @@ class CantoRoom {
           const tip =
             e.requireClear === "inferno_05"
               ? "Clear the Judge first — then the Gluttony gate opens."
-              : `The way to ${cantoTitle(dest)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
+              : e.requireClear === "inferno_06"
+                ? "Clear Triple Maw first — then Avarice opens."
+                : `The way to ${cantoTitle(dest)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
           this.toast(s.ws, "warn", tip);
           return;
         }
@@ -943,7 +969,11 @@ class CantoRoom {
           this.toast(
             s.ws,
             "info",
-            this.cantoId === "inferno_06" ? "The filth cache is empty." : "The wind cache is empty."
+            this.cantoId === "inferno_07"
+              ? "The ledger cache is empty."
+              : this.cantoId === "inferno_06"
+                ? "The filth cache is empty."
+                : "The wind cache is empty."
           );
           return;
         }
@@ -960,7 +990,12 @@ class CantoRoom {
         }
         s.lootedCache = true;
         void grantInventoryItem(playerId, item).then(() => {
-          const prefix = this.cantoId === "inferno_06" ? "Filth Cache" : "Cache";
+          const prefix =
+            this.cantoId === "inferno_07"
+              ? "Ledger Cache"
+              : this.cantoId === "inferno_06"
+                ? "Filth Cache"
+                : "Cache";
           this.toast(s.ws, "loot", `${prefix}: ${item.rarity} ${item.name}`);
           this.pushSnapshot(playerId);
         });
@@ -979,16 +1014,23 @@ class CantoRoom {
           stilled++;
         }
         const bellLine = stilled
-          ? this.cantoId === "inferno_06"
-            ? `Mire Bell stills ${stilled}`
-            : `The bell stills ${stilled}`
-          : this.cantoId === "inferno_06"
-            ? "The Mire Bell tolls — nothing answers."
-            : "The bell rings, and nothing answers.";
+          ? this.cantoId === "inferno_07"
+            ? `Ledger Bell stills ${stilled}`
+            : this.cantoId === "inferno_06"
+              ? `Mire Bell stills ${stilled}`
+              : `The bell stills ${stilled}`
+          : this.cantoId === "inferno_07"
+            ? "The Ledger Bell tolls — nothing answers."
+            : this.cantoId === "inferno_06"
+              ? "The Mire Bell tolls — nothing answers."
+              : "The bell rings, and nothing answers.";
         this.toast(s.ws, "emit", bellLine);
-        // Gluttony daily: first successful still can claim DailyQuest (shared UTC cap; quiet if ineligible)
+        // Combat canto dailies: first successful still can claim DailyQuest (shared UTC cap; quiet if ineligible)
         if (this.cantoId === "inferno_06" && stilled > 0) {
           this.tryDaily(playerId, "glut_daily_mire", { quiet: true });
+        }
+        if (this.cantoId === "inferno_07" && stilled > 0) {
+          this.tryDaily(playerId, "ava_daily_ledger", { quiet: true });
         }
       } else if (e.poiKind === "pyre" || e.poiKind === "shrine") {
         s.hp = s.maxHp;
@@ -996,9 +1038,11 @@ class CantoRoom {
         const shrineLine =
           e.poiKind === "pyre"
             ? "The camp pyre warms you. Life and breath restored."
-            : this.cantoId === "inferno_06"
-              ? "The Mire Shrine knits your wounds and fills your breath."
-              : "The Wind Shrine knits your wounds and fills your breath.";
+            : this.cantoId === "inferno_07"
+              ? "The Ledger Shrine knits your wounds and fills your breath."
+              : this.cantoId === "inferno_06"
+                ? "The Mire Shrine knits your wounds and fills your breath."
+                : "The Wind Shrine knits your wounds and fills your breath.";
         this.toast(s.ws, "emit", shrineLine);
       }
     }
@@ -1145,9 +1189,9 @@ class CantoRoom {
         const dy = nearest.y - e.y;
         const len = Math.hypot(dx, dy) || 1;
         const speed =
-          e.archetype === "gale_wisp" || e.archetype === "mud_wisp"
+          e.archetype === "gale_wisp" || e.archetype === "mud_wisp" || e.archetype === "coin_wisp"
             ? 5.4
-            : e.archetype === "gale_warden" || e.archetype === "mire_warden"
+            : e.archetype === "gale_warden" || e.archetype === "mire_warden" || e.archetype === "ledger_warden"
               ? 1.6
               : e.kind === "boss"
                 ? 2.2
@@ -1315,7 +1359,9 @@ export class World {
           const tip =
             need === "inferno_05"
               ? "Clear the Judge first — then the Gluttony gate opens."
-              : `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`;
+              : need === "inferno_06"
+                ? "Clear Triple Maw first — then Avarice opens."
+                : `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`;
           from.toast(ws, "warn", tip);
           return { ok: false, reason: "require_clear", need };
         }
@@ -1331,8 +1377,13 @@ export class World {
         "info",
         "No foes in the Dark Wood — take the eastern portal Toward Lust."
       );
+    } else if (room.cantoId === "inferno_07") {
+      room.toast(ws, "info", "The weights roll. Clear the ledger, then Hoard Crush.");
     } else if (room.cantoId === "inferno_06") {
       room.toast(ws, "info", "The eternal rain falls. Clear the mire, then the Triple Maw.");
+      if (hasCleared(playerId, "inferno_06")) {
+        room.toast(ws, "info", "The Avarice gate past the Maw stands open.");
+      }
     } else if (room.cantoId === "inferno_05" && hasCleared(playerId, "inferno_05")) {
       room.toast(ws, "info", "The Gluttony gate past the Judge's dais stands open.");
     }

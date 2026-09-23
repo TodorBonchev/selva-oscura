@@ -343,3 +343,46 @@ export function tickTripleMaw(root: THREE.Object3D, tMs: number) {
     o.rotation.x = 1.85 + Math.sin(tMs * 0.0031 + o.userData.jawPhase) * 0.12;
   }
 }
+
+
+type CrushCache = {
+  ribbon?: THREE.Object3D;
+  ribbon2?: THREE.Object3D;
+  tele?: THREE.Object3D;
+  rollers: THREE.Object3D[];
+  discs: THREE.Object3D[];
+};
+
+/** Idle for Hoard Crush — rolling weights + soft telegraph pulse (mirrors Triple Maw cadence). */
+export function tickHoardCrush(root: THREE.Object3D, tMs: number) {
+  let cache = root.userData.crushCache as CrushCache | undefined;
+  if (!cache) {
+    cache = { rollers: [], discs: [] };
+    root.traverse((o) => {
+      if (o.name === "ribbon") cache!.ribbon = o;
+      else if (o.name === "ribbon2") cache!.ribbon2 = o;
+      else if (o.name === "mawTelegraph") cache!.tele = o;
+      else if (o.name === "crushRoller") cache!.rollers.push(o);
+      else if (o.name === "weightDisc") cache!.discs.push(o);
+    });
+    root.userData.crushCache = cache;
+  }
+  if (cache.ribbon) {
+    cache.ribbon.rotation.z = tMs * 0.0016;
+  }
+  if (cache.ribbon2) {
+    cache.ribbon2.rotation.z = -tMs * 0.0012;
+  }
+  if (cache.tele) {
+    const s = 1 + Math.sin(tMs * 0.0024) * 0.05;
+    cache.tele.scale.set(s, s, 1);
+  }
+  for (let i = 0; i < cache.rollers.length; i++) {
+    const o = cache.rollers[i]!;
+    o.rotation.x = tMs * (0.0022 + i * 0.0004) * (i % 2 ? -1 : 1);
+  }
+  for (let i = 0; i < cache.discs.length; i++) {
+    const o = cache.discs[i]!;
+    o.rotation.z = tMs * 0.0018 * (i % 2 ? -1 : 1);
+  }
+}

@@ -27,6 +27,13 @@
         "x": 14,
         "y": 44,
         "label": "Return to Dark Wood"
+      },
+      {
+        "to_canto": "inferno_07",
+        "x": 150,
+        "y": 52,
+        "label": "Toward Avarice →",
+        "require_clear": "inferno_06"
       }
     ],
     "pois": [
@@ -36,7 +43,7 @@
         "x": 86,
         "y": 58,
         "label": "Mire Bell",
-        "hint": "Stills nearby filth \u2014 then press the Maw"
+        "hint": "Stills nearby filth — then press the Maw"
       },
       {
         "id": "filth_cache",
@@ -44,7 +51,7 @@
         "x": 54,
         "y": 68,
         "label": "Filth Cache",
-        "hint": "One champion drop per visit \u2014 E to claim"
+        "hint": "One champion drop per visit — E to claim"
       },
       {
         "id": "mire_shrine",
@@ -52,7 +59,7 @@
         "x": 28,
         "y": 56,
         "label": "Mire Shrine",
-        "hint": "Restores life and breath \u2014 E to kneel"
+        "hint": "Restores life and breath — E to kneel"
       },
       {
         "id": "gluttony_portal_lust",
@@ -61,6 +68,15 @@
         "y": 50,
         "label": "Lust portal",
         "to_canto": "inferno_05"
+      },
+      {
+        "id": "gluttony_portal_avarice",
+        "kind": "portal",
+        "x": 148,
+        "y": 50,
+        "label": "Avarice portal",
+        "to_canto": "inferno_07",
+        "require_clear": "inferno_06"
       }
     ]
   },
@@ -226,7 +242,7 @@
     "enabled": true,
     "event": "FirstClear",
     "requires": "triple_maw",
-    "notes": "Triple Maw broken \u2014 Gluttony yields; bank loot at Dark Wood stash"
+    "notes": "Triple Maw broken — Avarice (peso e contrapeso) opens past the Maw; bank loot at Dark Wood stash"
   },
   "daily_quests": [
     {
@@ -239,7 +255,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_03_gluttony",
-    "notes": "Circle kit 3 of 12; mud-rain filth; Dor\u00e9 line weight"
+    "notes": "Circle kit 3 of 12; mud-rain filth; Doré line weight"
   },
   "loot_density": "raw_d2",
   "legal": {

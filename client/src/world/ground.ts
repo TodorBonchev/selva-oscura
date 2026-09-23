@@ -79,13 +79,22 @@ const GLUTTONY_HUNT: [number, number][] = [
   [100, 58],
   [138, 48],
 ];
+const AVARICE_HUNT: [number, number][] = [
+  [18, 52],
+  [44, 58],
+  [70, 46],
+  [100, 56],
+  [138, 48],
+];
 
 function huntPathFor(cantoId: string): [number, number][] {
+  if (cantoId === "inferno_07") return AVARICE_HUNT;
   if (cantoId === "inferno_06") return GLUTTONY_HUNT;
   return LUST_HUNT;
 }
 
 function bossDaisFor(cantoId: string): { x: number; z: number } {
+  if (cantoId === "inferno_07") return { x: 138, z: 48 };
   if (cantoId === "inferno_06") return { x: 138, z: 48 };
   return { x: 140, z: 60 };
 }
@@ -101,9 +110,10 @@ export function terrainHeight(
   const x = wx - bounds.width / 2;
   const z = wz - bounds.height / 2;
   const isGlut = cantoId === "inferno_06";
+  const isAva = cantoId === "inferno_07";
   let n =
-    Math.sin(x * 0.17) * Math.cos(z * 0.13) * (isHub ? 0.28 : isGlut ? 0.16 : 0.12) +
-    Math.sin(x * 0.41 + z * 0.27) * (isGlut ? 0.11 : 0.08);
+    Math.sin(x * 0.17) * Math.cos(z * 0.13) * (isHub ? 0.28 : isGlut || isAva ? 0.16 : 0.12) +
+    Math.sin(x * 0.41 + z * 0.27) * (isGlut || isAva ? 0.11 : 0.08);
   if (isHub) {
     const pathD = Math.min(
       distToPoly(wx, wz, HUB_PATH),
@@ -111,11 +121,14 @@ export function terrainHeight(
       distToPoly(wx, wz, HUB_WRIT)
     );
     if (pathD < 2.6) n *= 0.22;
-  } else if (distToPoly(wx, wz, huntPathFor(cantoId)) < (isGlut ? 3.6 : 3.2)) {
-    n *= isGlut ? 0.08 : 0.15;
+  } else if (distToPoly(wx, wz, huntPathFor(cantoId)) < (isGlut || isAva ? 3.6 : 3.2)) {
+    n *= isGlut || isAva ? 0.08 : 0.15;
   } else if (isGlut) {
     // Soft sinks between hunt lanes — mire pockets
     n -= 0.06 * Math.abs(Math.sin(x * 0.09) * Math.cos(z * 0.11));
+  } else if (isAva) {
+    // Hard scorched flats between weight lanes
+    n *= 0.7;
   }
   return n;
 }
@@ -169,8 +182,13 @@ export function buildGround(
     geo.computeVertexNormals();
   }
 
-  const floorMat =
-    isHub ? mats.groundHub : cantoId === "inferno_06" ? mats.groundGlut : mats.groundLust;
+  const floorMat = isHub
+    ? mats.groundHub
+    : cantoId === "inferno_07"
+      ? mats.groundAvarice
+      : cantoId === "inferno_06"
+        ? mats.groundGlut
+        : mats.groundLust;
   const floor = new THREE.Mesh(geo, floorMat);
   floor.receiveShadow = true;
   floor.position.set(w / 2, 0, h / 2);
@@ -180,9 +198,15 @@ export function buildGround(
   const fogRing = new THREE.Mesh(
     new THREE.RingGeometry(Math.max(w, h) * 0.62, Math.max(w, h) * 1.4, 48),
     new THREE.MeshBasicMaterial({
-      color: isHub ? 0x1a1810 : cantoId === "inferno_06" ? 0x18160c : 0x201008,
+      color: isHub
+        ? 0x1a1810
+        : cantoId === "inferno_07"
+          ? 0x14120a
+          : cantoId === "inferno_06"
+            ? 0x18160c
+            : 0x201008,
       transparent: true,
-      opacity: cantoId === "inferno_06" ? 0.4 : 0.28,
+      opacity: cantoId === "inferno_07" ? 0.38 : cantoId === "inferno_06" ? 0.4 : 0.28,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
@@ -291,7 +315,9 @@ export function buildGround(
   } else {
     const hunt = huntPathFor(cantoId);
     const isGlut = cantoId === "inferno_06";
-    const arenas: { x: number; z: number; r: number }[] = isGlut
+    const isAva = cantoId === "inferno_07";
+    const isWeightLane = isGlut || isAva;
+    const arenas: { x: number; z: number; r: number }[] = isWeightLane
       ? [
           { x: 30, z: 48, r: 5 },
           { x: 52, z: 38, r: 7 },
@@ -333,6 +359,19 @@ export function buildGround(
           colors[i * 3 + 1] = k * 0.62 * sink;
           colors[i * 3 + 2] = k * 0.32 * sink;
         }
+      } else if (isAva) {
+        // Gold road vs pitch off-path (gold-on-black irony)
+        const onPath = pathD < 3.8;
+        const sink = pathD > 11 ? 0.55 : pathD > 6 ? 0.78 : 1;
+        if (onPath) {
+          colors[i * 3] = k * 1.15;
+          colors[i * 3 + 1] = k * 0.95;
+          colors[i * 3 + 2] = k * 0.45;
+        } else {
+          colors[i * 3] = k * 0.45 * sink;
+          colors[i * 3 + 1] = k * 0.38 * sink;
+          colors[i * 3 + 2] = k * 0.22 * sink;
+        }
       } else {
         colors[i * 3] = k * 1.05;
         colors[i * 3 + 1] = k * 0.72;
@@ -343,7 +382,7 @@ export function buildGround(
     geo.computeVertexNormals();
 
     const compactDecor = isCompactUi();
-    const obCap = compactDecor ? (isGlut ? 4 : 5) : isGlut ? 6 : 8;
+    const obCap = compactDecor ? (isWeightLane ? 4 : 5) : isWeightLane ? 6 : 8;
     let placed = 0;
     for (let i = 0; i < 70 && placed < obCap; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
@@ -354,7 +393,7 @@ export function buildGround(
       ob.position.set(x, heightAt(x, z), z);
       ob.rotation.y = hash(i, 9) * Math.PI * 2;
       ob.scale.setScalar(0.85 + hash(i, 10) * 0.7);
-      if (isGlut) {
+      if (isWeightLane) {
         ob.traverse((o) => {
           const m = o as THREE.Mesh;
           if (m.isMesh) m.castShadow = false;
@@ -364,10 +403,10 @@ export function buildGround(
       placed++;
     }
     const compact = isCompactUi();
-    const ringSegs = compact ? (isGlut ? 18 : 22) : isGlut ? 24 : 40;
+    const ringSegs = compact ? (isWeightLane ? 18 : 22) : isWeightLane ? 24 : 40;
     for (const a of arenas) {
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(a.r, isGlut ? 0.1 : 0.07, 6, ringSegs),
+        new THREE.TorusGeometry(a.r, isWeightLane ? 0.1 : 0.07, 6, ringSegs),
         isGlut ? mats.mire : mats.gold
       );
       ring.rotation.x = Math.PI / 2;
@@ -399,8 +438,9 @@ export function buildGround(
       rib.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
       const mat = rib.material as THREE.MeshBasicMaterial;
       mat.side = THREE.DoubleSide;
-      mat.opacity = isGlut ? 0.32 : 0.45;
+      mat.opacity = isWeightLane ? 0.32 : 0.45;
       if (isGlut && mat.color) mat.color.set(0x6a5a30);
+      if (isAva && mat.color) mat.color.set(0x8a7040);
       group.add(rib);
       const crack = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.62, 0.05, 0.22), mats.ember);
       crack.position.set(mx, heightAt(mx, mz) + 0.05, mz);
@@ -530,6 +570,126 @@ export function buildGround(
         const mat = ribbon.material as THREE.MeshBasicMaterial;
         mat.color.set(0x6a7a30);
         mat.opacity = compact ? 0.2 : 0.26;
+        const rx = 28 + i * 28;
+        const rz = 44 + (i % 2) * 12;
+        ribbon.position.set(rx, heightAt(rx, rz) + 0.7, rz);
+        ribbon.rotation.y = 0.12 * (i % 2 ? -1 : 1);
+        ribbon.rotation.x = Math.PI * 0.06;
+        ribbon.castShadow = false;
+        group.add(ribbon);
+      }
+    } else if (isAva) {
+      const metal = new THREE.MeshStandardMaterial({
+        color: 0x2a2418,
+        roughness: 0.55,
+        metalness: 0.45,
+        emissive: 0x3a2a10,
+        emissiveIntensity: 0.28,
+      });
+      const hy = heightAt(daisPos.x, daisPos.z);
+      const dais = new THREE.Mesh(new THREE.CylinderGeometry(7.6, 8.6, 0.62, compact ? 14 : 18), metal);
+      dais.position.set(daisPos.x, hy + 0.22, daisPos.z);
+      dais.receiveShadow = true;
+      dais.castShadow = false;
+      group.add(dais);
+      const step = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.8, 0.28, compact ? 12 : 16), metal);
+      step.position.set(daisPos.x, hy + 0.58, daisPos.z);
+      step.receiveShadow = true;
+      step.castShadow = false;
+      group.add(step);
+      const lipSegs = compact ? 20 : 28;
+      const lip = new THREE.Mesh(new THREE.TorusGeometry(7.8, 0.14, 6, lipSegs), mats.gold);
+      lip.rotation.x = Math.PI / 2;
+      lip.position.set(daisPos.x, hy + 0.55, daisPos.z);
+      lip.castShadow = false;
+      lip.name = "daisPulse";
+      group.add(lip);
+      const coinRing = new THREE.Mesh(new THREE.TorusGeometry(5.4, 0.1, 6, lipSegs), mats.gold);
+      coinRing.rotation.x = Math.PI / 2;
+      coinRing.position.set(daisPos.x, hy + 0.72, daisPos.z);
+      coinRing.castShadow = false;
+      coinRing.name = "daisPulse";
+      group.add(coinRing);
+      const tele = new THREE.Mesh(
+        new THREE.RingGeometry(6.2, 6.55, compact ? 24 : 32),
+        new THREE.MeshBasicMaterial({
+          color: 0xd4a840,
+          transparent: true,
+          opacity: 0.2,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      tele.rotation.x = -Math.PI / 2;
+      tele.position.set(daisPos.x, hy + 0.82, daisPos.z);
+      tele.castShadow = false;
+      tele.name = "daisTelegraph";
+      group.add(tele);
+
+      // Scorched coin discs along hunt (InstancedMesh)
+      const coinMat = new THREE.MeshStandardMaterial({
+        color: 0x8a7040,
+        roughness: 0.4,
+        metalness: 0.55,
+        emissive: 0x4a3810,
+        emissiveIntensity: 0.28,
+        transparent: true,
+        opacity: 0.82,
+      });
+      const coinGeo = new THREE.CircleGeometry(1, 12);
+      const coinN = compact ? Math.min(4, hunt.length) : hunt.length + 3;
+      const coins = new THREE.InstancedMesh(coinGeo, coinMat, coinN);
+      coins.castShadow = false;
+      coins.receiveShadow = true;
+      coins.frustumCulled = true;
+      const _m = new THREE.Matrix4();
+      const _p = new THREE.Vector3();
+      const _q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+      const _s = new THREE.Vector3();
+      for (let i = 0; i < coinN; i++) {
+        const [px, pz] =
+          i < hunt.length
+            ? hunt[i]
+            : ([20 + hash(i, 90) * (w - 40), 20 + hash(i, 91) * (h - 40)] as [number, number]);
+        const sc = 1.1 + hash(i, 92) * 1.0;
+        _p.set(px + (hash(i, 93) - 0.5) * 2.4, heightAt(px, pz) + 0.05, pz + (hash(i, 94) - 0.5) * 2.4);
+        _s.set(sc, sc, sc);
+        _m.compose(_p, _q, _s);
+        coins.setMatrixAt(i, _m);
+      }
+      coins.instanceMatrix.needsUpdate = true;
+      group.add(coins);
+
+      // Rolling weight props (short cylinders)
+      const weightCap = compact ? 7 : 12;
+      const weightGeo = new THREE.CylinderGeometry(0.55, 0.62, 0.35, 10);
+      const weightsMesh = new THREE.InstancedMesh(weightGeo, mats.bronze, weightCap);
+      weightsMesh.castShadow = false;
+      weightsMesh.receiveShadow = true;
+      weightsMesh.frustumCulled = true;
+      let weights = 0;
+      for (let i = 0; i < 100 && weights < weightCap; i++) {
+        const x = 10 + hash(i, 61) * (w - 20);
+        const z = 10 + hash(i, 62) * (h - 20);
+        if (blocked(x, z, 2.2) || distToPoly(x, z, hunt) < 3.8) continue;
+        if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.2)) continue;
+        _p.set(x, heightAt(x, z) + 0.18, z);
+        _q.setFromEuler(new THREE.Euler(0, hash(i, 65) * Math.PI * 2, Math.PI / 2));
+        _s.set(1.1 + hash(i, 63) * 0.4, 1, 1.1 + hash(i, 66) * 0.35);
+        _m.compose(_p, _q, _s);
+        weightsMesh.setMatrixAt(weights++, _m);
+      }
+      weightsMesh.count = weights;
+      weightsMesh.instanceMatrix.needsUpdate = true;
+      group.add(weightsMesh);
+
+      const hazeN = compact ? 3 : 4;
+      for (let i = 0; i < hazeN; i++) {
+        const ribbon = makeGaleRibbon(mats, 14 + i * 3);
+        const mat = ribbon.material as THREE.MeshBasicMaterial;
+        mat.color.set(0xa88a40);
+        mat.opacity = compact ? 0.16 : 0.22;
         const rx = 28 + i * 28;
         const rz = 44 + (i % 2) * 12;
         ribbon.position.set(rx, heightAt(rx, rz) + 0.7, rz);

@@ -54,4 +54,5 @@ export const CANTOS = {
   inferno_01: loadCanto("inferno_01"),
   inferno_05: loadCanto("inferno_05"),
   inferno_06: loadCanto("inferno_06"),
+  inferno_07: loadCanto("inferno_07"),
 };
