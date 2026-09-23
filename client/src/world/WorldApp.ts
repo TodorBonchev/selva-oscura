@@ -777,11 +777,13 @@ export class WorldApp {
   loop = () => {
     if (!this.running) return;
     requestAnimationFrame(this.loop);
-    // Tab hidden: drain clock, skip sim/draw (rain CSS already pauses via .tab-hidden).
+    // Tab hidden: drain clock, skip sim/draw (rain + gold-dust CSS pause via .tab-hidden).
     if (document.hidden) {
       this.clock.getDelta();
+      if (this.ash?.points) this.ash.points.visible = false;
       return;
     }
+    if (this.ash?.points && !this.ash.points.visible) this.ash.points.visible = true;
     let dt = this.clock.getDelta();
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
     dt = Math.min(0.05, dt);

@@ -2907,9 +2907,10 @@ body:not(.in-avarice) #gold-dust {
   opacity: 0;
   pointer-events: none;
 }
+/* Tab already/just hidden: freeze gold ash like rain — lower opacity, no drift cost */
 body.tab-hidden.in-avarice #gold-dust {
-  animation: none;
-  opacity: 0.2;
+  animation: none !important;
+  opacity: 0.08;
 }
 @keyframes gold-dust-drift {
   0% { background-position: 0 0, 40px 20px; }
