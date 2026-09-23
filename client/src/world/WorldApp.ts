@@ -2095,6 +2095,36 @@ export class WorldApp {
     this.impacts.push({ mesh: ring, start: this.animT, dur: 900, from: 1.2, to: 4.2 });
   }
 
+  /** Rising bone-gold heal motes from Ledger Shrine kneel — soft mend, no neon. */
+  spawnAvaHealMotes(x: number, y: number) {
+    const y0 = this.standY(x, y, 0.4);
+    const n = isCompactUi() ? 6 : 9;
+    for (let i = 0; i < n; i++) {
+      const mote = new THREE.Mesh(
+        new THREE.SphereGeometry(0.05 + Math.random() * 0.04, 5, 5),
+        new THREE.MeshBasicMaterial({
+          color: i % 2 ? 0xfff0c8 : 0xe8c86a,
+          transparent: true,
+          opacity: 0.92,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      const ang = (i / n) * Math.PI * 2 + Math.random() * 0.35;
+      const r = 0.15 + Math.random() * 0.45;
+      setPlanar(mote.position, x + Math.cos(ang) * r, y + Math.sin(ang) * r, y0 + 0.6);
+      this.scene.add(mote);
+      this.impacts.push({
+        mesh: mote,
+        start: this.animT + i * 28,
+        dur: 780 + Math.random() * 320,
+        from: 1,
+        to: 0.12,
+        rise: 2.2 + Math.random() * 1.2,
+      });
+    }
+  }
+
   /** Rising bone-gold ash motes on loot pickup — SFX-less clarity in the gold haze. */
   spawnAvaPickupMotes(x: number, y: number, rich = false) {
     const y0 = this.standY(x, y, 0.18);
@@ -2642,7 +2672,17 @@ export class WorldApp {
           const shrine = this.room.entities.find(
             (e: any) => e.poiKind === "shrine" || e.id === "ledger_shrine"
           );
-          if (shrine) this.spawnAvaClaimRing(shrine, 0xf2dea0, 0.9, 2.8, 820);
+          if (shrine) {
+            this.spawnAvaClaimRing(shrine, 0xf2dea0, 0.9, 2.8, 820);
+            const sp = this.entityRenderPos(shrine);
+            this.spawnAvaHealMotes(sp.x, sp.y);
+            const rec = this.nodes.get(String(shrine.id));
+            const ember = rec?.group.getObjectByName("ember");
+            if (ember) {
+              ember.scale.setScalar(1.55);
+              window.setTimeout(() => ember.scale.setScalar(1), 520);
+            }
+          }
         }
         if (/Gluttony gate|gate past the dais opens/i.test(text)) {
           this.camPunch = Math.max(this.camPunch, 1.25);
