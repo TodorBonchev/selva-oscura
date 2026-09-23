@@ -484,7 +484,8 @@ export function buildGround(
       rib.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
       const mat = rib.material as THREE.MeshBasicMaterial;
       mat.side = THREE.DoubleSide;
-      mat.opacity = isWeightLane ? 0.32 : 0.45;
+      /* Lust path ribbons: match weight-lane restraint so slash reads through gale */
+      mat.opacity = isWeightLane ? 0.32 : 0.34;
       if (isGlut && mat.color) mat.color.set(0x6a5a30);
       if (isAva && mat.color) mat.color.set(0x8a7040);
       group.add(rib);
@@ -609,13 +610,13 @@ export function buildGround(
       moundsMesh.instanceMatrix.needsUpdate = true;
       group.add(moundsMesh);
 
-      // Fewer low olive haze ribbons (compact: 3, desktop: 4)
-      const hazeN = compact ? 3 : 4;
+      // Olive haze ribbons — Ava gold restraint parity (slash-readable)
+      const hazeN = compact ? 2 : 3;
       for (let i = 0; i < hazeN; i++) {
         const ribbon = makeGaleRibbon(mats, 14 + i * 3);
         const mat = ribbon.material as THREE.MeshBasicMaterial;
         mat.color.set(0x6a7a30);
-        mat.opacity = compact ? 0.2 : 0.26;
+        mat.opacity = compact ? 0.12 : 0.16;
         const rx = 28 + i * 28;
         const rz = 44 + (i % 2) * 12;
         ribbon.position.set(rx, heightAt(rx, rz) + 0.7, rz);

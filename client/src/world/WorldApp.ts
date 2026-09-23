@@ -2457,7 +2457,7 @@ export class WorldApp {
     }
     if (lust) {
       this.fogTargetColor.setHex(0x3a140e);
-      this.fogTargetDensity = 0.015;
+      this.fogTargetDensity = 0.0135;
       this.clearTargetColor.setHex(0x1a0c08);
       this.hemi.color.set(0xffb080);
       this.hemi.groundColor.set(0x2a1008);
@@ -2471,7 +2471,7 @@ export class WorldApp {
       this.heroLight.distance = 10;
     } else if (glut) {
       // Slightly brighter hemi + cooler rim so mire labels read through olive fog.
-      this.glutFogBase = 0.022;
+      this.glutFogBase = 0.017;
       this.mawPressureOn = false;
       this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
