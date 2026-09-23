@@ -1768,6 +1768,18 @@ export class WorldApp {
         rec.group.userData.avaHubHomeGlow = hubHome;
         rec.hpEl.classList.toggle("ava-hub-home", Boolean(hubHome));
       }
+      // Hub stash glow after Ava bank tip (Crush clear → Dark Wood)
+      if (
+        this.room?.cantoId === "inferno_01" &&
+        e?.poiKind === "stash" &&
+        this.avaClearStashTipShown
+      ) {
+        rec.hpEl.classList.add("ava-stash-glow");
+        rec.group.userData.avaStashGlow = true;
+      } else if (e?.poiKind === "stash") {
+        rec.hpEl.classList.remove("ava-stash-glow");
+        rec.group.userData.avaStashGlow = false;
+      }
       // Avarice Ledger Cache — empty mesh after claim (session)
       if (
         this.room?.cantoId === "inferno_07" &&
