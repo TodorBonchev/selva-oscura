@@ -450,6 +450,27 @@ class CantoRoom {
       s._lastFaceX = mdx / ml;
       s._lastFaceY = mdy / ml;
     }
+    // Avarice: soft separation from rollers so pathing doesn't clip through weights
+    if (this.cantoId === "inferno_07") {
+      for (const e of this.entities.values()) {
+        if (e.kind !== "mob" || !(e.hp > 0)) continue;
+        const arch = e.archetype || "";
+        if (
+          arch !== "weight_shade" &&
+          arch !== "weight_champion" &&
+          arch !== "coin_wisp"
+        )
+          continue;
+        if ((e.stunLeft || 0) > 0.05) continue; // still measure — walk through
+        const rad = arch === "coin_wisp" ? 0.85 : arch === "weight_champion" ? 1.35 : 1.1;
+        const dR = Math.hypot(nx - e.x, ny - e.y);
+        if (dR >= rad || dR < 0.001) continue;
+        const ux = (nx - e.x) / dR;
+        const uy = (ny - e.y) / dR;
+        nx = clamp(e.x + ux * rad, 0.5, b.width - 0.5);
+        ny = clamp(e.y + uy * rad, 0.5, b.height - 0.5);
+      }
+    }
     s.x = nx;
     s.y = ny;
     this.markDirty();
@@ -1205,7 +1226,11 @@ class CantoRoom {
     const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
     s.maxHp = PLAYER_MAX_HP + gear.maxHp;
     s.hp = Math.max(1, Math.min(s.maxHp, Math.round(s.maxHp * ratio)));
-    this.toast(s.ws, "info", `Equipped ${r.item.name} → ${r.slot}`);
+    const eqLine =
+      this.cantoId === "inferno_07"
+        ? `pesato — equipped ${r.item.name} → ${r.slot}`
+        : `Equipped ${r.item.name} → ${r.slot}`;
+    this.toast(s.ws, "info", eqLine);
     // Remotes need equipped on room.players to refresh gear look.
     this.pushAllSnapshots();
   }
