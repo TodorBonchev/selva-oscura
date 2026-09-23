@@ -411,7 +411,11 @@ class CantoRoom {
       return;
     }
     if (dist(s, target) > ATTACK_RANGE) {
-      this.toast(s.ws, "warn", "Out of range.");
+      const now = Date.now();
+      if (!s._oorToastAt || now - s._oorToastAt > 1400) {
+        s._oorToastAt = now;
+        this.toast(s.ws, "warn", "Out of range.");
+      }
       return;
     }
     s.atkCd = PLAYER_ATK_CD;

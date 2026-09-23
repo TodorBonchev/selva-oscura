@@ -266,7 +266,7 @@
         "y": 48
       },
       "first_clear_emit": true,
-      "notes": "Crushing iron and coin \u2014 weight without rest"
+      "notes": "Crushing iron and coin \u2014 weight without rest; Dor\u00e9 bone-gold rollers"
     }
   ],
   "first_clear": {
@@ -278,7 +278,7 @@
   "daily_quests": [
     {
       "id": "ava_daily_ledger",
-      "objective": "Ring the Ledger Bell to still a pack, then break Hoard Crush (or return from Avarice once)",
+      "objective": "Ring the Ledger Bell to still a pack (or North Measure), then break Hoard Crush",
       "emit_event": "DailyQuest",
       "notes": "Contrapasso of measure: still the weights, tip the Crush; shares UTC daily cap with Dark Wood writ"
     }

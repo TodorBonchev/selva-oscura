@@ -241,11 +241,11 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   const groundAvarice = new THREE.MeshStandardMaterial({
     map: goldMap.clone(),
     // Stronger scorched-coin read; vertex colors push gold road vs pitch off-path
-    color: 0x7a6438,
-    roughness: 0.58,
-    metalness: 0.42,
-    emissive: 0x2a1c08,
-    emissiveIntensity: 0.24,
+    color: 0x8a7040,
+    roughness: 0.55,
+    metalness: 0.46,
+    emissive: 0x3a2410,
+    emissiveIntensity: 0.28,
     vertexColors: true,
   });
   const mire = new THREE.MeshBasicMaterial({

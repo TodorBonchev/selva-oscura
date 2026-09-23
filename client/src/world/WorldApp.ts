@@ -274,6 +274,7 @@ export class WorldApp {
   counterweightApproachShown = false;
   ledgerMidApproachShown = false;
   northMeasureApproachShown = false;
+  crushApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1294,8 +1295,11 @@ export class WorldApp {
         if (d2 < 52 * 52) {
           tickHoardCrush(n.group, this.animT);
         }
-        // Soften crush glow wash when far / always clamp intensity
-        const glow = n.group.getObjectByName("crushGlow") as THREE.PointLight | undefined;
+        let glow = n.group.userData.crushGlow as THREE.PointLight | undefined;
+        if (glow === undefined) {
+          glow = n.group.getObjectByName("crushGlow") as THREE.PointLight | undefined;
+          n.group.userData.crushGlow = glow || null;
+        }
         if (glow) {
           glow.intensity = d2 > 40 * 40 ? 0.6 : d2 > 22 * 22 ? 1.8 : 3.0;
           glow.visible = d2 < 48 * 48;
@@ -1312,9 +1316,13 @@ export class WorldApp {
         n.group.scale.setScalar(base);
       }
       const aura = n.group.getObjectByName("judgeAura");
-      if (aura) {
-        const s = 1 + Math.sin(this.animT * 0.004) * 0.08;
-        aura.scale.set(s, s, 1);
+      if (aura && this.frameN % 2 === 0) {
+        const ax = n.group.position.x - this.camFollow.x;
+        const az = n.group.position.z - this.camFollow.z;
+        if (ax * ax + az * az < 50 * 50) {
+          const s = 1 + Math.sin(this.animT * 0.004) * 0.08;
+          aura.scale.set(s, s, 1);
+        }
       }
     }
     if (!this.inCombat() || this.frameN % 2 === 0) {
@@ -1949,6 +1957,7 @@ export class WorldApp {
           this.counterweightApproachShown = false;
           this.ledgerMidApproachShown = false;
           this.northMeasureApproachShown = false;
+          this.crushApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -3179,6 +3188,19 @@ export class WorldApp {
           this.northMeasureApproachShown = true;
           showToast("North Measure — unpaid tallies on the empty flats", "info");
           break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.crushApproachShown) {
+      const boss = this.room.entities.find(
+        (e: any) => e.kind === "boss" || /^hoard crush$/i.test(String(e.name || ""))
+      );
+      if (boss && (boss.hp == null || boss.hp > 0)) {
+        const pos = this.entityRenderPos(boss);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 16) {
+          this.crushApproachShown = true;
+          showToast("Hoard Crush — weight without rest; tip the measure", "warn");
         }
       }
     }
