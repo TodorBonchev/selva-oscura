@@ -285,6 +285,8 @@ export type ImpactRing = {
   dur: number;
   from?: number;
   to?: number;
+  /** Optional upward drift (world Y units over life) for ash motes. */
+  rise?: number;
 };
 
 export function makeImpactRing(color: number): THREE.Mesh {
@@ -305,11 +307,17 @@ export function makeImpactRing(color: number): THREE.Mesh {
 }
 
 export function tickImpact(ring: ImpactRing, t: number) {
-  const u = Math.min(1, Math.max(0, (t - ring.start) / ring.dur));
+  const u = Math.min(1, Math.max(0, (t - ring.start) / Math.max(1, ring.dur)));
   const from = ring.from ?? 0.45;
   const to = ring.to ?? 3.85;
   const s = from + u * (to - from);
-  ring.mesh.scale.set(s, s, 1);
+  if (ring.rise != null) {
+    if ((ring as any)._baseY == null) (ring as any)._baseY = ring.mesh.position.y;
+    ring.mesh.scale.setScalar(Math.max(0.12, 1 - u * 0.85));
+    ring.mesh.position.y = (ring as any)._baseY + ring.rise * u;
+  } else {
+    ring.mesh.scale.set(s, s, 1);
+  }
   (ring.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - u) * (1 - u) * 0.95);
 }
 

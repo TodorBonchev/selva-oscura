@@ -4429,12 +4429,22 @@ body.ava-first-clear #game-root::after {
   position: fixed;
   inset: 0;
   z-index: 12;
-  box-shadow: inset 0 0 48px #d4a84033, inset 0 0 120px #1a140866;
-  animation: ava-clear-fringe 0.9s ease-out forwards;
+  background:
+    radial-gradient(ellipse 55% 45% at 50% 48%, #f2dea028 0%, transparent 70%),
+    radial-gradient(ellipse 80% 70% at 50% 50%, transparent 40%, #1a140855 100%);
+  box-shadow: inset 0 0 56px #d4a84044, inset 0 0 140px #0a080466;
+  animation: ava-clear-fringe 1.2s ease-out forwards;
 }
 @keyframes ava-clear-fringe {
-  0% { opacity: 0.85; }
-  100% { opacity: 0; }
+  0% { opacity: 0.95; filter: brightness(1.15); }
+  35% { opacity: 0.7; }
+  100% { opacity: 0; filter: brightness(1); }
+}
+body.in-avarice.ava-first-clear #heat-haze {
+  opacity: 0.18;
+}
+body.in-avarice.ava-first-clear #gold-dust {
+  opacity: 0.4;
 }
 
 /* Glut→Ava outbound weighed gate — bone-gold name (no neon) */

@@ -1894,6 +1894,60 @@ export class WorldApp {
     this.impacts.push({ mesh: ring, start: this.animT, dur, from, to });
   }
 
+
+  /** SFX-less first-clear burst at Hoard Crush — nested bone-gold rings + rising ash. */
+  spawnAvaFirstClearBurst(ent: any) {
+    const pos = this.entityRenderPos(ent);
+    const y0 = this.standY(pos.x, pos.y, 0.12);
+    // Inner quick measure
+    this.spawnAvaClaimRing(ent, 0xf2dea0, 1.2, 4.2, 720);
+    // Outer slow ledger wash
+    const outer = new THREE.Mesh(
+      new THREE.RingGeometry(1.1, 1.45, isCompactUi() ? 24 : 36),
+      new THREE.MeshBasicMaterial({
+        color: 0xe8c86a,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    outer.rotation.x = -Math.PI / 2;
+    setPlanar(outer.position, pos.x, pos.y, y0);
+    this.scene.add(outer);
+    this.impacts.push({ mesh: outer, start: this.animT, dur: 1400, from: 1.4, to: 7.2 });
+    // Rising ash motes (bone dust, no neon)
+    const n = isCompactUi() ? 8 : 14;
+    for (let i = 0; i < n; i++) {
+      const mote = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06 + Math.random() * 0.05, 6, 6),
+        new THREE.MeshBasicMaterial({
+          color: i % 2 ? 0xf2dea0 : 0xd4a840,
+          transparent: true,
+          opacity: 0.85,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      const ang = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+      const r = 0.6 + Math.random() * 1.4;
+      setPlanar(mote.position, pos.x + Math.cos(ang) * r, pos.y + Math.sin(ang) * r, y0 + 0.2);
+      this.scene.add(mote);
+      this.impacts.push({
+        mesh: mote,
+        start: this.animT + i * 18,
+        dur: 900 + Math.random() * 400,
+        from: 1,
+        to: 0.2,
+        rise: 2.8 + Math.random() * 1.6,
+      });
+    }
+    this.camPunch = Math.max(this.camPunch, 1.75);
+    this.camShake = Math.max(this.camShake, 0.48);
+    this.camFovKick = Math.max(this.camFovKick, 3.2);
+  }
+
   /** Soft entrance keep-out pulse — bone-gold, no neon (spawn / death wake). */
   spawnAvaEntrancePulse(x: number, y: number) {
     const ring = new THREE.Mesh(
@@ -2229,17 +2283,24 @@ export class WorldApp {
                 }
               }
               if (c === "inferno_07") {
-                this.camPunch = Math.max(this.camPunch, 1.55);
-                this.camShake = Math.max(this.camShake, 0.35);
-                this.camFovKick = Math.max(this.camFovKick, 2.4);
                 document.body.classList.add("ava-first-clear");
-                window.setTimeout(() => document.body.classList.remove("ava-first-clear"), 900);
+                document.body.classList.remove("crush-pressure", "crush-phase2");
+                window.setTimeout(() => document.body.classList.remove("ava-first-clear"), 1200);
                 showToast("misura spezzata — Hoard Crush yields; peso e contrapeso is paid", "emit");
-                const bossEnt = this.room?.entities?.find((e: any) => e.id === "hoard_crush" || e.kind === "boss");
-                if (bossEnt) this.spawnAvaClaimRing(bossEnt, 0xf2dea0, 1.4, 5.5, 1100);
+                const bossEnt = this.room?.entities?.find(
+                  (e: any) => e.id === "hoard_crush" || e.kind === "boss"
+                );
+                if (bossEnt) this.spawnAvaFirstClearBurst(bossEnt);
+                else {
+                  this.camPunch = Math.max(this.camPunch, 1.75);
+                  this.camShake = Math.max(this.camShake, 0.48);
+                }
                 if (!this.avaClearStashTipShown) {
                   this.avaClearStashTipShown = true;
-                  showToast("Bank weighed drops at the Dark Wood stash — then speak with the Guide", "info");
+                  showToast(
+                    "Bank weighed drops at the Dark Wood stash — then speak with the Guide",
+                    "info"
+                  );
                 }
               }
             }
@@ -2342,7 +2403,7 @@ export class WorldApp {
         const text = String(msg.text || "");
         showToast(text, msg.level);
         if (/out of range|nothing to strike|no foe in range|lashes empty air/i.test(text)) resetCombo();
-        if (/slain|misura spezzata|wake at the ledger gate/i.test(text)) this.triggerDeathRevive();
+        if (/slain|you fall under the weight|wake at the ledger gate/i.test(text)) this.triggerDeathRevive();
         if (
           this.room?.cantoId === "inferno_07" &&
           (/^pesato — equipped/i.test(text) || /^Equipped /i.test(text))
