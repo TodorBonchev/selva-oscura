@@ -125,6 +125,8 @@ const INTERACT_RANGE = 5.2;
 const INTERACT_HIGHLIGHT_RANGE = 5.0;
 /** Soft snap: gentle pull / walk-in when just outside interact reach. */
 const SOFT_SNAP_PULL_RANGE = 3.1;
+/** Portals: longer soft-pull so gate lock tips fire before "Move closer". */
+const SOFT_SNAP_PORTAL_PULL_RANGE = 5.8;
 const SOFT_SNAP_USE_RANGE = 7.4;
 const STICKY_INTERACT_MS = 480;
 const EXIT_HINT_RANGE = 7;
@@ -937,13 +939,19 @@ export class WorldApp {
         this.aimY = ny;
       }
       // Soft snap pull toward nearby interactables (POI / loot / portal)
-      const snap = this.pickInteractable(SOFT_SNAP_PULL_RANGE);
+      const portalSnap = this.pickInteractable(SOFT_SNAP_PORTAL_PULL_RANGE);
+      const snapRange =
+        portalSnap && (portalSnap.ent.kind === "exit" || portalSnap.ent.poiKind === "portal")
+          ? SOFT_SNAP_PORTAL_PULL_RANGE
+          : SOFT_SNAP_PULL_RANGE;
+      const snap =
+        snapRange === SOFT_SNAP_PORTAL_PULL_RANGE ? portalSnap : this.pickInteractable(SOFT_SNAP_PULL_RANGE);
       if (snap && snap.d > 0.35) {
         const px = (snap.pos.x - this.renderYou.x) / snap.d;
         const py = (snap.pos.y - this.renderYou.y) / snap.d;
         const toward = nx * px + ny * py;
         if (toward > -0.15) {
-          const t = 1 - snap.d / SOFT_SNAP_PULL_RANGE;
+          const t = 1 - snap.d / snapRange;
           const pull = t * t * 5.5;
           this.velX += px * pull * dtSec;
           this.velY += py * pull * dtSec;
@@ -3423,6 +3431,14 @@ export class WorldApp {
       this.softSnapTargetId = String(soft.ent.id);
       this.softSnapUntil = this.animT + 1600;
       this.moveTarget = { x: soft.pos.x, y: soft.pos.y };
+      // Locked gate: tip immediately so approach isn't "Move closer" mystery
+      if (
+        (soft.ent.kind === "exit" || soft.ent.poiKind === "portal") &&
+        this.portalIsLocked(soft.ent)
+      ) {
+        this.denyLockedPortal(soft.ent);
+        return;
+      }
       const label = soft.ent.label || soft.ent.name || soft.ent.item?.name || "target";
       showToast(`Approaching ${label}…`, "info");
       return;
