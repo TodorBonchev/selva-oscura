@@ -1053,13 +1053,13 @@ export class WorldApp {
         this.renderer.setPixelRatio(want);
       }
     }
-    const shadowEvery = compact && inCombatRoom ? (inAva ? 4 : 3) : 2;
-    const labelEvery = compact && fighting ? 3 : 2;
+    const shadowEvery = compact && inCombatRoom ? (inAva ? 5 : 3) : 2;
+    const labelEvery = compact && fighting ? (inAva ? 4 : 3) : 2;
     if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
     if (inGlut && this.frameN % 4 === 0) this.tickMawPressure();
-    if (inAva && this.frameN % 4 === 0) this.tickCrushPressure();
+    if (inAva && this.frameN % (compact ? 5 : 4) === 0) this.tickCrushPressure();
     this.tickAtmosphere();
     this.fadeTreeOccluders();
     this.tickFx(dt);
@@ -1305,8 +1305,13 @@ export class WorldApp {
       }
       const gem = n.group.getObjectByName("gem");
       if (gem) {
-        gem.rotation.y = this.animT * 0.004;
-        gem.position.y = 0.38 + Math.sin(this.animT * 0.005) * 0.08;
+        const gx = n.group.position.x - this.camFollow.x;
+        const gz = n.group.position.z - this.camFollow.z;
+        const gemR = isCompactUi() ? 26 : 40;
+        if (gx * gx + gz * gz < gemR * gemR) {
+          gem.rotation.y = this.animT * 0.004;
+          gem.position.y = 0.38 + Math.sin(this.animT * 0.005) * 0.08;
+        }
       }
       if (n.kind === "guide" || n.kind === "player") {
         const hdx = n.group.position.x - this.renderYou.x;
@@ -1321,7 +1326,17 @@ export class WorldApp {
         // Far cull ribbon sparkle for wisps + weight shades (Avarice density)
         const wx = n.group.position.x - this.camFollow.x;
         const wz = n.group.position.z - this.camFollow.z;
-        const cullR = n.group.userData.coinWisp ? 36 : isCompactUi() ? 34 : 44;
+        const compact = isCompactUi();
+        const avaDense = this.room?.cantoId === "inferno_07";
+        const cullR = n.group.userData.coinWisp
+          ? compact
+            ? 28
+            : 36
+          : compact
+            ? avaDense
+              ? 28
+              : 34
+            : 44;
         const stunned = Number(n.group.userData.stunLeft || 0) > 0.05;
         if (wx * wx + wz * wz > cullR * cullR) {
           /* skip far idle */
@@ -1341,7 +1356,7 @@ export class WorldApp {
       if (n.kind === "triple_maw" && this.frameN % 2 === 0) {
         tickTripleMaw(n.group, this.animT);
       }
-      if (n.kind === "hoard_crush" && this.frameN % 2 === 0) {
+      if (n.kind === "hoard_crush" && this.frameN % (isCompactUi() ? 3 : 2) === 0) {
         const hx = n.group.position.x - this.camFollow.x;
         const hz = n.group.position.z - this.camFollow.z;
         const d2 = hx * hx + hz * hz;
