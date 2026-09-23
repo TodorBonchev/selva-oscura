@@ -680,8 +680,36 @@ export function buildGround(
       coins.instanceMatrix.needsUpdate = true;
       group.add(coins);
 
+      // Scorched ledger cracks along hunt (InstancedMesh; cheap boxes)
+      const crackMat = new THREE.MeshStandardMaterial({
+        color: 0x1a140c,
+        roughness: 0.92,
+        metalness: 0.08,
+        emissive: 0x3a2a10,
+        emissiveIntensity: 0.22,
+      });
+      const crackGeo = new THREE.BoxGeometry(1.8, 0.04, 0.14);
+      const crackN = compact ? 5 : 9;
+      const cracks = new THREE.InstancedMesh(crackGeo, crackMat, crackN);
+      cracks.castShadow = false;
+      cracks.receiveShadow = true;
+      cracks.frustumCulled = true;
+      for (let i = 0; i < crackN; i++) {
+        const [px, pz] =
+          i < hunt.length
+            ? hunt[i]
+            : ([30 + hash(i, 81) * (w - 60), 30 + hash(i, 82) * (h - 60)] as [number, number]);
+        _p.set(px + (hash(i, 83) - 0.5) * 1.6, heightAt(px, pz) + 0.04, pz + (hash(i, 84) - 0.5) * 1.6);
+        _q.setFromEuler(new THREE.Euler(0, hash(i, 85) * Math.PI, 0));
+        _s.set(0.9 + hash(i, 86) * 0.7, 1, 1);
+        _m.compose(_p, _q, _s);
+        cracks.setMatrixAt(i, _m);
+      }
+      cracks.instanceMatrix.needsUpdate = true;
+      group.add(cracks);
+
       // Rolling weight props (short cylinders)
-      const weightCap = compact ? 7 : 12;
+      const weightCap = compact ? 6 : 10;
       const weightGeo = new THREE.CylinderGeometry(0.55, 0.62, 0.35, compact ? 8 : 10);
       const weightsMesh = new THREE.InstancedMesh(weightGeo, mats.bronze, weightCap);
       weightsMesh.castShadow = false;

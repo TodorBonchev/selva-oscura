@@ -2090,14 +2090,26 @@ export function makeLedgerCache(mats: MatKit): THREE.Group {
   const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.04, 10), mats.gold);
   coin.position.set(0.28, 0.55, 0.22);
   coin.rotation.x = Math.PI / 2;
+  coin.name = "weightDisc";
   const coin2 = coin.clone();
   coin2.position.set(0.18, 0.6, 0.24);
   coin2.scale.setScalar(0.85);
-  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.22, 0.03), mats.bone);
-  plate.position.set(-0.2, 0.55, 0.3);
+  const coin3 = coin.clone();
+  coin3.position.set(0.08, 0.58, 0.26);
+  coin3.scale.setScalar(0.7);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.26, 0.03), mats.bone);
+  plate.position.set(-0.22, 0.55, 0.3);
+  const hash = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.025, 0.02), mats.bronze);
+  hash.position.set(-0.22, 0.58, 0.32);
+  const hash2 = hash.clone();
+  hash2.position.y = 0.52;
   const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.1, 0.08), mats.gold);
   band.position.set(0, 0.32, 0.28);
-  g.add(coin, coin2, plate, band);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.035, 5, 12), mats.gold);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.06;
+  ring.name = "ribbon";
+  g.add(coin, coin2, coin3, plate, hash, hash2, band, ring);
   return g;
 }
 

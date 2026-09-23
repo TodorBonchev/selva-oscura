@@ -276,6 +276,7 @@ export class WorldApp {
   northMeasureApproachShown = false;
   crushApproachShown = false;
   southSpillApproachShown = false;
+  weightChampApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1972,6 +1973,7 @@ export class WorldApp {
           this.northMeasureApproachShown = false;
           this.crushApproachShown = false;
           this.southSpillApproachShown = false;
+          this.weightChampApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -3236,6 +3238,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
           this.southSpillApproachShown = true;
           showToast("South Spill — undervalued coin, still sharp", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.weightChampApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^weight champions$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 13) {
+          this.weightChampApproachShown = true;
+          showToast("Weight Champions — heavy measures before the Crush", "warn");
           break;
         }
       }
