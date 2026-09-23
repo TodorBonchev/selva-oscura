@@ -4661,3 +4661,26 @@ body.in-avarice .world-label.portal-label.ava-hub-home .wl-name {
 body.in-avarice .world-label.portal-label.ava-hub-home {
   filter: drop-shadow(0 0 5px #d4a84055);
 }
+
+
+/* Weighed rarity border pulse — Inv bag reads measure after Avarice loot (no neon) */
+body.in-avarice #hud-inv.open .inv-slot:not(.empty).r-magic,
+body.in-avarice #hud-inv.open .inv-slot:not(.empty).r-rare,
+body.in-avarice #hud-inv.open .inv-slot:not(.empty).r-set,
+body.in-avarice #hud-inv.open .inv-slot:not(.empty).r-unique,
+body.in-avarice #hud-inv.open .inv-slot:not(.empty).r-canto_unique,
+body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-magic,
+body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-rare,
+body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-set,
+body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-unique,
+body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-canto_unique {
+  animation: weighed-rarity-pulse 1.6s ease-in-out 1;
+}
+@keyframes weighed-rarity-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px #000a, inset 0 0 12px var(--rc-dim), 0 0 6px color-mix(in srgb, var(--rc) 35%, transparent);
+  }
+  45% {
+    box-shadow: inset 0 0 0 1px #000a, inset 0 0 16px var(--rc-dim), 0 0 0 1px color-mix(in srgb, var(--rc) 70%, #e8c86a), 0 0 14px color-mix(in srgb, var(--rc) 45%, transparent);
+  }
+}
