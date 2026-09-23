@@ -1024,8 +1024,17 @@ export class WorldApp {
       const sm = this.slash.material as THREE.MeshBasicMaterial;
       const bright = u >= 0.22 && u < 0.45 ? 1 : 0.85;
       sm.opacity = bright * (1 - u * u);
-      sm.color.setHex(u >= 0.22 && u < 0.4 ? 0xfff6d8 : 0xffe8a8);
-      const punch = u >= 0.22 && u < 0.4 ? 1.24 : 1;
+      const avaSlash = this.room?.cantoId === "inferno_07";
+      sm.color.setHex(
+        u >= 0.22 && u < 0.4
+          ? avaSlash
+            ? 0xfff0c0
+            : 0xfff6d8
+          : avaSlash
+            ? 0xe8c86a
+            : 0xffe8a8
+      );
+      const punch = u >= 0.22 && u < 0.4 ? (avaSlash ? 1.3 : 1.24) : 1;
       this.slash.scale.setScalar((0.82 + swing * 0.55) * punch * (compact ? 0.92 : 1));
     } else if (this.slash) this.slash.visible = false;
 
@@ -1369,8 +1378,9 @@ export class WorldApp {
       const pulse = Number(n.group.userData.hitPulse) || 0;
       if (pulse > 0.04) {
         const base = Number(n.group.userData.baseScale) || 1;
-        n.group.userData.hitPulse = pulse * 0.82;
-        n.group.scale.setScalar(base * (1 + n.group.userData.hitPulse * 0.08));
+        const avaWeight = this.room?.cantoId === "inferno_07" && n.kind !== "player";
+        n.group.userData.hitPulse = pulse * (avaWeight ? 0.88 : 0.82);
+        n.group.scale.setScalar(base * (1 + n.group.userData.hitPulse * (avaWeight ? 0.1 : 0.08)));
       } else if (pulse > 0) {
         n.group.userData.hitPulse = 0;
         const base = Number(n.group.userData.baseScale) || 1;
@@ -2306,27 +2316,41 @@ export class WorldApp {
     }
     if (ent) {
       const heavy = ent.kind === "boss";
-      this.camShake = Math.max(this.camShake, 0.2 + comboBoost);
-      this.camPunch = Math.max(this.camPunch, (weHit ? 0.36 : 0.22) + comboBoost + (heavy ? 0.2 : 0));
+      const ava = this.room?.cantoId === "inferno_07";
+      const weightHit =
+        ava &&
+        (String(ent.archetype || "").startsWith("weight_") ||
+          ent.archetype === "ledger_warden" ||
+          ent.archetype === "hoard_heart" ||
+          ent.archetype === "coin_wisp");
+      this.camShake = Math.max(this.camShake, 0.2 + comboBoost + (weightHit ? 0.04 : 0));
+      this.camPunch = Math.max(
+        this.camPunch,
+        (weHit ? 0.36 : 0.22) + comboBoost + (heavy ? 0.2 : 0) + (weightHit ? 0.08 : 0)
+      );
       this.camFovKick = Math.max(this.camFovKick, (weHit ? 2.4 : 1.2) + comboBoost * 4);
       if (weHit) this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.16 + comboBoost);
-      this.hitStopUntil = performance.now() + HIT_STOP_MS;
+      // Weight packs: slightly longer iron hit-stop (Gluttony Cerbero parity feel)
+      const stopMs = HIT_STOP_MS + (weightHit && (ent.champion || heavy) ? 22 : weightHit ? 10 : 0);
+      this.hitStopUntil = performance.now() + stopMs;
       const pos = this.entityRenderPos(ent);
       this.floatDmg(pos, msg.damage, false);
       const rec = this.nodes.get(String(ent.id));
       if (rec) {
         const base = Number(rec.group.userData.baseScale) || rec.group.scale.x || 1;
         rec.group.userData.baseScale = base;
-        rec.group.userData.hitPulse = 1;
-        rec.group.scale.setScalar(base * (heavy ? 1.1 : 1.06));
+        rec.group.userData.hitPulse = weightHit ? 1.25 : 1;
+        rec.group.scale.setScalar(base * (heavy ? 1.1 : weightHit ? 1.09 : 1.06));
       }
       const dustElite =
-        this.room?.cantoId === "inferno_07" &&
+        ava &&
         (Boolean(ent.champion) ||
           ent.archetype === "hoard_heart" ||
           ent.archetype === "ledger_warden" ||
-          /^counterweight$/i.test(String(ent.name || "")));
-      this.spawnHitFx(pos, heavy ? 0xffd078 : 0xffe8a0, heavy || comboBoost > 0.2, dustElite);
+          /^counterweight$/i.test(String(ent.name || "")) ||
+          // Regular weights: light coin dust every other hit for measure read
+          (ent.archetype === "weight_shade" && (this.frameN & 1) === 0));
+      this.spawnHitFx(pos, heavy ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, heavy || comboBoost > 0.2, dustElite);
     }
   }
 
