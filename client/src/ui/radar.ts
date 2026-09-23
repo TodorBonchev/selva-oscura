@@ -23,9 +23,30 @@ function destLabel(e: any): string {
     return cantoShort(e.toCanto) || e.label || "Portal";
   }
   if (e?.kind === "boss") return e.name || "Boss";
-  if (e?.kind === "mob") return e.champion ? "Champion" : "Shade";
+  if (e?.kind === "mob") {
+    if (/^counterweight$/i.test(String(e.name || ""))) return "Counterweight";
+    return e.champion ? "Champion" : "Shade";
+  }
   if (e?.poiKind === "npc" || e?.kind === "poi") return e.label || e.name || "Guide";
   return e?.label || e?.name || "";
+}
+
+/** Avarice measure lane: prefer Counterweight, then Crush — wardens must not steal the arrow. */
+function pickAvaMeasureFoe(you: Vec2, entities: any[]): any | null {
+  const cw = entities.find(
+    (e: any) => /^counterweight$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
+  );
+  const crush = entities.find((e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0));
+  if (cw) {
+    const d = Math.hypot(cw.x - you.x, cw.y - you.y);
+    if (d < 52) return cw;
+  }
+  if (crush) {
+    const d = Math.hypot(crush.x - you.x, crush.y - you.y);
+    // After CW tips (or already on the dais band), lock compass onto Crush
+    if (!cw && (you.x > 100 || d < 42)) return crush;
+  }
+  return null;
 }
 
 function destClass(toCanto: string | undefined): string {
@@ -43,6 +64,9 @@ export class Radar {
   compass: HTMLElement;
   arrows = new Map<string, HTMLElement>();
   private lastHint = "";
+  /** Avarice: remember Counterweight so we can hand the compass to Crush once. */
+  private avaSawCw = false;
+  private avaHandoffUntil = 0;
 
   constructor() {
     this.canvas = document.getElementById("minimap-canvas") as HTMLCanvasElement;
@@ -79,6 +103,10 @@ export class Radar {
     compact: boolean;
     firstClears?: string[];
   }) {
+    if (opts.cantoId !== "inferno_07") {
+      this.avaSawCw = false;
+      this.avaHandoffUntil = 0;
+    }
     this.drawMap(opts);
     this.drawArrows(opts);
     this.writeHint(opts);
@@ -276,6 +304,14 @@ export class Radar {
         bestFoe = e;
       }
     }
+    // Avarice: Counterweight → Crush handoff beats nearest warden/pack
+    if (opts.cantoId === "inferno_07") {
+      const measure = pickAvaMeasureFoe(opts.you, opts.entities);
+      if (measure) {
+        bestFoe = measure;
+        bestD = Math.hypot(measure.x - opts.you.x, measure.y - opts.you.y);
+      }
+    }
     const clears = opts.firstClears || [];
     const avaCleared = opts.cantoId === "inferno_07" && clears.includes("inferno_07");
     // After Crush: compass is return/bank only — skip foe spam in the gold haze
@@ -458,8 +494,26 @@ export class Radar {
           !heart
         ) {
           text = "Ring Ledger Bell";
-        } else if (cw && Math.hypot(cw.x - opts.you.x, cw.y - opts.you.y) < 22) {
+        } else if (cw && Math.hypot(cw.x - opts.you.x, cw.y - opts.you.y) < 28) {
+          this.avaSawCw = true;
           text = "Tip Counterweight";
+        } else if (
+          !cw &&
+          opts.entities.some((e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)) &&
+          (opts.you.x > 100 || this.avaSawCw)
+        ) {
+          const crush = opts.entities.find(
+            (e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)
+          );
+          const now = performance.now();
+          if (this.avaSawCw && this.avaHandoffUntil === 0) this.avaHandoffUntil = now + 4200;
+          if (this.avaHandoffUntil > now) text = "The measure tips — Crush";
+          else text = bossLabel;
+          // Keep compass target as Crush even if a warden is nearer
+          if (crush) {
+            foe = crush;
+            foeD = Math.hypot(crush.x - opts.you.x, crush.y - opts.you.y);
+          }
         } else if (foe && foe.kind === "boss" && opts.you.x > 108) {
           text = bossLabel;
         } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
