@@ -4537,3 +4537,26 @@ body.in-avarice.ava-bell-still #gold-dust {
   text-shadow: 0 0 8px #e8c86a66, 0 1px 0 #000c;
   letter-spacing: 0.04em;
 }
+
+
+/* Avarice remotes — bone-gold nameplates cut through gold haze (no neon) */
+.world-label.ally.remote .wl-name {
+  color: #f0e2c0;
+  text-shadow: 0 1px 0 #000c, 0 0 6px #1a140866;
+}
+.world-label.ally.remote.ava-remote .wl-name {
+  color: #f2dea0;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 0 #000d, 0 0 10px #d4a84055;
+}
+.world-label.ally.remote .wl-hp {
+  outline: 1px solid #c8a86888;
+  background: #1a1408cc;
+}
+.world-label.ally.remote .wl-hp i {
+  background: linear-gradient(90deg, #c8a040, #e8d090);
+}
+body.in-avarice.hud-compact .world-label.ally.remote.ava-remote .wl-name {
+  font-size: 0.72rem;
+}

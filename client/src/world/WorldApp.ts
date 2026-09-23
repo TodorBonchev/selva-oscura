@@ -1654,6 +1654,13 @@ export class WorldApp {
     }
     if (kind === "player") {
       group.scale.setScalar(1.42);
+      // Avarice gold haze — bone rim so remotes read through heat/dust
+      if (this.room?.cantoId === "inferno_07") {
+        const rim = new THREE.PointLight(0xe8c86a, 0.55, 6.5, 2);
+        rim.name = "avaRemoteRim";
+        rim.position.set(0, 1.6, 0);
+        group.add(rim);
+      }
     }
     if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
     if (e.archetype === "gale_warden") group.scale.setScalar(1.15);
@@ -1698,6 +1705,10 @@ export class WorldApp {
     const wrap = document.createElement("div");
     wrap.className = "world-label";
     wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div><div class="interact-prompt" hidden></div>`;
+    if (kind === "player") {
+      wrap.classList.add("ally", "remote");
+      if (this.room?.cantoId === "inferno_07") wrap.classList.add("ava-remote");
+    }
     const label = new CSS2DObject(wrap);
     label.center.set(0.5, 1);
     const bossY =
@@ -1790,6 +1801,7 @@ export class WorldApp {
       rec.kind === "guide" ||
       rec.hpEl.classList.contains("poi-marker");
     let far = rec.kind === "loot" ? 22 : boss ? 30 : midboss ? 28 : foe ? 26 : 16;
+    if (rec.kind === "player") far = inAva ? 34 : 22;
     if (inAva && poiish) far = Math.min(far, 11);
     if (glutCompact) {
       far = rec.kind === "loot" ? 14 : boss ? 20 : midboss ? 18 : foe ? 13 : poiish ? 8 : 10;
@@ -1802,11 +1814,19 @@ export class WorldApp {
       return;
     }
     const nextOp =
-      d > (inAva && poiish ? 7 : 10) && !foe && rec.kind !== "loot" && !midboss ? "0.4" : "1";
+      d > (inAva && poiish ? 7 : 10) &&
+      !foe &&
+      rec.kind !== "loot" &&
+      rec.kind !== "player" &&
+      !midboss
+        ? "0.4"
+        : "1";
     if (rec.hpEl.style.opacity !== nextOp) rec.hpEl.style.opacity = nextOp;
-    const nameDist = inAva && poiish ? 6 : 8;
+    const nameDist = inAva && poiish ? 6 : rec.kind === "player" && inAva ? 28 : 8;
     const shown =
-      foe || midboss || rec.kind === "loot" || d <= nameDist ? name : "•";
+      foe || midboss || rec.kind === "loot" || rec.kind === "player" || d <= nameDist
+        ? name
+        : "•";
     if (nameEl && nameEl.textContent !== shown) nameEl.textContent = shown;
     rec.hpEl.classList.toggle("stilled", Number(rec.group.userData.stunLeft || 0) > 0.05);
     if (e.hp != null && e.maxHp) {
