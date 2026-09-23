@@ -2787,8 +2787,12 @@ body.slam-sting #slam-sting {
 
 /* Subtle heat-haze fringe at screen edges while ×75+ */
 body.in-lust #heat-haze {
-  opacity: 0.25;
+  /* Ava slash-read restraint — Lust wash was burying the trail */
+  opacity: 0.18;
   animation: heat-haze-shimmer 4.5s ease-in-out infinite;
+}
+body.in-lust.hud-compact #heat-haze {
+  opacity: 0.14;
 }
 body.in-avarice #heat-haze {
   opacity: 0.18;
@@ -2815,28 +2819,30 @@ body.in-avarice.crush-pressure #gold-dust {
   opacity: 0.22;
 }
 body.in-gluttony #heat-haze {
-  opacity: 0.48;
+  /* Parity with Ava restraint — olive fringe, slash stays readable */
+  opacity: 0.26;
   animation: heat-haze-shimmer 5.2s ease-in-out infinite;
   background:
-    radial-gradient(ellipse 110% 40% at 50% -5%, #8a7a3040 0%, transparent 55%),
-    radial-gradient(ellipse 40% 110% at -5% 50%, #5a4a2018 0%, transparent 50%),
-    radial-gradient(ellipse 40% 110% at 105% 50%, #6a5a2818 0%, transparent 50%),
-    radial-gradient(ellipse 110% 36% at 50% 105%, #3a302018 0%, transparent 55%);
+    radial-gradient(ellipse 110% 40% at 50% -5%, #8a7a3028 0%, transparent 55%),
+    radial-gradient(ellipse 40% 110% at -5% 50%, #5a4a2012 0%, transparent 50%),
+    radial-gradient(ellipse 40% 110% at 105% 50%, #6a5a2812 0%, transparent 50%),
+    radial-gradient(ellipse 110% 36% at 50% 105%, #3a302012 0%, transparent 55%);
 }
 
 /* Audio-free Triple Maw pressure fringe (toggled near boss) */
 body.in-gluttony.maw-pressure #heat-haze {
-  opacity: 0.72;
+  /* Maw pressure retained, but slash-readable (was 0.72 wash) */
+  opacity: 0.4;
   animation-duration: 3.4s;
   background:
-    radial-gradient(ellipse 110% 42% at 50% -5%, #a0903848 0%, transparent 55%),
-    radial-gradient(ellipse 42% 110% at -5% 50%, #4a3a1818 0%, transparent 50%),
-    radial-gradient(ellipse 42% 110% at 105% 50%, #5a4a2018 0%, transparent 50%),
-    radial-gradient(ellipse 110% 40% at 50% 105%, #2a241018 0%, transparent 55%),
-    radial-gradient(ellipse 88% 78% at 50% 48%, transparent 48%, #1a180c55 100%);
+    radial-gradient(ellipse 110% 42% at 50% -5%, #a0903830 0%, transparent 55%),
+    radial-gradient(ellipse 42% 110% at -5% 50%, #4a3a1812 0%, transparent 50%),
+    radial-gradient(ellipse 42% 110% at 105% 50%, #5a4a2012 0%, transparent 50%),
+    radial-gradient(ellipse 110% 40% at 50% 105%, #2a241012 0%, transparent 55%),
+    radial-gradient(ellipse 88% 78% at 50% 48%, transparent 52%, #1a180c38 100%);
 }
 body.in-gluttony.maw-pressure.hud-compact #heat-haze {
-  opacity: 0.58;
+  opacity: 0.3;
 }
 
 /* Gluttony locked-portal + mire rain atmosphere */
@@ -2887,11 +2893,11 @@ body.in-gluttony.maw-pressure.hud-compact #heat-haze {
   transition: opacity 0.45s ease;
 }
 body.in-gluttony #mire-rain {
-  opacity: 0.72;
+  opacity: 0.52;
   animation: mire-rain-fall 3.8s linear infinite;
 }
 body.in-gluttony.hud-compact #mire-rain {
-  opacity: 0.48;
+  opacity: 0.34;
   animation: none; /* static veil on compact — saves mobile composite cost */
 }
 body.tab-hidden #mire-rain,
@@ -2905,10 +2911,10 @@ body.tab-hidden #heat-haze {
   animation: none !important;
 }
 body.in-gluttony #heat-haze {
-  opacity: 0.4;
+  opacity: 0.26;
 }
 body.in-gluttony.hud-compact #heat-haze {
-  opacity: 0.28;
+  opacity: 0.18;
 }
 
 /* Avarice gold-black irony haze (restrained — slash stays readable) */
