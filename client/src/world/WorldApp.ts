@@ -2568,6 +2568,10 @@ export class WorldApp {
         this.lastCantoId = msg.room.cantoId;
         this.serverYou = { x: sx, y: sy };
         if (first || cantoChanged) {
+          // Memory: dispose Avarice-only meshes when leaving Inferno VII
+          if (cantoChanged && prevCanto === "inferno_07" && msg.room.cantoId !== "inferno_07") {
+            this.disposeAvaEphemerals();
+          }
           this.renderYou = { x: sx, y: sy };
           this.remoteSmooth.clear();
           this.moveTarget = null;
@@ -4013,6 +4017,34 @@ export class WorldApp {
   }
 
   /** Avarice: faint empty ledger cell after a fodder pack is wiped, until they refill. */
+
+  /** Drop Avarice-only ephemeral meshes/geo when leaving the circle (memory). */
+  disposeAvaEphemerals() {
+    for (const cell of this.emptyPackCells.values()) {
+      this.scene.remove(cell.mesh);
+      cell.mesh.geometry?.dispose();
+      (cell.mesh.material as THREE.Material).dispose();
+    }
+    this.emptyPackCells.clear();
+    this.lastPackAlive.clear();
+    this.lastPackPos.clear();
+    // Flush impact rings/motes immediately so shared coin discs aren't held across cantos
+    for (const r of this.impacts) {
+      this.scene.remove(r.mesh);
+      // Shared coin disc geo is disposed once below — skip double-free
+      if (r.mesh.geometry && r.mesh.geometry !== this.sharedCoinDiscGeo) {
+        r.mesh.geometry.dispose();
+      }
+      (r.mesh.material as THREE.Material).dispose();
+    }
+    this.impacts = [];
+    this.avaDeathBurstActive = 0;
+    if (this.sharedCoinDiscGeo) {
+      this.sharedCoinDiscGeo.dispose();
+      this.sharedCoinDiscGeo = null;
+    }
+  }
+
   updateEmptyPackCells() {
     if (!this.room || this.room.cantoId !== "inferno_07") {
       for (const cell of this.emptyPackCells.values()) {
