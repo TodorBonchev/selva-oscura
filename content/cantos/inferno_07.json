@@ -111,10 +111,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 28,
+        "x": 36,
         "y": 50
       },
-      "notes": "First counterweights on the scorched ledger road — learn the measure"
+      "notes": "First counterweights past the shrine — spawn keep-out; learn the measure on the scorched road"
     },
     {
       "id": "ava_ledger_a",

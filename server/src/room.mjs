@@ -28,6 +28,8 @@ const INTERACT_RANGE_PORTAL = 6.2;
 const MOVE_SPEED = 8; // units per intent clamp
 const PLAYER_MAX_HP = 130;
 const RESPAWN_IFRAMES = 2.0; // seconds of invulnerability after waking at the entrance
+/** Avarice entrance keep-out so Road Weights never sit on spawn / death wake. */
+const AVA_SPAWN_KEEP = 11.5;
 const PLAYER_BASE_DMG = 22;
 const PLAYER_ATK_CD = 0.42;
 
@@ -104,6 +106,26 @@ function dist(a, b) {
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
+}
+
+/** Push combatants outside the canto spawn bubble (Avarice entrance safety). */
+function enforceSpawnKeepout(room, minR = AVA_SPAWN_KEEP) {
+  if (room.cantoId !== "inferno_07") return;
+  const sp = room.canto?.geo?.spawn;
+  if (!sp) return;
+  const b = room.canto.geo.bounds;
+  for (const e of room.entities.values()) {
+    if (e.kind !== "mob" && e.kind !== "boss") continue;
+    const d = Math.hypot(e.x - sp.x, e.y - sp.y);
+    if (d >= minR || d < 0.05) continue;
+    const ux = (e.x - sp.x) / d;
+    const uy = (e.y - sp.y) / d;
+    e.x = clamp(sp.x + ux * minR, 1.5, b.width - 1.5);
+    e.y = clamp(sp.y + uy * minR, 1.5, b.height - 1.5);
+    // Re-home so leash does not drag them back onto the entrance
+    e.homeX = e.x;
+    e.homeY = e.y;
+  }
 }
 
 
@@ -236,6 +258,7 @@ class CantoRoom {
         atkCd: 0,
       });
     }
+    enforceSpawnKeepout(this);
   }
 
   join(ws, playerId, name) {
@@ -1237,6 +1260,18 @@ class CantoRoom {
         e.y += (hy / hl) * 4.2 * dt;
         moved = true;
         continue;
+      }
+      // Avarice: soft keep-out — weights drift off the entrance instead of camping spawn/death wake
+      if (this.cantoId === "inferno_07" && e.kind === "mob") {
+        const sp = this.canto.geo.spawn;
+        const sd = Math.hypot(e.x - sp.x, e.y - sp.y);
+        if (sd < AVA_SPAWN_KEEP - 0.4 && sd > 0.05) {
+          const ux = (e.x - sp.x) / sd;
+          const uy = (e.y - sp.y) / sd;
+          e.x += ux * 3.4 * dt;
+          e.y += uy * 3.4 * dt;
+          moved = true;
+        }
       }
       const aggro =
         e.kind === "boss"

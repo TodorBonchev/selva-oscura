@@ -1852,6 +1852,25 @@ export class WorldApp {
     this.impacts.push({ mesh: ring, start: this.animT, dur, from, to });
   }
 
+  /** Soft entrance keep-out pulse — bone-gold, no neon (spawn / death wake). */
+  spawnAvaEntrancePulse(x: number, y: number) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.15, 1.55, isCompactUi() ? 20 : 28),
+      new THREE.MeshBasicMaterial({
+        color: 0xe8d4a8,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    setPlanar(ring.position, x, y, this.standY(x, y, 0.12));
+    this.scene.add(ring);
+    this.impacts.push({ mesh: ring, start: this.animT, dur: 900, from: 1.2, to: 4.2 });
+  }
+
   portalIsLocked(e: any): boolean {
     const need = e?.requireClear;
     if (!need) return false;
@@ -2228,6 +2247,9 @@ export class WorldApp {
           } else {
             showToast("peso e contrapeso — measure the road, then break Hoard Crush", "info");
           }
+          // Entrance keep-out read — quiet bone-gold pulse under the wake stone
+          const you = msg.room.you;
+          if (you) this.spawnAvaEntrancePulse(you.x, you.y);
         }
         if (
           cantoChanged &&
@@ -3885,6 +3907,10 @@ export class WorldApp {
       this.velX = 0;
       this.velY = 0;
       this.moveTarget = null;
+      // Avarice: bone-gold wake pulse at the entrance keep-out
+      if (this.room?.cantoId === "inferno_07") {
+        this.spawnAvaEntrancePulse(this.serverYou.x, this.serverYou.y);
+      }
     }, 200);
   }
 
