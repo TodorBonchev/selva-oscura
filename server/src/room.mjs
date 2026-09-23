@@ -72,6 +72,22 @@ const MOB_DMG = {
 
 const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart"]);
 
+/** Avarice measure: gale (wind) soft vs weights; infernal burst (pressure) bites harder. */
+function weightMatchupMult(spellId, ent) {
+  const arch = String(ent?.archetype || "");
+  const isWeight =
+    arch === "weight_shade" ||
+    arch === "weight_champion" ||
+    arch === "hoard_heart" ||
+    arch === "ledger_warden" ||
+    /^counterweight$/i.test(String(ent?.name || ""));
+  if (!isWeight) return 1;
+  if (spellId === "gale_bolt") return 0.82;
+  if (spellId === "infernal_burst") return 1.22;
+  return 1;
+}
+
+
 /** Compact Ash+Stelle tag for emit/daily toasts (1 Stelle = 1000 Ash). */
 function ashStelleTag(ash) {
   const n = Math.max(0, Math.floor(Number(ash) || 0));
@@ -638,6 +654,7 @@ class CantoRoom {
         Math.floor(gear.dmg * 0.55) +
         Math.floor(Math.random() * (spell.damageVar + 1));
       if (heartWards(this, target)) dmg = Math.max(1, Math.round(dmg * 0.7));
+      dmg = Math.max(1, Math.round(dmg * weightMatchupMult(spell.id, target)));
       target.hp = Math.max(0, target.hp - dmg);
       this.broadcast({
         type: "combat",
@@ -706,6 +723,7 @@ class CantoRoom {
       if (dist(s, e) > spell.radius) continue;
       let dmg = base + Math.floor(Math.random() * 5);
       if (heartWards(this, e)) dmg = Math.max(1, Math.round(dmg * 0.7));
+      dmg = Math.max(1, Math.round(dmg * weightMatchupMult(spell.id, e)));
       e.hp = Math.max(0, e.hp - dmg);
       hit.push({ id: e.id, dmg, hp: e.hp, ent: e });
       this.broadcast({
