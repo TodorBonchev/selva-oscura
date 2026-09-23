@@ -3524,7 +3524,7 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 13) {
           this.weightChampApproachShown = true;
-          showToast("Weight Champions — heavy measures before the Crush", "warn");
+          showToast("peso — Weight Champions; heavy measures before the Crush", "warn");
           break;
         }
       }
@@ -3537,7 +3537,7 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
           this.nwDriftApproachShown = true;
-          showToast("Northwest Drift — scorched flats still hold weight", "info");
+          showToast("peso — Northwest Drift; scorched flats still hold weight", "info");
           break;
         }
       }
@@ -3550,7 +3550,7 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
           this.swSpillApproachShown = true;
-          showToast("Southwest Spill — undervalued coin on empty flats", "info");
+          showToast("contrapeso — Southwest Spill; undervalued coin on empty flats", "info");
           break;
         }
       }

@@ -707,7 +707,7 @@ class CantoRoom {
         killer.ws,
         "emit",
         entity.archetype === "hoard_heart"
-          ? "Hoard Heart bursts — the measure tips; Counterweight stirs."
+          ? "peso — Hoard Heart bursts; the measure tips, Counterweight stirs."
           : entity.archetype === "mire_heart"
             ? "The Mire Heart bursts — Cerbero stirs."
             : "The Storm Heart shatters."
@@ -725,10 +725,10 @@ class CantoRoom {
         const line =
           this.cantoId === "inferno_07"
             ? entity.archetype === "coin_wisp"
-              ? "The coins still. Measure holds — press on."
+              ? "contrapeso — the coins still; measure holds."
               : entity.archetype === "hoard_heart"
-                ? "The ward breaks. Counterweight stirs ahead."
-                : "The weights settle. Rebalance and press on."
+                ? "peso — the ward breaks; Counterweight stirs ahead."
+                : "contrapeso — the weights settle; rebalance and press on."
             : this.cantoId === "inferno_06"
               ? "The sludge settles. Press on."
               : "The gust breaks. Press on.";
@@ -789,7 +789,7 @@ class CantoRoom {
             this.toast(
               killer.ws,
               "emit",
-              "Hoard Crush broken — Avarice yields; return to Gluttony or bank loot at the stash."
+              "peso e contrapeso — Hoard Crush broken; return to Gluttony or bank loot at the stash."
             );
           }
         } else if (killer && r2.reason === "already_cleared") {
@@ -984,7 +984,7 @@ class CantoRoom {
           s.ws,
           "info",
           this.cantoId === "inferno_07"
-            ? "Ledger Stone — weights tip here; ring the Bell before the Crush."
+            ? "peso e contrapeso — ring the Bell before the Crush."
             : e.hint || e.label || "A marker on the road."
         );
         return;
@@ -994,7 +994,7 @@ class CantoRoom {
             s.ws,
             "info",
             this.cantoId === "inferno_07"
-              ? "The Ledger Cache is empty — its measure spent."
+              ? "misura spesa — the Ledger Cache is empty."
               : this.cantoId === "inferno_06"
                 ? "The filth cache is empty."
                 : "The wind cache is empty."
@@ -1016,7 +1016,7 @@ class CantoRoom {
         void grantInventoryItem(playerId, item).then(() => {
           const prefix =
             this.cantoId === "inferno_07"
-              ? "Ledger Cache"
+              ? "misura — Ledger Cache"
               : this.cantoId === "inferno_06"
                 ? "Filth Cache"
                 : "Cache";
@@ -1043,12 +1043,12 @@ class CantoRoom {
         }
         const bellLine = stilled
           ? this.cantoId === "inferno_07"
-            ? `Ledger Bell stills ${stilled}`
+            ? `peso — Ledger Bell stills ${stilled}`
             : this.cantoId === "inferno_06"
               ? `Mire Bell stills ${stilled}`
               : `The bell stills ${stilled}`
           : this.cantoId === "inferno_07"
-            ? "The Ledger Bell tolls — no weight answers."
+            ? "peso — the Ledger Bell tolls; no weight answers."
             : this.cantoId === "inferno_06"
               ? "The Mire Bell tolls — nothing answers."
               : "The bell rings, and nothing answers.";
@@ -1067,7 +1067,7 @@ class CantoRoom {
           e.poiKind === "pyre"
             ? "The camp pyre warms you. Life and breath restored."
             : this.cantoId === "inferno_07"
-              ? "The Ledger Shrine rebalances you — life and breath restored."
+              ? "rebalance — the Ledger Shrine restores life and breath."
               : this.cantoId === "inferno_06"
                 ? "The Mire Shrine knits your wounds and fills your breath."
                 : "The Wind Shrine knits your wounds and fills your breath.";
