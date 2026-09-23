@@ -1604,6 +1604,8 @@ export class World {
       this.rooms.set(id, new CantoRoom(id));
     }
     this.playerRoom = new Map(); // playerId -> cantoId
+    /** Brief mid-combat reconnect resume: playerId -> { cantoId, x, y, until } */
+    this.resumeByPlayer = new Map();
   }
 
   roomFor(cantoId) {
@@ -1623,8 +1625,45 @@ export class World {
 
   leave(playerId) {
     const cid = this.playerRoom.get(playerId);
+    const room = cid ? this.rooms.get(cid) : null;
+    const sess = room?.sessions.get(playerId);
+    // Mid-Ava / combat disconnect: stash pose ~90s so hello can rejoin the measure
+    if (cid && sess && room?.canto?.role === "combat") {
+      this.resumeByPlayer.set(playerId, {
+        cantoId: cid,
+        x: sess.x,
+        y: sess.y,
+        until: Date.now() + 90_000,
+      });
+    }
     if (cid) this.rooms.get(cid)?.leave(playerId);
     this.playerRoom.delete(playerId);
+  }
+
+  /** Hub by default; if a combat resume is still warm, put them back on the road. */
+  resumeOrHub(ws, playerId, name) {
+    const r = this.resumeByPlayer.get(playerId);
+    this.resumeByPlayer.delete(playerId);
+    if (r && r.until > Date.now() && this.rooms.has(r.cantoId)) {
+      const room = this.ensureJoin(ws, playerId, name, r.cantoId);
+      const sess = room.sessions.get(playerId);
+      if (sess) {
+        sess.x = r.x;
+        sess.y = r.y;
+      }
+      room.pushSnapshot(playerId);
+      const where =
+        r.cantoId === "inferno_07"
+          ? "Avarice"
+          : r.cantoId === "inferno_06"
+            ? "Gluttony"
+            : r.cantoId === "inferno_05"
+              ? "Lust"
+              : room.canto.title || "the canto";
+      room.toast(ws, "info", `Connection restored — back in ${where}.`);
+      return room;
+    }
+    return this.ensureJoin(ws, playerId, name, "inferno_01");
   }
 
   getRoom(playerId) {

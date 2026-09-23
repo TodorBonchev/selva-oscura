@@ -145,12 +145,15 @@ async function handleMessage(ws, meta, msg) {
           server: "selva-oscura-server",
         });
       }
-      const room = world.ensureJoin(ws, meta.playerId, meta.name, "inferno_01");
+      const room = world.resumeOrHub(ws, meta.playerId, meta.name);
       room.pushSnapshot(meta.playerId);
-      const greet = restored
-        ? `Welcome back, ${meta.name}. Ash and inventory restored.`
-        : "Dark Wood. WASD/click to move. Click foes to strike. E near POIs.";
-      room.toast(ws, "info", greet);
+      const midCombat = room.cantoId !== "inferno_01" && room.canto?.role === "combat";
+      const greet = midCombat
+        ? null
+        : restored
+          ? `Welcome back, ${meta.name}. Ash and inventory restored.`
+          : "Dark Wood. WASD/click to move. Click foes to strike. E near POIs.";
+      if (greet) room.toast(ws, "info", greet);
       break;
     }
     case "ping": {
