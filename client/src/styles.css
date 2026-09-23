@@ -4435,3 +4435,21 @@ body.ava-first-clear #game-root::after {
 body.in-gluttony .world-label.ava-outbound:not(.portal-locked) .wl-name {
   letter-spacing: 0.03em;
 }
+
+/* Counterweight mid-boss plate — heavier than elite, quieter than Crush */
+.world-label.foe.avarice.midboss .wl-name {
+  color: #f2dea0;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 0 #000, 0 0 10px #d4a84066;
+}
+.world-label.foe.avarice.midboss .wl-hp {
+  height: 5px;
+  box-shadow: 0 0 6px #d4a84044;
+}
+.world-label.foe.avarice.midboss .wl-hp i {
+  background: linear-gradient(90deg, #a87828, #e8c86a);
+}
+body.in-avarice.hud-compact .world-label.foe.avarice.midboss .wl-name {
+  font-size: 0.78rem;
+}

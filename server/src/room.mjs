@@ -200,7 +200,9 @@ class CantoRoom {
         const ox = Math.cos(ang) * ring + (Math.random() - 0.5) * jit;
         const oy = Math.sin(ang) * ring + (Math.random() - 0.5) * jit;
         const arch = pack.archetype || "whirl_shade";
-        const maxHp = MOB_HP[arch] || (pack.champion ? MOB_HP.gale_champion : MOB_HP.whirl_shade);
+        let maxHp = MOB_HP[arch] || (pack.champion ? MOB_HP.gale_champion : MOB_HP.whirl_shade);
+        // Counterweight mid-boss: tankier than other weight champions
+        if (pack.id === "ava_counterweight") maxHp = Math.round(maxHp * 1.35);
         this.entities.set(id, {
           id,
           kind: "mob",

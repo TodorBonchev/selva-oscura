@@ -1293,40 +1293,41 @@ export function makeLedgerWarden(mats: MatKit): THREE.Group {
 export function makeCounterweight(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "champion";
+  g.userData.midBoss = true;
   const hide = std(null, 0x3a3428, { roughness: 0.68, metalness: 0.38, emissive: 0x2a1c08, emissiveIntensity: 0.38 });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.88, 0.98, 1.45, 12), hide);
-  body.position.y = 1.0;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.98, 1.08, 1.62, 12), hide);
+  body.position.y = 1.1;
   body.name = "crushBody";
-  // Twin roller stubs — silhouette rhyme with Hoard Crush
-  const stubGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.85, 10);
+  // Twin roller stubs — silhouette rhyme with Hoard Crush (mid-boss amp)
+  const stubGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.95, 10);
   const stubL = new THREE.Mesh(stubGeo, mats.bronze);
-  stubL.position.set(-0.95, 1.05, 0.1);
+  stubL.position.set(-1.05, 1.15, 0.1);
   stubL.rotation.z = Math.PI / 2;
   stubL.name = "crushRoller";
   const stubR = stubL.clone();
   stubR.position.x = 0.95;
   const discEnd = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.08, 10), mats.gold);
   discEnd.rotation.z = Math.PI / 2;
-  discEnd.position.set(-1.42, 1.05, 0.1);
+  discEnd.position.set(-1.58, 1.15, 0.1);
   discEnd.name = "weightDisc";
   const discEndR = discEnd.clone();
   discEndR.position.x = 1.42;
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.98, 0.1, 5, 16), mats.gold);
-  rim.position.y = 1.0;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(1.08, 0.11, 5, 16), mats.gold);
+  rim.position.y = 1.1;
   rim.rotation.x = Math.PI / 2;
   rim.name = "weightDisc";
-  const rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.07, 5, 12), mats.bronze);
-  rim2.position.y = 1.55;
+  const rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.08, 5, 12), mats.bronze);
+  rim2.position.y = 1.72;
   rim2.rotation.x = Math.PI / 2;
   rim2.name = "ribbon";
   const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.12, 12), mats.gold);
-  crown.position.set(0, 1.95, 0);
+  crown.position.set(0, 2.15, 0);
   crown.rotation.x = Math.PI / 2;
   crown.name = "weightDisc";
   const spike = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.55, 6), mats.bone);
-  spike.position.set(0, 2.25, 0);
-  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), mats.ember);
-  eye.position.set(0, 1.35, -0.9);
+  spike.position.set(0, 2.48, 0);
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), mats.ember);
+  eye.position.set(0, 1.48, -0.98);
   eye.name = "ember";
   const eyeGlow = new THREE.Mesh(
     new THREE.RingGeometry(0.14, 0.2, 10),
@@ -1338,8 +1339,22 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
       depthWrite: false,
     })
   );
-  eyeGlow.position.set(0, 1.35, -0.92);
-  g.add(discShadow(mats, 0.95), body, stubL, stubR, discEnd, discEndR, rim, rim2, crown, spike, eye, eyeGlow, nose(mats, 1.4, -0.98));
+  eyeGlow.position.set(0, 1.48, -1.0);
+  // Mid-boss pressure ring — readable without audio
+  const tele = new THREE.Mesh(
+    new THREE.RingGeometry(1.35, 1.55, 18),
+    new THREE.MeshBasicMaterial({
+      color: 0xc8a040,
+      transparent: true,
+      opacity: 0.28,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  tele.rotation.x = -Math.PI / 2;
+  tele.position.y = 0.07;
+  tele.name = "cwTelegraph";
+  g.add(discShadow(mats, 1.05), body, stubL, stubR, discEnd, discEndR, rim, rim2, crown, spike, eye, eyeGlow, tele, nose(mats, 1.55, -1.05));
   shadow(g);
   return g;
 }

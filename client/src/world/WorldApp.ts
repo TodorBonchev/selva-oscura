@@ -1350,6 +1350,13 @@ export class WorldApp {
           tickHoardHeart(n.group, this.animT);
         } else if (n.group.userData.isCounterweight) {
           tickCounterweight(n.group, this.animT);
+          const cwTele = n.group.getObjectByName("cwTelegraph") as THREE.Mesh | undefined;
+          if (cwTele) {
+            const mat = cwTele.material as THREE.MeshBasicMaterial;
+            mat.opacity = 0.22 + Math.sin(this.animT * 0.004) * 0.1;
+            const s = 1 + Math.sin(this.animT * 0.0032) * 0.06;
+            cwTele.scale.set(s, s, 1);
+          }
         } else if (n.group.userData.isLedgerWarden) {
           tickLedgerWarden(n.group, this.animT);
         } else {
@@ -1609,6 +1616,7 @@ export class WorldApp {
     } else if (/^counterweight$/i.test(nm)) {
       group = makeCounterweight(this.mats!);
       group.userData.isCounterweight = true;
+      group.userData.midBoss = true;
     } else if (isMire && kind === "champion") {
       group = makeMireChampion(this.mats!);
     } else if (isMire && kind === "whirl") {
@@ -1709,6 +1717,7 @@ export class WorldApp {
       if (kind === "judge" || kind === "triple_maw" || kind === "hoard_crush") wrap.classList.add("boss");
       if (isMire) wrap.classList.add("mire");
       if (isAvaArch) wrap.classList.add("avarice");
+      if (group.userData.midBoss || group.userData.isCounterweight) wrap.classList.add("midboss");
     }
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
@@ -1762,9 +1771,10 @@ export class WorldApp {
     const boss = rec.kind === "judge" || rec.kind === "triple_maw" || rec.kind === "hoard_crush";
     const glutCompact =
       (this.room?.cantoId === "inferno_06" || this.room?.cantoId === "inferno_07") && isCompactUi();
-    let far = rec.kind === "loot" ? 22 : foe ? 26 : 16;
+    const midboss = rec.hpEl.classList.contains("midboss");
+    let far = rec.kind === "loot" ? 22 : boss ? 30 : midboss ? 28 : foe ? 26 : 16;
     if (glutCompact) {
-      far = rec.kind === "loot" ? 14 : boss ? 20 : foe ? 13 : 10;
+      far = rec.kind === "loot" ? 14 : boss ? 20 : midboss ? 18 : foe ? 13 : 10;
     }
     if (d > far) {
       if (rec.hpEl.style.opacity !== "0") rec.hpEl.style.opacity = "0";
@@ -1772,7 +1782,7 @@ export class WorldApp {
     }
     const nextOp = d > 10 && !foe && rec.kind !== "loot" ? "0.45" : "1";
     if (rec.hpEl.style.opacity !== nextOp) rec.hpEl.style.opacity = nextOp;
-    const shown = foe || rec.kind === "loot" || d <= 8 ? name : "•";
+    const shown = foe || midboss || rec.kind === "loot" || d <= 8 ? name : "•";
     if (nameEl && nameEl.textContent !== shown) nameEl.textContent = shown;
     rec.hpEl.classList.toggle("stilled", Number(rec.group.userData.stunLeft || 0) > 0.05);
     if (e.hp != null && e.maxHp) {
@@ -2749,7 +2759,7 @@ export class WorldApp {
       } else if (isGlut && !heart && cerberoUp) {
         line = "Cerbero stirs — then the Triple Maw";
       } else if (isAva && !heart && counterUp) {
-        line = "Counterweight stirs — then Hoard Crush";
+        line = "Tip the Counterweight — then Hoard Crush";
       } else if (shades >= 8 && this.room.entities.some((e: any) => e.poiKind === "bell")) {
         line = isAva
           ? "Ring the Ledger Bell to still a pack"
@@ -3507,7 +3517,8 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
           this.counterweightApproachShown = true;
-          showToast("Counterweight ahead — the measure tips toward Crush", "warn");
+          showToast("contrapeso — Counterweight mid-measure; tip it before the Crush", "warn");
+          this.camPunch = Math.max(this.camPunch, 0.55);
           break;
         }
       }
