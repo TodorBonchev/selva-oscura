@@ -277,6 +277,7 @@ export class WorldApp {
   crushApproachShown = false;
   southSpillApproachShown = false;
   weightChampApproachShown = false;
+  nwDriftApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1982,6 +1983,7 @@ export class WorldApp {
           this.crushApproachShown = false;
           this.southSpillApproachShown = false;
           this.weightChampApproachShown = false;
+          this.nwDriftApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -3259,6 +3261,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 13) {
           this.weightChampApproachShown = true;
           showToast("Weight Champions — heavy measures before the Crush", "warn");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.nwDriftApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^northwest drift$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.nwDriftApproachShown = true;
+          showToast("Northwest Drift — scorched flats still hold weight", "info");
           break;
         }
       }

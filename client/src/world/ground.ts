@@ -733,7 +733,7 @@ export function buildGround(
       group.add(weightsMesh);
 
       // Restrained gold haze (Lust-soften parity — keep slash readable)
-      const hazeN = compact ? 2 : 3;
+      const hazeN = compact ? 1 : 2;
       for (let i = 0; i < hazeN; i++) {
         const ribbon = makeGaleRibbon(mats, 14 + i * 3);
         const mat = ribbon.material as THREE.MeshBasicMaterial;

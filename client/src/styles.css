@@ -2272,8 +2272,11 @@ body.respawn-fade #death-flash {
 .compass-arrow[data-dest="lust"] .compass-dist { color: #e8a090; }
 .compass-arrow[data-dest="gluttony"] .compass-label { color: #d8e8a0; }
 .compass-arrow[data-dest="gluttony"] .compass-dist { color: #b0c070; }
-.compass-arrow[data-dest="avarice"] .compass-label { color: #f0d890; }
-.compass-arrow[data-dest="avarice"] .compass-dist { color: #c8a860; }
+.compass-arrow[data-dest="avarice"] .compass-label { color: #f2dea0; }
+.compass-arrow[data-dest="avarice"] .compass-dist { color: #d4b070; }
+.compass-arrow[data-dest="avarice"] .compass-chevron {
+  filter: drop-shadow(0 0 3px #d4a84066);
+}
 @media (max-width: 640px) {
   .compass-arrow { width: 2.1rem; height: 2.4rem; margin: -1.05rem 0 0 -1.05rem; }
   .compass-chevron {

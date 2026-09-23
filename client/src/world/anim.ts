@@ -329,6 +329,10 @@ export function tickTripleMaw(root: THREE.Object3D, tMs: number) {
   if (cache.tele) {
     const s = 1 + Math.sin(tMs * 0.0024) * 0.05;
     cache.tele.scale.set(s, s, 1);
+    const mesh = cache.tele as { material?: { opacity?: number } };
+    if (mesh.material && typeof mesh.material.opacity === "number") {
+      mesh.material.opacity = 0.2 + Math.sin(tMs * 0.003) * 0.06;
+    }
   }
   for (let hi = 0; hi < cache.heads.length; hi++) {
     const o = cache.heads[hi]!;
@@ -387,6 +391,10 @@ export function tickHoardCrush(root: THREE.Object3D, tMs: number) {
   if (cache.tele) {
     const s = 1 + Math.sin(tMs * 0.0024) * 0.05;
     cache.tele.scale.set(s, s, 1);
+    const mesh = cache.tele as { material?: { opacity?: number } };
+    if (mesh.material && typeof mesh.material.opacity === "number") {
+      mesh.material.opacity = 0.2 + Math.sin(tMs * 0.003) * 0.06;
+    }
   }
   if (cache.aura) {
     const s = 1 + Math.sin(tMs * 0.0031) * 0.04;
