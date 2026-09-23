@@ -4598,3 +4598,17 @@ body.in-avarice.ava-equip-flash #hud-inv {
 body.in-avarice.ava-equip-flash #toast {
   border-color: #e8c86aaa;
 }
+
+/* Avarice Hoard Crush loot pile — staggered bone-gold labels, no neon */
+body.in-avarice .world-label.loot-label.ava-crush-pile .wl-name {
+  color: #f2dea0;
+  text-shadow: 0 0 10px #c9a22755, 0 1px 0 #000;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+body.in-avarice.hud-compact .world-label.loot-label.ava-crush-pile .wl-name {
+  font-size: 0.72rem;
+}
+body.in-avarice .world-label.loot-label.ava-crush-pile {
+  filter: drop-shadow(0 0 3px #d4a84044);
+}

@@ -1302,6 +1302,7 @@ export class WorldApp {
       const beam = n.group.getObjectByName("lootBeam");
       if (beam) {
         const avaLoot = this.room?.cantoId === "inferno_07";
+        const crushPile = Boolean((n.label?.element as HTMLElement | undefined)?.classList.contains("ava-crush-pile"));
         // Far cull on compact Avarice — beam tick is free when off-screen
         if (avaLoot && isCompactUi()) {
           const bx = n.group.position.x - this.camFollow.x;
@@ -1313,11 +1314,18 @@ export class WorldApp {
           }
         }
         if ((beam as THREE.Object3D).visible !== false) {
-          beam.rotation.y = this.animT * (avaLoot ? 0.0032 : 0.002);
+          beam.rotation.y = this.animT * (crushPile ? 0.0045 : avaLoot ? 0.0032 : 0.002);
           const mat = (beam as THREE.Mesh).material as THREE.MeshBasicMaterial;
-          mat.opacity = avaLoot
-            ? 0.38 + Math.sin(this.animT * 0.008) * 0.2
-            : 0.28 + Math.sin(this.animT * 0.006) * 0.12;
+          mat.opacity = crushPile
+            ? 0.52 + Math.sin(this.animT * 0.01 + n.group.position.x) * 0.22
+            : avaLoot
+              ? 0.38 + Math.sin(this.animT * 0.008) * 0.2
+              : 0.28 + Math.sin(this.animT * 0.006) * 0.12;
+        }
+        // Stagger Crush-dais loot labels so the pile does not read as one glyph
+        if (crushPile && n.label) {
+          const phase = (n.group.position.x * 0.7 + n.group.position.z * 0.4) % 1;
+          n.label.position.y = 1.55 + phase * 0.55 + Math.sin(this.animT * 0.004 + phase * 6) * 0.08;
         }
       }
       const gem = n.group.getObjectByName("gem");
@@ -1742,8 +1750,18 @@ export class WorldApp {
       // Avarice: slightly stronger weighed-drop read (still no neon)
       if (this.room?.cantoId === "inferno_07") {
         const mat = beam.material as THREE.MeshBasicMaterial;
-        mat.opacity = rarity === "normal" ? 0.55 : rarity === "unique" || rarity === "canto_unique" ? 0.78 : 0.68;
-        beam.scale.set(1.1, 1.18, 1.1);
+        const nearCrush = Number(e?.x) > 118;
+        mat.opacity = nearCrush
+          ? rarity === "normal"
+            ? 0.68
+            : 0.86
+          : rarity === "normal"
+            ? 0.55
+            : rarity === "unique" || rarity === "canto_unique"
+              ? 0.78
+              : 0.68;
+        beam.scale.set(nearCrush ? 1.28 : 1.1, nearCrush ? 1.42 : 1.18, nearCrush ? 1.28 : 1.1);
+        if (nearCrush) wrap.classList.add("ava-crush-pile");
       }
       group.add(beam);
       wrap.classList.add("loot-label");

@@ -744,14 +744,34 @@ class CantoRoom {
       boss: isBoss,
     });
 
+    let dropI = 0;
     for (const item of drops) {
       const lootId = eid("loot");
+      let ox;
+      let oy;
+      if (this.cantoId === "inferno_07" && isBoss) {
+        // Hoard Crush pile: ring fan so weighed drops stay readable (no neon stack)
+        const n = Math.max(1, drops.length);
+        const ang = (dropI / n) * Math.PI * 2 + 0.31 + Math.random() * 0.28;
+        const r = 1.75 + (dropI % 3) * 0.55 + Math.random() * 0.4;
+        ox = Math.cos(ang) * r;
+        oy = Math.sin(ang) * r;
+      } else if (this.cantoId === "inferno_07") {
+        const ang = Math.random() * Math.PI * 2;
+        const r = 0.7 + Math.random() * 1.35;
+        ox = Math.cos(ang) * r;
+        oy = Math.sin(ang) * r;
+      } else {
+        ox = (Math.random() - 0.5) * 1.5;
+        oy = (Math.random() - 0.5) * 1.5;
+      }
+      dropI++;
       this.entities.set(lootId, {
         id: lootId,
         kind: "loot",
         name: item.name,
-        x: entity.x + (Math.random() - 0.5) * 1.5,
-        y: entity.y + (Math.random() - 0.5) * 1.5,
+        x: entity.x + ox,
+        y: entity.y + oy,
         item,
       });
     }
