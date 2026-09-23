@@ -235,6 +235,8 @@ export class WorldApp {
   seenFirstClears = new Set<string>();
   lustClearRevelShown = false;
   lustReturnGlutNudgeShown = false;
+  glutAvaGateApproachShown = false;
+  glutReturnAvaNudgeShown = false;
   nearExitToastAt = 0;
   seenLootIds = new Set<string>();
   seenInvItemIds = new Set<string>();
@@ -1711,8 +1713,11 @@ export class WorldApp {
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
       if (this.portalIsLocked(e)) wrap.classList.add("portal-locked");
-      // Avarice weighed gate — bone ledger plate on the ring (Gluttony approach read)
-      if (this.room?.cantoId === "inferno_07" && this.mats && !group.userData.avaGatePlate) {
+      // Avarice weighed gate — bone ledger plate (Glut→Ava approach + Ava return)
+      const avaBound =
+        e?.toCanto === "inferno_07" ||
+        (this.room?.cantoId === "inferno_07" && (e?.toCanto === "inferno_06" || !e?.toCanto));
+      if (avaBound && this.mats && !group.userData.avaGatePlate) {
         const plate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.42, 0.06), this.mats.bone);
         plate.position.set(0, 2.35, -0.55);
         const trim = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.05, 0.03), this.mats.gold);
@@ -1721,6 +1726,7 @@ export class WorldApp {
         hash.position.set(0, 2.38, -0.59);
         group.add(plate, trim, hash);
         group.userData.avaGatePlate = true;
+        if (e?.toCanto === "inferno_07") wrap.classList.add("ava-outbound");
       }
     }
     if (e.poiKind === "marker") {
@@ -2128,6 +2134,7 @@ export class WorldApp {
         }
         if (msg.room.cantoId === "inferno_06" && (first || cantoChanged) && !this.glutEnterTipShown) {
           this.glutEnterTipShown = true;
+          this.glutAvaGateApproachShown = false;
           this.cerberoApproachShown = false;
           this.mireHeartDownToastShown = false;
           this.mireHeartSeenAlive = false;
@@ -2175,8 +2182,11 @@ export class WorldApp {
         if (
           cantoChanged &&
           msg.room.cantoId === "inferno_06" &&
-          clears.includes("inferno_06")
+          clears.includes("inferno_06") &&
+          !this.glutReturnAvaNudgeShown
         ) {
+          this.glutReturnAvaNudgeShown = true;
+          this.glutAvaGateApproachShown = false;
           showToast("The Avarice gate (peso e contrapeso) waits past the Maw", "info");
         }
         const lootIds = new Set<string>();
@@ -3467,6 +3477,25 @@ export class WorldApp {
           this.cerberoApproachShown = true;
           showToast("Cerbero ahead — three maws taste the road", "warn");
           break;
+        }
+      }
+    }
+
+    // Glut→Ava outbound: once when near the unlocked weighed gate
+    if (this.room?.cantoId === "inferno_06" && !this.glutAvaGateApproachShown) {
+      const clears = Array.isArray(this.room.you?.firstClears) ? this.room.you.firstClears : [];
+      if (clears.includes("inferno_06")) {
+        for (const e of this.room.entities) {
+          if (!(e.kind === "exit" || e.poiKind === "portal")) continue;
+          if (e.toCanto !== "inferno_07") continue;
+          if (this.portalIsLocked(e)) continue;
+          const pos = this.entityRenderPos(e);
+          if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+            this.glutAvaGateApproachShown = true;
+            showToast("peso e contrapeso — Hold E at the Avarice gate", "info");
+            this.camPunch = Math.max(this.camPunch, 0.35);
+            break;
+          }
         }
       }
     }

@@ -182,6 +182,7 @@ class CantoRoom {
         x: ex.x,
         y: ex.y,
         label: ex.label,
+        hint: ex.hint || null,
         toCanto: ex.to_canto,
         requireClear: ex.require_clear || null,
       });

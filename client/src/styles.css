@@ -4423,3 +4423,15 @@ body.ava-first-clear #game-root::after {
   0% { opacity: 0.85; }
   100% { opacity: 0; }
 }
+
+/* Glut→Ava outbound weighed gate — bone-gold name (no neon) */
+.world-label.ava-outbound .wl-name {
+  color: #e8c86a;
+  text-shadow: 0 1px 0 #000, 0 0 8px #d4a84055;
+}
+.world-label.ava-outbound:not(.portal-locked) .interact-prompt {
+  color: #f2dea0;
+}
+body.in-gluttony .world-label.ava-outbound:not(.portal-locked) .wl-name {
+  letter-spacing: 0.03em;
+}

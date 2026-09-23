@@ -33,7 +33,8 @@
         "x": 150,
         "y": 52,
         "label": "Toward Avarice →",
-        "require_clear": "inferno_06"
+        "require_clear": "inferno_06",
+        "hint": "peso e contrapeso — Hold E when the Maw is clear"
       }
     ],
     "pois": [
@@ -74,10 +75,10 @@
         "kind": "portal",
         "x": 148,
         "y": 50,
-        "label": "Avarice gate",
+        "label": "Avarice gate →",
         "to_canto": "inferno_07",
         "require_clear": "inferno_06",
-        "hint": "peso e contrapeso — clear Triple Maw first"
+        "hint": "peso e contrapeso — clear Triple Maw, then Hold E into the weighed circle"
       }
     ]
   },
