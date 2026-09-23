@@ -1380,23 +1380,33 @@ export class WorldApp {
           n.group.userData.crushGlow = glow || null;
         }
         if (glow) {
-          glow.intensity = d2 > 40 * 40 ? 0.6 : d2 > 22 * 22 ? 1.8 : 3.0;
-          glow.visible = d2 < 48 * 48;
+          const compact = isCompactUi();
+          const nearI = compact ? 2.1 : 3.0;
+          const midI = compact ? 1.15 : 1.8;
+          const farI = compact ? 0.35 : 0.6;
+          glow.intensity = d2 > 40 * 40 ? farI : d2 > 22 * 22 ? midI : nearI;
+          glow.visible = d2 < (compact ? 40 * 40 : 48 * 48);
+          glow.distance = compact ? 10 : 14;
         }
-        // Windup / phase-2: hot iron emissive telegraph
+        // Windup / phase-2: hot iron emissive telegraph (capped on compact light budget)
         const wind = Number(n.group.userData.windupLeft || 0);
         const phase = Number(n.group.userData.bossPhase || 1);
         const body = n.group.getObjectByName("crushBody") as THREE.Mesh | undefined;
         if (body && body.material && !Array.isArray(body.material)) {
           const mat = body.material as THREE.MeshStandardMaterial;
+          const compact = isCompactUi();
           if (wind > 0.05) {
             const windMax = phase >= 2 ? 1.0 : 1.4;
             mat.emissiveIntensity =
               (phase >= 2 ? 0.72 : 0.55) + (windMax - Math.min(windMax, wind)) * (phase >= 2 ? 0.75 : 0.55);
-            if (glow) glow.intensity = Math.max(glow.intensity, phase >= 2 ? 5.4 : 4.2);
+            if (glow)
+              glow.intensity = Math.max(
+                glow.intensity,
+                compact ? (phase >= 2 ? 3.4 : 2.8) : phase >= 2 ? 5.4 : 4.2
+              );
           } else if (phase >= 2) {
             mat.emissiveIntensity = Math.max(mat.emissiveIntensity, 0.48);
-            if (glow) glow.intensity = Math.max(glow.intensity, 3.4);
+            if (glow) glow.intensity = Math.max(glow.intensity, compact ? 2.2 : 3.4);
           }
         }
       }
@@ -1973,8 +1983,9 @@ export class WorldApp {
       this.heroLight.intensity = 3.4;
       this.heroLight.distance = 9;
     } else if (ava) {
-      // Gold-on-black irony — restrained fog so slash stays readable.
-      this.avaFogBase = 0.016;
+      // Gold-on-black irony — restrained fog; compact trims light budget.
+      const compact = isCompactUi();
+      this.avaFogBase = compact ? 0.0145 : 0.016;
       this.mawPressureOn = false;
       this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
@@ -1984,13 +1995,13 @@ export class WorldApp {
       this.clearTargetColor.setHex(0x0e0c06);
       this.hemi.color.set(0xd4c090);
       this.hemi.groundColor.set(0x14100a);
-      this.hemi.intensity = 1.18;
+      this.hemi.intensity = compact ? 1.08 : 1.18;
       this.sun.color.set(0xd4a860);
-      this.sun.intensity = 1.85;
+      this.sun.intensity = compact ? 1.55 : 1.85;
       this.rim.color.set(0xc8a040);
-      this.rim.intensity = 1.6;
-      this.heroLight.intensity = 3.5;
-      this.heroLight.distance = 9;
+      this.rim.intensity = compact ? 1.25 : 1.6;
+      this.heroLight.intensity = compact ? 2.6 : 3.5;
+      this.heroLight.distance = compact ? 7.5 : 9;
     } else {
       this.fogTargetColor.setHex(0x1c1812);
       this.fogTargetDensity = 0.013;

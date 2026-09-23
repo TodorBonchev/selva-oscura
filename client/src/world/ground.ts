@@ -199,11 +199,15 @@ export function buildGround(
   group.add(floor);
 
   const fogSegs =
-    cantoId === "inferno_07" || cantoId === "inferno_06"
+    cantoId === "inferno_07"
       ? isCompactUi()
-        ? 20
-        : 32
-      : 48;
+        ? 14
+        : 28
+      : cantoId === "inferno_06"
+        ? isCompactUi()
+          ? 20
+          : 32
+        : 48;
   const fogRing = new THREE.Mesh(
     new THREE.RingGeometry(Math.max(w, h) * 0.62, Math.max(w, h) * 1.4, fogSegs),
     new THREE.MeshBasicMaterial({
@@ -215,7 +219,14 @@ export function buildGround(
             ? 0x18160c
             : 0x201008,
       transparent: true,
-      opacity: cantoId === "inferno_07" ? 0.34 : cantoId === "inferno_06" ? 0.4 : 0.28,
+      opacity:
+        cantoId === "inferno_07"
+          ? isCompactUi()
+            ? 0.28
+            : 0.34
+          : cantoId === "inferno_06"
+            ? 0.4
+            : 0.28,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
