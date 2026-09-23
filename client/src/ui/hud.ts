@@ -15,6 +15,8 @@ let meltArmTimer: number | null = null;
 let toastTimer: number | null = null;
 let lastHpShown: number | null = null;
 let lastManaShown: number | null = null;
+let lastPendingAsh = 0;
+let pendingPulseTimer: number | null = null;
 let helpFadeTimer: number | null = null;
 
 /** Instructional overlay fades out after this long (any input re-arms nothing; it's a one-shot). */
@@ -245,6 +247,23 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
     const p = Number(you.pendingAsh) || 0;
     pending.textContent = p > 0 ? `+${formatAsh(p)} Ash (${ashToStelleDisplay(p)} Stelle) pending` : "";
     pending.classList.toggle("hidden", p <= 0);
+    // Stella pending pulse: credit ticks (Crush FirstClear etc.) read on the ash ledger
+    if (p > lastPendingAsh && p > 0) {
+      pending.classList.remove("stella-pulse");
+      void pending.offsetWidth;
+      pending.classList.add("stella-pulse");
+      // Stronger after Ava first-clear revel while the fringe still hangs
+      pending.classList.toggle(
+        "stella-pulse-crush",
+        document.body.classList.contains("ava-first-clear")
+      );
+      if (pendingPulseTimer != null) window.clearTimeout(pendingPulseTimer);
+      pendingPulseTimer = window.setTimeout(() => {
+        pending.classList.remove("stella-pulse", "stella-pulse-crush");
+        pendingPulseTimer = null;
+      }, 1600);
+    }
+    lastPendingAsh = p;
   }
 }
 

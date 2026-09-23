@@ -393,6 +393,29 @@ input, textarea, .panel, #panels, #boot-veil, #boot-veil input, #boot-veil butto
   font-variant-numeric: tabular-nums;
 }
 
+/* Stella pending pulse — Ash credit ticks (Crush FirstClear) */
+#pending.stella-pulse {
+  animation: stella-pending-pulse 1.5s ease-out 1;
+  color: #ffe08a;
+  text-shadow: 0 0 10px #c9a22788, 0 1px 0 #000;
+}
+#pending.stella-pulse-crush {
+  animation: stella-pending-pulse-crush 1.6s ease-out 1;
+}
+@keyframes stella-pending-pulse {
+  0% { opacity: 1; transform: translateY(0) scale(1); letter-spacing: 0.02em; }
+  35% { opacity: 1; transform: translateY(-1px) scale(1.04); letter-spacing: 0.06em; }
+  100% { opacity: 0.85; transform: none; letter-spacing: 0; }
+}
+@keyframes stella-pending-pulse-crush {
+  0% { opacity: 1; transform: translateY(0) scale(1); filter: brightness(1); }
+  25% { opacity: 1; transform: translateY(-2px) scale(1.06); filter: brightness(1.25); text-shadow: 0 0 14px #e8c86acc, 0 1px 0 #000; }
+  100% { opacity: 0.85; transform: none; filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #pending.stella-pulse, #pending.stella-pulse-crush { animation: none; }
+}
+
 /* Toasts — #toast-layer sits outside #hud so it stacks above open modals (#panels z=20).
    hud.ts pins its `top` just under the HUD plates. */
 #toast-layer {
