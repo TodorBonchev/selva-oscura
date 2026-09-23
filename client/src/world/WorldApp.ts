@@ -1057,7 +1057,21 @@ export class WorldApp {
       }
     }
     const shadowEvery = compact && inCombatRoom ? (inAva ? 5 : 3) : 2;
-    const labelEvery = compact && fighting ? (inAva ? 4 : 3) : 2;
+    const remoteN = this.room?.players ? this.room.players.length - 1 : 0;
+    const labelEvery =
+      remoteN >= 2
+        ? compact
+          ? inAva
+            ? 6
+            : 5
+          : inAva
+            ? 4
+            : 3
+        : compact && fighting
+          ? inAva
+            ? 4
+            : 3
+          : 2;
     if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
@@ -1582,6 +1596,14 @@ export class WorldApp {
       const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
       rec.group.rotation.y = yawFromPlanar(this.renderYou.x - pos.x, this.renderYou.y - pos.y);
+      // 2+ remotes / gold haze: dim far rim lights (perf + declutter)
+      const rim = rec.group.getObjectByName("avaRemoteRim") as THREE.PointLight | undefined;
+      if (rim) {
+        const rd = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+        const many = (this.room?.players?.length || 1) >= 3;
+        rim.visible = rd < (many ? 18 : 28);
+        rim.intensity = many ? 0.35 : 0.55;
+      }
       const eq = pl.equipped || {};
       const lookKey = equipLookKey(eq);
       if (rec.group.userData.equipLookKey !== lookKey) {

@@ -276,7 +276,10 @@ export class Radar {
         bestFoe = e;
       }
     }
-    if (bestFoe) {
+    const clears = opts.firstClears || [];
+    const avaCleared = opts.cantoId === "inferno_07" && clears.includes("inferno_07");
+    // After Crush: compass is return/bank only — skip foe spam in the gold haze
+    if (bestFoe && !avaCleared) {
       const bossDest =
         opts.cantoId === "inferno_07"
           ? "avarice"
@@ -285,19 +288,28 @@ export class Radar {
             : bestFoe.kind === "boss"
               ? "lust"
               : "wood";
-      wanted.push({
-        id: "foe",
-        dest:
-          bestFoe.kind === "boss"
-            ? bossDest
-            : opts.cantoId === "inferno_07"
-              ? "avarice"
-              : opts.cantoId === "inferno_06"
-                ? "gluttony"
-                : "wood",
-        label: destLabel(bestFoe),
-        e: bestFoe,
-      });
+      // Avarice: hide common weight arrows when a portal is already guiding
+      const skipCommonWeight =
+        opts.cantoId === "inferno_07" &&
+        portal &&
+        bestFoe.kind !== "boss" &&
+        !bestFoe.champion &&
+        bestD > 22;
+      if (!skipCommonWeight) {
+        wanted.push({
+          id: "foe",
+          dest:
+            bestFoe.kind === "boss"
+              ? bossDest
+              : opts.cantoId === "inferno_07"
+                ? "avarice"
+                : opts.cantoId === "inferno_06"
+                  ? "gluttony"
+                  : "wood",
+          label: destLabel(bestFoe),
+          e: bestFoe,
+        });
+      }
     }
 
     const seen = new Set<string>();
@@ -323,9 +335,11 @@ export class Radar {
       el.dataset.dest = w.dest;
       const lab = el.querySelector(".compass-label") as HTMLElement;
       const dist = el.querySelector(".compass-dist") as HTMLElement;
-      lab.textContent = w.label;
-      dist.textContent = `${Math.round(d)}m`;
-      const hide = onScreen.inside && d < 14;
+      const distTxt = `${Math.round(d)}m`;
+      if (lab.textContent !== w.label) lab.textContent = w.label;
+      if (dist.textContent !== distTxt) dist.textContent = distTxt;
+      const hideNear = opts.cantoId === "inferno_07" ? 18 : 14;
+      const hide = onScreen.inside && d < hideNear;
       el.style.opacity = hide ? "0" : "1";
       el.style.left = `${onScreen.x}px`;
       el.style.top = `${onScreen.y}px`;
