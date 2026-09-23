@@ -1346,6 +1346,17 @@ export class WorldApp {
           }
         }
       }
+      // Avarice: kill far portal PointLights (each gate ships one fill)
+      if (n.kind === "portal" && this.room?.cantoId === "inferno_07" && this.frameN % 4 === 0) {
+        const pdx = n.group.position.x - this.camFollow.x;
+        const pdz = n.group.position.z - this.camFollow.z;
+        const nearPortal = pdx * pdx + pdz * pdz < 36 * 36;
+        n.group.traverse((o) => {
+          if ((o as THREE.PointLight).isPointLight) {
+            (o as THREE.PointLight).visible = nearPortal || Boolean(n.group.userData.avaHubHomeGlow);
+          }
+        });
+      }
       const beam = n.group.getObjectByName("lootBeam");
       if (beam) {
         const avaLoot = this.room?.cantoId === "inferno_07";
@@ -1763,9 +1774,9 @@ export class WorldApp {
     }
     if (kind === "player") {
       group.scale.setScalar(1.42);
-      // Avarice gold haze — bone rim so remotes read through heat/dust
-      if (this.room?.cantoId === "inferno_07") {
-        const rim = new THREE.PointLight(0xe8c86a, 0.55, 6.5, 2);
+      // Avarice gold haze — bone rim so remotes read through heat/dust (skip on compact light budget)
+      if (this.room?.cantoId === "inferno_07" && !isCompactUi()) {
+        const rim = new THREE.PointLight(0xe8c86a, 0.4, 5.5, 2);
         rim.name = "avaRemoteRim";
         rim.position.set(0, 1.6, 0);
         group.add(rim);
@@ -2369,8 +2380,8 @@ export class WorldApp {
       this.sun.intensity = compact ? 1.55 : 1.85;
       this.rim.color.set(0xc8a040);
       this.rim.intensity = compact ? 1.25 : 1.6;
-      this.heroLight.intensity = compact ? 2.6 : 3.5;
-      this.heroLight.distance = compact ? 7.5 : 9;
+      this.heroLight.intensity = compact ? 2.2 : 3.0;
+      this.heroLight.distance = compact ? 6.5 : 8;
     } else {
       this.fogTargetColor.setHex(0x1c1812);
       this.fogTargetDensity = 0.013;
