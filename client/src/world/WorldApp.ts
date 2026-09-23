@@ -1023,14 +1023,31 @@ export class WorldApp {
     setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
     const rate = compact ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
     this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
-    placeFollowCamera(this.camera, this.camFollow, compact, 1.32);
+    // Crush dais: lift look + floor so the camera clears the raised measure
+    let lookY = 1.32;
+    let floorLift = 4.6;
+    if (this.room?.cantoId === "inferno_07") {
+      const crush = this.room.entities.find(
+        (e: any) => e.kind === "boss" && (e.id === "hoard_crush" || /^hoard crush$/i.test(String(e.name || "")))
+      );
+      if (crush) {
+        const cpos = this.entityRenderPos(crush);
+        const dDais = Math.hypot(cpos.x - this.renderYou.x, cpos.y - this.renderYou.y);
+        if (dDais < 18) {
+          const u = 1 - dDais / 18;
+          lookY = 1.32 + 0.55 * u;
+          floorLift = 4.6 + 0.85 * u;
+        }
+      }
+    }
+    placeFollowCamera(this.camera, this.camFollow, compact, lookY);
     if (this.camPunch > 0.001) {
       this.camera.position.addScaledVector(UP, this.camPunch * 0.42);
       this.camera.getWorldDirection(this.tmp);
       this.camera.position.addScaledVector(this.tmp, -this.camPunch * 1.45);
       this.camPunch *= Math.exp(-dt * 7.2);
     }
-    const camFloor = this.standY(this.camera.position.x, this.camera.position.z, 4.6);
+    const camFloor = this.standY(this.camera.position.x, this.camera.position.z, floorLift);
     this.camera.position.y = Math.max(this.camera.position.y, camFloor);
     if (this.camShake > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.camShake;
