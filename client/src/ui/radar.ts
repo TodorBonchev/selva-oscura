@@ -200,6 +200,29 @@ export class Radar {
       opts.bounds.height * scale
     );
 
+    // Avarice gold road tint — measure lane readable on the map
+    if (opts.cantoId === "inferno_07") {
+      const road: [number, number][] = [
+        [18, 52], [28, 50], [38, 56], [54, 68], [70, 48], [86, 58], [110, 52], [138, 48],
+      ];
+      ctx.save();
+      ctx.strokeStyle = "#d4a84066";
+      ctx.lineWidth = Math.max(2.5, 5.5 * scale * 0.22);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (let i = 0; i < road.length; i++) {
+        const { px, py } = plot(road[i][0], road[i][1]);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = "#f2dea033";
+      ctx.lineWidth = Math.max(1.2, 2.4 * scale * 0.22);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     for (const e of opts.entities) {
       const { px, py } = plot(e.x, e.y);
       const dx = px - cx;
@@ -237,7 +260,49 @@ export class Radar {
       } else if (e.kind === "loot") {
         ring(sx, sy, 2.4, "#f0d982");
       } else if (e.kind === "poi" || e.poiKind) {
-        ring(sx, sy, 3.2, "#d9cfae", "#8a7030");
+        const pk = String(e.poiKind || "");
+        if (opts.cantoId === "inferno_07" && (pk === "bell" || pk === "cache" || pk === "shrine" || pk === "marker")) {
+          ctx.save();
+          ctx.translate(sx, sy);
+          if (pk === "bell") {
+            // ledger bell — upright diamond
+            ctx.rotate(Math.PI / 4);
+            ctx.fillStyle = "#e8c86a";
+            ctx.fillRect(-3.2, -3.2, 6.4, 6.4);
+            ctx.strokeStyle = "#1a1408";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(-3.2, -3.2, 6.4, 6.4);
+          } else if (pk === "cache") {
+            // chest — square with gold lid tick
+            ctx.fillStyle = "#c9a227";
+            ctx.fillRect(-3.5, -3, 7, 6);
+            ctx.fillStyle = "#f2dea0";
+            ctx.fillRect(-3.5, -3, 7, 2);
+            ctx.strokeStyle = "#1a1408";
+            ctx.strokeRect(-3.5, -3, 7, 6);
+          } else if (pk === "shrine") {
+            // shrine — small cross / balance
+            ctx.strokeStyle = "#f2dea0";
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.moveTo(0, -4.5);
+            ctx.lineTo(0, 4.5);
+            ctx.moveTo(-3.5, -1);
+            ctx.lineTo(3.5, -1);
+            ctx.stroke();
+            ring(0, 0, 1.4, "#d4a84088");
+          } else {
+            // marker stone — tall tick
+            ctx.fillStyle = "#d9cfae";
+            ctx.fillRect(-1.4, -4.5, 2.8, 9);
+            ctx.fillStyle = "#c9a227";
+            ctx.fillRect(-2.2, -4.5, 4.4, 2);
+          }
+          ctx.restore();
+          if (!on) this.rimChevron(ctx, sx, sy, "#e8c86a");
+        } else {
+          ring(sx, sy, 3.2, "#d9cfae", "#8a7030");
+        }
       }
     }
 
