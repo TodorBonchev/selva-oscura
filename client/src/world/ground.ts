@@ -29,7 +29,7 @@ function hash(i: number, j: number) {
   return ((n ^ (n >> 16)) >>> 0) / 4294967296;
 }
 
-function distToPoly(x: number, z: number, pts: [number, number][]): number {
+export function distToPoly(x: number, z: number, pts: [number, number][]): number {
   let best = Infinity;
   for (let i = 0; i < pts.length - 1; i++) {
     const ax = pts[i][0];
@@ -90,11 +90,17 @@ const AVARICE_HUNT: [number, number][] = [
   [138, 48],
 ];
 
-function huntPathFor(cantoId: string): [number, number][] {
+export function huntPathFor(cantoId: string): [number, number][] {
   if (cantoId === "inferno_07") return AVARICE_HUNT;
   if (cantoId === "inferno_06") return GLUTTONY_HUNT;
   return LUST_HUNT;
 }
+
+/** Avarice scorched flats = off the gold measure lane (between weight packs). */
+export function isAvaScorchFlat(x: number, z: number): boolean {
+  return distToPoly(x, z, huntPathFor("inferno_07")) > 3.8;
+}
+
 
 function bossDaisFor(cantoId: string): { x: number; z: number } {
   if (cantoId === "inferno_07") return { x: 138, z: 48 };
