@@ -20,7 +20,7 @@
         "to_canto": "inferno_06",
         "x": 10,
         "y": 52,
-        "label": "Return to Gluttony ←"
+        "label": "Return to Gluttony \u2190"
       },
       {
         "to_canto": "inferno_01",
@@ -36,7 +36,7 @@
         "x": 86,
         "y": 58,
         "label": "Ledger Bell",
-        "hint": "peso e contrapeso — stills nearby weights; measure, then press the Crush"
+        "hint": "peso e contrapeso \u2014 stills nearby weights; measure, then press the Crush"
       },
       {
         "id": "ledger_cache",
@@ -44,7 +44,7 @@
         "x": 54,
         "y": 68,
         "label": "Ledger Cache",
-        "hint": "One weighed drop per visit — E to claim (Doré bone-gold irony)"
+        "hint": "One weighed drop per visit \u2014 E to claim (Dor\u00e9 bone-gold irony)"
       },
       {
         "id": "ledger_shrine",
@@ -52,16 +52,16 @@
         "x": 28,
         "y": 56,
         "label": "Ledger Shrine",
-        "hint": "rebalance — restores life and breath (kneel at the measure)"
+        "hint": "rebalance \u2014 restores life and breath (kneel at the measure)"
       },
       {
         "id": "avarice_portal_gluttony",
         "kind": "portal",
         "x": 12,
         "y": 50,
-        "label": "Gluttony gate ←",
+        "label": "Gluttony gate \u2190",
         "to_canto": "inferno_06",
-        "hint": "di qua dal peso — return through the weighed gate; bank loot at the Dark Wood stash"
+        "hint": "di qua dal peso \u2014 return through the weighed gate; bank loot at the Dark Wood stash"
       },
       {
         "id": "ledger_stone",
@@ -69,7 +69,7 @@
         "x": 70,
         "y": 48,
         "label": "Ledger Stone",
-        "hint": "peso e contrapeso — ring the Bell before the Crush"
+        "hint": "peso e contrapeso \u2014 ring the Bell before the Crush"
       }
     ]
   },
@@ -86,7 +86,7 @@
         "x": 78,
         "y": 58
       },
-      "notes": "Wards nearby weights until broken — sits on the Bell–Crush measure"
+      "notes": "Wards nearby weights until broken \u2014 sits on the Bell\u2013Crush measure"
     },
     {
       "id": "ava_coin_wisps",
@@ -114,7 +114,7 @@
         "x": 28,
         "y": 50
       },
-      "notes": "First counterweights on the scorched ledger road — learn the measure"
+      "notes": "First counterweights on the scorched ledger road \u2014 learn the measure"
     },
     {
       "id": "ava_ledger_a",
@@ -128,7 +128,7 @@
         "x": 52,
         "y": 36
       },
-      "notes": "Tallies unpaid — stills only when the Bell rings"
+      "notes": "Tallies unpaid \u2014 stills only when the Bell rings"
     },
     {
       "id": "ava_ledger_b",
@@ -156,7 +156,7 @@
         "x": 98,
         "y": 38
       },
-      "notes": "Heavy measures before the mid-lane elite — gold trim, don't undervalue"
+      "notes": "Heavy measures before the mid-lane elite \u2014 gold trim, don't undervalue"
     },
     {
       "id": "ava_strays",
@@ -170,7 +170,7 @@
         "x": 86,
         "y": 66
       },
-      "notes": "Loose change under the Bell — still them, then tip the Crush"
+      "notes": "Loose change under the Bell \u2014 still them, then tip the Crush"
     },
     {
       "id": "ava_chorus",
@@ -184,7 +184,7 @@
         "x": 112,
         "y": 82
       },
-      "notes": "South-east choir of weights — off the crush lane so the mid road breathes"
+      "notes": "South-east choir of weights \u2014 off the crush lane so the mid road breathes"
     },
     {
       "id": "ava_approach_flank",
@@ -198,7 +198,7 @@
         "x": 124,
         "y": 34
       },
-      "notes": "North flank before the Crush dais — keep the approach readable"
+      "notes": "North flank before the Crush dais \u2014 keep the approach readable"
     },
     {
       "id": "ava_ledger_warden",
@@ -226,7 +226,7 @@
         "x": 130,
         "y": 50
       },
-      "notes": "Mid-lane elite telegraph — the measure tips toward Crush"
+      "notes": "Mid-lane elite telegraph \u2014 the measure tips toward Crush"
     },
     {
       "id": "ava_north_measure",
@@ -240,7 +240,7 @@
         "x": 100,
         "y": 26
       },
-      "notes": "Empty ledger flats north of the road — unpaid tallies drift"
+      "notes": "Empty ledger flats north of the road \u2014 unpaid tallies drift"
     },
     {
       "id": "ava_south_spill",
@@ -254,7 +254,7 @@
         "x": 118,
         "y": 88
       },
-      "notes": "Coin spill south of the Crush lane — undervalue them and they swarm"
+      "notes": "Coin spill south of the Crush lane \u2014 undervalue them and they swarm"
     },
     {
       "id": "ava_nw_drift",
@@ -268,7 +268,21 @@
         "x": 22,
         "y": 22
       },
-      "notes": "Drift weights on the scorched NW flats — fills the empty ledger corner"
+      "notes": "Drift weights on the scorched NW flats \u2014 fills the empty ledger corner"
+    },
+    {
+      "id": "ava_sw_spill",
+      "name": "Southwest Spill",
+      "archetype": "coin_wisp",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 24,
+        "y": 96
+      },
+      "notes": "Coin spill on empty SW flats \u2014 fills the ledger corner west of South Balance"
     }
   ],
   "bosses": [
@@ -281,14 +295,14 @@
         "y": 48
       },
       "first_clear_emit": true,
-      "notes": "Crushing iron and coin — weight without rest; Doré bone-gold rollers"
+      "notes": "Crushing iron and coin \u2014 weight without rest; Dor\u00e9 bone-gold rollers"
     }
   ],
   "first_clear": {
     "enabled": true,
     "event": "FirstClear",
     "requires": "hoard_crush",
-    "notes": "Hoard Crush broken — Avarice yields its measure; return via Gluttony gate or bank at the Dark Wood stash"
+    "notes": "Hoard Crush broken \u2014 Avarice yields its measure; return via Gluttony gate or bank at the Dark Wood stash"
   },
   "daily_quests": [
     {
@@ -301,7 +315,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_04_avarice",
-    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony, Doré bone-gold; contrapasso of measure; mid-path Ledger Stone beat"
+    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony, Dor\u00e9 bone-gold; contrapasso of measure; mid-path Ledger Stone beat"
   },
   "loot_density": "raw_d2",
   "legal": {

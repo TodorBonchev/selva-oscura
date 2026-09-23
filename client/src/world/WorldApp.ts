@@ -278,6 +278,7 @@ export class WorldApp {
   southSpillApproachShown = false;
   weightChampApproachShown = false;
   nwDriftApproachShown = false;
+  swSpillApproachShown = false;
   roadWeightsApproachShown = false;
   goldChorusApproachShown = false;
   crushFlankApproachShown = false;
@@ -2084,6 +2085,7 @@ export class WorldApp {
           this.southSpillApproachShown = false;
           this.weightChampApproachShown = false;
           this.nwDriftApproachShown = false;
+          this.swSpillApproachShown = false;
           this.roadWeightsApproachShown = false;
           this.goldChorusApproachShown = false;
           this.crushFlankApproachShown = false;
@@ -3458,6 +3460,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
           this.nwDriftApproachShown = true;
           showToast("Northwest Drift — scorched flats still hold weight", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.swSpillApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^southwest spill$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.swSpillApproachShown = true;
+          showToast("Southwest Spill — undervalued coin on empty flats", "info");
           break;
         }
       }

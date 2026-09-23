@@ -330,6 +330,7 @@ export function buildGround(
       ? isAva
         ? [
             { x: 22, z: 22, r: 4 },
+            { x: 24, z: 96, r: 4 },
             { x: 30, z: 52, r: 5 },
             { x: 70, z: 48, r: 5 },
             { x: 86, z: 58, r: 6 },
@@ -382,17 +383,20 @@ export function buildGround(
         // Stronger gold road vs pitch off-path (gold-on-black irony; slash-readable)
         const onPath = pathD < 3.9;
         const sink = pathD > 11 ? 0.48 : pathD > 6 ? 0.72 : 1;
-        // NW Drift scorched flats — darker ledger corner
+        // NW / SW Drift scorched flats — darker ledger corners
         const nw = Math.hypot(wx - 22, wz - 22);
-        const nwScorch = nw < 18 ? 0.72 + (nw / 18) * 0.28 : 1;
+        const sw = Math.hypot(wx - 24, wz - 96);
+        const corner =
+          (nw < 18 ? 0.72 + (nw / 18) * 0.28 : 1) *
+          (sw < 18 ? 0.72 + (sw / 18) * 0.28 : 1);
         if (onPath) {
           colors[i * 3] = k * 1.22;
           colors[i * 3 + 1] = k * 0.98;
           colors[i * 3 + 2] = k * 0.42;
         } else {
-          colors[i * 3] = k * 0.38 * sink * nwScorch;
-          colors[i * 3 + 1] = k * 0.32 * sink * nwScorch;
-          colors[i * 3 + 2] = k * 0.18 * sink * nwScorch;
+          colors[i * 3] = k * 0.38 * sink * corner;
+          colors[i * 3 + 1] = k * 0.32 * sink * corner;
+          colors[i * 3 + 2] = k * 0.18 * sink * corner;
         }
       } else {
         colors[i * 3] = k * 1.05;
