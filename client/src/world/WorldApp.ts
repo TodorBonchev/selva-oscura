@@ -2672,10 +2672,18 @@ export class WorldApp {
                 this.lustClearRevelShown = true;
                 this.camPunch = Math.max(this.camPunch, 1.45);
                 showToast("Lust falls — the Gluttony gate past the dais opens", "emit");
+                const judge = this.room?.entities?.find(
+                  (e: any) => e.kind === "boss" || /judge/i.test(String(e.name || e.id || ""))
+                );
+                if (judge) this.spawnAvaFirstClearBurst(judge);
               }
               if (c === "inferno_06") {
                 this.camPunch = Math.max(this.camPunch, 1.2);
                 showToast("Triple Maw broken — the Avarice gate past the Maw opens", "emit");
+                const maw = this.room?.entities?.find(
+                  (e: any) => e.kind === "boss" || /maw|cerbero/i.test(String(e.name || e.id || ""))
+                );
+                if (maw) this.spawnAvaFirstClearBurst(maw);
                 if (!this.glutClearStashTipShown) {
                   this.glutClearStashTipShown = true;
                   showToast("Bank champion drops at the Dark Wood stash when you return", "info");
