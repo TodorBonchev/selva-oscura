@@ -4317,3 +4317,12 @@ body.hud-landscape #virtual-joystick {
   left: calc(0.3rem + var(--safe-left));
 }
 body.hud-landscape .vj-knob { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+
+/* Compact Avarice: slightly brighter foe/portal chevrons for mid-range read */
+body.in-avarice.hud-compact .compass-arrow[data-dest="avarice"] .compass-chevron {
+  filter: drop-shadow(0 0 2px #d4a84088);
+}
+body.in-avarice.hud-compact .compass-arrow[data-dest="avarice"] .compass-label {
+  font-size: 0.62rem;
+  color: #f2dea0;
+}

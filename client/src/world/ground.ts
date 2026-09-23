@@ -81,6 +81,7 @@ const GLUTTONY_HUNT: [number, number][] = [
 ];
 const AVARICE_HUNT: [number, number][] = [
   [18, 52],
+  [28, 50],
   [38, 56],
   [54, 68],
   [70, 48],
@@ -624,11 +625,12 @@ export function buildGround(
       coinRing.name = "daisPulse";
       group.add(coinRing);
       // Inner measure ring (Gluttony filth2 parity — Crush dais read)
-      const coinInner = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.07, 5, compact ? 16 : 22), mats.bronze);
+      // Compact: static (no daisPulse tick) to cut propAnims cost
+      const coinInner = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.07, 5, compact ? 14 : 22), mats.bronze);
       coinInner.rotation.x = Math.PI / 2;
       coinInner.position.set(daisPos.x, hy + 0.76, daisPos.z);
       coinInner.castShadow = false;
-      coinInner.name = "daisPulse";
+      if (!compact) coinInner.name = "daisPulse";
       group.add(coinInner);
       const tele = new THREE.Mesh(
         new THREE.RingGeometry(6.2, 6.55, compact ? 24 : 32),
@@ -690,7 +692,7 @@ export function buildGround(
         emissiveIntensity: 0.22,
       });
       const crackGeo = new THREE.BoxGeometry(1.8, 0.04, 0.14);
-      const crackN = compact ? 5 : 9;
+      const crackN = compact ? 4 : 9;
       const cracks = new THREE.InstancedMesh(crackGeo, crackMat, crackN);
       cracks.castShadow = false;
       cracks.receiveShadow = true;
@@ -710,7 +712,7 @@ export function buildGround(
       group.add(cracks);
 
       // Rolling weight props (short cylinders)
-      const weightCap = compact ? 6 : 10;
+      const weightCap = compact ? 4 : 10;
       const weightGeo = new THREE.CylinderGeometry(0.55, 0.62, 0.35, compact ? 8 : 10);
       const weightsMesh = new THREE.InstancedMesh(weightGeo, mats.bronze, weightCap);
       weightsMesh.castShadow = false;
@@ -748,10 +750,10 @@ export function buildGround(
         group.add(ribbon);
       }
 
-      // Mid-path ledger slabs (content beat props; cheap boxes, no shadows)
+      // Mid-path ledger slabs + Gluttony-gate approach plates (content beat; cheap boxes)
       const slabPts: [number, number][] = compact
-        ? [[70, 48], [86, 58], [112, 82]]
-        : [[44, 58], [70, 48], [86, 58], [100, 56], [112, 82], [124, 40]];
+        ? [[18, 52], [28, 50], [70, 48], [86, 58]]
+        : [[14, 50], [22, 52], [28, 50], [44, 58], [70, 48], [86, 58], [100, 56], [112, 82], [124, 40]];
       for (let i = 0; i < slabPts.length; i++) {
         const [sx, sz] = slabPts[i]!;
         const slab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 0.7), mats.bone);

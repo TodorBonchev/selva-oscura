@@ -280,6 +280,8 @@ export class WorldApp {
   nwDriftApproachShown = false;
   roadWeightsApproachShown = false;
   goldChorusApproachShown = false;
+  crushFlankApproachShown = false;
+  strayCoinApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1996,6 +1998,8 @@ export class WorldApp {
           this.nwDriftApproachShown = false;
           this.roadWeightsApproachShown = false;
           this.goldChorusApproachShown = false;
+          this.crushFlankApproachShown = false;
+          this.strayCoinApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -2387,6 +2391,33 @@ export class WorldApp {
     if (hit.poiKind === "ah") {
       setPanelOpen("ah", true);
       this.socket.ahBrowse();
+    }
+    // Avarice ledger POIs: brief bone-gold measure ring (loot/POI feedback)
+    if (
+      this.room?.cantoId === "inferno_07" &&
+      hit.kind === "poi" &&
+      (hit.poiKind === "bell" ||
+        hit.poiKind === "cache" ||
+        hit.poiKind === "shrine" ||
+        hit.poiKind === "marker")
+    ) {
+      const pos = this.entityRenderPos(hit);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.35, 0.72, 28),
+        new THREE.MeshBasicMaterial({
+          color: 0xd4a840,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.12));
+      this.scene.add(ring);
+      this.impacts.push({ mesh: ring, start: this.animT, dur: 520, from: 0.55, to: 2.4 });
+      this.camPunch = Math.max(this.camPunch, 0.12);
     }
   }
 
@@ -3325,6 +3356,32 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
           this.goldChorusApproachShown = true;
           showToast("Gold Chorus — undervalued choir off the crush lane", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.crushFlankApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^crush approach$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.crushFlankApproachShown = true;
+          showToast("Crush Approach — north flank before the dais", "warn");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.strayCoinApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^stray coin$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
+          this.strayCoinApproachShown = true;
+          showToast("Stray Coin — loose change under the Bell", "info");
           break;
         }
       }
