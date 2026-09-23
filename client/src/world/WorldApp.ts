@@ -1163,17 +1163,18 @@ export class WorldApp {
     }
     const shadowEvery = compact && inCombatRoom ? (inAva ? 5 : 3) : 2;
     const remoteN = this.room?.players ? this.room.players.length - 1 : 0;
+    // Compact combat cantos share Ava label cadence (Lust/Glut parity)
     const labelEvery =
       remoteN >= 2
         ? compact
-          ? inAva
+          ? inCombatRoom
             ? 6
             : 5
-          : inAva
+          : inCombatRoom
             ? 4
             : 3
         : compact && fighting
-          ? inAva
+          ? inCombatRoom
             ? 4
             : 3
           : 2;

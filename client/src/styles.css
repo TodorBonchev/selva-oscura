@@ -4565,15 +4565,21 @@ body.in-avarice.hud-compact .world-label.foe.avarice.midboss .wl-name {
   font-size: 0.78rem;
 }
 
-/* Avarice label declutter — quieter POI plates when not nearest */
-body.in-avarice .world-label:not(.foe):not(.loot-label):not(.is-nearest) .wl-name {
+/* Combat canto label declutter — quieter POI plates when not nearest (Ava/Lust/Glut) */
+body.in-avarice .world-label:not(.foe):not(.loot-label):not(.is-nearest) .wl-name,
+body.in-lust .world-label:not(.foe):not(.loot-label):not(.is-nearest) .wl-name,
+body.in-gluttony .world-label:not(.foe):not(.loot-label):not(.is-nearest) .wl-name {
   opacity: 0.72;
 }
-body.in-avarice.hud-compact .world-label:not(.foe):not(.loot-label):not(.is-nearest) {
+body.in-avarice.hud-compact .world-label:not(.foe):not(.loot-label):not(.is-nearest),
+body.in-lust.hud-compact .world-label:not(.foe):not(.loot-label):not(.is-nearest),
+body.in-gluttony.hud-compact .world-label:not(.foe):not(.loot-label):not(.is-nearest) {
   transform: scale(0.92);
   transform-origin: bottom center;
 }
-body.in-avarice .world-label.is-nearest .wl-name {
+body.in-avarice .world-label.is-nearest .wl-name,
+body.in-lust .world-label.is-nearest .wl-name,
+body.in-gluttony .world-label.is-nearest .wl-name {
   opacity: 1;
 }
 
