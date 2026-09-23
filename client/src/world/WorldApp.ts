@@ -2233,7 +2233,9 @@ export class WorldApp {
         if (
           this.room?.cantoId === "inferno_07" &&
           msg.level === "loot" &&
-          (/^Dropped:/i.test(text) || /^Picked up /i.test(text) || /^Ledger Cache:/i.test(text))
+          (/^(Dropped|Weighed):/i.test(text) ||
+            /^Picked up /i.test(text) ||
+            /^(Ledger Cache|misura — Ledger Cache):/i.test(text))
         ) {
           this.camPunch = Math.max(this.camPunch, /^Picked up /i.test(text) ? 0.32 : 0.18);
           this.hitFlashAmt = Math.max(this.hitFlashAmt, /^Picked up /i.test(text) ? 0.12 : 0.06);

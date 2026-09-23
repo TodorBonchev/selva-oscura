@@ -1,0 +1,64 @@
+{
+  "id": "avarice_pack_weights",
+  "description": "Circle 4 Avarice \u2014 weighed drops; slightly greedier than shared Inferno common (Dor\u00e9 bone-gold irony)",
+  "rolls": 1,
+  "no_drop_weight": 16,
+  "champion_bonus_rolls": 1,
+  "entries": [
+    {
+      "weight": 40,
+      "rarity": "normal",
+      "item_pool": "inferno_bases_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 30,
+      "rarity": "magic",
+      "item_pool": "inferno_affix_magic_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 16,
+      "rarity": "rare",
+      "item_pool": "inferno_affix_rare_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 7,
+      "rarity": "set",
+      "item_pool": "inferno_set_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 4,
+      "rarity": "unique",
+      "item_pool": "inferno_unique_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    },
+    {
+      "weight": 1,
+      "rarity": "canto_unique",
+      "item_pool": "season_canto_unique",
+      "qty_min": 1,
+      "qty_max": 1,
+      "soulbound": true,
+      "season_only": true
+    }
+  ],
+  "boss_guaranteed": [
+    {
+      "rarity": "rare",
+      "item_pool": "inferno_affix_rare_t1"
+    },
+    {
+      "rarity": "unique",
+      "item_pool": "inferno_unique_t1",
+      "soulbound": false
+    }
+  ]
+}

@@ -81,7 +81,7 @@
       "count": 1,
       "elite": true,
       "champion": true,
-      "drop_table": "inferno_pack_common",
+      "drop_table": "avarice_pack_weights",
       "anchor": {
         "x": 78,
         "y": 58
@@ -151,7 +151,7 @@
       "count": 2,
       "elite": true,
       "champion": true,
-      "drop_table": "inferno_pack_common",
+      "drop_table": "avarice_pack_weights",
       "anchor": {
         "x": 98,
         "y": 38
@@ -207,7 +207,7 @@
       "count": 1,
       "elite": true,
       "champion": true,
-      "drop_table": "inferno_pack_common",
+      "drop_table": "avarice_pack_weights",
       "anchor": {
         "x": 126,
         "y": 56
@@ -221,7 +221,7 @@
       "count": 1,
       "elite": true,
       "champion": true,
-      "drop_table": "inferno_pack_common",
+      "drop_table": "avarice_pack_weights",
       "anchor": {
         "x": 130,
         "y": 50
@@ -303,7 +303,7 @@
     {
       "id": "hoard_crush",
       "name": "Hoard Crush",
-      "drop_table": "inferno_pack_common",
+      "drop_table": "avarice_pack_weights",
       "anchor": {
         "x": 138,
         "y": 48

@@ -1305,13 +1305,13 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
   stubL.rotation.z = Math.PI / 2;
   stubL.name = "crushRoller";
   const stubR = stubL.clone();
-  stubR.position.x = 0.95;
+  stubR.position.x = 1.05;
   const discEnd = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.08, 10), mats.gold);
   discEnd.rotation.z = Math.PI / 2;
   discEnd.position.set(-1.58, 1.15, 0.1);
   discEnd.name = "weightDisc";
   const discEndR = discEnd.clone();
-  discEndR.position.x = 1.42;
+  discEndR.position.x = 1.58;
   const rim = new THREE.Mesh(new THREE.TorusGeometry(1.08, 0.11, 5, 16), mats.gold);
   rim.position.y = 1.1;
   rim.rotation.x = Math.PI / 2;

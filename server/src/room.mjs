@@ -752,10 +752,16 @@ class CantoRoom {
     }
 
     if (drops.length && killer) {
+      const dropPrefix =
+        dropTable === "avarice_pack_weights"
+          ? "Weighed"
+          : this.cantoId === "inferno_07"
+            ? "Weighed"
+            : "Dropped";
       this.toast(
         killer.ws,
         "loot",
-        `Dropped: ${drops.map((d) => `${d.rarity} ${d.name}`).join(", ")}`
+        `${dropPrefix}: ${drops.map((d) => `${d.rarity} ${d.name}`).join(", ")}`
       );
     }
 
@@ -792,7 +798,7 @@ class CantoRoom {
             this.toast(
               killer.ws,
               "emit",
-              "peso e contrapeso — Hoard Crush broken; return to Gluttony or bank loot at the stash."
+              "misura spezzata — Hoard Crush yields; bank weighed drops or return through Gluttony."
             );
           }
         } else if (killer && r2.reason === "already_cleared") {
@@ -1024,7 +1030,9 @@ class CantoRoom {
           this.toast(s.ws, "warn", "Inventory full.");
           return;
         }
-        const drops = rollDrops("inferno_pack_common", { champion: true, boss: false });
+        const cacheTable =
+          this.cantoId === "inferno_07" ? "avarice_pack_weights" : "inferno_pack_common";
+        const drops = rollDrops(cacheTable, { champion: true, boss: false });
         const item = drops[0];
         if (!item) {
           this.toast(s.ws, "info", "The cache holds only dust.");
