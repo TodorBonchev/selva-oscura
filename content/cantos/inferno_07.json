@@ -255,6 +255,20 @@
         "y": 88
       },
       "notes": "Coin spill south of the Crush lane \u2014 undervalue them and they swarm"
+    },
+    {
+      "id": "ava_nw_drift",
+      "name": "Northwest Drift",
+      "archetype": "weight_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 22,
+        "y": 22
+      },
+      "notes": "Drift weights on the scorched NW flats \u2014 fills the empty ledger corner"
     }
   ],
   "bosses": [

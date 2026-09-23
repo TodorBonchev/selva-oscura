@@ -1343,10 +1343,18 @@ export class WorldApp {
           (this.camFollow.z - 48) * (this.camFollow.z - 48) <
           48 * 48;
       for (const o of this.propAnims) {
-        if (o.name === "galeRibbon") o.rotation.y = Math.sin(this.animT * 0.0009) * 0.18;
-        if (o.name === "ember") {
-          const s = 0.92 + Math.sin(this.animT * 0.009 + o.id) * 0.14;
-          o.scale.setScalar(s);
+        if (o.name === "galeRibbon" || o.name === "ember") {
+          const px = o.position.x + (o.parent?.position.x || 0);
+          const pz = o.position.z + (o.parent?.position.z || 0);
+          const dx = px - this.camFollow.x;
+          const dz = pz - this.camFollow.z;
+          if (dx * dx + dz * dz < 40 * 40) {
+            if (o.name === "galeRibbon") o.rotation.y = Math.sin(this.animT * 0.0009) * 0.18;
+            else {
+              const s = 0.92 + Math.sin(this.animT * 0.009 + o.id) * 0.14;
+              o.scale.setScalar(s);
+            }
+          }
         }
         if (!daisNear && (o.name === "daisPulse" || o.name === "daisTelegraph")) continue;
         if (o.name === "daisPulse") {

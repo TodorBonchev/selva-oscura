@@ -2119,6 +2119,14 @@ export function makeLedgerShrine(mats: MatKit): THREE.Group {
   g.name = "ledger_shrine";
   const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 2.2, 8), mats.stone);
   pillar.position.y = 1.1;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.08), mats.bone);
+  plate.position.set(0, 1.35, -0.28);
+  const hash = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.03, 0.02), mats.bronze);
+  hash.position.set(0, 1.45, -0.33);
+  const hash2 = hash.clone();
+  hash2.position.y = 1.3;
+  const hash3 = hash.clone();
+  hash3.position.y = 1.15;
   const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), mats.gold);
   bowl.position.y = 2.3;
   const flame = new THREE.Mesh(new THREE.SphereGeometry(0.15, 7, 7), mats.ember);
@@ -2127,9 +2135,11 @@ export function makeLedgerShrine(mats: MatKit): THREE.Group {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.045, 5, 14), mats.gold);
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.08;
+  ring.name = "ribbon";
   const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.12, 8), mats.bronze);
   weight.position.set(0.22, 2.05, 0.18);
   weight.rotation.x = Math.PI / 2;
+  weight.name = "weightDisc";
   // Balance beam across bowl
   const beam = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.05, 0.05), mats.gold);
   beam.position.set(0, 2.42, 0);
@@ -2137,7 +2147,21 @@ export function makeLedgerShrine(mats: MatKit): THREE.Group {
   panL.position.set(-0.28, 2.32, 0);
   const panR = panL.clone();
   panR.position.x = 0.28;
-  g.add(discShadow(mats, 0.55), pillar, bowl, flame, ring, weight, beam, panL, panR);
+  g.add(
+    discShadow(mats, 0.55),
+    pillar,
+    plate,
+    hash,
+    hash2,
+    hash3,
+    bowl,
+    flame,
+    ring,
+    weight,
+    beam,
+    panL,
+    panR
+  );
   shadow(g);
   return g;
 }

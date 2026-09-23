@@ -323,6 +323,7 @@ export function buildGround(
     const arenas: { x: number; z: number; r: number }[] = isWeightLane
       ? isAva
         ? [
+            { x: 22, z: 22, r: 4 },
             { x: 30, z: 52, r: 5 },
             { x: 70, z: 48, r: 5 },
             { x: 86, z: 58, r: 6 },
