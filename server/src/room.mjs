@@ -1312,7 +1312,13 @@ class CantoRoom {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
       if (e.atkCd > 0) e.atkCd = Math.max(0, e.atkCd - dt);
       if (e.stunLeft > 0) {
+        const prev = e.stunLeft;
         e.stunLeft = Math.max(0, e.stunLeft - dt);
+        // Fairness: waking from Ledger Bell still — brief attack grace so walking
+        // the measure does not eat an instant swipe the frame stun ends.
+        if (prev > 0 && e.stunLeft <= 0 && this.cantoId === "inferno_07") {
+          e.atkCd = Math.max(e.atkCd || 0, 0.45);
+        }
         continue;
       }
       if (HEART_ARCHETYPES.has(e.archetype)) continue;
