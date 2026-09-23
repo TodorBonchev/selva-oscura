@@ -2375,9 +2375,25 @@ export class WorldApp {
         const phase = Number(msg.phase) || 1;
         this.spawnJudgeSlam(x, y, radius, dur);
         this.flashDodge(dur);
-        if (phase >= 2 && this.room?.cantoId === "inferno_07") {
-          this.camPunch = Math.max(this.camPunch, 0.28);
-          this.camFovKick = Math.max(this.camFovKick, 1.6);
+        if (this.room?.cantoId === "inferno_07") {
+          // Audio-free Crush windup: screen fringe + punch so mute players still tip the measure
+          document.body.classList.add("crush-windup");
+          window.setTimeout(
+            () => document.body.classList.remove("crush-windup"),
+            Math.max(420, dur * 1000)
+          );
+          this.camPunch = Math.max(this.camPunch, phase >= 2 ? 0.36 : 0.26);
+          this.camShake = Math.max(this.camShake, 0.12);
+          this.camFovKick = Math.max(this.camFovKick, phase >= 2 ? 1.6 : 1.05);
+          for (const n of this.nodes.values()) {
+            if (n.kind !== "hoard_crush") continue;
+            const tele = n.group.getObjectByName("mawTelegraph") as THREE.Mesh | undefined;
+            if (tele) {
+              const mat = tele.material as THREE.MeshBasicMaterial;
+              mat.opacity = Math.max(mat.opacity, 0.55);
+              tele.scale.setScalar(1.08);
+            }
+          }
         }
         break;
       }
@@ -2491,7 +2507,8 @@ export class WorldApp {
       start: this.animT,
       dur: Math.max(0.2, durationSec) * 1000,
     });
-    this.camPunch = Math.max(this.camPunch, 0.14);
+    this.camPunch = Math.max(this.camPunch, pal === "avarice" ? 0.22 : 0.14);
+    if (pal === "avarice") built.group.scale.setScalar(Math.max(0.7, radius) * 1.06);
   }
 
   resolveSlam(s: SlamTele) {
@@ -2924,7 +2941,7 @@ export class WorldApp {
     const el = document.getElementById("dodge-callout");
     if (!el) return;
     if (this.room?.cantoId === "inferno_07") {
-      el.textContent = "Tip the measure — dash the Crush";
+      el.textContent = "peso — dash the Crush ring";
       el.classList.add("avarice-dodge");
     } else {
       el.textContent = "Dash the slam";

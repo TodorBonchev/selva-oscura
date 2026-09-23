@@ -4485,3 +4485,29 @@ body.in-avarice.ava-claim-flash #game-root::after {
   0% { opacity: 0.7; }
   100% { opacity: 0; }
 }
+
+/* Audio-free Crush windup fringe — bone-gold measure tip (no neon) */
+body.in-avarice.crush-windup #game-root::before {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  box-shadow: inset 0 0 56px #d4a84044, inset 0 0 120px #1a120866;
+  animation: crush-windup-pulse 0.55s ease-in-out infinite alternate;
+}
+body.in-avarice.crush-windup #dodge-callout.avarice-dodge {
+  color: #f2dea0;
+  text-shadow: 0 1px 0 #000, 0 0 12px #d4a84088;
+  letter-spacing: 0.04em;
+}
+@keyframes crush-windup-pulse {
+  from { opacity: 0.55; }
+  to { opacity: 0.9; }
+}
+body.in-avarice.hud-compact.crush-windup #game-root::before {
+  box-shadow: inset 0 0 36px #d4a84033, inset 0 0 80px #1a120855;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.in-avarice.crush-windup #game-root::before { animation: none; opacity: 0.65; }
+}
