@@ -163,6 +163,24 @@ input, textarea, .panel, #panels, #boot-veil, #boot-veil input, #boot-veil butto
 #canto-title[data-epigraph=""]::after,
 #canto-title:not([data-epigraph])::after { display: none; }
 
+/* Italian PD epigraph — once on Avarice enter, then settles to muted */
+#canto-title.canto-epi-once::after {
+  color: #e8c86a;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 14px #c9a22766, 0 1px 0 #000;
+  animation: canto-epi-once 4.4s ease-out forwards;
+}
+@keyframes canto-epi-once {
+  0% { opacity: 0; transform: translateY(4px); }
+  12% { opacity: 1; transform: translateY(0); }
+  70% { opacity: 1; color: #e8c86a; }
+  100% { opacity: 0.85; color: var(--muted); font-size: 0.62rem; letter-spacing: 0.12em; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #canto-title.canto-epi-once::after { animation: none; color: #e8c86a; }
+}
+
 /* Vitals */
 #stats {
   display: flex;

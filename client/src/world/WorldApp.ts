@@ -2352,6 +2352,18 @@ export class WorldApp {
           this.poiHintsShown.clear();
           showToast("piova etterna — clear the mire, then the Triple Maw", "info");
         }
+        if (msg.room.cantoId === "inferno_07" && (first || cantoChanged)) {
+          const epi = String(msg.room.subtitleIt || msg.room.subtitle_it || "").trim();
+          if (epi) {
+            const el = document.getElementById("canto-title");
+            if (el) {
+              el.classList.remove("canto-epi-once");
+              void el.offsetWidth;
+              el.classList.add("canto-epi-once");
+              window.setTimeout(() => el.classList.remove("canto-epi-once"), 4400);
+            }
+          }
+        }
         if (msg.room.cantoId === "inferno_07" && (first || cantoChanged) && !this.avaEnterTipShown) {
           this.avaEnterTipShown = true;
           this.counterweightApproachShown = false;
