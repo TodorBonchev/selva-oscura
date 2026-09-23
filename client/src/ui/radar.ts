@@ -8,6 +8,8 @@ import { Vector3 } from "three";
 type Vec2 = { x: number; y: number };
 
 const RANGE = 38;
+/** Avarice gold road is long — pull camera out so Crush/CW/hub gate fit. */
+const RANGE_AVA = 48;
 const _ndc = new Vector3();
 
 function cantoShort(id: string | undefined): string | null {
@@ -156,7 +158,8 @@ export class Radar {
     const h = canvas.height;
     const cx = w * 0.5;
     const cy = h * 0.5;
-    const scale = (w * 0.46) / RANGE;
+    const range = opts.cantoId === "inferno_07" ? RANGE_AVA : RANGE;
+    const scale = (w * 0.46) / range;
 
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#0c0b08ee";
