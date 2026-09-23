@@ -1450,6 +1450,8 @@ class CantoRoom {
         if (e.packId === "ava_counterweight") leash = 15.5;
         else if (e.archetype === "weight_champion" || e.champion) leash = 13.5;
         else if (e.packId === "ava_approach_flank") leash = 9.5;
+        // Coin wisps weave fast — tight leash keeps pack clears inside burst+melee (no leftover kite)
+        else if (e.archetype === "coin_wisp") leash = 7.2;
       }
       if (e.kind !== "boss" && homeD > leash) {
         const hx = e.homeX - e.x;
@@ -1489,7 +1491,7 @@ class CantoRoom {
               : this.cantoId === "inferno_07" && e.archetype === "ledger_warden"
                 ? 9.5
                 : this.cantoId === "inferno_07" && e.archetype === "coin_wisp"
-                  ? 9
+                  ? 7.4
                   : this.cantoId === "inferno_07" &&
                       (e.archetype === "weight_champion" || e.champion)
                     ? 9.5
@@ -1521,7 +1523,8 @@ class CantoRoom {
           }
           if (e.archetype === "coin_wisp") {
             e._weaveT = (e._weaveT || 0) + dt;
-            const weave = Math.sin(e._weaveT * 5.2 + (e.x || 0) * 0.2) * 0.55;
+            // Milder weave so burst (r≈4.2) still covers the pack cluster
+            const weave = Math.sin(e._weaveT * 5.2 + (e.x || 0) * 0.2) * 0.32;
             const px = -sy;
             const py = sx;
             sx += px * weave;
