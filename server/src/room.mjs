@@ -374,7 +374,7 @@ class CantoRoom {
         requireClear: e.requireClear || null,
         item: e.item,
         // Avarice/Lust/Glut bell still — client gold measure tint
-        stunLeft: e.stunLeft > 0 ? e.stunLeft : undefined,
+        stunLeft: e.stunLeft > 0.05 ? Math.round(e.stunLeft * 5) / 5 : undefined,
         windupLeft: e.kind === "boss" && e.windupLeft > 0 ? e.windupLeft : undefined,
         phase: e.kind === "boss" && e.phase ? e.phase : undefined,
       });

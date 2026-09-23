@@ -1567,8 +1567,10 @@ export class WorldApp {
         let still = rec.group.getObjectByName("stillRing") as THREE.Mesh | undefined;
         if (stun > 0.05) {
           if (!still && this.room.cantoId === "inferno_07") {
+            // Compact: fewer segs — still rings can spike after Ledger Bell
+            const segs = isCompactUi() ? 12 : 18;
             still = new THREE.Mesh(
-              new THREE.RingGeometry(0.55, 0.78, 20),
+              new THREE.RingGeometry(0.55, 0.78, segs),
               new THREE.MeshBasicMaterial({
                 color: 0xd4a840,
                 transparent: true,
@@ -1586,9 +1588,11 @@ export class WorldApp {
           if (still) {
             const dx = rec.group.position.x - this.camFollow.x;
             const dz = rec.group.position.z - this.camFollow.z;
-            const near = dx * dx + dz * dz < 28 * 28;
+            const cull = isCompactUi() ? 22 : 28;
+            const near = dx * dx + dz * dz < cull * cull;
             still.visible = near;
-            if (near) {
+            // Pulse at most every 3rd frame — dozens of stills after a Bell toll
+            if (near && this.frameN % 3 === 0) {
               const mat = still.material as THREE.MeshBasicMaterial;
               mat.opacity = 0.35 + Math.min(0.4, stun * 0.12);
               const s = 1 + Math.sin(this.animT * 0.006) * 0.06;
