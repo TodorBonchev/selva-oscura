@@ -33,6 +33,7 @@ const RARITY_LABEL: Record<string, string> = {
   canto_unique: "Canto Unique",
 };
 
+
 function escapeHtml(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -392,14 +393,16 @@ export function renderAh(
     li.className = `ah-row ah-loot-pulse ${rarityClass(L.item?.rarity)}`;
     const rarity = RARITY_LABEL[L.item?.rarity] || L.item?.rarity || "";
     const stats = L.item ? formatItemStats(itemStatBonus(L.item)) : "";
+    const weighed = Boolean(L.item?.soulbound);
     const price = Number(L.priceAsh) || 0;
     const canBuy = ash >= price;
+    if (weighed) li.classList.add("ah-weighed");
     li.innerHTML = `
       <div class="ah-item">
         <span class="ah-seal" aria-hidden="true"></span>
         <div class="ah-text">
-          <div class="ah-name">${escapeHtml(L.item?.name)}</div>
-          <div class="ah-meta"><span class="ah-rarity">${escapeHtml(rarity)}</span> · ${escapeHtml(L.sellerName)}${stats ? ` · ${escapeHtml(stats)}` : ""}</div>
+          <div class="ah-name">${escapeHtml(L.item?.name)}${weighed ? `<span class="ah-weighed-tag" title="Soulbound — bank at stash, not transferable">Weighed</span>` : ""}</div>
+          <div class="ah-meta"><span class="ah-rarity">${escapeHtml(rarity)}</span>${weighed ? ` · <span class="ah-weighed-meta">soulbound</span>` : ""} · ${escapeHtml(L.sellerName)}${stats ? ` · ${escapeHtml(stats)}` : ""}</div>
         </div>
       </div>
       <div class="ah-prices">

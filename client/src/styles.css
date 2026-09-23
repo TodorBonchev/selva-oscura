@@ -4695,3 +4695,28 @@ body.in-avarice .world-label.ava-cache-empty .wl-name {
 body.in-avarice .world-label.ava-cache-empty {
   filter: grayscale(0.35) brightness(0.85);
 }
+
+/* AH weighed (soulbound) listings — bone-gold measure seal, no neon */
+.ah-row.ah-weighed {
+  border-left-color: #c9a84a;
+  box-shadow: inset 0 0 0 1px #000a, inset 0 0 14px #0008, inset 0 0 18px #3a2a1088;
+}
+.ah-weighed-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.32rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  vertical-align: 0.12em;
+  color: #1a1408;
+  background: linear-gradient(180deg, #e8d4a0, #c9a84a);
+  border: 1px solid #8a7030;
+  box-shadow: 0 1px 0 #0006;
+}
+.ah-weighed-meta {
+  color: #c9a84a;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.64rem;
+}
