@@ -4560,3 +4560,13 @@ body.in-avarice.ava-bell-still #gold-dust {
 body.in-avarice.hud-compact .world-label.ally.remote.ava-remote .wl-name {
   font-size: 0.72rem;
 }
+
+/* Avarice equip after weighed loot — bone plate flash on bag (no neon) */
+body.in-avarice.ava-equip-flash #btn-inv,
+body.in-avarice.ava-equip-flash #hud-inv {
+  box-shadow: 0 0 0 1px #e8c86a88, 0 0 14px #d4a84044;
+  filter: brightness(1.08);
+}
+body.in-avarice.ava-equip-flash #toast {
+  border-color: #e8c86aaa;
+}

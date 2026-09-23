@@ -2323,6 +2323,16 @@ export class WorldApp {
         if (/slain|misura spezzata|wake at the ledger gate/i.test(text)) this.triggerDeathRevive();
         if (
           this.room?.cantoId === "inferno_07" &&
+          (/^pesato — equipped/i.test(text) || /^Equipped /i.test(text))
+        ) {
+          pulseInvBag();
+          document.body.classList.add("ava-equip-flash");
+          window.setTimeout(() => document.body.classList.remove("ava-equip-flash"), 420);
+          this.camPunch = Math.max(this.camPunch, 0.18);
+        }
+
+        if (
+          this.room?.cantoId === "inferno_07" &&
           msg.level === "loot" &&
           (/^(Dropped|Weighed):/i.test(text) ||
             /^Picked up /i.test(text) ||
