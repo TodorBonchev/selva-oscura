@@ -305,6 +305,8 @@ export class WorldApp {
   stormHeartSeenAlive = false;
   glutClearStashTipShown = false;
   avaClearStashTipShown = false;
+  /** Post-Crush loot greed pull window (ms animT). */
+  crushLootMagnetUntil = 0;
   /** Concurrent Avarice pack-death coin bursts (budget). */
   avaDeathBurstActive = 0;
   poiHintsShown = new Set<string>();
@@ -2132,11 +2134,15 @@ export class WorldApp {
   lootRenderPos(e: any): Vec2 {
     const you = this.youPos();
     const d = Math.hypot(e.x - you.x, e.y - you.y);
-    const range = this.room?.cantoId === "inferno_07" ? MAGNET_RANGE + 1.4 : MAGNET_RANGE;
+    const crushPull = this.room?.cantoId === "inferno_07" && this.animT < this.crushLootMagnetUntil;
+    const range =
+      this.room?.cantoId === "inferno_07"
+        ? MAGNET_RANGE + 1.4 + (crushPull ? 2.2 : 0)
+        : MAGNET_RANGE;
     if (d > range || d < 0.01) return this.entityRenderPos(e);
     const t = 1 - d / range;
-    // Avarice: greed pulls harder (gold-on-black irony)
-    const pull = t * t * (this.room?.cantoId === "inferno_07" ? 0.72 : 0.55);
+    // Avarice: greed pulls harder (gold-on-black irony); Crush clear = brief auto-magnet
+    const pull = t * t * (this.room?.cantoId === "inferno_07" ? (crushPull ? 0.92 : 0.72) : 0.55);
     return { x: e.x + (you.x - e.x) * pull, y: e.y + (you.y - e.y) * pull };
   }
 
@@ -2647,6 +2653,7 @@ export class WorldApp {
                   this.camPunch = Math.max(this.camPunch, 1.75);
                   this.camShake = Math.max(this.camShake, 0.48);
                 }
+                this.crushLootMagnetUntil = this.animT + 14000;
                 if (!this.avaClearStashTipShown) {
                   this.avaClearStashTipShown = true;
                   showToast(
