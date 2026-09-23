@@ -4137,6 +4137,27 @@ body.is-fullscreen {
 }
 
 .world-label.is-nearest .wl-name { color: var(--gold-2); }
+
+/* Interactable outline — nearest POI/loot/portal reads as a measured gold plate */
+.world-label.is-nearest:not(.foe) {
+  filter: drop-shadow(0 0 4px #d4a84066);
+}
+.world-label.is-nearest:not(.foe) .wl-name {
+  outline: 1px solid #c8a86888;
+  outline-offset: 3px;
+  border-radius: 2px;
+  padding: 0 0.2rem;
+  background: linear-gradient(180deg, #1a140888, #0b0f0c66);
+}
+body.in-avarice .world-label.is-nearest:not(.foe) .wl-name {
+  outline-color: #e8c86aaa;
+  box-shadow: 0 0 10px #d4a84044;
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-label.is-nearest:not(.foe) { filter: none; }
+}
+
+
 .world-label .wl-hp {
   display: none;
   width: 48px;
@@ -4706,6 +4727,28 @@ body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-unique,
 body.in-avarice.ava-loot-flash .inv-slot:not(.empty).r-canto_unique {
   animation: weighed-rarity-pulse 1.6s ease-in-out 1;
 }
+
+/* Hub stash glow after Crush bank tip — bone-gold measure, no neon */
+body:not(.in-avarice) .world-label.ava-stash-glow .wl-name,
+.world-label.ava-stash-glow .wl-name {
+  color: #fff6d8;
+  text-shadow: 0 0 12px #e8c86a66, 0 1px 0 #000;
+  letter-spacing: 0.04em;
+}
+.world-label.ava-stash-glow {
+  filter: drop-shadow(0 0 6px #d4a84055);
+}
+@keyframes ava-stash-glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px #d4a84044); }
+  50% { filter: drop-shadow(0 0 10px #e8c86a66); }
+}
+.world-label.ava-stash-glow {
+  animation: ava-stash-glow-pulse 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-label.ava-stash-glow { animation: none; }
+}
+
 @keyframes weighed-rarity-pulse {
   0%, 100% {
     box-shadow: inset 0 0 0 1px #000a, inset 0 0 12px var(--rc-dim), 0 0 6px color-mix(in srgb, var(--rc) 35%, transparent);
