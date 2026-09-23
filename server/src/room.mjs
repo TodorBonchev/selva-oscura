@@ -588,9 +588,10 @@ class CantoRoom {
     }
     if (dist(s, target) > ATTACK_RANGE) {
       const now = Date.now();
-      if (!s._oorToastAt || now - s._oorToastAt > 1400) {
+      // Quiet OOR: longer gap + info (not warn) so measure spam stays bone-soft
+      if (!s._oorToastAt || now - s._oorToastAt > 2400) {
         s._oorToastAt = now;
-        this.toast(s.ws, "warn", "Out of range.");
+        this.toast(s.ws, "info", "Too far.");
       }
       return;
     }
