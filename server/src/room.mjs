@@ -325,6 +325,8 @@ class CantoRoom {
         toCanto: e.toCanto,
         requireClear: e.requireClear || null,
         item: e.item,
+        // Avarice/Lust/Glut bell still — client gold measure tint
+        stunLeft: e.stunLeft > 0 ? e.stunLeft : undefined,
       });
     }
     const playerSnaps = [];

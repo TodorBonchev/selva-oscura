@@ -285,6 +285,7 @@ export class WorldApp {
   northLedgerApproachShown = false;
   southBalanceApproachShown = false;
   coinWispsApproachShown = false;
+  ledgerWardenApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1295,8 +1296,12 @@ export class WorldApp {
         const wx = n.group.position.x - this.camFollow.x;
         const wz = n.group.position.z - this.camFollow.z;
         const cullR = n.group.userData.coinWisp ? 36 : isCompactUi() ? 34 : 44;
+        const stunned = Number(n.group.userData.stunLeft || 0) > 0.05;
         if (wx * wx + wz * wz > cullR * cullR) {
           /* skip far idle */
+        } else if (stunned) {
+          const bob = n.group.getObjectByName("ribbon");
+          if (bob) bob.position.y = 0.95 + Math.sin(this.animT * 0.0012) * 0.03;
         } else if (n.group.userData.isHoardHeart) {
           tickHoardHeart(n.group, this.animT);
         } else if (n.group.userData.isCounterweight) {
@@ -1413,6 +1418,39 @@ export class WorldApp {
       if (e.kind === "mob" || e.kind === "boss" || e.kind === "player") {
         const you = this.youPos();
         rec.group.rotation.y = yawFromPlanar(you.x - pos.x, you.y - pos.y);
+      }
+      if (e.kind === "mob") {
+        const stun = Number(e.stunLeft) || 0;
+        rec.group.userData.stunLeft = stun;
+        let still = rec.group.getObjectByName("stillRing") as THREE.Mesh | undefined;
+        if (stun > 0.05) {
+          if (!still && this.room.cantoId === "inferno_07") {
+            still = new THREE.Mesh(
+              new THREE.RingGeometry(0.55, 0.78, 20),
+              new THREE.MeshBasicMaterial({
+                color: 0xd4a840,
+                transparent: true,
+                opacity: 0.55,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+              })
+            );
+            still.rotation.x = -Math.PI / 2;
+            still.position.y = 0.12;
+            still.name = "stillRing";
+            rec.group.add(still);
+          }
+          if (still) {
+            still.visible = true;
+            const mat = still.material as THREE.MeshBasicMaterial;
+            mat.opacity = 0.35 + Math.min(0.4, stun * 0.12);
+            const s = 1 + Math.sin(this.animT * 0.006) * 0.06;
+            still.scale.set(s, s, 1);
+          }
+        } else if (still) {
+          still.visible = false;
+        }
       }
       const ward = rec.group.getObjectByName("wardRing");
       if (ward) {
@@ -2023,6 +2061,7 @@ export class WorldApp {
           this.northLedgerApproachShown = false;
           this.southBalanceApproachShown = false;
           this.coinWispsApproachShown = false;
+          this.ledgerWardenApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -3474,6 +3513,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
           this.coinWispsApproachShown = true;
           showToast("Coin Wisps — scattered greed, easy to undervalue", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.ledgerWardenApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (e.archetype !== "ledger_warden" && !/^ledger warden$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
+          this.ledgerWardenApproachShown = true;
+          showToast("Ledger Warden — tablet shield before the Crush", "warn");
           break;
         }
       }

@@ -4332,3 +4332,16 @@ body.in-avarice.hud-compact .compass-arrow[data-dest="avarice"] .compass-label {
   font-size: 0.62rem;
   color: #f2dea0;
 }
+
+/* Avarice: interact-ready reads as weighed gold, not Lust crimson */
+body.in-avarice #btn-interact.interact-ready {
+  --ab-line: #d4a840;
+  --ab-glow: #a0782844;
+  box-shadow:
+    inset 0 0 0 1px #0a0804,
+    inset 0 0 0 2px #d4a840aa,
+    0 0 10px #d4a84033;
+}
+body.in-avarice.hud-compact #btn-interact.interact-ready .action-icon {
+  filter: drop-shadow(0 0 3px #d4a84088);
+}
