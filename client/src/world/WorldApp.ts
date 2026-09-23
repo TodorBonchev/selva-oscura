@@ -2161,15 +2161,27 @@ export class WorldApp {
   lootRenderPos(e: any): Vec2 {
     const you = this.youPos();
     const d = Math.hypot(e.x - you.x, e.y - you.y);
-    const crushPull = this.room?.cantoId === "inferno_07" && this.animT < this.crushLootMagnetUntil;
+    const canto = this.room?.cantoId;
+    const crushPull = canto === "inferno_07" && this.animT < this.crushLootMagnetUntil;
     const range =
-      this.room?.cantoId === "inferno_07"
+      canto === "inferno_07"
         ? MAGNET_RANGE + 1.4 + (crushPull ? 2.2 : 0)
-        : MAGNET_RANGE;
+        : canto === "inferno_05" || canto === "inferno_06"
+          ? MAGNET_RANGE + 0.7
+          : MAGNET_RANGE;
     if (d > range || d < 0.01) return this.entityRenderPos(e);
     const t = 1 - d / range;
-    // Avarice: greed pulls harder (gold-on-black irony); Crush clear = brief auto-magnet
-    const pull = t * t * (this.room?.cantoId === "inferno_07" ? (crushPull ? 0.92 : 0.72) : 0.55);
+    // Shared combat pull; Avarice greed hardest; Crush clear = brief auto-magnet
+    const pull =
+      t *
+      t *
+      (canto === "inferno_07"
+        ? crushPull
+          ? 0.92
+          : 0.72
+        : canto === "inferno_05" || canto === "inferno_06"
+          ? 0.64
+          : 0.55);
     return { x: e.x + (you.x - e.x) * pull, y: e.y + (you.y - e.y) * pull };
   }
 
