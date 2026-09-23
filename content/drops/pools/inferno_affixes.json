@@ -1,6 +1,16 @@
 {
-  "magic_prefixes": ["Gale-Touched", "Whispering", "Soot-Stained", "Thorned"],
-  "magic_suffixes": ["of the Wood", "of Ash", "of Woe", "of the Gale"],
+  "magic_prefixes": [
+    "Gale-Touched",
+    "Whispering",
+    "Soot-Stained",
+    "Thorned"
+  ],
+  "magic_suffixes": [
+    "of the Wood",
+    "of Ash",
+    "of Woe",
+    "of the Gale"
+  ],
   "rare_affixes": [
     "+Strength",
     "+Dexterity",
@@ -11,7 +21,28 @@
     "+Mana",
     "+Light Radius"
   ],
-  "set_names": ["Pilgrim's Burden", "Judge's Toll"],
-  "unique_names": ["Minos' Coil", "Francesca's Sigh", "Dark Wood Twig"],
-  "canto_unique_names": ["Season: Gate Writ"]
+  "set_names": [
+    "Pilgrim's Burden",
+    "Judge's Toll"
+  ],
+  "unique_names": [
+    "Minos' Coil",
+    "Francesca's Sigh",
+    "Dark Wood Twig"
+  ],
+  "canto_unique_names": [
+    "Season: Gate Writ"
+  ],
+  "avarice_unique_names": [
+    "Plutus' Counterweight",
+    "Ledger of Unpaid Tithes",
+    "Hoard-Scored Disc",
+    "Bone-Gold Misura",
+    "Crush-Kissed Ring",
+    "Weighed Pilgrim's Due"
+  ],
+  "avarice_canto_unique_names": [
+    "Season: Weighed Writ",
+    "Season: Measure Seal"
+  ]
 }
