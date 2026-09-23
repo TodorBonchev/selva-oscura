@@ -1465,11 +1465,16 @@ export class WorldApp {
             rec.group.add(still);
           }
           if (still) {
-            still.visible = true;
-            const mat = still.material as THREE.MeshBasicMaterial;
-            mat.opacity = 0.35 + Math.min(0.4, stun * 0.12);
-            const s = 1 + Math.sin(this.animT * 0.006) * 0.06;
-            still.scale.set(s, s, 1);
+            const dx = rec.group.position.x - this.camFollow.x;
+            const dz = rec.group.position.z - this.camFollow.z;
+            const near = dx * dx + dz * dz < 28 * 28;
+            still.visible = near;
+            if (near) {
+              const mat = still.material as THREE.MeshBasicMaterial;
+              mat.opacity = 0.35 + Math.min(0.4, stun * 0.12);
+              const s = 1 + Math.sin(this.animT * 0.006) * 0.06;
+              still.scale.set(s, s, 1);
+            }
           }
         } else if (still) {
           still.visible = false;
@@ -2633,6 +2638,8 @@ export class WorldApp {
           : isGlut
             ? "Mire Shrine on the road will mend you"
             : "Wind Shrine on the road will mend you";
+      } else if (isAva && you.x < 36 && heart) {
+        line = "peso e contrapeso — weigh the road";
       } else if (heart) {
         line = isAva
           ? "Break the Hoard Heart — nearby shades are warded"
