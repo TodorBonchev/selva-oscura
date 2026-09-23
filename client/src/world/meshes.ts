@@ -1102,6 +1102,24 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
 }
 
 
+/** Shared ledger plate geos — one draw-friendly buffer for every weight shade plate. */
+let SHARED_LEDGER_PLATE_GEO: THREE.BoxGeometry | null = null;
+let SHARED_LEDGER_LINE_GEO: THREE.BoxGeometry | null = null;
+function ledgerPlateGeo() {
+  if (!SHARED_LEDGER_PLATE_GEO) {
+    SHARED_LEDGER_PLATE_GEO = new THREE.BoxGeometry(0.48, 0.36, 0.06);
+    SHARED_LEDGER_PLATE_GEO.userData.sharedLedger = true;
+  }
+  return SHARED_LEDGER_PLATE_GEO;
+}
+function ledgerLineGeo() {
+  if (!SHARED_LEDGER_LINE_GEO) {
+    SHARED_LEDGER_LINE_GEO = new THREE.BoxGeometry(0.32, 0.03, 0.02);
+    SHARED_LEDGER_LINE_GEO.userData.sharedLedger = true;
+  }
+  return SHARED_LEDGER_LINE_GEO;
+}
+
 /** Weight shade — Doré silhouette with rolling coin-weight rings (gold-on-black). */
 function weightShadeMat(mats: MatKit, goldTrim: boolean): THREE.MeshStandardMaterial {
   return goldTrim
@@ -1135,11 +1153,11 @@ function makeWeightShadeBody(mats: MatKit, scale: number, goldTrim: boolean): TH
   voidFace.name = "ember";
   // Chest ledger plate — readable measure motif at distance
   const plate = new THREE.Mesh(
-    new THREE.BoxGeometry(0.48, 0.36, 0.06),
+    ledgerPlateGeo(),
     goldTrim ? mats.gold : mats.bronze
   );
   plate.position.set(0, 1.15, -0.28);
-  const plateLine = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.02), mats.bone);
+  const plateLine = new THREE.Mesh(ledgerLineGeo(), mats.bone);
   plateLine.position.set(0, 1.18, -0.32);
   const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.2, 10), mats.gold);
   weight.position.set(0, 1.02, 0.12);
