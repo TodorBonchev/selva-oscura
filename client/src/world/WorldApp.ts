@@ -2254,7 +2254,8 @@ export class WorldApp {
       this.crushPressureOn = near;
       document.body.classList.toggle("crush-pressure", near);
     }
-    this.fogTargetDensity = near ? this.avaFogBase * 1.4 : this.avaFogBase;
+    // Near Crush: denser gold haze; far road stays thin so measure reads
+    this.fogTargetDensity = near ? Math.max(this.avaFogBase * 1.55, 0.019) : this.avaFogBase;
   }
 
   /** Soft fog/clear lerp on canto change — avoids hard pop. */
@@ -2351,9 +2352,9 @@ export class WorldApp {
       this.heroLight.intensity = 3.4;
       this.heroLight.distance = 9;
     } else if (ava) {
-      // Gold-on-black irony — restrained fog; compact trims light budget.
+      // Gold-on-black irony — clearer road fog; density spikes only near Crush.
       const compact = isCompactUi();
-      this.avaFogBase = compact ? 0.0145 : 0.016;
+      this.avaFogBase = compact ? 0.012 : 0.013;
       this.mawPressureOn = false;
       this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
