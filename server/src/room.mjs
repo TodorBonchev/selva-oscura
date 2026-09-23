@@ -1562,10 +1562,24 @@ class CantoRoom {
           const isChampWind =
             e.kind !== "boss" && (e.champion || e.archetype === "weight_champion");
           e.atkCd = isChampWind ? 1.05 : 1.35;
-          if (target && !(target.iframes > 0)) {
+          if (target) {
             const dHit = dist(e, target);
             const slamR = isChampWind ? 2.45 : e.slamRadius || 3.2;
             if (dHit <= slamR) {
+              // Iframe (dash/respawn): telegraph still resolves — player-facing "safe" beat, no HP loss
+              if (target.iframes > 0) {
+                this.broadcast({
+                  type: "combat",
+                  attackerId: e.id,
+                  targetId: target.playerId,
+                  targetIsPlayer: true,
+                  damage: 0,
+                  soaked: 0,
+                  iframeBlocked: true,
+                  targetHp: target.hp,
+                  champTele: isChampWind || undefined,
+                });
+              } else {
               const arch = e.archetype || (isChampWind ? "weight_champion" : "boss");
               let dmg = isChampWind
                 ? MOB_DMG[arch] || MOB_DMG.weight_champion || MOB_DMG.gale_champion
@@ -1600,6 +1614,7 @@ class CantoRoom {
                   this.cantoId === "inferno_07" ? RESPAWN_IFRAMES + 0.6 : RESPAWN_IFRAMES;
                 this.deathWakeToast(target.ws);
               }
+              } // end non-iframe slam hit
             }
           }
         }

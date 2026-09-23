@@ -2932,6 +2932,13 @@ export class WorldApp {
     const sockId = this.socket.playerId != null ? String(this.socket.playerId) : "";
     const hitSelf = Boolean(tid) && (tid === youId || tid === sockId);
     if (hitSelf) {
+      // Crush/champ slam resolved while dashed/respawn-iframed — gold safe rim, not a sting
+      if (msg.iframeBlocked) {
+        flashSlamSafeRim();
+        this.camPunch = Math.max(this.camPunch, 0.18);
+        this.camShake = Math.max(this.camShake, 0.08);
+        return;
+      }
       this.camShake = Math.max(this.camShake, 0.38);
       this.camPunch = Math.max(this.camPunch, 0.58);
       this.camFovKick = Math.min(this.camFovKick, -3.2);
