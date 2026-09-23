@@ -10,6 +10,7 @@ import { SPELLS, SPELL_HOTBAR, type SpellId } from "../spells";
 
 let selectedItemId: string | null = null;
 let lastBagItems: any[] = [];
+let invWeighedOnly = false;
 let meltArmTimer: number | null = null;
 let toastTimer: number | null = null;
 let lastHpShown: number | null = null;
@@ -274,8 +275,26 @@ export function renderInventory(
   // Weighed / richer drops float up so Avarice loot is not buried under normals
   items = sortInventoryItems(items);
   lastBagItems = items;
+  const filterBtn = document.getElementById("btn-inv-weighed");
+  if (filterBtn && filterBtn.dataset.wired !== "1") {
+    filterBtn.dataset.wired = "1";
+    filterBtn.addEventListener("click", () => {
+      invWeighedOnly = !invWeighedOnly;
+      filterBtn.setAttribute("aria-pressed", invWeighedOnly ? "true" : "false");
+      renderInventory(lastBagItems, onSelect, opts);
+    });
+  }
+  filterBtn?.setAttribute("aria-pressed", invWeighedOnly ? "true" : "false");
+  if (invWeighedOnly) {
+    items = items.filter((it) => Boolean(it?.soulbound));
+  }
   const countEl = document.getElementById("inv-count");
-  if (countEl) countEl.textContent = `${items.length}/${INV_MAX_SLOTS}`;
+  if (countEl) {
+    const total = lastBagItems.length;
+    countEl.textContent = invWeighedOnly
+      ? `${items.length}/${total} weighed`
+      : `${total}/${INV_MAX_SLOTS}`;
+  }
   const melt = document.getElementById("btn-melt") as HTMLButtonElement | null;
   if (melt && melt.dataset.armed !== "1") {
     const ash = items.reduce((sum, it) => sum + vendorAsh(it), 0);
