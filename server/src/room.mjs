@@ -1570,6 +1570,28 @@ class CantoRoom {
         e.x += sx * speed * dt;
         e.y += sy * speed * dt;
         moved = true;
+        // Avarice: if chase progress stalls (wedged on pack/geometry), sidestep nudge
+        if (this.cantoId === "inferno_07" && e.kind === "mob") {
+          const lx = e._stuckX;
+          const ly = e._stuckY;
+          const step = lx == null ? 99 : Math.hypot(e.x - lx, e.y - ly);
+          e._stuckX = e.x;
+          e._stuckY = e.y;
+          if (step < 0.08) {
+            e._stuckT = (e._stuckT || 0) + dt;
+          } else {
+            e._stuckT = 0;
+          }
+          if ((e._stuckT || 0) > 0.55) {
+            const nx = -sy;
+            const ny = sx;
+            const side = (Math.sin((e.x || 0) * 2.1 + (e.y || 0)) >= 0 ? 1 : -1);
+            e.x += nx * side * 2.8 * dt;
+            e.y += ny * side * 2.8 * dt;
+            e._stuckT = 0.25; // keep a light bias until free
+            moved = true;
+          }
+        }
       }
       // Avarice: soft pack spacing so weights don't stack into one silhouette
       if (this.cantoId === "inferno_07" && e.kind === "mob" && !winding) {
