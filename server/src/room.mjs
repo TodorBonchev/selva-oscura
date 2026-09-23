@@ -951,11 +951,27 @@ class CantoRoom {
           : this.cantoId === "inferno_07"
             ? "Weighed"
             : "Dropped";
-      this.toast(
-        killer.ws,
-        "loot",
-        `${dropPrefix}: ${drops.map((d) => `${d.rarity} ${d.name}`).join(", ")}`
-      );
+      // Avarice kill feed quiet: skip normal fodder loot spam; rare+ / soulbound still toast
+      const showDrops =
+        this.cantoId !== "inferno_07"
+          ? drops
+          : drops.filter(
+              (d) =>
+                d.soulbound ||
+                d.rarity === "rare" ||
+                d.rarity === "set" ||
+                d.rarity === "unique" ||
+                d.rarity === "canto_unique" ||
+                entity.kind === "boss" ||
+                entity.champion
+            );
+      if (showDrops.length) {
+        this.toast(
+          killer.ws,
+          "loot",
+          `${dropPrefix}: ${showDrops.map((d) => `${d.rarity} ${d.name}`).join(", ")}`
+        );
+      }
     }
 
     // Eligible emits only — never trash
