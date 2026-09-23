@@ -610,6 +610,13 @@ export function buildGround(
       coinRing.castShadow = false;
       coinRing.name = "daisPulse";
       group.add(coinRing);
+      // Inner measure ring (Gluttony filth2 parity — Crush dais read)
+      const coinInner = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.07, 5, compact ? 16 : 22), mats.bronze);
+      coinInner.rotation.x = Math.PI / 2;
+      coinInner.position.set(daisPos.x, hy + 0.76, daisPos.z);
+      coinInner.castShadow = false;
+      coinInner.name = "daisPulse";
+      group.add(coinInner);
       const tele = new THREE.Mesh(
         new THREE.RingGeometry(6.2, 6.55, compact ? 24 : 32),
         new THREE.MeshBasicMaterial({
@@ -637,7 +644,7 @@ export function buildGround(
         transparent: true,
         opacity: 0.88,
       });
-      const coinGeo = new THREE.CircleGeometry(1, 12);
+      const coinGeo = new THREE.CircleGeometry(1, compact ? 8 : 10);
       const coinN = compact ? Math.min(4, hunt.length) : hunt.length + 3;
       const coins = new THREE.InstancedMesh(coinGeo, coinMat, coinN);
       coins.castShadow = false;
@@ -663,7 +670,7 @@ export function buildGround(
 
       // Rolling weight props (short cylinders)
       const weightCap = compact ? 7 : 12;
-      const weightGeo = new THREE.CylinderGeometry(0.55, 0.62, 0.35, 10);
+      const weightGeo = new THREE.CylinderGeometry(0.55, 0.62, 0.35, compact ? 8 : 10);
       const weightsMesh = new THREE.InstancedMesh(weightGeo, mats.bronze, weightCap);
       weightsMesh.castShadow = false;
       weightsMesh.receiveShadow = true;
@@ -698,6 +705,24 @@ export function buildGround(
         ribbon.rotation.x = Math.PI * 0.06;
         ribbon.castShadow = false;
         group.add(ribbon);
+      }
+
+      // Mid-path ledger slabs (content beat props; cheap boxes, no shadows)
+      const slabPts: [number, number][] = compact
+        ? [[70, 48], [86, 58]]
+        : [[44, 58], [70, 48], [86, 58], [100, 56]];
+      for (let i = 0; i < slabPts.length; i++) {
+        const [sx, sz] = slabPts[i]!;
+        const slab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 0.7), mats.bone);
+        slab.position.set(sx, heightAt(sx, sz) + 0.06, sz);
+        slab.rotation.y = hash(i, 77) * Math.PI;
+        slab.castShadow = false;
+        slab.receiveShadow = true;
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.03, 0.08), mats.gold);
+        trim.position.set(sx, heightAt(sx, sz) + 0.12, sz);
+        trim.rotation.y = slab.rotation.y;
+        trim.castShadow = false;
+        group.add(slab, trim);
       }
     } else {
       const dais = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 7.2, 0.4, 20), mats.stone);

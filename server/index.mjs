@@ -60,7 +60,7 @@ const server = http.createServer((req, res) => {
       status: "slice1",
       protocol: PROTOCOL_VERSION,
       startedAt,
-      rooms: ["inferno_01", "inferno_05", "inferno_06"],
+      rooms: ["inferno_01", "inferno_05", "inferno_06", "inferno_07"],
       vaultRemainingAsh: vault.remainingAsh,
       persistence: dbEnabled() ? "postgres" : "memory",
       note: "Devnet vault PDA is spec-only; emits credit pendingAsh on server ledger",
@@ -307,7 +307,7 @@ async function boot() {
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`selva-oscura slice1 listening on ${PORT}`);
-    console.log(`content rooms: inferno_01 (hub), inferno_05 (Lust), inferno_06 (Gluttony)`);
+    console.log(`content rooms: inferno_01 (hub), inferno_05 (Lust), inferno_06 (Gluttony), inferno_07 (Avarice)`);
     console.log(
       `persistence: ${dbEnabled() ? "postgres" : "memory (set DATABASE_URL for durable state)"}`
     );

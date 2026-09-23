@@ -2736,18 +2736,18 @@ body.in-avarice #heat-haze {
 
 /* Audio-free Hoard Crush pressure fringe (toggled near boss) */
 body.in-avarice.crush-pressure #heat-haze {
-  opacity: 0.42;
-  animation-duration: 3.6s;
+  opacity: 0.32;
+  animation-duration: 3.8s;
   background:
-    radial-gradient(ellipse 80% 55% at 50% 40%, rgba(212, 168, 64, 0.16), transparent 68%),
-    radial-gradient(ellipse 100% 80% at 50% 100%, rgba(20, 14, 6, 0.42), transparent 55%),
-    radial-gradient(ellipse 88% 78% at 50% 48%, transparent 48%, #1a140855 100%);
+    radial-gradient(ellipse 80% 55% at 50% 40%, rgba(212, 168, 64, 0.11), transparent 70%),
+    radial-gradient(ellipse 100% 80% at 50% 100%, rgba(20, 14, 6, 0.34), transparent 55%),
+    radial-gradient(ellipse 88% 78% at 50% 48%, transparent 52%, #1a140848 100%);
 }
 body.in-avarice.crush-pressure.hud-compact #heat-haze {
-  opacity: 0.32;
+  opacity: 0.24;
 }
 body.in-avarice.crush-pressure #gold-dust {
-  opacity: 0.42;
+  opacity: 0.26;
 }
 body.in-gluttony #heat-haze {
   opacity: 0.48;
@@ -2854,11 +2854,11 @@ body.tab-hidden.in-avarice #heat-haze {
   animation: none;
 }
 body.in-avarice #gold-dust {
-  opacity: 0.26;
+  opacity: 0.16;
   animation: gold-dust-drift 14s linear infinite;
 }
 body.in-avarice.hud-compact #gold-dust {
-  opacity: 0.16;
+  opacity: 0.12;
   animation-duration: 18s;
 }
 body:not(.in-avarice) #gold-dust {

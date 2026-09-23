@@ -65,6 +65,7 @@ import {
   makeLedgerBell,
   makeLedgerCache,
   makeLedgerShrine,
+  makeLedgerStone,
   makeLedgerWarden,
   makeMireBell,
   makeMireChampion,
@@ -271,6 +272,7 @@ export class WorldApp {
   mireHeartDownToastShown = false;
   mireHeartSeenAlive = false;
   counterweightApproachShown = false;
+  ledgerMidApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1267,15 +1269,12 @@ export class WorldApp {
         }
       }
       if ((n.kind === "whirl" || n.kind === "champion") && this.frameN % 2 === 0) {
-        // Far cull coin-wisp ribbon sparkle (cheap skip when off-cam)
-        if (n.group.userData.coinWisp) {
-          const wx = n.group.position.x - this.camFollow.x;
-          const wz = n.group.position.z - this.camFollow.z;
-          if (wx * wx + wz * wz > 36 * 36) {
-            /* skip */
-          } else {
-            tickWhirl(n.group, this.animT, n.kind === "champion");
-          }
+        // Far cull ribbon sparkle for wisps + weight shades (Avarice density)
+        const wx = n.group.position.x - this.camFollow.x;
+        const wz = n.group.position.z - this.camFollow.z;
+        const cullR = n.group.userData.coinWisp ? 36 : isCompactUi() ? 34 : 44;
+        if (wx * wx + wz * wz > cullR * cullR) {
+          /* skip far idle */
         } else {
           tickWhirl(n.group, this.animT, n.kind === "champion");
         }
@@ -1286,8 +1285,15 @@ export class WorldApp {
       if (n.kind === "hoard_crush" && this.frameN % 2 === 0) {
         const hx = n.group.position.x - this.camFollow.x;
         const hz = n.group.position.z - this.camFollow.z;
-        if (hx * hx + hz * hz < 52 * 52) {
+        const d2 = hx * hx + hz * hz;
+        if (d2 < 52 * 52) {
           tickHoardCrush(n.group, this.animT);
+        }
+        // Soften crush glow wash when far / always clamp intensity
+        const glow = n.group.getObjectByName("crushGlow") as THREE.PointLight | undefined;
+        if (glow) {
+          glow.intensity = d2 > 40 * 40 ? 0.6 : d2 > 22 * 22 ? 1.8 : 3.0;
+          glow.visible = d2 < 48 * 48;
         }
       }
       const pulse = Number(n.group.userData.hitPulse) || 0;
@@ -1457,6 +1463,8 @@ export class WorldApp {
       group = makeLedgerShrine(this.mats!);
     } else if (this.room?.cantoId === "inferno_07" && e.poiKind === "bell") {
       group = makeLedgerBell(this.mats!);
+    } else if (this.room?.cantoId === "inferno_07" && e.poiKind === "marker") {
+      group = makeLedgerStone(this.mats!);
     } else {
       group = makeByKind(kind, this.mats!, e.item?.rarity);
     }
@@ -1930,6 +1938,7 @@ export class WorldApp {
         if (msg.room.cantoId === "inferno_07" && (first || cantoChanged) && !this.avaEnterTipShown) {
           this.avaEnterTipShown = true;
           this.counterweightApproachShown = false;
+          this.ledgerMidApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -3030,6 +3039,11 @@ export class WorldApp {
                   : this.room?.cantoId === "inferno_06"
                     ? "Mire Bell — stills nearby filth"
                     : "Gale Bell — stills nearby shades";
+            } else if (best.poiKind === "marker") {
+              line =
+                this.room?.cantoId === "inferno_07"
+                  ? "Ledger Stone — measure before the Crush"
+                  : best.hint || "A stone on the road";
             } else if (best.poiKind === "stash") {
               line = "Stash — bank champion drops here";
             } else if (best.poiKind === "ah") {
@@ -3131,6 +3145,17 @@ export class WorldApp {
           this.counterweightApproachShown = true;
           showToast("Counterweight ahead — the measure tips toward Crush", "warn");
           break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.ledgerMidApproachShown) {
+      const stone = this.room.entities.find((e: any) => e.id === "ledger_stone" || e.poiKind === "marker");
+      if (stone) {
+        const pos = this.entityRenderPos(stone);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
+          this.ledgerMidApproachShown = true;
+          showToast("The ledger stone marks mid-measure — Bell, then Crush", "info");
         }
       }
     }

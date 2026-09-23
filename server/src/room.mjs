@@ -964,6 +964,15 @@ class CantoRoom {
           return;
         }
         return { travel: dest };
+      } else if (e.poiKind === "marker") {
+        this.toast(
+          s.ws,
+          "info",
+          this.cantoId === "inferno_07"
+            ? "Ledger Stone — weights tip here; ring the Bell before the Crush."
+            : e.hint || e.label || "A marker on the road."
+        );
+        return;
       } else if (e.poiKind === "cache") {
         if (s.lootedCache) {
           this.toast(
@@ -1007,9 +1016,11 @@ class CantoRoom {
         }
         s.bellCd = 18;
         let stilled = 0;
+        // Avarice: slightly wider still so Ledger Bell catches strays under the post
+        const stillR = this.cantoId === "inferno_07" ? 13.5 : 10;
         for (const mob of this.entities.values()) {
           if (mob.kind !== "mob") continue;
-          if (dist(s, mob) > 10) continue;
+          if (dist(s, mob) > stillR) continue;
           mob.stunLeft = 2.4;
           stilled++;
         }

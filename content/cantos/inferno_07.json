@@ -20,7 +20,7 @@
         "to_canto": "inferno_06",
         "x": 10,
         "y": 52,
-        "label": "Return to Gluttony ←"
+        "label": "Return to Gluttony \u2190"
       },
       {
         "to_canto": "inferno_01",
@@ -36,7 +36,7 @@
         "x": 86,
         "y": 58,
         "label": "Ledger Bell",
-        "hint": "Stills nearby weights — measure, then press the Crush"
+        "hint": "Stills nearby weights (incl. strays under the Bell) \u2014 measure, then press the Crush"
       },
       {
         "id": "ledger_cache",
@@ -44,7 +44,7 @@
         "x": 54,
         "y": 68,
         "label": "Ledger Cache",
-        "hint": "One weighed drop per visit — E to claim"
+        "hint": "One weighed drop per visit \u2014 E to claim"
       },
       {
         "id": "ledger_shrine",
@@ -52,7 +52,7 @@
         "x": 28,
         "y": 56,
         "label": "Ledger Shrine",
-        "hint": "Restores life and breath — kneel to rebalance"
+        "hint": "Restores life and breath \u2014 kneel to rebalance"
       },
       {
         "id": "avarice_portal_gluttony",
@@ -61,6 +61,14 @@
         "y": 50,
         "label": "Gluttony gate",
         "to_canto": "inferno_06"
+      },
+      {
+        "id": "ledger_stone",
+        "kind": "marker",
+        "x": 70,
+        "y": 48,
+        "label": "Ledger Stone",
+        "hint": "Weights tip here \u2014 ring the Bell before the Crush"
       }
     ]
   },
@@ -77,7 +85,7 @@
         "x": 74,
         "y": 64
       },
-      "notes": "Wards nearby weights until broken — the measure held against you"
+      "notes": "Wards nearby weights until broken \u2014 the measure held against you"
     },
     {
       "id": "ava_coin_wisps",
@@ -105,7 +113,7 @@
         "x": 28,
         "y": 50
       },
-      "notes": "First counterweights on the scorched ledger road"
+      "notes": "First counterweights on the scorched ledger road \u2014 learn the measure"
     },
     {
       "id": "ava_ledger_a",
@@ -119,7 +127,7 @@
         "x": 52,
         "y": 36
       },
-      "notes": "Tallies unpaid — stills only when the Bell rings"
+      "notes": "Tallies unpaid \u2014 stills only when the Bell rings"
     },
     {
       "id": "ava_ledger_b",
@@ -158,10 +166,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 88,
-        "y": 74
+        "x": 86,
+        "y": 66
       },
-      "notes": "Loose change of the damned — do not ignore the stack"
+      "notes": "Loose change under the Bell \u2014 still them, then tip the Crush"
     },
     {
       "id": "ava_chorus",
@@ -217,7 +225,35 @@
         "x": 130,
         "y": 50
       },
-      "notes": "Mid-lane elite telegraph — the measure tips toward Crush"
+      "notes": "Mid-lane elite telegraph \u2014 the measure tips toward Crush"
+    },
+    {
+      "id": "ava_north_measure",
+      "name": "North Measure",
+      "archetype": "weight_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 100,
+        "y": 26
+      },
+      "notes": "Empty ledger flats north of the road \u2014 unpaid tallies drift"
+    },
+    {
+      "id": "ava_south_spill",
+      "name": "South Spill",
+      "archetype": "coin_wisp",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 118,
+        "y": 88
+      },
+      "notes": "Coin spill off the south balance \u2014 easy to undervalue"
     }
   ],
   "bosses": [
@@ -230,14 +266,14 @@
         "y": 48
       },
       "first_clear_emit": true,
-      "notes": "Crushing iron and coin — weight without rest"
+      "notes": "Crushing iron and coin \u2014 weight without rest"
     }
   ],
   "first_clear": {
     "enabled": true,
     "event": "FirstClear",
     "requires": "hoard_crush",
-    "notes": "Hoard Crush broken — Avarice yields its measure; bank loot at the Dark Wood stash"
+    "notes": "Hoard Crush broken \u2014 Avarice yields its measure; bank loot at the Dark Wood stash"
   },
   "daily_quests": [
     {
@@ -250,7 +286,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_04_avarice",
-    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony, Doré bone-gold; contrapasso of measure"
+    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony, Dor\u00e9 bone-gold; contrapasso of measure"
   },
   "loot_density": "raw_d2",
   "legal": {
