@@ -1900,12 +1900,17 @@ export class WorldApp {
     }
     if (kind === "player") {
       group.scale.setScalar(1.42);
-      // Avarice gold haze — bone rim so remotes read through heat/dust (skip on compact light budget)
-      if (this.room?.cantoId === "inferno_07" && !isCompactUi()) {
-        const rim = new THREE.PointLight(0xe8c86a, 0.4, 5.5, 2);
-        rim.name = "avaRemoteRim";
-        rim.position.set(0, 1.6, 0);
-        group.add(rim);
+      // Combat haze — bone rim so remotes read through Lust/Glut/Ava wash (skip on compact light budget)
+      if (!isCompactUi()) {
+        const canto = this.room?.cantoId;
+        if (canto === "inferno_07" || canto === "inferno_05" || canto === "inferno_06") {
+          const col =
+            canto === "inferno_07" ? 0xe8c86a : canto === "inferno_06" ? 0xc8d080 : 0xf0c8a0;
+          const rim = new THREE.PointLight(col, canto === "inferno_07" ? 0.4 : 0.34, 5.5, 2);
+          rim.name = "avaRemoteRim";
+          rim.position.set(0, 1.6, 0);
+          group.add(rim);
+        }
       }
     }
     if (e.archetype === "gale_wisp") group.scale.setScalar(0.62);
@@ -1960,6 +1965,8 @@ export class WorldApp {
     if (kind === "player") {
       wrap.classList.add("ally", "remote");
       if (this.room?.cantoId === "inferno_07") wrap.classList.add("ava-remote");
+      else if (this.room?.cantoId === "inferno_05") wrap.classList.add("lust-remote");
+      else if (this.room?.cantoId === "inferno_06") wrap.classList.add("glut-remote");
     }
     const label = new CSS2DObject(wrap);
     label.center.set(0.5, 1);
