@@ -1310,18 +1310,38 @@ export class WorldApp {
       const galeRing = n.group.getObjectByName("galeRing");
       if (galeRing) galeRing.rotation.z = -this.animT * 0.0022;
       const inner = n.group.getObjectByName("portalInner");
-      if (inner) inner.rotation.y = this.animT * 0.003;
+      if (inner) {
+        const hubGlow =
+          this.room?.cantoId === "inferno_07" &&
+          Boolean(n.group.userData.avaHubHomeGlow) &&
+          Array.isArray(this.room?.you?.firstClears) &&
+          this.room.you.firstClears.includes("inferno_07");
+        inner.rotation.y = this.animT * (hubGlow ? 0.006 : 0.003);
+        if (hubGlow && this.frameN % 2 === 0) {
+          const s = 1 + Math.sin(this.animT * 0.008) * 0.12;
+          inner.scale.set(s, s, 1);
+        }
+      }
       const ps = n.group.getObjectByName("portalSparks") as THREE.Points | undefined;
       if (ps && this.frameN % 2 === 0) {
         const px = n.group.position.x - this.camFollow.x;
         const pz = n.group.position.z - this.camFollow.z;
         if (px * px + pz * pz < 42 * 42) {
+          const hubGlow = Boolean(n.group.userData.avaHubHomeGlow);
           const arr = (ps.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+          const rise = hubGlow ? 0.028 : 0.018;
+          const cap = hubGlow ? 4.2 : 3.6;
           for (let i = 0; i < arr.length / 3; i++) {
-            arr[i * 3 + 1] += 0.018;
-            if (arr[i * 3 + 1] > 3.6) arr[i * 3 + 1] = 0.35;
+            arr[i * 3 + 1] += rise;
+            if (arr[i * 3 + 1] > cap) arr[i * 3 + 1] = 0.35;
           }
           (ps.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+          if (hubGlow) {
+            const mat = ps.material as THREE.PointsMaterial;
+            mat.opacity = 0.78 + Math.sin(this.animT * 0.007) * 0.18;
+            mat.size = 0.13;
+            mat.color.setHex(0xf2dea0);
+          }
         }
       }
       const beam = n.group.getObjectByName("lootBeam");
@@ -1621,6 +1641,13 @@ export class WorldApp {
         const locked = this.portalIsLocked(e);
         setPortalGateVisual(rec.group, locked, this.portalOpenTint(e));
         rec.hpEl.classList.toggle("portal-locked", locked);
+        const hubHome =
+          this.room?.cantoId === "inferno_07" &&
+          e?.toCanto === "inferno_01" &&
+          Array.isArray(this.room?.you?.firstClears) &&
+          this.room.you.firstClears.includes("inferno_07");
+        rec.group.userData.avaHubHomeGlow = hubHome;
+        rec.hpEl.classList.toggle("ava-hub-home", Boolean(hubHome));
       }
       this.updateLabel(rec, e, pos);
     }
@@ -1759,6 +1786,12 @@ export class WorldApp {
     }
     if (kind === "portal") {
       setPortalGateVisual(group, this.portalIsLocked(e), this.portalOpenTint(e));
+      const hubHome =
+        this.room?.cantoId === "inferno_07" &&
+        e?.toCanto === "inferno_01" &&
+        Array.isArray(this.room?.you?.firstClears) &&
+        this.room.you.firstClears.includes("inferno_07");
+      group.userData.avaHubHomeGlow = hubHome;
     }
     group.userData.entityId = id.replace(/^pl:/, "");
     const wrap = document.createElement("div");
@@ -1812,6 +1845,7 @@ export class WorldApp {
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
       if (this.portalIsLocked(e)) wrap.classList.add("portal-locked");
+      if (group.userData.avaHubHomeGlow) wrap.classList.add("ava-hub-home");
       // Avarice weighed gate — bone ledger plate (Glut→Ava approach + Ava return)
       const avaBound =
         e?.toCanto === "inferno_07" ||
@@ -2055,6 +2089,15 @@ export class WorldApp {
     if (e?.toCanto === "inferno_07") return 0xd4a840;
     if (e?.toCanto === "inferno_06") return 0xa8c050;
     if (e?.toCanto === "inferno_05") return 0x66ffaa;
+    // Post-Crush: Dark Wood stash road reads hotter bone-gold (bank weighed drops)
+    if (
+      e?.toCanto === "inferno_01" &&
+      this.room?.cantoId === "inferno_07" &&
+      Array.isArray(this.room?.you?.firstClears) &&
+      this.room.you.firstClears.includes("inferno_07")
+    ) {
+      return 0xf2dea0;
+    }
     if (this.room?.cantoId === "inferno_07") return 0xc8a040;
     if (this.room?.cantoId === "inferno_06") return 0x88aa44;
     if (this.room?.cantoId === "inferno_05") return 0xff8844;
@@ -2252,7 +2295,10 @@ export class WorldApp {
     const clears = this.room.you?.firstClears;
     const lustCleared = Array.isArray(clears) && clears.includes("inferno_05");
     const glutCleared = Array.isArray(clears) && clears.includes("inferno_06");
+    const avaCleared = Array.isArray(clears) && clears.includes("inferno_07");
     const portal =
+      // After Hoard Crush: pull portalLight onto Dark Wood stash road
+      (ava && avaCleared && portals.find((e: any) => e.toCanto === "inferno_01")) ||
       (glut &&
         glutCleared &&
         portals.find((e: any) => e.toCanto === "inferno_07" && !this.portalIsLocked(e))) ||
@@ -2261,7 +2307,8 @@ export class WorldApp {
       portals[0];
     if (portal) {
       const locked = this.portalIsLocked(portal);
-      this.portalLight.intensity = locked ? 1.2 : 4.5;
+      const hubHome = ava && avaCleared && portal.toCanto === "inferno_01";
+      this.portalLight.intensity = locked ? 1.2 : hubHome ? 6.2 : 4.5;
       this.portalLight.color.set(
         portal.toCanto === "inferno_07"
           ? locked
@@ -2271,13 +2318,15 @@ export class WorldApp {
             ? locked
               ? 0x5a5040
               : 0xa8c050
-            : lust
-              ? 0x66ffaa
-              : ava
-                ? 0xc8a040
-                : glut
-                  ? 0x88aa44
-                  : 0xff6633
+            : hubHome
+              ? 0xf2dea0
+              : lust
+                ? 0x66ffaa
+                : ava
+                  ? 0xc8a040
+                  : glut
+                    ? 0x88aa44
+                    : 0xff6633
       );
       setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
     }

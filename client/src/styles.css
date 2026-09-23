@@ -4650,3 +4650,14 @@ body.in-avarice.hud-compact #btn-interact.interact-ready.interact-claim .action-
     min-height: 3.6rem;
   }
 }
+
+
+/* Post-Crush Dark Wood stash road — bone-gold home glow (no neon) */
+body.in-avarice .world-label.portal-label.ava-hub-home .wl-name {
+  color: #fff6d8;
+  text-shadow: 0 0 12px #e8c86a66, 0 1px 0 #000;
+  letter-spacing: 0.05em;
+}
+body.in-avarice .world-label.portal-label.ava-hub-home {
+  filter: drop-shadow(0 0 5px #d4a84055);
+}
