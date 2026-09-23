@@ -1158,7 +1158,11 @@ class CantoRoom {
           const clears = ledger.firstClears instanceof Set ? [...ledger.firstClears] : [];
           let guideLine =
             "Guide: Follow the gold arrow into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso — weight and counterweight). Return for the writ, stash, and Auction House.";
-          if (clears.includes("inferno_07")) {
+          if (clears.includes("inferno_07") && clears.includes("inferno_05")) {
+            // Both Lust + Ava clear: distinguish east Lust rematch vs weighed road again
+            guideLine =
+              "Guide: Measure holds — east Lust for the Judge again, or back through Gluttony into Avarice. Claim the writ, bank weighed drops at the stash, then choose your road.";
+          } else if (clears.includes("inferno_07")) {
             guideLine =
               "Guide: Hoard Crush is broken — peso e contrapeso yields. Claim the daily writ, bank weighed drops at the stash, or hunt Lust / Gluttony / Avarice again.";
           } else if (clears.includes("inferno_06")) {
