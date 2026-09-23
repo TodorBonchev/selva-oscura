@@ -3682,7 +3682,7 @@ export class WorldApp {
     if (!best) {
       this.nearestInteract = null;
       this.lastInteractHintId = null;
-      interactBtn?.classList.remove("interact-ready");
+      interactBtn?.classList.remove("interact-ready", "interact-kneel", "interact-claim");
       interactBtn?.classList.add("interact-idle");
       if (labelEl && !this.portalHold) labelEl.textContent = "Interact";
       return;
@@ -3690,14 +3690,18 @@ export class WorldApp {
     this.nearestInteract = { id: String(best.id), kind: best.kind, label: best.label || best.name };
     interactBtn?.classList.add("interact-ready");
     interactBtn?.classList.remove("interact-idle");
+    const avaKneel =
+      best.poiKind === "shrine" && this.room?.cantoId === "inferno_07";
+    const avaClaim =
+      best.poiKind === "cache" && this.room?.cantoId === "inferno_07";
+    interactBtn?.classList.toggle("interact-kneel", Boolean(avaKneel));
+    interactBtn?.classList.toggle("interact-claim", Boolean(avaClaim));
     if (!this.portalHold && labelEl) {
       const isPortal = best.kind === "exit" || best.poiKind === "portal";
       if (isPortal && this.portalIsLocked(best)) labelEl.textContent = "Sealed";
       else if (isPortal) labelEl.textContent = "Hold";
-      else if (best.poiKind === "shrine" && this.room?.cantoId === "inferno_07")
-        labelEl.textContent = "Kneel";
-      else if (best.poiKind === "cache" && this.room?.cantoId === "inferno_07")
-        labelEl.textContent = "Claim";
+      else if (avaKneel) labelEl.textContent = "Kneel";
+      else if (avaClaim) labelEl.textContent = "Claim";
       else labelEl.textContent = "Interact";
     }
     if (this.lastInteractHintId !== String(best.id)) {
