@@ -382,14 +382,17 @@ export function buildGround(
         // Stronger gold road vs pitch off-path (gold-on-black irony; slash-readable)
         const onPath = pathD < 3.9;
         const sink = pathD > 11 ? 0.48 : pathD > 6 ? 0.72 : 1;
+        // NW Drift scorched flats — darker ledger corner
+        const nw = Math.hypot(wx - 22, wz - 22);
+        const nwScorch = nw < 18 ? 0.72 + (nw / 18) * 0.28 : 1;
         if (onPath) {
           colors[i * 3] = k * 1.22;
           colors[i * 3 + 1] = k * 0.98;
           colors[i * 3 + 2] = k * 0.42;
         } else {
-          colors[i * 3] = k * 0.38 * sink;
-          colors[i * 3 + 1] = k * 0.32 * sink;
-          colors[i * 3 + 2] = k * 0.18 * sink;
+          colors[i * 3] = k * 0.38 * sink * nwScorch;
+          colors[i * 3 + 1] = k * 0.32 * sink * nwScorch;
+          colors[i * 3 + 2] = k * 0.18 * sink * nwScorch;
         }
       } else {
         colors[i * 3] = k * 1.05;

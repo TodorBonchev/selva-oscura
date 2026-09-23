@@ -1033,6 +1033,8 @@ class CantoRoom {
         const stillR = this.cantoId === "inferno_07" ? 13.5 : 10;
         for (const mob of this.entities.values()) {
           if (mob.kind !== "mob") continue;
+          // Hearts are ward pillars, not weights — skip still (keep Crush lane readable)
+          if (HEART_ARCHETYPES.has(mob.archetype)) continue;
           if (dist(s, mob) > stillR) continue;
           mob.stunLeft = 2.4;
           stilled++;

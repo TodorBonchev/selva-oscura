@@ -440,6 +440,8 @@ export class Radar {
           text = "Ring Ledger Bell";
         } else if (cw && Math.hypot(cw.x - opts.you.x, cw.y - opts.you.y) < 22) {
           text = "Tip Counterweight";
+        } else if (foe && foe.kind === "boss" && opts.you.x > 108) {
+          text = bossLabel;
         } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
         else if (portal) text = `Travel — ${cantoShort(portal.toCanto) || "portal"}`;
       } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;

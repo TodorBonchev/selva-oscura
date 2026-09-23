@@ -838,6 +838,7 @@ export class WorldApp {
       const fight = this.inCombat();
       const ava = this.room.cantoId === "inferno_07";
       // Avarice: stride harder while fighting (gold ash is denser on retint)
+      const ashStride = ava && fight && isCompactUi() ? 3 : fight || isCompactUi() || ava ? 2 : 1;
       this.ash.tick(
         dt,
         this.room.bounds,
@@ -846,7 +847,7 @@ export class WorldApp {
           ava,
         this.renderYou.x,
         this.renderYou.y,
-        fight || isCompactUi() || ava ? 2 : 1,
+        ashStride,
         this.frameN
       );
     }
@@ -1382,8 +1383,15 @@ export class WorldApp {
         }
         if (o.name === "daisTelegraph") {
           const mat = (o as THREE.Mesh).material as THREE.MeshBasicMaterial;
-          mat.opacity = 0.14 + Math.sin(this.animT * 0.004) * 0.1;
-          const s = 1 + Math.sin(this.animT * 0.003) * 0.06;
+          const nearCrush =
+            this.room?.cantoId === "inferno_07" &&
+            (this.camFollow.x - 138) * (this.camFollow.x - 138) +
+              (this.camFollow.z - 48) * (this.camFollow.z - 48) <
+              26 * 26;
+          const base = nearCrush ? 0.28 : 0.14;
+          const amp = nearCrush ? 0.14 : 0.1;
+          mat.opacity = base + Math.sin(this.animT * 0.004) * amp;
+          const s = 1 + Math.sin(this.animT * 0.003) * (nearCrush ? 0.08 : 0.06);
           o.scale.set(s, s, 1);
         }
       }
