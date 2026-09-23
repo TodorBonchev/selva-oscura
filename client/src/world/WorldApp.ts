@@ -2077,8 +2077,11 @@ export class WorldApp {
     if (this.nearestInteract && this.nearestInteract.id === rec.id) far = Math.max(far, 14);
     if (d > far) {
       if (rec.hpEl.style.opacity !== "0") rec.hpEl.style.opacity = "0";
+      // Skip CSS2D projection for far plates (perf: fewer label draw updates)
+      if (rec.label.visible) rec.label.visible = false;
       return;
     }
+    if (!rec.label.visible) rec.label.visible = true;
     const nextOp =
       d > (inAva && poiish ? 7 : 10) &&
       !foe &&
