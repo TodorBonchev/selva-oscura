@@ -898,8 +898,8 @@ class CantoRoom {
     if (!s || !ledger) return;
     const loot = this.entities.get(lootId);
     if (!loot || loot.kind !== "loot") return;
-    if (dist(s, loot) > PICKUP_RANGE) {
-      this.toast(s.ws, "warn", "Too far to pick up.");
+    if (dist(s, loot) > (this.cantoId === "inferno_07" ? PICKUP_RANGE + 1.2 : PICKUP_RANGE)) {
+      this.toast(s.ws, "warn", "Too far.");
       return;
     }
     const bagCount = ledger.inventory.filter((i) => !i.equipSlot).length;
@@ -920,7 +920,11 @@ class CantoRoom {
     const e = this.entities.get(targetId);
     if (!e) return;
     const maxDist =
-      e.kind === "exit" || e.poiKind === "portal" ? INTERACT_RANGE_PORTAL : INTERACT_RANGE;
+      e.kind === "exit" || e.poiKind === "portal"
+        ? INTERACT_RANGE_PORTAL
+        : this.cantoId === "inferno_07"
+          ? INTERACT_RANGE + 0.8
+          : INTERACT_RANGE;
     if (dist(s, e) > maxDist) {
       this.toast(s.ws, "warn", "Move closer.");
       return;
