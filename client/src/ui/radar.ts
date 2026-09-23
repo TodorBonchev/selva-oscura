@@ -428,7 +428,7 @@ export class Radar {
           Math.hypot(roadW.x - opts.you.x, roadW.y - opts.you.y) < 18
         ) {
           text = "Weigh the road";
-        } else if (heart && Math.hypot(heart.x - opts.you.x, heart.y - opts.you.y) < 28) {
+        } else if (heart && Math.hypot(heart.x - opts.you.x, heart.y - opts.you.y) < 34) {
           text = "Break Hoard Heart";
         } else if (
           bell &&

@@ -1483,12 +1483,24 @@ export function makeHoardHeart(mats: MatKit): THREE.Group {
   const cheap = isCompactUi();
   const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.44, 1.95, cheap ? 7 : 8), mats.stone);
   pillar.position.y = 0.98;
+  pillar.name = "crushBody";
   const plate = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.62, 0.1), mats.bone);
   plate.position.set(0, 1.55, -0.3);
   const plateTrim = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.05, 0.03), mats.gold);
   plateTrim.position.set(0, 1.84, -0.36);
   const hash = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.02), mats.bronze);
-  hash.position.set(0, 1.55, -0.36);
+  hash.position.set(0, 1.65, -0.36);
+  const hash2 = hash.clone();
+  hash2.position.y = 1.5;
+  const hash3 = hash.clone();
+  hash3.position.y = 1.35;
+  // Balance beam — ward read at mid range
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.05, 0.05), mats.gold);
+  beam.position.set(0, 1.95, -0.2);
+  const panL = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.03, 8), mats.bronze);
+  panL.position.set(-0.3, 1.86, -0.2);
+  const panR = panL.clone();
+  panR.position.x = 0.3;
   const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.42, cheap ? 8 : 10), mats.gold);
   stack.position.y = 2.1;
   const stack2 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.28, cheap ? 8 : 10), mats.bronze);
@@ -1507,18 +1519,38 @@ export function makeHoardHeart(mats: MatKit): THREE.Group {
   const hang = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.22, 8), mats.bronze);
   hang.position.set(0.38, 1.7, 0.2);
   hang.name = "weightDisc";
+  const aura = new THREE.Mesh(
+    new THREE.RingGeometry(1.05, 1.35, cheap ? 14 : 18),
+    new THREE.MeshBasicMaterial({
+      color: 0xd4a840,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  aura.rotation.x = -Math.PI / 2;
+  aura.position.y = 0.1;
+  aura.name = "judgeAura";
   g.add(
     discShadow(mats, 0.58),
     pillar,
     plate,
     plateTrim,
     hash,
+    hash2,
+    hash3,
+    beam,
+    panL,
+    panR,
     stack,
     stack2,
     disc,
     flame,
     ring,
     hang,
+    aura,
     nose(mats, 2.6, -0.38)
   );
   shadow(g);

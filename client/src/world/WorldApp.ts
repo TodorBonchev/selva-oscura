@@ -112,7 +112,7 @@ import {
   type SlamTele,
   type SparkBurst,
 } from "./fx";
-import { tickCounterweight, tickHumanoid, tickHoardCrush, tickTripleMaw, tickWhirl } from "./anim";
+import { tickCounterweight, tickHoardHeart, tickHumanoid, tickHoardCrush, tickTripleMaw, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
@@ -284,6 +284,7 @@ export class WorldApp {
   strayCoinApproachShown = false;
   northLedgerApproachShown = false;
   southBalanceApproachShown = false;
+  coinWispsApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1296,6 +1297,8 @@ export class WorldApp {
         const cullR = n.group.userData.coinWisp ? 36 : isCompactUi() ? 34 : 44;
         if (wx * wx + wz * wz > cullR * cullR) {
           /* skip far idle */
+        } else if (n.group.userData.isHoardHeart) {
+          tickHoardHeart(n.group, this.animT);
         } else if (n.group.userData.isCounterweight) {
           tickCounterweight(n.group, this.animT);
         } else {
@@ -1468,6 +1471,7 @@ export class WorldApp {
     let group: THREE.Group;
     if (arch === "hoard_heart") {
       group = makeHoardHeart(this.mats!);
+      group.userData.isHoardHeart = true;
     } else if (isHeartArch) {
       group = makeByKind("shrine", this.mats!, e.item?.rarity);
     } else if (arch === "mud_wisp") {
@@ -1587,6 +1591,17 @@ export class WorldApp {
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
       if (this.portalIsLocked(e)) wrap.classList.add("portal-locked");
+      // Avarice weighed gate — bone ledger plate on the ring (Gluttony approach read)
+      if (this.room?.cantoId === "inferno_07" && this.mats && !group.userData.avaGatePlate) {
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.42, 0.06), this.mats.bone);
+        plate.position.set(0, 2.35, -0.55);
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.05, 0.03), this.mats.gold);
+        trim.position.set(0, 2.55, -0.58);
+        const hash = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.025, 0.02), this.mats.bronze);
+        hash.position.set(0, 2.38, -0.59);
+        group.add(plate, trim, hash);
+        group.userData.avaGatePlate = true;
+      }
     }
     if (e.poiKind === "marker") {
       wrap.classList.add("poi-marker");
@@ -1623,7 +1638,7 @@ export class WorldApp {
       (this.room?.cantoId === "inferno_06" || this.room?.cantoId === "inferno_07") && isCompactUi();
     let far = rec.kind === "loot" ? 22 : foe ? 26 : 16;
     if (glutCompact) {
-      far = rec.kind === "loot" ? 14 : boss ? 20 : foe ? 15 : 10;
+      far = rec.kind === "loot" ? 14 : boss ? 20 : foe ? 13 : 10;
     }
     if (d > far) {
       if (rec.hpEl.style.opacity !== "0") rec.hpEl.style.opacity = "0";
@@ -2007,6 +2022,7 @@ export class WorldApp {
           this.strayCoinApproachShown = false;
           this.northLedgerApproachShown = false;
           this.southBalanceApproachShown = false;
+          this.coinWispsApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -3445,6 +3461,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
           this.southBalanceApproachShown = true;
           showToast("South Balance — scale tipped wrong; pay or press through", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.coinWispsApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^coin wisps$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
+          this.coinWispsApproachShown = true;
+          showToast("Coin Wisps — scattered greed, easy to undervalue", "info");
           break;
         }
       }

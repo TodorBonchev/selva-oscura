@@ -333,6 +333,46 @@ export function tickWhirl(root: THREE.Object3D, tMs: number, champion: boolean) 
   }
   const bob = root.getObjectByName("ribbon");
   if (bob) bob.position.y = 0.95 + Math.sin(tMs * 0.0022) * 0.08;
+  // Coin wisp: spin stacked discs for greed read (cheap; only when flagged)
+  if (root.userData.coinWisp) {
+    let discs = root.userData.coinDiscs as THREE.Object3D[] | undefined;
+    if (!discs) {
+      discs = [];
+      root.traverse((o) => {
+        if (o.name === "weightDisc") discs!.push(o);
+      });
+      root.userData.coinDiscs = discs;
+    }
+    for (let i = 0; i < discs.length; i++) {
+      discs[i]!.rotation.z = tMs * (0.0022 + i * 0.0006) * (i % 2 ? -1 : 1);
+    }
+  }
+}
+
+/** Idle for Hoard Heart ward — disc spin + soft bob (measure tips). */
+export function tickHoardHeart(root: THREE.Object3D, tMs: number) {
+  let cache = root.userData.heartCache as
+    | { discs: THREE.Object3D[]; ribbon?: THREE.Object3D; body?: THREE.Object3D; aura?: THREE.Object3D }
+    | undefined;
+  if (!cache) {
+    cache = { discs: [] };
+    root.traverse((o) => {
+      if (o.name === "weightDisc") cache!.discs.push(o);
+      else if (o.name === "ribbon") cache!.ribbon = o;
+      else if (o.name === "crushBody") cache!.body = o;
+      else if (o.name === "judgeAura") cache!.aura = o;
+    });
+    root.userData.heartCache = cache;
+  }
+  if (cache.body) cache.body.position.y = 0.98 + Math.sin(tMs * 0.002) * 0.03;
+  if (cache.ribbon) cache.ribbon.rotation.z = tMs * 0.0012;
+  if (cache.aura) {
+    const s = 1 + Math.sin(tMs * 0.003) * 0.05;
+    cache.aura.scale.set(s, s, 1);
+  }
+  for (let i = 0; i < cache.discs.length; i++) {
+    cache.discs[i]!.rotation.z = tMs * 0.0018 * (i % 2 ? -1 : 1);
+  }
 }
 
 /** Cheap Triple Maw idle: ribbon spin + staggered head/jaw hints (named mawHead / mawJaw). */
