@@ -1967,6 +1967,36 @@ export class WorldApp {
     this.impacts.push({ mesh: ring, start: this.animT, dur: 900, from: 1.2, to: 4.2 });
   }
 
+  /** Rising bone-gold ash motes on loot pickup — SFX-less clarity in the gold haze. */
+  spawnAvaPickupMotes(x: number, y: number, rich = false) {
+    const y0 = this.standY(x, y, 0.18);
+    const n = isCompactUi() ? (rich ? 6 : 4) : rich ? 10 : 7;
+    for (let i = 0; i < n; i++) {
+      const mote = new THREE.Mesh(
+        new THREE.SphereGeometry(0.045 + Math.random() * 0.04, 5, 5),
+        new THREE.MeshBasicMaterial({
+          color: i % 2 ? 0xf2dea0 : 0xd4a840,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      const ang = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+      const r = 0.25 + Math.random() * (rich ? 0.9 : 0.55);
+      setPlanar(mote.position, x + Math.cos(ang) * r, y + Math.sin(ang) * r, y0);
+      this.scene.add(mote);
+      this.impacts.push({
+        mesh: mote,
+        start: this.animT + i * 22,
+        dur: 620 + Math.random() * 280,
+        from: 1,
+        to: 0.15,
+        rise: 1.6 + Math.random() * (rich ? 1.4 : 0.9),
+      });
+    }
+  }
+
   portalIsLocked(e: any): boolean {
     const need = e?.requireClear;
     if (!need) return false;
@@ -2432,13 +2462,20 @@ export class WorldApp {
           );
           document.body.classList.add("ava-loot-flash");
           window.setTimeout(() => document.body.classList.remove("ava-loot-flash"), isCache ? 380 : 220);
+          if (/^Picked up /i.test(text)) {
+            this.spawnAvaPickupMotes(this.renderYou.x, this.renderYou.y, false);
+          }
           if (isCache) {
             document.body.classList.add("ava-claim-flash");
             window.setTimeout(() => document.body.classList.remove("ava-claim-flash"), 420);
             const cache = this.room.entities.find(
               (e: any) => e.poiKind === "cache" || e.id === "ledger_cache"
             );
-            if (cache) this.spawnAvaClaimRing(cache, 0xe8c86a, 1.05, 3.2, 720);
+            if (cache) {
+              this.spawnAvaClaimRing(cache, 0xe8c86a, 1.05, 3.2, 720);
+              const cp = this.entityRenderPos(cache);
+              this.spawnAvaPickupMotes(cp.x, cp.y, true);
+            }
           }
         }
         // Ledger Shrine kneel — bone-gold claim feel (audio-free)
