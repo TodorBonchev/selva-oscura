@@ -328,6 +328,7 @@ class CantoRoom {
         // Avarice/Lust/Glut bell still — client gold measure tint
         stunLeft: e.stunLeft > 0 ? e.stunLeft : undefined,
         windupLeft: e.kind === "boss" && e.windupLeft > 0 ? e.windupLeft : undefined,
+        phase: e.kind === "boss" && e.phase ? e.phase : undefined,
       });
     }
     const playerSnaps = [];
@@ -1253,9 +1254,12 @@ class CantoRoom {
           e.atkCd = 1.35;
           if (target && !(target.iframes > 0)) {
             const dHit = dist(e, target);
-            if (dHit <= 3.2) {
+            const slamR = e.slamRadius || 3.2;
+            if (dHit <= slamR) {
               const arch = e.archetype || "boss";
-              const dmg = MOB_DMG[arch] || MOB_DMG.boss || 18;
+              let dmg = MOB_DMG[arch] || MOB_DMG.boss || 18;
+              // Crush phase 2: slightly heavier coin-iron blow
+              if (e.phase === 2 && e.id === "hoard_crush") dmg = Math.floor(dmg * 1.2);
               const led = players.get(target.playerId);
               const armor =
                 (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
@@ -1289,18 +1293,34 @@ class CantoRoom {
       }
       if (nearestD <= 2.2 && e.atkCd <= 0 && !(nearest.iframes > 0)) {
         if (e.kind === "boss") {
-          // Start Judge slam telegraph — ~1.4s so countdown pip reads 2→1 clearly
-          e.windupLeft = 1.4;
+          // Avarice Hoard Crush phase 2 (≤50%): faster heavier measure; others keep classic 1.4s
+          const crushP2 =
+            this.cantoId === "inferno_07" &&
+            e.id === "hoard_crush" &&
+            e.hp <= e.maxHp * 0.5;
+          if (crushP2 && !e.phase2Toast) {
+            e.phase2Toast = true;
+            e.phase = 2;
+            for (const s of this.sessions.values()) {
+              this.toast(s.ws, "warn", "il peso cresce — Crush doubles the measure");
+            }
+          }
+          const wind = crushP2 ? 1.0 : 1.4;
+          const rad = crushP2 ? 3.9 : 3.2;
+          const recov = crushP2 ? 1.85 : 2.2;
+          e.windupLeft = wind;
           e.windupTargetId = nearest.playerId;
-          e.atkCd = 2.2; // covers windup + recovery
+          e.atkCd = recov;
+          e.slamRadius = rad;
           this.broadcast({
             type: "boss_telegraph",
             id: e.id,
             attackerId: e.id,
             x: e.x,
             y: e.y,
-            radius: 3.2,
-            duration: 1.4,
+            radius: rad,
+            duration: wind,
+            phase: crushP2 ? 2 : 1,
           });
           this.markDirty();
           continue;

@@ -1334,14 +1334,20 @@ export class WorldApp {
           glow.intensity = d2 > 40 * 40 ? 0.6 : d2 > 22 * 22 ? 1.8 : 3.0;
           glow.visible = d2 < 48 * 48;
         }
-        // Windup: hot iron emissive telegraph (synced windupLeft)
+        // Windup / phase-2: hot iron emissive telegraph
         const wind = Number(n.group.userData.windupLeft || 0);
+        const phase = Number(n.group.userData.bossPhase || 1);
         const body = n.group.getObjectByName("crushBody") as THREE.Mesh | undefined;
         if (body && body.material && !Array.isArray(body.material)) {
           const mat = body.material as THREE.MeshStandardMaterial;
           if (wind > 0.05) {
-            mat.emissiveIntensity = 0.55 + (1.4 - Math.min(1.4, wind)) * 0.55;
-            if (glow) glow.intensity = Math.max(glow.intensity, 4.2);
+            const windMax = phase >= 2 ? 1.0 : 1.4;
+            mat.emissiveIntensity =
+              (phase >= 2 ? 0.72 : 0.55) + (windMax - Math.min(windMax, wind)) * (phase >= 2 ? 0.75 : 0.55);
+            if (glow) glow.intensity = Math.max(glow.intensity, phase >= 2 ? 5.4 : 4.2);
+          } else if (phase >= 2) {
+            mat.emissiveIntensity = Math.max(mat.emissiveIntensity, 0.48);
+            if (glow) glow.intensity = Math.max(glow.intensity, 3.4);
           }
         }
       }
@@ -1442,6 +1448,7 @@ export class WorldApp {
       }
       if (e.kind === "boss") {
         rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
+        rec.group.userData.bossPhase = Number(e.phase) || 1;
       }
       if (e.kind === "mob") {
         const stun = Number(e.stunLeft) || 0;
@@ -2211,8 +2218,13 @@ export class WorldApp {
         const y = Number(msg.y) || 0;
         const radius = Number(msg.radius) || 3.2;
         const dur = Number(msg.duration) || 1.4;
+        const phase = Number(msg.phase) || 1;
         this.spawnJudgeSlam(x, y, radius, dur);
         this.flashDodge(dur);
+        if (phase >= 2 && this.room?.cantoId === "inferno_07") {
+          this.camPunch = Math.max(this.camPunch, 0.28);
+          this.camFovKick = Math.max(this.camFovKick, 1.6);
+        }
         break;
       }
       case "entity_removed": {
