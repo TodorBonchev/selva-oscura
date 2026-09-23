@@ -275,6 +275,7 @@ export class WorldApp {
   ledgerMidApproachShown = false;
   northMeasureApproachShown = false;
   crushApproachShown = false;
+  southSpillApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1247,12 +1248,16 @@ export class WorldApp {
       if (inner) inner.rotation.y = this.animT * 0.003;
       const ps = n.group.getObjectByName("portalSparks") as THREE.Points | undefined;
       if (ps && this.frameN % 2 === 0) {
-        const arr = (ps.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
-        for (let i = 0; i < arr.length / 3; i++) {
-          arr[i * 3 + 1] += 0.018;
-          if (arr[i * 3 + 1] > 3.6) arr[i * 3 + 1] = 0.35;
+        const px = n.group.position.x - this.camFollow.x;
+        const pz = n.group.position.z - this.camFollow.z;
+        if (px * px + pz * pz < 42 * 42) {
+          const arr = (ps.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+          for (let i = 0; i < arr.length / 3; i++) {
+            arr[i * 3 + 1] += 0.018;
+            if (arr[i * 3 + 1] > 3.6) arr[i * 3 + 1] = 0.35;
+          }
+          (ps.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
         }
-        (ps.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
       }
       const beam = n.group.getObjectByName("lootBeam");
       if (beam) {
@@ -1490,7 +1495,7 @@ export class WorldApp {
     if (e.archetype === "mire_champion" && !/^cerbero$/i.test(nm)) group.scale.setScalar(1.08);
     if (e.archetype === "weight_shade") group.scale.setScalar(1.05);
     if (e.archetype === "weight_champion" && !/^counterweight$/i.test(nm)) group.scale.setScalar(1.08);
-    if (e.archetype === "coin_wisp") group.scale.setScalar(0.7);
+    if (e.archetype === "coin_wisp") group.scale.setScalar(0.82);
     if (isHeartArch) group.scale.setScalar(1.45);
     if (
       e.poiKind === "bell" &&
@@ -1958,6 +1963,7 @@ export class WorldApp {
           this.ledgerMidApproachShown = false;
           this.northMeasureApproachShown = false;
           this.crushApproachShown = false;
+          this.southSpillApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -3210,6 +3216,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 16) {
           this.crushApproachShown = true;
           showToast("Hoard Crush — weight without rest; tip the measure", "warn");
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.southSpillApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^south spill$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.southSpillApproachShown = true;
+          showToast("South Spill — undervalued coin, still sharp", "info");
+          break;
         }
       }
     }

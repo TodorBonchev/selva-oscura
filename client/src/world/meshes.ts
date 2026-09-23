@@ -1105,8 +1105,8 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
 /** Weight shade — Doré silhouette with rolling coin-weight rings (gold-on-black). */
 function weightShadeMat(mats: MatKit, goldTrim: boolean): THREE.MeshStandardMaterial {
   return goldTrim
-    ? std(mats.leather.map, 0x5a4a28, { roughness: 0.62, metalness: 0.28, emissive: 0x3a2a10, emissiveIntensity: 0.42 })
-    : std(mats.leather.map, 0x2a2418, { roughness: 0.78, metalness: 0.18, emissive: 0x2a1c08, emissiveIntensity: 0.32 });
+    ? std(mats.leather.map, 0x6a5530, { roughness: 0.58, metalness: 0.34, emissive: 0x3a2a10, emissiveIntensity: 0.48 })
+    : std(mats.leather.map, 0x322818, { roughness: 0.72, metalness: 0.24, emissive: 0x2a1c08, emissiveIntensity: 0.38 });
 }
 
 function makeWeightShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Group {
@@ -1246,7 +1246,7 @@ export function makeCoinWisp(mats: MatKit): THREE.Group {
   const eyeR = eyeL.clone();
   eyeR.position.x = 0.1;
   g.add(discShadow(mats, 0.35), core, stack, stack2, rim, halo, eyeL, eyeR, nose(mats, 0.62, -0.3));
-  g.scale.setScalar(0.95);
+  g.scale.setScalar(1.05);
   shadow(g);
   g.traverse((o) => {
     const m = o as THREE.Mesh;

@@ -721,8 +721,8 @@ export function buildGround(
 
       // Mid-path ledger slabs (content beat props; cheap boxes, no shadows)
       const slabPts: [number, number][] = compact
-        ? [[70, 48], [86, 58]]
-        : [[44, 58], [70, 48], [86, 58], [100, 56]];
+        ? [[70, 48], [86, 58], [112, 82]]
+        : [[44, 58], [70, 48], [86, 58], [100, 56], [112, 82], [124, 40]];
       for (let i = 0; i < slabPts.length; i++) {
         const [sx, sz] = slabPts[i]!;
         const slab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 0.7), mats.bone);
