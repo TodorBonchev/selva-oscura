@@ -1209,14 +1209,21 @@ class CantoRoom {
         moved = true;
         continue;
       }
-      const aggro = e.kind === "boss" ? 14 : 8;
+      const aggro =
+        e.kind === "boss"
+          ? 14
+          : this.cantoId === "inferno_07" && e.archetype === "ledger_warden"
+            ? 9.5
+            : this.cantoId === "inferno_07" && e.archetype === "coin_wisp"
+              ? 9
+              : 8;
       const winding = e.kind === "boss" && e.windupLeft > 0;
       // Hold still during slam windup so the ground ring matches the hit.
       if (!winding && nearestD < aggro && nearestD > 1.2) {
         const dx = nearest.x - e.x;
         const dy = nearest.y - e.y;
         const len = Math.hypot(dx, dy) || 1;
-        const speed =
+        let speed =
           e.archetype === "gale_wisp" || e.archetype === "mud_wisp" || e.archetype === "coin_wisp"
             ? 5.4
             : e.archetype === "gale_warden" || e.archetype === "mire_warden" || e.archetype === "ledger_warden"
@@ -1226,8 +1233,27 @@ class CantoRoom {
                 : e.archetype === "weight_shade" || e.archetype === "weight_champion"
                   ? 2.65
                   : 3.0;
-        e.x += (dx / len) * speed * dt;
-        e.y += (dy / len) * speed * dt;
+        // Avarice: champion surge in mid band; coin wisps weave (greed that slips)
+        let sx = dx / len;
+        let sy = dy / len;
+        if (this.cantoId === "inferno_07") {
+          if (e.archetype === "weight_champion" && nearestD > 3.2 && nearestD < 6.5) {
+            speed *= 1.35;
+          }
+          if (e.archetype === "coin_wisp") {
+            e._weaveT = (e._weaveT || 0) + dt;
+            const weave = Math.sin(e._weaveT * 5.2 + (e.x || 0) * 0.2) * 0.55;
+            const px = -sy;
+            const py = sx;
+            sx += px * weave;
+            sy += py * weave;
+            const sl = Math.hypot(sx, sy) || 1;
+            sx /= sl;
+            sy /= sl;
+          }
+        }
+        e.x += sx * speed * dt;
+        e.y += sy * speed * dt;
         moved = true;
       }
       // Avarice: soft pack spacing so weights don't stack into one silhouette
