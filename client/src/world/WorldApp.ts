@@ -296,6 +296,8 @@ export class WorldApp {
   stormHeartSeenAlive = false;
   glutClearStashTipShown = false;
   avaClearStashTipShown = false;
+  /** Concurrent Avarice pack-death coin bursts (budget). */
+  avaDeathBurstActive = 0;
   poiHintsShown = new Set<string>();
   mawPressureOn = false;
   crushPressureOn = false;
@@ -1875,8 +1877,53 @@ export class WorldApp {
   }
 
   disposeNode(rec: NodeRec) {
+    // Avarice pack death: brief coin burst, hard-capped so dense packs don't spam lights
+    if (
+      this.room?.cantoId === "inferno_07" &&
+      (rec.kind === "whirl" || rec.kind === "champion") &&
+      this.avaDeathBurstActive < (isCompactUi() ? 1 : 2)
+    ) {
+      const x = rec.group.position.x;
+      const z = rec.group.position.z;
+      this.spawnAvaPackDeathCoins(x, z);
+    }
     this.scene.remove(rec.group);
     rec.label.element.remove();
+  }
+
+  /** Sparse bone-gold coin motes on pack death — budgeted, SFX-less. */
+  spawnAvaPackDeathCoins(x: number, z: number) {
+    this.avaDeathBurstActive++;
+    const y = this.standY(x, z, 0.2);
+    const n = isCompactUi() ? 3 : 5;
+    for (let i = 0; i < n; i++) {
+      const mote = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8),
+        new THREE.MeshBasicMaterial({
+          color: i % 2 ? 0xf2dea0 : 0xd4a840,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      const ang = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+      const r = 0.2 + Math.random() * 0.55;
+      mote.rotation.x = Math.PI / 2;
+      setPlanar(mote.position, x + Math.cos(ang) * r, z + Math.sin(ang) * r, y + 0.15);
+      this.scene.add(mote);
+      this.impacts.push({
+        mesh: mote,
+        start: this.animT + i * 16,
+        dur: 480 + Math.random() * 220,
+        from: 1,
+        to: 0.1,
+        rise: 0.9 + Math.random() * 0.7,
+      });
+    }
+    window.setTimeout(() => {
+      this.avaDeathBurstActive = Math.max(0, this.avaDeathBurstActive - 1);
+    }, 520);
   }
 
   updateLabel(rec: NodeRec, e: any, pos: Vec2) {
