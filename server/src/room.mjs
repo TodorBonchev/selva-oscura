@@ -1178,6 +1178,19 @@ class CantoRoom {
             ? `Stash holds ${ledger.stash.length} item${ledger.stash.length === 1 ? "" : "s"} — bank Lust, Gluttony, and Avarice drops here.`
             : "Stash is empty — bank champion drops here after Lust, Gluttony, or Avarice."
         );
+        // After banking Ava loot (Crush clear + bag/stash weighed): nudge Guide counsel once per session
+        const clearsStash = ledger.firstClears instanceof Set ? ledger.firstClears : new Set();
+        const weighedBag =
+          (ledger.inventory || []).some((i) => i && i.soulbound) ||
+          (ledger.stash || []).some((i) => i && i.soulbound);
+        if (clearsStash.has("inferno_07") && weighedBag && !s._avaBankGuideToast) {
+          s._avaBankGuideToast = true;
+          this.toast(
+            s.ws,
+            "info",
+            "Guide: weighed drops are banked — speak with me for the writ, or take the east Lust road / Gluttony→Avarice again."
+          );
+        }
       } else if (e.poiKind === "ah") {
         this.send(s.ws, { type: "ah_listings", listings: ah.getListings() });
         this.toast(s.ws, "info", "Auction House — list gear for Ash, or bid on pilgrim lots.");
