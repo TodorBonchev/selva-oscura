@@ -815,17 +815,20 @@ class CantoRoom {
         if (e.packId === entity.packId && e.kind === "mob") left++;
       }
       if (left === 0) {
-        const line =
-          this.cantoId === "inferno_07"
-            ? entity.archetype === "coin_wisp"
-              ? "contrapeso — the coins still; measure holds."
-              : entity.archetype === "hoard_heart"
-                ? "peso — the ward breaks; Counterweight stirs ahead."
+        // Hoard Heart already fired its emit death beat — skip redundant pack-clear toast
+        if (entity.archetype === "hoard_heart") {
+          /* death beat owned by emit toast + client cam */
+        } else {
+          const line =
+            this.cantoId === "inferno_07"
+              ? entity.archetype === "coin_wisp"
+                ? "contrapeso — the coins still; measure holds."
                 : "contrapeso — the weights settle; rebalance and press on."
-            : this.cantoId === "inferno_06"
-              ? "The sludge settles. Press on."
-              : "The gust breaks. Press on.";
-        this.toast(killer.ws, "info", line);
+              : this.cantoId === "inferno_06"
+                ? "The sludge settles. Press on."
+                : "The gust breaks. Press on.";
+          this.toast(killer.ws, "info", line);
+        }
       }
     }
     if (killer && entity.kind === "mob") {

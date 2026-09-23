@@ -4023,7 +4023,13 @@ export class WorldApp {
         )
       ) {
         this.hoardHeartDownToastShown = true;
+        // Soft death beat — one toast + bone-gold fringe (server emit already said peso)
         showToast("Hoard Heart broken — Counterweight stirs; Crush waits beyond", "emit");
+        document.body.classList.add("hoard-heart-death");
+        window.setTimeout(() => document.body.classList.remove("hoard-heart-death"), 900);
+        this.camPunch = Math.max(this.camPunch, 0.72);
+        this.camShake = Math.max(this.camShake, 0.28);
+        this.camFovKick = Math.max(this.camFovKick, 2.4);
       }
     }
 

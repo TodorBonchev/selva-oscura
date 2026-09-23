@@ -4730,3 +4730,19 @@ body.champ-windup::after {
   z-index: 12;
   box-shadow: inset 0 0 48px #c9a84a44, inset 0 0 12px #8a703088;
 }
+
+/* Hoard Heart death beat — brief bone-gold veil, no Lust crimson */
+body.hoard-heart-death::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+  background: radial-gradient(ellipse at 50% 42%, #c9a84a33 0%, transparent 62%);
+  box-shadow: inset 0 0 60px #8a703066;
+  animation: hoard-heart-death-fade 0.9s ease-out forwards;
+}
+@keyframes hoard-heart-death-fade {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
