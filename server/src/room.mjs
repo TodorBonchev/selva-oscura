@@ -1098,17 +1098,19 @@ class CantoRoom {
         let stilled = 0;
         // Avarice: slightly wider still so Ledger Bell catches strays under the post
         const stillR = this.cantoId === "inferno_07" ? 13.5 : 10;
+        // Avarice still lasts longer so the measure reads before rollers resume
+        const stillDur = this.cantoId === "inferno_07" ? 3.4 : 2.4;
         for (const mob of this.entities.values()) {
           if (mob.kind !== "mob") continue;
           // Hearts are ward pillars, not weights — skip still (keep Crush lane readable)
           if (HEART_ARCHETYPES.has(mob.archetype)) continue;
           if (dist(s, mob) > stillR) continue;
-          mob.stunLeft = 2.4;
+          mob.stunLeft = stillDur;
           stilled++;
         }
         const bellLine = stilled
           ? this.cantoId === "inferno_07"
-            ? `peso — Ledger Bell stills ${stilled}`
+            ? `peso — Ledger Bell stills ${stilled} · ${stillDur.toFixed(1).replace(/\.0$/, "")}s measure`
             : this.cantoId === "inferno_06"
               ? `Mire Bell stills ${stilled}`
               : `The bell stills ${stilled}`

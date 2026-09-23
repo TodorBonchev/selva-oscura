@@ -4524,3 +4524,16 @@ body.in-avarice.hud-compact.crush-windup #game-root::before {
 @media (prefers-reduced-motion: reduce) {
   body.in-avarice.crush-windup #game-root::before { animation: none; opacity: 0.65; }
 }
+
+/* Avarice Ledger Bell still — brief gold measure wash (SFX-less) */
+body.in-avarice.ava-bell-still #heat-haze {
+  opacity: 0.42;
+  filter: saturate(1.08) brightness(1.06);
+}
+body.in-avarice.ava-bell-still #gold-dust {
+  opacity: 0.34;
+}
+.world-label.foe.avarice.stilled .wl-name {
+  text-shadow: 0 0 8px #e8c86a66, 0 1px 0 #000c;
+  letter-spacing: 0.04em;
+}

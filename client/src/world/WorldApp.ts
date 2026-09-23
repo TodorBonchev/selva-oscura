@@ -2345,7 +2345,7 @@ export class WorldApp {
         if (/Avarice gate|gate past the Maw opens/i.test(text)) {
           this.camPunch = Math.max(this.camPunch, 1.25);
         }
-        // Ledger Bell still — wide bone-gold measure ring at the post
+        // Ledger Bell still — wide bone-gold measure ring at the post (duration reads in toast)
         if (this.room?.cantoId === "inferno_07" && /Ledger Bell stills/i.test(text)) {
           const bell = this.room.entities.find((e: any) => e.poiKind === "bell" || e.id === "ledger_bell");
           if (bell) {
@@ -2355,7 +2355,7 @@ export class WorldApp {
               new THREE.MeshBasicMaterial({
                 color: 0xe8c86a,
                 transparent: true,
-                opacity: 0.72,
+                opacity: 0.78,
                 side: THREE.DoubleSide,
                 depthWrite: false,
                 blending: THREE.AdditiveBlending,
@@ -2364,8 +2364,10 @@ export class WorldApp {
             ring.rotation.x = -Math.PI / 2;
             setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.14));
             this.scene.add(ring);
-            this.impacts.push({ mesh: ring, start: this.animT, dur: 780, from: 1.1, to: 4.6 });
-            this.camPunch = Math.max(this.camPunch, 0.22);
+            this.impacts.push({ mesh: ring, start: this.animT, dur: 1180, from: 1.15, to: 5.4 });
+            this.camPunch = Math.max(this.camPunch, 0.28);
+            document.body.classList.add("ava-bell-still");
+            window.setTimeout(() => document.body.classList.remove("ava-bell-still"), 3400);
           }
         }
         break;
