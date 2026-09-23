@@ -4345,3 +4345,8 @@ body.in-avarice #btn-interact.interact-ready {
 body.in-avarice.hud-compact #btn-interact.interact-ready .action-icon {
   filter: drop-shadow(0 0 3px #d4a84088);
 }
+
+.world-label.foe.avarice.stilled .wl-name {
+  color: #f2dea0;
+  opacity: 0.75;
+}

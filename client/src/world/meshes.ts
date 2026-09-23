@@ -1265,6 +1265,7 @@ export function makeLedgerWarden(mats: MatKit): THREE.Group {
   );
   tablet.position.set(-0.58, 1.18, -0.18);
   tablet.rotation.y = 0.38;
+  tablet.name = "ledgerTablet";
   // Ledger lines (thin bone ridges) for Doré plate read
   const line = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.03, 0.02), mats.bone);
   line.position.set(-0.58, 1.35, -0.24);

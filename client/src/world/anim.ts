@@ -349,6 +349,16 @@ export function tickWhirl(root: THREE.Object3D, tMs: number, champion: boolean) 
   }
 }
 
+/** Idle for Ledger Warden — tablet sway + plate pulse. */
+export function tickLedgerWarden(root: THREE.Object3D, tMs: number) {
+  tickWhirl(root, tMs, true);
+  const tab = root.getObjectByName("ledgerTablet");
+  if (tab) {
+    tab.rotation.z = Math.sin(tMs * 0.0022) * 0.08;
+    tab.position.y = 1.18 + Math.sin(tMs * 0.0018) * 0.03;
+  }
+}
+
 /** Idle for Hoard Heart ward — disc spin + soft bob (measure tips). */
 export function tickHoardHeart(root: THREE.Object3D, tMs: number) {
   let cache = root.userData.heartCache as

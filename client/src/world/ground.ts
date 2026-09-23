@@ -668,7 +668,7 @@ export function buildGround(
         opacity: 0.88,
       });
       const coinGeo = new THREE.CircleGeometry(1, compact ? 8 : 10);
-      const coinN = compact ? Math.min(4, hunt.length) : hunt.length + 3;
+      const coinN = compact ? Math.min(3, hunt.length) : hunt.length + 3;
       const coins = new THREE.InstancedMesh(coinGeo, coinMat, coinN);
       coins.castShadow = false;
       coins.receiveShadow = true;

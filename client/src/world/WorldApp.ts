@@ -112,7 +112,7 @@ import {
   type SlamTele,
   type SparkBurst,
 } from "./fx";
-import { tickCounterweight, tickHoardHeart, tickHumanoid, tickHoardCrush, tickTripleMaw, tickWhirl } from "./anim";
+import { tickCounterweight, tickHoardHeart, tickHumanoid, tickHoardCrush, tickLedgerWarden, tickTripleMaw, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
@@ -1307,6 +1307,8 @@ export class WorldApp {
           tickHoardHeart(n.group, this.animT);
         } else if (n.group.userData.isCounterweight) {
           tickCounterweight(n.group, this.animT);
+        } else if (n.group.userData.isLedgerWarden) {
+          tickLedgerWarden(n.group, this.animT);
         } else {
           tickWhirl(n.group, this.animT, n.kind === "champion");
         }
@@ -1330,6 +1332,16 @@ export class WorldApp {
         if (glow) {
           glow.intensity = d2 > 40 * 40 ? 0.6 : d2 > 22 * 22 ? 1.8 : 3.0;
           glow.visible = d2 < 48 * 48;
+        }
+        // Windup: hot iron emissive telegraph (synced windupLeft)
+        const wind = Number(n.group.userData.windupLeft || 0);
+        const body = n.group.getObjectByName("crushBody") as THREE.Mesh | undefined;
+        if (body && body.material && !Array.isArray(body.material)) {
+          const mat = body.material as THREE.MeshStandardMaterial;
+          if (wind > 0.05) {
+            mat.emissiveIntensity = 0.55 + (1.4 - Math.min(1.4, wind)) * 0.55;
+            if (glow) glow.intensity = Math.max(glow.intensity, 4.2);
+          }
         }
       }
       const pulse = Number(n.group.userData.hitPulse) || 0;
@@ -1426,6 +1438,9 @@ export class WorldApp {
       if (e.kind === "mob" || e.kind === "boss" || e.kind === "player") {
         const you = this.youPos();
         rec.group.rotation.y = yawFromPlanar(you.x - pos.x, you.y - pos.y);
+      }
+      if (e.kind === "boss") {
+        rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
       }
       if (e.kind === "mob") {
         const stun = Number(e.stunLeft) || 0;
@@ -1528,6 +1543,7 @@ export class WorldApp {
       group = makeMireWarden(this.mats!);
     } else if (arch === "ledger_warden") {
       group = makeLedgerWarden(this.mats!);
+      group.userData.isLedgerWarden = true;
     } else if (/^cerbero$/i.test(nm)) {
       group = makeCerbero(this.mats!);
     } else if (/^counterweight$/i.test(nm)) {
@@ -1694,6 +1710,7 @@ export class WorldApp {
     if (rec.hpEl.style.opacity !== nextOp) rec.hpEl.style.opacity = nextOp;
     const shown = foe || rec.kind === "loot" || d <= 8 ? name : "•";
     if (nameEl && nameEl.textContent !== shown) nameEl.textContent = shown;
+    rec.hpEl.classList.toggle("stilled", Number(rec.group.userData.stunLeft || 0) > 0.05);
     if (e.hp != null && e.maxHp) {
       if (hp.style.display !== "block") hp.style.display = "block";
       const ratio = Math.max(0, Math.min(1, e.hp / e.maxHp));
