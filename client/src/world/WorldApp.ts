@@ -2169,9 +2169,13 @@ export class WorldApp {
               }
               if (c === "inferno_07") {
                 this.camPunch = Math.max(this.camPunch, 1.55);
+                this.camShake = Math.max(this.camShake, 0.35);
+                this.camFovKick = Math.max(this.camFovKick, 2.4);
                 document.body.classList.add("ava-first-clear");
                 window.setTimeout(() => document.body.classList.remove("ava-first-clear"), 900);
                 showToast("misura spezzata — Hoard Crush yields; peso e contrapeso is paid", "emit");
+                const bossEnt = this.room?.entities?.find((e: any) => e.id === "hoard_crush" || e.kind === "boss");
+                if (bossEnt) this.spawnAvaClaimRing(bossEnt, 0xf2dea0, 1.4, 5.5, 1100);
                 if (!this.avaClearStashTipShown) {
                   this.avaClearStashTipShown = true;
                   showToast("Bank weighed drops at the Dark Wood stash — then speak with the Guide", "info");
@@ -3432,6 +3436,10 @@ export class WorldApp {
         } else if (isPortal) {
           const dest = this.portalDestName(best);
           prompt.textContent = `Hold E — ${dest}`;
+        } else if (best.poiKind === "shrine" && this.room?.cantoId === "inferno_07") {
+          prompt.textContent = "Kneel";
+        } else if (best.poiKind === "cache" && this.room?.cantoId === "inferno_07") {
+          prompt.textContent = "Claim";
         } else {
           prompt.textContent = rec.kind === "loot" ? "Take" : "E";
         }
@@ -3452,6 +3460,10 @@ export class WorldApp {
       const isPortal = best.kind === "exit" || best.poiKind === "portal";
       if (isPortal && this.portalIsLocked(best)) labelEl.textContent = "Sealed";
       else if (isPortal) labelEl.textContent = "Hold";
+      else if (best.poiKind === "shrine" && this.room?.cantoId === "inferno_07")
+        labelEl.textContent = "Kneel";
+      else if (best.poiKind === "cache" && this.room?.cantoId === "inferno_07")
+        labelEl.textContent = "Claim";
       else labelEl.textContent = "Interact";
     }
     if (this.lastInteractHintId !== String(best.id)) {
