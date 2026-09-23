@@ -4135,6 +4135,12 @@ body.is-fullscreen {
   text-shadow: 0 0 12px #ff6622;
 }
 #dodge-callout.hidden { display: none; }
+#dodge-callout.avarice-dodge {
+  color: #f2dea0;
+  border-color: #a0782888;
+  text-shadow: 0 0 8px #d4a84066;
+}
+
 
 #quest-track {
   position: fixed;

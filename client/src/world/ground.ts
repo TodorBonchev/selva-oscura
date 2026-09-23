@@ -198,7 +198,12 @@ export function buildGround(
   floor.name = "floor";
   group.add(floor);
 
-  const fogSegs = cantoId === "inferno_07" || cantoId === "inferno_06" ? 32 : 48;
+  const fogSegs =
+    cantoId === "inferno_07" || cantoId === "inferno_06"
+      ? isCompactUi()
+        ? 20
+        : 32
+      : 48;
   const fogRing = new THREE.Mesh(
     new THREE.RingGeometry(Math.max(w, h) * 0.62, Math.max(w, h) * 1.4, fogSegs),
     new THREE.MeshBasicMaterial({

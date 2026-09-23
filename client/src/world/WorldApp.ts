@@ -112,7 +112,7 @@ import {
   type SlamTele,
   type SparkBurst,
 } from "./fx";
-import { tickHumanoid, tickHoardCrush, tickTripleMaw, tickWhirl } from "./anim";
+import { tickCounterweight, tickHumanoid, tickHoardCrush, tickTripleMaw, tickWhirl } from "./anim";
 import { makeComposer } from "./post";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
@@ -282,6 +282,8 @@ export class WorldApp {
   goldChorusApproachShown = false;
   crushFlankApproachShown = false;
   strayCoinApproachShown = false;
+  northLedgerApproachShown = false;
+  southBalanceApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1294,6 +1296,8 @@ export class WorldApp {
         const cullR = n.group.userData.coinWisp ? 36 : isCompactUi() ? 34 : 44;
         if (wx * wx + wz * wz > cullR * cullR) {
           /* skip far idle */
+        } else if (n.group.userData.isCounterweight) {
+          tickCounterweight(n.group, this.animT);
         } else {
           tickWhirl(n.group, this.animT, n.kind === "champion");
         }
@@ -1478,6 +1482,7 @@ export class WorldApp {
       group = makeCerbero(this.mats!);
     } else if (/^counterweight$/i.test(nm)) {
       group = makeCounterweight(this.mats!);
+      group.userData.isCounterweight = true;
     } else if (isMire && kind === "champion") {
       group = makeMireChampion(this.mats!);
     } else if (isMire && kind === "whirl") {
@@ -2000,6 +2005,8 @@ export class WorldApp {
           this.goldChorusApproachShown = false;
           this.crushFlankApproachShown = false;
           this.strayCoinApproachShown = false;
+          this.northLedgerApproachShown = false;
+          this.southBalanceApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -2058,6 +2065,29 @@ export class WorldApp {
         }
         if (/Avarice gate|gate past the Maw opens/i.test(text)) {
           this.camPunch = Math.max(this.camPunch, 1.25);
+        }
+        // Ledger Bell still — wide bone-gold measure ring at the post
+        if (this.room?.cantoId === "inferno_07" && /Ledger Bell stills/i.test(text)) {
+          const bell = this.room.entities.find((e: any) => e.poiKind === "bell" || e.id === "ledger_bell");
+          if (bell) {
+            const pos = this.entityRenderPos(bell);
+            const ring = new THREE.Mesh(
+              new THREE.RingGeometry(0.8, 1.15, 36),
+              new THREE.MeshBasicMaterial({
+                color: 0xe8c86a,
+                transparent: true,
+                opacity: 0.72,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+              })
+            );
+            ring.rotation.x = -Math.PI / 2;
+            setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.14));
+            this.scene.add(ring);
+            this.impacts.push({ mesh: ring, start: this.animT, dur: 780, from: 1.1, to: 4.6 });
+            this.camPunch = Math.max(this.camPunch, 0.22);
+          }
         }
         break;
       }
@@ -2616,6 +2646,13 @@ export class WorldApp {
   flashDodge(sec = 1.4) {
     const el = document.getElementById("dodge-callout");
     if (!el) return;
+    if (this.room?.cantoId === "inferno_07") {
+      el.textContent = "Tip the measure — dash the Crush";
+      el.classList.add("avarice-dodge");
+    } else {
+      el.textContent = "Dash the slam";
+      el.classList.remove("avarice-dodge");
+    }
     el.classList.remove("hidden");
     window.setTimeout(() => el.classList.add("hidden"), Math.max(400, sec * 1000));
   }
@@ -3382,6 +3419,32 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
           this.strayCoinApproachShown = true;
           showToast("Stray Coin — loose change under the Bell", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.northLedgerApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^north ledger$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.northLedgerApproachShown = true;
+          showToast("North Ledger — unpaid tallies; the Bell stills them", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.southBalanceApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^south balance$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.southBalanceApproachShown = true;
+          showToast("South Balance — scale tipped wrong; pay or press through", "info");
           break;
         }
       }

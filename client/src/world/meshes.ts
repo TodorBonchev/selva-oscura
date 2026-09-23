@@ -1295,6 +1295,7 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
   const hide = std(null, 0x3a3428, { roughness: 0.68, metalness: 0.38, emissive: 0x2a1c08, emissiveIntensity: 0.38 });
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.88, 0.98, 1.45, 12), hide);
   body.position.y = 1.0;
+  body.name = "crushBody";
   // Twin roller stubs — silhouette rhyme with Hoard Crush
   const stubGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.85, 10);
   const stubL = new THREE.Mesh(stubGeo, mats.bronze);

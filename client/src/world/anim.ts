@@ -289,6 +289,37 @@ export function tickHumanoid(
   }
 }
 
+/** Idle for Counterweight elite — roller spin + disc bob (Crush foreshadow). */
+export function tickCounterweight(root: THREE.Object3D, tMs: number) {
+  let cache = root.userData.cwCache as
+    | { rollers: THREE.Object3D[]; discs: THREE.Object3D[]; body?: THREE.Object3D; ribbon?: THREE.Object3D }
+    | undefined;
+  if (!cache) {
+    cache = { rollers: [], discs: [] };
+    root.traverse((o) => {
+      if (o.name === "crushRoller") cache!.rollers.push(o);
+      else if (o.name === "weightDisc") cache!.discs.push(o);
+      else if (o.name === "crushBody") cache!.body = o;
+      else if (o.name === "ribbon") cache!.ribbon = o;
+    });
+    root.userData.cwCache = cache;
+  }
+  if (cache.body) {
+    cache.body.position.y = 1.0 + Math.sin(tMs * 0.0024) * 0.04;
+  }
+  if (cache.ribbon) {
+    cache.ribbon.rotation.z = tMs * 0.0014;
+  }
+  for (let i = 0; i < cache.rollers.length; i++) {
+    const o = cache.rollers[i]!;
+    o.rotation.x = tMs * (0.002 + i * 0.0005) * (i % 2 ? -1 : 1);
+  }
+  for (let i = 0; i < cache.discs.length; i++) {
+    const o = cache.discs[i]!;
+    o.rotation.z = tMs * 0.0016 * (i % 2 ? -1 : 1);
+  }
+}
+
 export function tickWhirl(root: THREE.Object3D, tMs: number, champion: boolean) {
   const ribbon = root.getObjectByName("ribbon");
   if (ribbon) {
