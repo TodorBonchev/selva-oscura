@@ -4118,8 +4118,20 @@ export class WorldApp {
           prompt.textContent = "Kneel";
         } else if (best.poiKind === "cache" && this.room?.cantoId === "inferno_07") {
           prompt.textContent = "Claim";
+        } else if (best.poiKind === "bell") {
+          const cd = Number(this.room?.you?.bellCd) || 0;
+          if (cd > 0.4) {
+            prompt.textContent = `Bell ${Math.ceil(cd)}s`;
+            prompt.classList.add("bell-cd");
+            prompt.style.setProperty("--bell-cd", String(Math.min(1, cd / 18)));
+          } else {
+            prompt.textContent = this.room?.cantoId === "inferno_07" ? "Ring" : "E";
+            prompt.classList.remove("bell-cd");
+            prompt.style.removeProperty("--bell-cd");
+          }
         } else {
           prompt.textContent = rec.kind === "loot" ? "Take" : "E";
+          prompt.classList.remove("bell-cd");
         }
       }
     }
