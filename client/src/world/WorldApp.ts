@@ -885,15 +885,25 @@ export class WorldApp {
     }
   }
 
+  /** Avarice gold-road move constants — WASD + click share the same accel/cap. */
+  avaMoveFeel(): { accel: number; maxSp: number; arrive: number } {
+    if (this.room?.cantoId !== "inferno_07") {
+      return { accel: MOVE_ACCEL, maxSp: PREDICT_SPEED, arrive: TAP_ARRIVE };
+    }
+    // Slightly snappier stride on the measure; click arrive softer so it matches keyboard stop
+    return { accel: MOVE_ACCEL * 1.12, maxSp: PREDICT_SPEED * 1.04, arrive: 0.55 };
+  }
+
   applyContinuousMove(dx: number, dy: number, dtSec: number) {
     const len = Math.hypot(dx, dy);
     if (len > 0.001) {
+      const feel = this.avaMoveFeel();
       const nx = dx / len;
       const ny = dy / len;
-      this.velX += nx * MOVE_ACCEL * dtSec;
-      this.velY += ny * MOVE_ACCEL * dtSec;
+      this.velX += nx * feel.accel * dtSec;
+      this.velY += ny * feel.accel * dtSec;
       const mag = Math.min(1, len);
-      const maxSp = PREDICT_SPEED * Math.max(0.35, mag);
+      const maxSp = feel.maxSp * Math.max(0.35, mag);
       const sp = Math.hypot(this.velX, this.velY);
       if (sp > maxSp) {
         this.velX = (this.velX / sp) * maxSp;
@@ -910,22 +920,32 @@ export class WorldApp {
 
   advanceTapMove(dtSec: number) {
     if (!this.moveTarget) return;
+    const feel = this.avaMoveFeel();
     const dx = this.moveTarget.x - this.renderYou.x;
     const dy = this.moveTarget.y - this.renderYou.y;
     const d = Math.hypot(dx, dy);
-    if (d < TAP_ARRIVE) {
+    if (d < feel.arrive) {
       this.moveTarget = null;
-      this.velX = 0;
-      this.velY = 0;
+      // Soft settle — match WASD friction stop instead of hard zero (gold-road feel)
+      if (this.room?.cantoId === "inferno_07") {
+        this.velX *= 0.35;
+        this.velY *= 0.35;
+      } else {
+        this.velX = 0;
+        this.velY = 0;
+      }
       this.predicting = false;
       return;
     }
-    this.velX += (dx / d) * MOVE_ACCEL * dtSec;
-    this.velY += (dy / d) * MOVE_ACCEL * dtSec;
+    // Near target: cap speed so click doesn't overshoot relative to WASD stride
+    const nearMag = d < 2.2 ? Math.max(0.4, d / 2.2) : 1;
+    this.velX += (dx / d) * feel.accel * dtSec;
+    this.velY += (dy / d) * feel.accel * dtSec;
+    const maxSp = feel.maxSp * nearMag;
     const sp = Math.hypot(this.velX, this.velY);
-    if (sp > PREDICT_SPEED) {
-      this.velX = (this.velX / sp) * PREDICT_SPEED;
-      this.velY = (this.velY / sp) * PREDICT_SPEED;
+    if (sp > maxSp) {
+      this.velX = (this.velX / sp) * maxSp;
+      this.velY = (this.velY / sp) * maxSp;
     }
     this.aimX = dx / d;
     this.aimY = dy / d;
