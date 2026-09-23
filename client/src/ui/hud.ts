@@ -33,6 +33,35 @@ const RARITY_LABEL: Record<string, string> = {
   canto_unique: "Canto Unique",
 };
 
+/** Higher = show first in bag (weighed / richer loot floats after Avarice pickups). */
+function rarityRank(r: string | undefined): number {
+  switch (String(r || "normal")) {
+    case "canto_unique":
+      return 6;
+    case "unique":
+      return 5;
+    case "set":
+      return 4;
+    case "rare":
+      return 3;
+    case "magic":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+/** Stable bag order: rarity ↓, weighed (soulbound) first, then name. */
+function sortInventoryItems(items: any[]): any[] {
+  return [...items].sort((a, b) => {
+    const rr = rarityRank(b?.rarity) - rarityRank(a?.rarity);
+    if (rr) return rr;
+    const sb = Number(Boolean(b?.soulbound)) - Number(Boolean(a?.soulbound));
+    if (sb) return sb;
+    return String(a?.name || "").localeCompare(String(b?.name || ""));
+  });
+}
+
 
 function escapeHtml(s: unknown): string {
   return String(s ?? "")
@@ -214,6 +243,8 @@ export function renderInventory(
 ) {
   const grid = document.getElementById("inv-grid");
   if (!grid) return;
+  // Weighed / richer drops float up so Avarice loot is not buried under normals
+  items = sortInventoryItems(items);
   lastBagItems = items;
   const countEl = document.getElementById("inv-count");
   if (countEl) countEl.textContent = `${items.length}/${INV_MAX_SLOTS}`;
