@@ -2073,11 +2073,13 @@ export class WorldApp {
             ? msg.room.you.firstClears
             : [];
           showToast(
-            clears0.includes("inferno_06")
-              ? "Gluttony is clear — Guide, writ, stash, then Avarice past the Maw."
-              : clears0.includes("inferno_05")
-                ? "Lust is clear — Guide, writ, stash, then Gluttony past the Judge."
-                : "No foes here — speak with the Guide, then take Toward Lust.",
+            clears0.includes("inferno_07")
+              ? "Avarice is clear — Guide, writ, stash, or hunt the circles again."
+              : clears0.includes("inferno_06")
+                ? "Gluttony is clear — Guide, writ, stash, then Avarice past the Maw."
+                : clears0.includes("inferno_05")
+                  ? "Lust is clear — Guide, writ, stash, then Gluttony past the Judge."
+                  : "No foes here — speak with the Guide, then take Toward Lust.",
             "info"
           );
         }
@@ -2105,11 +2107,13 @@ export class WorldApp {
                 }
               }
               if (c === "inferno_07") {
-                this.camPunch = Math.max(this.camPunch, 1.2);
-                showToast("Hoard Crush broken — return to Gluttony or the Dark Wood when ready", "emit");
+                this.camPunch = Math.max(this.camPunch, 1.55);
+                document.body.classList.add("ava-first-clear");
+                window.setTimeout(() => document.body.classList.remove("ava-first-clear"), 900);
+                showToast("misura spezzata — Hoard Crush yields; peso e contrapeso is paid", "emit");
                 if (!this.avaClearStashTipShown) {
                   this.avaClearStashTipShown = true;
-                  showToast("Bank champion drops at the Dark Wood stash when you return", "info");
+                  showToast("Bank weighed drops at the Dark Wood stash — then speak with the Guide", "info");
                 }
               }
             }
@@ -2766,13 +2770,16 @@ export class WorldApp {
     } else if (!you.visitedInferno) {
       line = "Follow the gold arrow into Lust";
     } else {
+      const avaOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_07");
       const glutOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_06");
       const lustOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
-      line = glutOk
-        ? "Claim the daily writ, or hunt Lust / Gluttony / Avarice"
-        : lustOk
-          ? "Claim the daily writ, or hunt Lust / Gluttony"
-          : "Claim the daily writ, or hunt Lust again";
+      line = avaOk
+        ? "Claim the daily writ, or hunt Lust / Gluttony / Avarice again"
+        : glutOk
+          ? "Claim the daily writ, or hunt Lust / Gluttony / Avarice"
+          : lustOk
+            ? "Claim the daily writ, or hunt Lust / Gluttony"
+            : "Claim the daily writ, or hunt Lust again";
     }
     setQuestLine(line);
     const near = this.nearestFoe(16);
@@ -3308,7 +3315,11 @@ export class WorldApp {
         const isPortal = best.kind === "exit" || best.poiKind === "portal";
         if (isPortal && this.portalIsLocked(best)) {
           prompt.textContent =
-            best.requireClear === "inferno_05" ? "Clear the Judge first" : "Sealed";
+            best.requireClear === "inferno_05"
+              ? "Clear the Judge first"
+              : best.requireClear === "inferno_06"
+                ? "Clear Triple Maw first"
+                : "Sealed";
         } else if (isPortal) {
           const dest = this.portalDestName(best);
           prompt.textContent = `Hold E — ${dest}`;

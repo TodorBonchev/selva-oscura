@@ -952,11 +952,22 @@ class CantoRoom {
         void persistPlayerFlags(playerId).catch((err) =>
           console.error("[db] persist spokeToGuide failed", err.message)
         );
-        this.toast(
-          s.ws,
-          "info",
-          "Guide: Follow the gold arrow into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso — weight and counterweight). Return for the writ, stash, and Auction House."
-        );
+        {
+          const clears = ledger.firstClears instanceof Set ? [...ledger.firstClears] : [];
+          let guideLine =
+            "Guide: Follow the gold arrow into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso — weight and counterweight). Return for the writ, stash, and Auction House.";
+          if (clears.includes("inferno_07")) {
+            guideLine =
+              "Guide: Hoard Crush is broken — peso e contrapeso yields. Claim the daily writ, bank weighed drops at the stash, or hunt Lust / Gluttony / Avarice again.";
+          } else if (clears.includes("inferno_06")) {
+            guideLine =
+              "Guide: Triple Maw is broken — Avarice (peso e contrapeso) waits past the Maw. Ring the Ledger Bell, tip the Counterweight, break Hoard Crush. Return for the writ, stash, and Auction House.";
+          } else if (clears.includes("inferno_05")) {
+            guideLine =
+              "Guide: Lust is clear — Gluttony (piova etterna) opens past the Judge's dais. Clear the mire, then the Triple Maw; after the Maw, Avarice. Return for the writ, stash, and Auction House.";
+          }
+          this.toast(s.ws, "info", guideLine);
+        }
       } else if (e.poiKind === "stash") {
         this.toast(
           s.ws,
@@ -1466,11 +1477,14 @@ export class World {
     room.pushSnapshot(playerId);
     room.toast(ws, "info", `Entered ${room.canto.title}.`);
     if (room.canto.role === "hub" || room.cantoId === "inferno_01") {
-      room.toast(
-        ws,
-        "info",
-        "No foes in the Dark Wood — take the eastern portal Toward Lust."
-      );
+      const hubLine = hasCleared(playerId, "inferno_07")
+        ? "Dark Wood rest — writ, stash, or hunt Lust / Gluttony / Avarice again."
+        : hasCleared(playerId, "inferno_06")
+          ? "Dark Wood rest — bank loot, then Avarice past the Maw (or Lust again)."
+          : hasCleared(playerId, "inferno_05")
+            ? "Dark Wood rest — bank loot, then Gluttony past the Judge."
+            : "No foes in the Dark Wood — take the eastern portal Toward Lust.";
+      room.toast(ws, "info", hubLine);
     } else if (room.cantoId === "inferno_07") {
       room.toast(ws, "info", "peso e contrapeso — measure the road, then break Hoard Crush.");
     } else if (room.cantoId === "inferno_06") {

@@ -4404,3 +4404,22 @@ body.in-avarice.crush-pressure.crush-phase2.hud-compact #heat-haze {
 body.in-avarice.crush-pressure.crush-phase2.hud-compact #gold-dust {
   opacity: 0.22;
 }
+
+/* Avarice first-clear revel — brief bone-gold fringe (no neon) */
+body.in-avarice.ava-first-clear #toast.toast-emit {
+  box-shadow: 0 2px 18px #000c, 0 0 22px #d4a84055;
+  border-left-color: #f2dea0;
+}
+body.ava-first-clear #game-root::after {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  box-shadow: inset 0 0 48px #d4a84033, inset 0 0 120px #1a140866;
+  animation: ava-clear-fringe 0.9s ease-out forwards;
+}
+@keyframes ava-clear-fringe {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
