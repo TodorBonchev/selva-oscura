@@ -80,13 +80,35 @@ function rarityClass(r: string | undefined): string {
 /** Toast with brief fade; level → gold (loot), bright gold (emit), crimson (warn), bone (info). */
 let lastToastText = "";
 let lastToastAt = 0;
+let lastToastFamily = "";
+let toastFadeTimer: number | null = null;
+
+/** Collapse spammy combat/approach lines into a family for longer dedupe. */
+function toastFamily(text: string): string {
+  const t = text.trim();
+  if (/^Closing on /i.test(t)) return "closing";
+  if (/^Approaching /i.test(t)) return "approach";
+  if (/^Picking up /i.test(t)) return "pickup";
+  if (/^Interact:/i.test(t)) return "interact";
+  if (/out of (range|mana)|not enough mana|nothing to strike|no foe/i.test(t)) return "oor";
+  return t;
+}
 
 export function showToast(text: string, level = "info") {
   const el = document.getElementById("toast");
   if (!el) return;
   const now = Date.now();
-  if (text === lastToastText && now - lastToastAt < 900) return;
+  const family = toastFamily(text);
+  // Exact repeat: 900ms. Same spam family (closing/approach/pickup): 1600ms.
+  const windowMs = family === text.trim() ? 900 : 1600;
+  if (
+    (text === lastToastText && now - lastToastAt < 900) ||
+    (family === lastToastFamily && family !== text.trim() && now - lastToastAt < windowMs)
+  ) {
+    return;
+  }
   lastToastText = text;
+  lastToastFamily = family;
   lastToastAt = now;
   placeToastLayer();
   el.textContent = text;
@@ -95,10 +117,16 @@ export function showToast(text: string, level = "info") {
   void el.offsetWidth;
   el.classList.add("toast-show", `toast-${level}`);
   if (toastTimer != null) window.clearTimeout(toastTimer);
+  if (toastFadeTimer != null) window.clearTimeout(toastFadeTimer);
   const hold = level === "warn" ? 2600 : level === "emit" ? 3600 : 3000;
   toastTimer = window.setTimeout(() => {
     el.classList.remove("toast-show");
     el.classList.add("toast-fade");
+    // Drop text after fade so detached nodes / long strings don't linger for GC
+    toastFadeTimer = window.setTimeout(() => {
+      if (!el.classList.contains("toast-show")) el.textContent = "";
+      toastFadeTimer = null;
+    }, 420);
   }, hold);
 }
 
