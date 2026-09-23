@@ -328,6 +328,19 @@ class CantoRoom {
     this.send(ws, { type: "toast", level, text });
   }
 
+  /** Canto-flavored death wake line (Avarice uses misura copy; no Lust/Glut regression). */
+  deathWakeToast(ws) {
+    const line =
+      this.cantoId === "inferno_07"
+        ? "misura spezzata — you fall under the weight… and wake at the ledger gate."
+        : this.cantoId === "inferno_06"
+          ? "You are slain… and wake at the canto entrance."
+          : this.cantoId === "inferno_05"
+            ? "You are slain… and wake at the canto entrance."
+            : "You are slain… and wake at the canto entrance.";
+    this.toast(ws, "warn", line);
+  }
+
   buildSnapshot(forPlayerId) {
     const youSess = this.sessions.get(forPlayerId);
     const ledger = players.get(forPlayerId);
@@ -1373,8 +1386,9 @@ class CantoRoom {
                 target.x = sp.x;
                 target.y = sp.y;
                 target.hp = target.maxHp;
-                target.iframes = RESPAWN_IFRAMES;
-                this.toast(target.ws, "warn", "You are slain… and wake at the canto entrance.");
+                target.iframes =
+                  this.cantoId === "inferno_07" ? RESPAWN_IFRAMES + 0.6 : RESPAWN_IFRAMES;
+                this.deathWakeToast(target.ws);
               }
             }
           }
@@ -1443,8 +1457,9 @@ class CantoRoom {
           nearest.x = sp.x;
           nearest.y = sp.y;
           nearest.hp = nearest.maxHp;
-          nearest.iframes = RESPAWN_IFRAMES;
-          this.toast(nearest.ws, "warn", "You are slain… and wake at the canto entrance.");
+          nearest.iframes =
+            this.cantoId === "inferno_07" ? RESPAWN_IFRAMES + 0.6 : RESPAWN_IFRAMES;
+          this.deathWakeToast(nearest.ws);
         }
       }
     }

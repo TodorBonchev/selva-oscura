@@ -2206,6 +2206,19 @@ body.respawn-fade #death-flash {
   100% { opacity: 0; }
 }
 
+/* Avarice death/respawn — bone-gold ledger veil (no neon) */
+body.in-avarice.death-flash #death-flash {
+  background:
+    repeating-linear-gradient(-32deg, transparent 0 7px, #c9a22722 7px 8px),
+    repeating-linear-gradient(32deg, transparent 0 9px, #3a2a1022 9px 10px),
+    radial-gradient(ellipse 68% 58% at 50% 44%, #6a4a1888 0%, #1a1208cc 58%, #080604f0 100%);
+}
+body.in-avarice.respawn-fade #death-flash {
+  background:
+    radial-gradient(ellipse 78% 70% at 50% 46%, #2a2210aa 0%, #12100add 62%, #080604f2 100%);
+}
+
+
 /* Edge arrows toward Lust / Dark Wood when far from those portals */
 #canto-compass {
   position: fixed;

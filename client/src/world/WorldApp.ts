@@ -2300,7 +2300,7 @@ export class WorldApp {
         const text = String(msg.text || "");
         showToast(text, msg.level);
         if (/out of range|nothing to strike|no foe in range|lashes empty air/i.test(text)) resetCombo();
-        if (/slain/i.test(text)) this.triggerDeathRevive();
+        if (/slain|misura spezzata|wake at the ledger gate/i.test(text)) this.triggerDeathRevive();
         if (
           this.room?.cantoId === "inferno_07" &&
           msg.level === "loot" &&
@@ -3899,16 +3899,18 @@ export class WorldApp {
   triggerDeathRevive() {
     const now = Date.now();
     if (now < this.deathFxUntil) return;
-    this.deathFxUntil = now + DEATH_FX_LOCK_MS;
+    const ava = this.room?.cantoId === "inferno_07";
+    this.deathFxUntil = now + (ava ? DEATH_FX_LOCK_MS + 400 : DEATH_FX_LOCK_MS);
     playDeathRevive();
-    this.camShake = 0.6;
+    this.camShake = ava ? 0.72 : 0.6;
+    if (ava) this.camPunch = Math.max(this.camPunch, 0.85);
     window.setTimeout(() => {
       this.renderYou = { x: this.serverYou.x, y: this.serverYou.y };
       this.velX = 0;
       this.velY = 0;
       this.moveTarget = null;
       // Avarice: bone-gold wake pulse at the entrance keep-out
-      if (this.room?.cantoId === "inferno_07") {
+      if (ava) {
         this.spawnAvaEntrancePulse(this.serverYou.x, this.serverYou.y);
       }
     }, 200);
