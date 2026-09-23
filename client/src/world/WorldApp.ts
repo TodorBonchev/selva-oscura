@@ -841,8 +841,22 @@ export class WorldApp {
     if (this.ash) {
       const fight = this.inCombat();
       const ava = this.room.cantoId === "inferno_07";
-      // Avarice: stride harder while fighting (gold ash is denser on retint)
-      const ashStride = ava && fight && isCompactUi() ? 3 : fight || isCompactUi() || ava ? 2 : 1;
+      const idle =
+        ava &&
+        !fight &&
+        Math.hypot(this.velX, this.velY) < 0.28 &&
+        !this.moveTarget;
+      // Idle Avarice: skip more ash motes — gold drift is CSS; keep GPU soft
+      document.body.classList.toggle("ava-idle", idle);
+      const ashStride = idle
+        ? isCompactUi()
+          ? 6
+          : 4
+        : ava && fight && isCompactUi()
+          ? 3
+          : fight || isCompactUi() || ava
+            ? 2
+            : 1;
       this.ash.tick(
         dt,
         this.room.bounds,
@@ -854,7 +868,10 @@ export class WorldApp {
         ashStride,
         this.frameN
       );
+    } else {
+      document.body.classList.remove("ava-idle");
     }
+
     this.idleLookAtFoes(dt);
     if (this.clickMark) {
       this.clickMark.visible = !!this.moveTarget;
@@ -2148,6 +2165,7 @@ export class WorldApp {
     document.body.classList.toggle("in-lust", lust);
     document.body.classList.toggle("in-gluttony", glut);
     document.body.classList.toggle("in-avarice", ava);
+    if (!ava) document.body.classList.remove("ava-idle");
     if (this.ash) {
       if (ava) this.ash.setColor(0xd4a840, isCompactUi() ? 0.32 : 0.4);
       else if (glut) this.ash.setColor(0xb8c070, isCompactUi() ? 0.4 : 0.5);

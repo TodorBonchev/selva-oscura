@@ -2915,6 +2915,19 @@ body.tab-hidden.in-avarice #gold-dust {
   0% { background-position: 0 0, 40px 20px; }
   100% { background-position: 80px -120px, -40px -80px; }
 }
+/* Idle Avarice: freeze gold-dust CSS drift — ash field already stride-culled */
+body.in-avarice.ava-idle #gold-dust {
+  animation-play-state: paused;
+  opacity: 0.1;
+}
+body.in-avarice.ava-idle.hud-compact #gold-dust {
+  opacity: 0.08;
+}
+body.in-avarice.ava-idle #heat-haze {
+  animation-play-state: paused;
+  opacity: 0.1;
+}
+
 #gold-dust {
   position: fixed;
   inset: 0;
