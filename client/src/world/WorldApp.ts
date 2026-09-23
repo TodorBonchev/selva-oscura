@@ -1517,6 +1517,23 @@ export class WorldApp {
           tickLedgerWarden(n.group, this.animT);
         } else {
           tickWhirl(n.group, this.animT, n.kind === "champion");
+          // Attack windup sync — raise weight discs while champ telegraph is live
+          const wLeft = Number(n.group.userData.windupLeft || 0);
+          if (n.kind === "champion") {
+            let discs = n.group.userData.windDiscs as THREE.Object3D[] | undefined;
+            if (!discs) {
+              discs = [];
+              n.group.traverse((o) => {
+                if (o.name === "weightDisc") discs!.push(o);
+              });
+              n.group.userData.windDiscs = discs;
+            }
+            const raise = wLeft > 0.05 ? Math.min(1, wLeft / 0.62) * 0.22 : 0;
+            for (const d of discs) {
+              if (d.userData.baseY == null) d.userData.baseY = d.position.y;
+              d.position.y = Number(d.userData.baseY) + raise;
+            }
+          }
         }
       }
       if (n.kind === "triple_maw" && this.frameN % 2 === 0) {
@@ -1661,6 +1678,9 @@ export class WorldApp {
       if (e.kind === "mob" || e.kind === "boss" || e.kind === "player") {
         const you = this.youPos();
         rec.group.rotation.y = yawFromPlanar(you.x - pos.x, you.y - pos.y);
+      }
+      if (e.kind === "mob" && (e.champion || e.archetype === "weight_champion")) {
+        rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
       }
       if (e.kind === "boss") {
         rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
