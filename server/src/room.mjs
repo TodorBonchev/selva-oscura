@@ -1018,7 +1018,7 @@ class CantoRoom {
             s.ws,
             "info",
             this.cantoId === "inferno_07"
-              ? "misura spesa — the Ledger Cache is empty."
+              ? "misura spesa — the Ledger Cache is empty; return next visit."
               : this.cantoId === "inferno_06"
                 ? "The filth cache is empty."
                 : "The wind cache is empty."
@@ -1047,6 +1047,9 @@ class CantoRoom {
                 ? "Filth Cache"
                 : "Cache";
           this.toast(s.ws, "loot", `${prefix}: ${item.rarity} ${item.name}`);
+          if (this.cantoId === "inferno_07") {
+            this.toast(s.ws, "info", "contrapeso — the cache yields its weight");
+          }
           this.pushSnapshot(playerId);
         });
         return;

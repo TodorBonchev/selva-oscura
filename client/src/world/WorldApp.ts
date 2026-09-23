@@ -1832,6 +1832,26 @@ export class WorldApp {
   }
 
 
+  /** Brief bone-gold claim ring at a POI (shrine/cache) — no audio required. */
+  spawnAvaClaimRing(ent: any, color: number, from: number, to: number, dur: number) {
+    const pos = this.entityRenderPos(ent);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.7, 1.05, isCompactUi() ? 22 : 32),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.78,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.14));
+    this.scene.add(ring);
+    this.impacts.push({ mesh: ring, start: this.animT, dur, from, to });
+  }
+
   portalIsLocked(e: any): boolean {
     const need = e?.requireClear;
     if (!need) return false;
@@ -2262,10 +2282,35 @@ export class WorldApp {
             /^Picked up /i.test(text) ||
             /^(Ledger Cache|misura — Ledger Cache):/i.test(text))
         ) {
-          this.camPunch = Math.max(this.camPunch, /^Picked up /i.test(text) ? 0.32 : 0.18);
-          this.hitFlashAmt = Math.max(this.hitFlashAmt, /^Picked up /i.test(text) ? 0.12 : 0.06);
+          const isCache = /Ledger Cache|misura — Ledger Cache/i.test(text);
+          this.camPunch = Math.max(
+            this.camPunch,
+            isCache ? 0.55 : /^Picked up /i.test(text) ? 0.32 : 0.18
+          );
+          this.hitFlashAmt = Math.max(
+            this.hitFlashAmt,
+            isCache ? 0.2 : /^Picked up /i.test(text) ? 0.12 : 0.06
+          );
           document.body.classList.add("ava-loot-flash");
-          window.setTimeout(() => document.body.classList.remove("ava-loot-flash"), 220);
+          window.setTimeout(() => document.body.classList.remove("ava-loot-flash"), isCache ? 380 : 220);
+          if (isCache) {
+            document.body.classList.add("ava-claim-flash");
+            window.setTimeout(() => document.body.classList.remove("ava-claim-flash"), 420);
+            const cache = this.room.entities.find(
+              (e: any) => e.poiKind === "cache" || e.id === "ledger_cache"
+            );
+            if (cache) this.spawnAvaClaimRing(cache, 0xe8c86a, 1.05, 3.2, 720);
+          }
+        }
+        // Ledger Shrine kneel — bone-gold claim feel (audio-free)
+        if (this.room?.cantoId === "inferno_07" && /rebalance — the Ledger Shrine/i.test(text)) {
+          this.camPunch = Math.max(this.camPunch, 0.42);
+          document.body.classList.add("ava-claim-flash");
+          window.setTimeout(() => document.body.classList.remove("ava-claim-flash"), 480);
+          const shrine = this.room.entities.find(
+            (e: any) => e.poiKind === "shrine" || e.id === "ledger_shrine"
+          );
+          if (shrine) this.spawnAvaClaimRing(shrine, 0xf2dea0, 0.9, 2.8, 820);
         }
         if (/Gluttony gate|gate past the dais opens/i.test(text)) {
           this.camPunch = Math.max(this.camPunch, 1.25);

@@ -4465,3 +4465,23 @@ body.in-avarice.hud-compact .world-label:not(.foe):not(.loot-label):not(.is-near
 body.in-avarice .world-label.is-nearest .wl-name {
   opacity: 1;
 }
+
+/* Shrine/cache claim flash — brief bone-gold wash (no neon) */
+body.in-avarice.ava-claim-flash #toast.toast-emit,
+body.in-avarice.ava-claim-flash #toast.toast-loot {
+  border-left-color: #f2dea0;
+  box-shadow: 0 2px 16px #000c, 0 0 20px #d4a84055;
+}
+body.in-avarice.ava-claim-flash #game-root::after {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  box-shadow: inset 0 0 36px #d4a84028;
+  animation: ava-claim-wash 0.45s ease-out forwards;
+}
+@keyframes ava-claim-wash {
+  0% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
