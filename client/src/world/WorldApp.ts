@@ -123,6 +123,10 @@ type RoomSnap = any;
 
 const INTERACT_RANGE = 5.2;
 const INTERACT_HIGHLIGHT_RANGE = 5.0;
+/** Soft snap: gentle pull / walk-in when just outside interact reach. */
+const SOFT_SNAP_PULL_RANGE = 3.1;
+const SOFT_SNAP_USE_RANGE = 7.4;
+const STICKY_INTERACT_MS = 480;
 const EXIT_HINT_RANGE = 7;
 const EXIT_TRAVEL_RANGE = 6.2;
 const GALE_STICKY_MS = 1600;
@@ -270,6 +274,11 @@ export class WorldApp {
   portalHoldFx: PortalHoldFx | null = null;
   nearestInteract: { id: string; kind: string; label: string } | null = null;
   lastInteractHintId: string | null = null;
+  /** Soft-snap: walk toward interactable then fire once in range. */
+  softSnapTargetId: string | null = null;
+  softSnapUntil = 0;
+  /** Sticky interact prompt: keep last nearest briefly after leaving range. */
+  stickyInteract: { id: string; kind: string; label: string; ent: any; until: number } | null = null;
   cerberoApproachShown = false;
   mireHeartDownToastShown = false;
   mireHeartSeenAlive = false;
@@ -836,6 +845,7 @@ export class WorldApp {
     this.remoteSmooth.tick(targets, dt);
 
     this.autoPickupScan();
+    this.tickSoftSnap();
     this.scanNearestInteract();
     this.resolvePendingCast();
     this.tickPortalHold();
@@ -914,6 +924,19 @@ export class WorldApp {
       if (mag > 0.2) {
         this.aimX = nx;
         this.aimY = ny;
+      }
+      // Soft snap pull toward nearby interactables (POI / loot / portal)
+      const snap = this.pickInteractable(SOFT_SNAP_PULL_RANGE);
+      if (snap && snap.d > 0.35) {
+        const px = (snap.pos.x - this.renderYou.x) / snap.d;
+        const py = (snap.pos.y - this.renderYou.y) / snap.d;
+        const toward = nx * px + ny * py;
+        if (toward > -0.15) {
+          const t = 1 - snap.d / SOFT_SNAP_PULL_RANGE;
+          const pull = t * t * 5.5;
+          this.velX += px * pull * dtSec;
+          this.velY += py * pull * dtSec;
+        }
       }
       this.moveTarget = null;
     }
@@ -3204,22 +3227,26 @@ export class WorldApp {
     }
   }
 
-  interactNearest() {
-    if (!this.room) return;
+  /** Nearest interactable within `maxRange` (portals preferred inside exit travel). */
+  pickInteractable(maxRange: number): { ent: any; d: number; pos: Vec2 } | null {
+    if (!this.room) return null;
     const you = this.youPos();
     let best: any = null;
-    let bestD = INTERACT_RANGE;
+    let bestD = maxRange;
+    let bestPos: Vec2 = { x: 0, y: 0 };
     for (const e of this.room.entities) {
       if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
-      if (d < EXIT_TRAVEL_RANGE && d < bestD) {
+      const cap = Math.max(maxRange, EXIT_TRAVEL_RANGE);
+      if (d < cap && d < bestD) {
         bestD = d;
         best = e;
+        bestPos = pos;
       }
     }
     if (!best) {
-      bestD = INTERACT_RANGE;
+      bestD = maxRange;
       for (const e of this.room.entities) {
         if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
         const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
@@ -3227,13 +3254,40 @@ export class WorldApp {
         if (d < bestD) {
           bestD = d;
           best = e;
+          bestPos = pos;
         }
       }
     }
-    if (!best) {
-      showToast("Nothing nearby — walk closer to a portal, NPC, or loot", "warn");
+    return best ? { ent: best, d: bestD, pos: bestPos } : null;
+  }
+
+  /** Soft-snap walk-in: arrive then fire the real interact. */
+  tickSoftSnap() {
+    if (!this.softSnapTargetId || !this.room) return;
+    if (this.animT > this.softSnapUntil) {
+      this.softSnapTargetId = null;
       return;
     }
+    const ent = this.room.entities.find((e: any) => String(e.id) === this.softSnapTargetId);
+    if (!ent) {
+      this.softSnapTargetId = null;
+      return;
+    }
+    const you = this.youPos();
+    const pos = ent.kind === "loot" ? this.lootRenderPos(ent) : this.entityRenderPos(ent);
+    const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+    const need =
+      ent.kind === "exit" || ent.poiKind === "portal" ? EXIT_TRAVEL_RANGE * 0.92 : INTERACT_RANGE * 0.92;
+    if (d <= need) {
+      this.softSnapTargetId = null;
+      this.moveTarget = null;
+      this.fireInteract(ent);
+      return;
+    }
+    this.moveTarget = { x: pos.x, y: pos.y };
+  }
+
+  fireInteract(best: any) {
     if (best.kind === "loot") {
       showToast(`Picking up ${best.item?.name || "loot"}`, "loot");
       this.socket.pickup(best.id);
@@ -3261,6 +3315,27 @@ export class WorldApp {
       showToast(`Interact: ${best.label || best.name || "object"}`, "info");
       this.doInteract(best);
     }
+  }
+
+  interactNearest() {
+    if (!this.room) return;
+    const hit = this.pickInteractable(INTERACT_RANGE);
+    if (hit) {
+      this.softSnapTargetId = null;
+      this.fireInteract(hit.ent);
+      return;
+    }
+    // Soft snap: just out of reach — glide in, then interact
+    const soft = this.pickInteractable(SOFT_SNAP_USE_RANGE);
+    if (soft) {
+      this.softSnapTargetId = String(soft.ent.id);
+      this.softSnapUntil = this.animT + 1600;
+      this.moveTarget = { x: soft.pos.x, y: soft.pos.y };
+      const label = soft.ent.label || soft.ent.name || soft.ent.item?.name || "target";
+      showToast(`Approaching ${label}…`, "info");
+      return;
+    }
+    showToast("Nothing nearby — walk closer to a portal, NPC, or loot", "warn");
   }
 
   paintChrome() {
@@ -3887,6 +3962,22 @@ export class WorldApp {
         bestD = d;
         best = e;
       }
+    }
+    // Sticky prompt: keep last interactable briefly so circling doesn't flicker the plate
+    if (best) {
+      this.stickyInteract = {
+        id: String(best.id),
+        kind: best.kind,
+        label: best.label || best.name,
+        ent: best,
+        until: this.animT + STICKY_INTERACT_MS,
+      };
+    } else if (this.stickyInteract && this.animT <= this.stickyInteract.until) {
+      const still = this.room.entities.find((e: any) => String(e.id) === this.stickyInteract!.id);
+      if (still) best = still;
+      else this.stickyInteract = null;
+    } else {
+      this.stickyInteract = null;
     }
     const interactBtn = document.getElementById("btn-interact");
     const labelEl = interactBtn?.querySelector<HTMLElement>(".action-label");
