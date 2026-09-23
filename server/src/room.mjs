@@ -1309,13 +1309,27 @@ class CantoRoom {
         e.homeY = e.y;
       }
       const homeD = Math.hypot(e.x - e.homeX, e.y - e.homeY);
-      const leash = e.kind === "boss" ? 16 : 11;
+      // Avarice fairness: Counterweight (mid-boss) + champions get longer leash so kiting
+      // does not snap-home mid-measure; Crush Approach stays tight so it cannot steal the dais.
+      let leash = e.kind === "boss" ? 16 : 11;
+      if (this.cantoId === "inferno_07" && e.kind === "mob") {
+        if (e.packId === "ava_counterweight") leash = 15.5;
+        else if (e.archetype === "weight_champion" || e.champion) leash = 13.5;
+        else if (e.packId === "ava_approach_flank") leash = 9.5;
+      }
       if (e.kind !== "boss" && homeD > leash) {
         const hx = e.homeX - e.x;
         const hy = e.homeY - e.y;
         const hl = Math.hypot(hx, hy) || 1;
-        e.x += (hx / hl) * 4.2 * dt;
-        e.y += (hy / hl) * 4.2 * dt;
+        // Slightly snappier return for approach packs; gentler for Counterweight
+        const homeSpeed =
+          this.cantoId === "inferno_07" && e.packId === "ava_counterweight"
+            ? 3.4
+            : this.cantoId === "inferno_07" && e.packId === "ava_approach_flank"
+              ? 5.0
+              : 4.2;
+        e.x += (hx / hl) * homeSpeed * dt;
+        e.y += (hy / hl) * homeSpeed * dt;
         moved = true;
         continue;
       }
@@ -1334,11 +1348,18 @@ class CantoRoom {
       const aggro =
         e.kind === "boss"
           ? 14
-          : this.cantoId === "inferno_07" && e.archetype === "ledger_warden"
-            ? 9.5
-            : this.cantoId === "inferno_07" && e.archetype === "coin_wisp"
-              ? 9
-              : 8;
+          : this.cantoId === "inferno_07" && e.packId === "ava_counterweight"
+            ? 10.5
+            : this.cantoId === "inferno_07" && e.packId === "ava_approach_flank"
+              ? 6.8
+              : this.cantoId === "inferno_07" && e.archetype === "ledger_warden"
+                ? 9.5
+                : this.cantoId === "inferno_07" && e.archetype === "coin_wisp"
+                  ? 9
+                  : this.cantoId === "inferno_07" &&
+                      (e.archetype === "weight_champion" || e.champion)
+                    ? 9.5
+                    : 8;
       const winding = e.kind === "boss" && e.windupLeft > 0;
       // Hold still during slam windup so the ground ring matches the hit.
       if (!winding && nearestD < aggro && nearestD > 1.2) {
