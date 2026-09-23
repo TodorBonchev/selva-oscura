@@ -227,8 +227,9 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     vertexColors: true,
   });
   // Same lust_ground albedo, retinted olive-mud for Gluttony (no new texture file).
+  // Share lustMap — color/roughness differ; no need to clone the texture.
   const groundGlut = new THREE.MeshStandardMaterial({
-    map: lustMap.clone(),
+    map: lustMap,
     color: 0x9a8860,
     // Wet mud: lower roughness + a touch of metalness for cheap specular (no new maps).
     roughness: 0.72,
@@ -239,7 +240,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   });
   // Gold map albedo, dark-metal tint — scorched coin ground (distinct from olive glut).
   const groundAvarice = new THREE.MeshStandardMaterial({
-    map: goldMap.clone(),
+    map: goldMap,
     // Stronger scorched-coin read; vertex colors push gold road vs pitch off-path
     color: 0x8a7040,
     roughness: 0.55,
