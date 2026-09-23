@@ -94,7 +94,7 @@ function send(ws, msg) {
 
 wss.on("connection", (ws) => {
   const playerId = crypto.randomUUID();
-  sockets.set(ws, { playerId, name: null });
+  sockets.set(ws, { playerId, name: null, chain: Promise.resolve() });
 
   send(ws, {
     type: "welcome",
@@ -112,10 +112,14 @@ wss.on("connection", (ws) => {
       return;
     }
     const meta = sockets.get(ws);
-    void handleMessage(ws, meta, msg).catch((err) => {
-      console.error("[ws] handler error", err.message);
-      send(ws, { type: "error", code: "internal", message: "Server error" });
-    });
+    // Serialize per-socket handlers so async hello cannot race travel/move
+    // (otherwise DEV __selvaTravel mid-boot can leave HUD on one canto and meshes on hub).
+    meta.chain = meta.chain
+      .then(() => handleMessage(ws, meta, msg))
+      .catch((err) => {
+        console.error("[ws] handler error", err.message);
+        send(ws, { type: "error", code: "internal", message: "Server error" });
+      });
   });
 
   ws.on("close", () => {
@@ -193,7 +197,11 @@ async function handleMessage(ws, meta, msg) {
       break;
     }
     case "travel": {
-      world.travel(playerId, String(msg.toCanto), ws, meta.name);
+      // DEV client may set bypassGates for __selvaTravel playtest jumps.
+      // Real portal interact path never sets it — require_clear stays enforced.
+      const bypassGates =
+        Boolean(msg.bypassGates) && process.env.NODE_ENV !== "production";
+      world.travel(playerId, String(msg.toCanto), ws, meta.name, { bypassGates });
       break;
     }
     case "pickup": {

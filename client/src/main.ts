@@ -90,11 +90,21 @@ async function boot() {
     if (msg.type === "welcome") {
       showToast(`Connected as ${name}`, "info");
       // Vite DEV only — browser console jump: __selvaTravel("inferno_07")
+      // bypassGates: playtest may skip Lust→Glut / Glut→Ava require_clear.
+      // Defer until a snapshot has landed so WorldApp can apply the canto rebuild
+      // (early travel during async hello raced hub geometry vs HUD title).
       if (import.meta.env.DEV) {
         (window as unknown as { __selvaTravel?: (canto: string) => void }).__selvaTravel = (
           canto: string
         ) => {
-          socket.travel(canto);
+          const go = () => socket.travel(canto, { bypassGates: true });
+          // Wait until WorldApp has applied ≥1 snapshot so canto rebuild path runs
+          // (travel during mat-load left HUD updated from lastSnapshot replay race).
+          const tryGo = () => {
+            if ((window as unknown as { __selvaWorldReady?: boolean }).__selvaWorldReady) go();
+            else window.setTimeout(tryGo, 50);
+          };
+          tryGo();
         };
       }
     }

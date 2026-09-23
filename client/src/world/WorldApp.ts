@@ -1676,6 +1676,7 @@ export class WorldApp {
   syncEntities() {
     if (!this.room || !this.mats) return;
     const seen = new Set<string>();
+    try {
     for (const e of this.room.entities) {
       const id = String(e.id);
       seen.add(id);
@@ -1838,10 +1839,12 @@ export class WorldApp {
       }
       this.updateLabel(rec, { name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp }, pos);
     }
-    for (const [id, rec] of this.nodes) {
-      if (!seen.has(id)) {
-        this.disposeNode(rec);
-        this.nodes.delete(id);
+    } finally {
+      for (const [id, rec] of this.nodes) {
+        if (!seen.has(id)) {
+          this.disposeNode(rec);
+          this.nodes.delete(id);
+        }
       }
     }
   }
@@ -2042,6 +2045,13 @@ export class WorldApp {
     this.nodes.set(id, rec);
     return rec;
   }
+
+  /** Immediate wipe of entity meshes/labels (canto travel). */
+  disposeAllNodes() {
+    for (const rec of this.nodes.values()) this.disposeNode(rec);
+    this.nodes.clear();
+  }
+
 
   disposeNode(rec: NodeRec) {
     // Avarice pack death: brief coin burst, hard-capped so dense packs don't spam lights
@@ -2618,6 +2628,9 @@ export class WorldApp {
         const first = this.lastCantoId == null;
         this.lastCantoId = msg.room.cantoId;
         this.serverYou = { x: sx, y: sy };
+        if (import.meta.env.DEV) {
+          (window as unknown as { __selvaWorldReady?: boolean }).__selvaWorldReady = true;
+        }
         if (first || cantoChanged) {
           // Memory: flush combat ephemerals on canto leave (Lust/Glut/Ava)
           if (cantoChanged && prevCanto && prevCanto !== msg.room.cantoId) {
@@ -2633,10 +2646,18 @@ export class WorldApp {
           this.lastHitFoe = null;
           this.seenInvItemIds.clear();
           resetCombo();
+          // Drop prior canto meshes immediately — syncEntities prune alone can miss a frame
+          // if spawn throws mid-loop (HUD/title already updated from this snapshot).
+          this.disposeAllNodes();
           this.rebuildGround();
           this.camFollow.set(sx, this.standY(sx, sy), sy);
           this.cancelPortalHold();
           if (cantoChanged) this.camPunch = 1.2;
+        } else if (this.ground && this.ground.cantoId !== msg.room.cantoId) {
+          // Recover desync: title/you.cantoId moved but ground rebuild was skipped/raced.
+          this.disposeAllNodes();
+          this.rebuildGround();
+          this.camFollow.set(sx, this.standY(sx, sy), sy);
         }
         const targets = new Map<string, Vec2>();
         for (const e of msg.room.entities) targets.set(e.id, { x: e.x, y: e.y });

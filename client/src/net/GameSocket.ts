@@ -98,8 +98,12 @@ export class GameSocket {
   interact(targetId: string) {
     this.send({ type: "interact", targetId });
   }
-  travel(toCanto: string) {
-    this.send({ type: "travel", toCanto });
+  travel(toCanto: string, opts?: { bypassGates?: boolean }) {
+    this.send({
+      type: "travel",
+      toCanto,
+      ...(opts?.bypassGates ? { bypassGates: true } : {}),
+    });
   }
   pickup(lootId: string) {
     this.send({ type: "pickup", lootId });

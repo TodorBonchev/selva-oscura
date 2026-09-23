@@ -1846,12 +1846,13 @@ export class World {
     return cid ? this.rooms.get(cid) : null;
   }
 
-  travel(playerId, toCanto, ws, name) {
+  travel(playerId, toCanto, ws, name, opts = {}) {
     if (!this.rooms.has(toCanto)) return { ok: false, reason: "unknown_canto" };
     const from = this.getRoom(playerId);
     const sess = from?.sessions.get(playerId);
-    // Enforce require_clear on exits/portals defined in the current canto toward toCanto
-    if (from) {
+    // Enforce require_clear on exits/portals defined in the current canto toward toCanto.
+    // DEV __selvaTravel may pass bypassGates to skip for playtest (portal path never does).
+    if (from && !opts.bypassGates) {
       const gated = [];
       for (const ex of from.canto.geo.exits || []) {
         if (ex.to_canto === toCanto && ex.require_clear) gated.push(ex.require_clear);
