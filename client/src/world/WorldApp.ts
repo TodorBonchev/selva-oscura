@@ -2107,8 +2107,12 @@ export class WorldApp {
       rec.kind === "triple_maw" ||
       rec.kind === "hoard_crush";
     const boss = rec.kind === "judge" || rec.kind === "triple_maw" || rec.kind === "hoard_crush";
-    const glutCompact =
-      (this.room?.cantoId === "inferno_06" || this.room?.cantoId === "inferno_07") && isCompactUi();
+    // Compact far-cull shared across Lust/Glut/Ava (mobile label spam)
+    const combatCompact =
+      (this.room?.cantoId === "inferno_05" ||
+        this.room?.cantoId === "inferno_06" ||
+        this.room?.cantoId === "inferno_07") &&
+      isCompactUi();
     const midboss = rec.hpEl.classList.contains("midboss");
     const inAva = this.room?.cantoId === "inferno_07";
     const poiish =
@@ -2120,7 +2124,7 @@ export class WorldApp {
     let far = rec.kind === "loot" ? 22 : boss ? 30 : midboss ? 28 : foe ? 26 : 16;
     if (rec.kind === "player") far = inAva ? 34 : 22;
     if (inAva && poiish) far = Math.min(far, 11);
-    if (glutCompact) {
+    if (combatCompact) {
       far = rec.kind === "loot" ? 14 : boss ? 20 : midboss ? 18 : foe ? 13 : poiish ? 8 : 10;
       if (inAva && foe && !boss && !midboss) far = 11;
     }
