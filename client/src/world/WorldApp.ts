@@ -82,7 +82,7 @@ import {
   type KindKey,
 } from "./meshes";
 import { applyEquippedLook, equipLookKey } from "./gearLook";
-import { buildGround, type GroundRig } from "./ground";
+import { buildGround, type GroundRig, isAvaScorchFlat } from "./ground";
 import {
   AshField,
   makeBolt,
@@ -310,6 +310,14 @@ export class WorldApp {
   poiHintsShown = new Set<string>();
   mawPressureOn = false;
   crushPressureOn = false;
+  crushEnrageShown = false;
+  firstDeathTipShown = false;
+  /** Faint ledger cells where Ava packs cleared (until refill). */
+  emptyPackCells = new Map<string, { mesh: THREE.Mesh; x: number; z: number }>();
+  lastPackAlive = new Map<string, number>();
+  lastPackPos = new Map<string, { x: number; z: number }>();
+  /** Shared coin-disc geometry for Ava pack-death bursts. */
+  sharedCoinDiscGeo: THREE.CylinderGeometry | null = null;
   glutFogBase = 0.022;
   avaFogBase = 0.016;
   fogTargetDensity = 0.013;
@@ -846,6 +854,7 @@ export class WorldApp {
 
     this.autoPickupScan();
     this.tickSoftSnap();
+    this.updateEmptyPackCells();
     this.scanNearestInteract();
     this.resolvePendingCast();
     this.tickPortalHold();
@@ -984,7 +993,12 @@ export class WorldApp {
         this.velX = 0;
         this.velY = 0;
       } else {
-        const cut = Math.max(0, sp - MOVE_FRICTION * dtSec);
+        // Avarice scorched flats: longer slide (greed slips off the measure)
+        let friction = MOVE_FRICTION;
+        if (this.room?.cantoId === "inferno_07" && isAvaScorchFlat(this.renderYou.x, this.renderYou.y)) {
+          friction = MOVE_FRICTION * 0.42;
+        }
+        const cut = Math.max(0, sp - friction * dtSec);
         this.velX = (this.velX / sp) * cut;
         this.velY = (this.velY / sp) * cut;
       }
@@ -1653,6 +1667,14 @@ export class WorldApp {
         const ph = Number(e.phase) || 1;
         rec.group.userData.bossPhase = ph;
         if (this.room?.cantoId === "inferno_07" && e.id === "hoard_crush") {
+          if (ph >= 2 && !this.crushEnrageShown) {
+            this.crushEnrageShown = true;
+            document.body.classList.add("crush-enrage");
+            window.setTimeout(() => document.body.classList.remove("crush-enrage"), 1400);
+            this.camPunch = Math.max(this.camPunch, 0.95);
+            this.camShake = Math.max(this.camShake, 0.55);
+            showToast("il peso cresce — Crush enrages (no sound — watch the fringe)", "warn");
+          }
           document.body.classList.toggle("crush-phase2", ph >= 2);
         }
       }
@@ -1992,7 +2014,7 @@ export class WorldApp {
     const n = isCompactUi() ? 3 : 5;
     for (let i = 0; i < n; i++) {
       const mote = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8),
+        (this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8))),
         new THREE.MeshBasicMaterial({
           color: i % 2 ? 0xf2dea0 : 0xd4a840,
           transparent: true,
@@ -2313,7 +2335,8 @@ export class WorldApp {
     if (!this.room || this.room.cantoId !== "inferno_07") {
       if (this.crushPressureOn) {
         this.crushPressureOn = false;
-        document.body.classList.remove("crush-pressure", "crush-phase2");
+        document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
+        this.crushEnrageShown = false;
       }
       return;
     }
@@ -2411,7 +2434,8 @@ export class WorldApp {
       this.mawPressureOn = false;
       this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
-      document.body.classList.remove("crush-pressure", "crush-phase2");
+      document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
+        this.crushEnrageShown = false;
       this.fogTargetColor.setHex(0x1e1c10);
       this.fogTargetDensity = this.glutFogBase;
       this.clearTargetColor.setHex(0x100e08);
@@ -2431,7 +2455,8 @@ export class WorldApp {
       this.mawPressureOn = false;
       this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
-      document.body.classList.remove("crush-pressure", "crush-phase2");
+      document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
+        this.crushEnrageShown = false;
       this.fogTargetColor.setHex(0x16120a);
       this.fogTargetDensity = this.avaFogBase;
       this.clearTargetColor.setHex(0x0e0c06);
@@ -2583,7 +2608,8 @@ export class WorldApp {
               }
               if (c === "inferno_07") {
                 document.body.classList.add("ava-first-clear");
-                document.body.classList.remove("crush-pressure", "crush-phase2");
+                document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
+        this.crushEnrageShown = false;
                 window.setTimeout(() => document.body.classList.remove("ava-first-clear"), 1200);
                 showToast("misura spezzata — Hoard Crush yields; peso e contrapeso is paid", "emit");
                 const bossEnt = this.room?.entities?.find(
@@ -3106,6 +3132,10 @@ export class WorldApp {
       };
       this.scene.add(bolt.mesh);
       this.bolts.push(bolt);
+      if (this.room?.cantoId === "inferno_07") {
+        const mat = bolt.mesh.material as THREE.MeshBasicMaterial;
+        if (mat && mat.color) mat.color.setHex(0xd4a840);
+      }
     } else if (id === "whirl_ward") {
       if (!this.wardMesh && this.mats) {
         this.wardMesh = makeWardRing(this.mats);
@@ -3119,6 +3149,12 @@ export class WorldApp {
       const by = Number(msg.y) || this.renderYou.y;
       setPlanar(mesh.position, bx, by, this.standY(bx, by, 0.4));
       this.scene.add(mesh);
+      if (this.room?.cantoId === "inferno_07") {
+        const mat = mesh.material as THREE.MeshBasicMaterial;
+        if (mat?.color) mat.color.setHex(0xc9a227);
+        // bone-gold measure burst (storm/mire blues washed out)
+        mat.opacity = Math.min(0.55, (mat.opacity || 0.35) + 0.08);
+      }
       this.bursts.push({
         mesh,
         start: this.animT,
@@ -3946,6 +3982,71 @@ export class WorldApp {
     this.doInteract(target);
   }
 
+  /** Avarice: faint empty ledger cell after a fodder pack is wiped, until they refill. */
+  updateEmptyPackCells() {
+    if (!this.room || this.room.cantoId !== "inferno_07") {
+      for (const cell of this.emptyPackCells.values()) {
+        this.scene.remove(cell.mesh);
+        (cell.mesh.material as THREE.Material).dispose();
+      }
+      this.emptyPackCells.clear();
+      this.lastPackAlive.clear();
+      return;
+    }
+    const lastPackPos = this.lastPackPos;
+    const counts = new Map<string, number>();
+    for (const e of this.room.entities) {
+      if (e.kind !== "mob" || !e.packId) continue;
+      if (e.hp != null && e.hp <= 0) continue;
+      const arch = String(e.archetype || "");
+      if (arch.includes("heart") || /counterweight/i.test(String(e.name || "")) || arch.includes("warden")) continue;
+      counts.set(e.packId, (counts.get(e.packId) || 0) + 1);
+      const prev = lastPackPos.get(e.packId) || { x: 0, z: 0 };
+      const n = counts.get(e.packId)!;
+      lastPackPos.set(e.packId, {
+        x: prev.x + (e.x - prev.x) / n,
+        z: prev.z + (e.y - prev.z) / n,
+      });
+    }
+    for (const [packId, n] of counts) {
+      this.lastPackAlive.set(packId, n);
+      const cell = this.emptyPackCells.get(packId);
+      if (cell) {
+        this.scene.remove(cell.mesh);
+        (cell.mesh.material as THREE.Material).dispose();
+        this.emptyPackCells.delete(packId);
+      }
+    }
+    for (const [packId, prev] of [...this.lastPackAlive.entries()]) {
+      if (counts.has(packId) || prev <= 0) continue;
+      this.lastPackAlive.set(packId, 0);
+      if (this.emptyPackCells.has(packId)) continue;
+      const pos = lastPackPos.get(packId);
+      if (!pos) continue;
+      const geo = this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8));
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(0.55, 1.15, 24),
+        new THREE.MeshBasicMaterial({
+          color: 0xa89050,
+          transparent: true,
+          opacity: 0.28,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        })
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      setPlanar(mesh.position, pos.x, pos.z, this.standY(pos.x, pos.z, 0.04));
+      this.scene.add(mesh);
+      this.emptyPackCells.set(packId, { mesh, x: pos.x, z: pos.z });
+      void geo;
+    }
+    // pulse empty cells
+    for (const cell of this.emptyPackCells.values()) {
+      const mat = cell.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.18 + Math.sin(this.animT * 0.003) * 0.08;
+    }
+  }
+
   scanNearestInteract() {
     if (!this.room) {
       this.nearestInteract = null;
@@ -3988,6 +4089,12 @@ export class WorldApp {
       if (!prompt) continue;
       const on = rec.id === bestId;
       prompt.hidden = !on;
+      const stickyOn =
+        on &&
+        this.stickyInteract &&
+        this.stickyInteract.id === bestId &&
+        bestD > INTERACT_HIGHLIGHT_RANGE * 0.92;
+      prompt.classList.toggle("is-sticky", Boolean(stickyOn));
       if (on) {
         const isPortal = best.kind === "exit" || best.poiKind === "portal";
         if (isPortal && this.portalIsLocked(best)) {
@@ -4454,6 +4561,24 @@ export class WorldApp {
     const ava = this.room?.cantoId === "inferno_07";
     this.deathFxUntil = now + (ava ? DEATH_FX_LOCK_MS + 400 : DEATH_FX_LOCK_MS);
     playDeathRevive();
+    if (!this.firstDeathTipShown) {
+      this.firstDeathTipShown = true;
+      try {
+        if (localStorage.getItem("selva_first_death_tip") !== "1") {
+          localStorage.setItem("selva_first_death_tip", "1");
+          window.setTimeout(() => {
+            showToast(
+              this.room?.cantoId === "inferno_07"
+                ? "Tip: you wake at the ledger gate — use the Shrine before pressing the Crush"
+                : "Tip: death returns you to the canto entrance with brief invulnerability",
+              "info"
+            );
+          }, 700);
+        }
+      } catch {
+        /* ignore storage */
+      }
+    }
     this.camShake = ava ? 0.72 : 0.6;
     if (ava) this.camPunch = Math.max(this.camPunch, 0.85);
     window.setTimeout(() => {
