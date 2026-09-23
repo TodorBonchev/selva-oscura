@@ -696,7 +696,7 @@ class CantoRoom {
         killer.ws,
         "emit",
         entity.archetype === "hoard_heart"
-          ? "The Hoard Heart bursts — Counterweight stirs."
+          ? "Hoard Heart bursts — the measure tips; Counterweight stirs."
           : entity.archetype === "mire_heart"
             ? "The Mire Heart bursts — Cerbero stirs."
             : "The Storm Heart shatters."
@@ -713,7 +713,7 @@ class CantoRoom {
       if (left === 0) {
         const line =
           this.cantoId === "inferno_07"
-            ? "The weights settle. Press on."
+            ? "The weights settle. Rebalance and press on."
             : this.cantoId === "inferno_06"
               ? "The sludge settles. Press on."
               : "The gust breaks. Press on.";
@@ -774,7 +774,7 @@ class CantoRoom {
             this.toast(
               killer.ws,
               "emit",
-              "Hoard Crush broken — return to Gluttony or the Dark Wood; bank loot at the stash."
+              "Hoard Crush broken — Avarice yields; return to Gluttony or bank loot at the stash."
             );
           }
         } else if (killer && r2.reason === "already_cleared") {
@@ -936,7 +936,7 @@ class CantoRoom {
         this.toast(
           s.ws,
           "info",
-          "Guide: Follow the gold arrow into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso). Return for the writ, stash, and Auction House."
+          "Guide: Follow the gold arrow into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso — weight and counterweight). Return for the writ, stash, and Auction House."
         );
       } else if (e.poiKind === "stash") {
         this.toast(
@@ -970,7 +970,7 @@ class CantoRoom {
             s.ws,
             "info",
             this.cantoId === "inferno_07"
-              ? "The ledger cache is empty."
+              ? "The Ledger Cache is empty — its measure spent."
               : this.cantoId === "inferno_06"
                 ? "The filth cache is empty."
                 : "The wind cache is empty."
@@ -1020,7 +1020,7 @@ class CantoRoom {
               ? `Mire Bell stills ${stilled}`
               : `The bell stills ${stilled}`
           : this.cantoId === "inferno_07"
-            ? "The Ledger Bell tolls — nothing answers."
+            ? "The Ledger Bell tolls — no weight answers."
             : this.cantoId === "inferno_06"
               ? "The Mire Bell tolls — nothing answers."
               : "The bell rings, and nothing answers.";
@@ -1039,7 +1039,7 @@ class CantoRoom {
           e.poiKind === "pyre"
             ? "The camp pyre warms you. Life and breath restored."
             : this.cantoId === "inferno_07"
-              ? "The Ledger Shrine knits your wounds and fills your breath."
+              ? "The Ledger Shrine rebalances you — life and breath restored."
               : this.cantoId === "inferno_06"
                 ? "The Mire Shrine knits your wounds and fills your breath."
                 : "The Wind Shrine knits your wounds and fills your breath.";
@@ -1378,7 +1378,7 @@ export class World {
         "No foes in the Dark Wood — take the eastern portal Toward Lust."
       );
     } else if (room.cantoId === "inferno_07") {
-      room.toast(ws, "info", "The weights roll. Clear the ledger, then Hoard Crush.");
+      room.toast(ws, "info", "The weights roll. Measure the road, then break Hoard Crush.");
     } else if (room.cantoId === "inferno_06") {
       room.toast(ws, "info", "The eternal rain falls. Clear the mire, then the Triple Maw.");
       if (hasCleared(playerId, "inferno_06")) {

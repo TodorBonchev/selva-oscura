@@ -240,11 +240,12 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   // Gold map albedo, dark-metal tint — scorched coin ground (distinct from olive glut).
   const groundAvarice = new THREE.MeshStandardMaterial({
     map: goldMap.clone(),
-    color: 0x6a5a38,
-    roughness: 0.62,
-    metalness: 0.38,
+    // Stronger scorched-coin read; vertex colors push gold road vs pitch off-path
+    color: 0x7a6438,
+    roughness: 0.58,
+    metalness: 0.42,
     emissive: 0x2a1c08,
-    emissiveIntensity: 0.2,
+    emissiveIntensity: 0.24,
     vertexColors: true,
   });
   const mire = new THREE.MeshBasicMaterial({

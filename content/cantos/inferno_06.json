@@ -74,9 +74,10 @@
         "kind": "portal",
         "x": 148,
         "y": 50,
-        "label": "Avarice portal",
+        "label": "Avarice gate",
         "to_canto": "inferno_07",
-        "require_clear": "inferno_06"
+        "require_clear": "inferno_06",
+        "hint": "peso e contrapeso — clear Triple Maw first"
       }
     ]
   },

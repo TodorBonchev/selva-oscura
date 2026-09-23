@@ -1113,43 +1113,67 @@ function makeWeightShadeBody(mats: MatKit, scale: number, goldTrim: boolean): TH
   const g = new THREE.Group();
   const hide = weightShadeMat(mats, goldTrim);
   const cheap = isCompactUi();
+  // Broader iron-sack silhouette (Doré weight-bearer, gold-on-black)
   const pts = [
     new THREE.Vector2(0.02, 0),
-    new THREE.Vector2(0.22, 0.18),
-    new THREE.Vector2(0.32, 0.55),
-    new THREE.Vector2(0.24, 1.05),
-    new THREE.Vector2(0.12, 1.55),
-    new THREE.Vector2(0.04, 1.85),
+    new THREE.Vector2(0.28, 0.16),
+    new THREE.Vector2(0.38, 0.52),
+    new THREE.Vector2(0.3, 1.0),
+    new THREE.Vector2(0.16, 1.5),
+    new THREE.Vector2(0.05, 1.85),
   ];
   const body = new THREE.Mesh(new THREE.LatheGeometry(pts, cheap ? 10 : 12), hide);
   body.position.y = 0.2;
   const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.26, cheap ? 10 : 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
-    goldTrim ? mats.gold : hide
+    new THREE.SphereGeometry(0.28, cheap ? 10 : 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
+    goldTrim ? mats.gold : mats.bone
   );
   hood.position.set(0, 1.78, 0.04);
   hood.rotation.x = -0.35;
   const voidFace = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), mats.ember);
   voidFace.position.set(0, 1.68, -0.14);
   voidFace.name = "ember";
-  const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.18, 10), mats.gold);
-  weight.position.set(0, 1.05, 0.08);
+  // Chest ledger plate — readable measure motif at distance
+  const plate = new THREE.Mesh(
+    new THREE.BoxGeometry(0.42, 0.32, 0.05),
+    goldTrim ? mats.gold : mats.bronze
+  );
+  plate.position.set(0, 1.15, -0.28);
+  const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.2, 10), mats.gold);
+  weight.position.set(0, 1.02, 0.12);
   weight.rotation.x = Math.PI / 2;
   weight.name = "weightDisc";
-  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.045, 0.85, 6), hide);
-  armL.position.set(-0.38, 1.15, -0.15);
-  armL.rotation.z = 0.55;
-  armL.rotation.x = 0.35;
+  // Hanging counterweight under one arm (contrapasso measure)
+  const hang = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.28, 8), mats.bronze);
+  hang.position.set(0.42, 0.55, -0.05);
+  hang.name = "weightDisc";
+  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.05, 0.9, 6), hide);
+  armL.position.set(-0.42, 1.12, -0.12);
+  armL.rotation.z = 0.62;
+  armL.rotation.x = 0.32;
   const armR = armL.clone();
-  armR.position.x = 0.38;
-  armR.rotation.z = -0.55;
-  const ribbon = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.045, 6, 16), mats.gold);
+  armR.position.x = 0.42;
+  armR.rotation.z = -0.62;
+  const ribbon = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.048, 5, 14), mats.gold);
   ribbon.position.y = 0.95;
   ribbon.name = "ribbon";
-  const ribbon2 = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.032, 5, 14), mats.bronze);
-  ribbon2.position.y = 0.7;
+  const ribbon2 = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.032, 5, 12), mats.bronze);
+  ribbon2.position.y = 0.68;
   ribbon2.name = "ribbon2";
-  g.add(discShadow(mats, 0.55), body, hood, voidFace, weight, armL, armR, ribbon, ribbon2, nose(mats, 1.68, -0.22));
+  g.add(
+    discShadow(mats, 0.55),
+    body,
+    hood,
+    voidFace,
+    plate,
+    weight,
+    hang,
+    armL,
+    armR,
+    ribbon,
+    ribbon2,
+    nose(mats, 1.68, -0.22)
+  );
   g.scale.setScalar(scale);
   shadow(g);
   return g;
@@ -1173,26 +1197,35 @@ export function makeWeightChampion(mats: MatKit): THREE.Group {
   return g;
 }
 
-/** Coin wisp — low gold disc + twin ember eyes. */
+/** Coin wisp — stacked scorched discs + twin ember eyes (≠ weight shade). */
 export function makeCoinWisp(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "whirl";
-  const core = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.34, 0.34, 0.12, 12),
-    std(mats.gold.map, 0xd4a840, { roughness: 0.35, metalness: 0.7, emissive: 0x6a4a10, emissiveIntensity: 0.55 })
-  );
+  g.userData.coinWisp = true;
+  const coinMat = std(mats.gold.map, 0xd4a840, {
+    roughness: 0.38,
+    metalness: 0.68,
+    emissive: 0x5a3a0c,
+    emissiveIntensity: 0.48,
+  });
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.1, 12), coinMat);
   core.position.y = 0.55;
   core.rotation.x = Math.PI / 2;
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.04, 5, 14), mats.bronze);
+  core.name = "weightDisc";
+  const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.08, 10), mats.bronze);
+  stack.position.y = 0.68;
+  stack.rotation.x = Math.PI / 2;
+  stack.name = "weightDisc";
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 5, 12), mats.bronze);
   rim.position.y = 0.55;
   rim.rotation.x = Math.PI / 2;
   rim.name = "ribbon";
   const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), mats.ember);
-  eyeL.position.set(-0.1, 0.62, -0.2);
+  eyeL.position.set(-0.1, 0.62, -0.22);
   eyeL.name = "ember";
   const eyeR = eyeL.clone();
   eyeR.position.x = 0.1;
-  g.add(discShadow(mats, 0.35), core, rim, eyeL, eyeR, nose(mats, 0.62, -0.28));
+  g.add(discShadow(mats, 0.35), core, stack, rim, eyeL, eyeR, nose(mats, 0.62, -0.3));
   g.scale.setScalar(0.95);
   shadow(g);
   g.traverse((o) => {
@@ -1202,24 +1235,36 @@ export function makeCoinWisp(mats: MatKit): THREE.Group {
   return g;
 }
 
-/** Ledger warden — broad tablet shield + gold crest. */
+/** Ledger warden — broad ledger shield + balance crest (measure at distance). */
 export function makeLedgerWarden(mats: MatKit): THREE.Group {
   const g = makeWeightShadeBody(mats, 1.35, true);
   g.name = "champion";
   const tablet = new THREE.Mesh(
-    new THREE.BoxGeometry(0.55, 0.95, 0.08),
-    std(mats.armor.map, 0x6a5a30, { roughness: 0.5, metalness: 0.4, emissive: 0x3a2a10, emissiveIntensity: 0.28 })
+    new THREE.BoxGeometry(0.62, 1.05, 0.09),
+    std(mats.armor.map, 0x5a4a28, { roughness: 0.48, metalness: 0.42, emissive: 0x3a2a10, emissiveIntensity: 0.3 })
   );
-  tablet.position.set(-0.55, 1.15, -0.15);
-  tablet.rotation.y = 0.35;
-  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), mats.gold);
-  boss.position.set(-0.55, 1.15, -0.22);
-  const crest = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.55, 5), mats.gold);
-  crest.position.set(0, 2.2, 0.05);
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.05, 5, 16), mats.gold);
+  tablet.position.set(-0.58, 1.18, -0.18);
+  tablet.rotation.y = 0.38;
+  // Ledger lines (thin bone ridges) for Doré plate read
+  const line = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.03, 0.02), mats.bone);
+  line.position.set(-0.58, 1.35, -0.24);
+  const line2 = line.clone();
+  line2.position.y = 1.18;
+  const line3 = line.clone();
+  line3.position.y = 1.01;
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), mats.gold);
+  boss.position.set(-0.58, 1.18, -0.26);
+  // Balance beam crest
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.06), mats.gold);
+  beam.position.set(0, 2.15, 0.05);
+  const panL = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.04, 8), mats.bronze);
+  panL.position.set(-0.32, 2.0, 0.05);
+  const panR = panL.clone();
+  panR.position.x = 0.32;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.05, 5, 14), mats.gold);
   ring.position.y = 0.95;
   ring.name = "ribbon";
-  g.add(tablet, boss, crest, ring);
+  g.add(tablet, line, line2, line3, boss, beam, panL, panR, ring);
   return g;
 }
 
@@ -1227,78 +1272,110 @@ export function makeLedgerWarden(mats: MatKit): THREE.Group {
 export function makeCounterweight(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "champion";
-  const hide = std(null, 0x3a3428, { roughness: 0.7, metalness: 0.35, emissive: 0x2a1c08, emissiveIntensity: 0.35 });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 1.4, 14), hide);
+  const hide = std(null, 0x3a3428, { roughness: 0.68, metalness: 0.38, emissive: 0x2a1c08, emissiveIntensity: 0.38 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.88, 0.98, 1.45, 12), hide);
   body.position.y = 1.0;
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.1, 6, 18), mats.gold);
+  // Twin roller stubs — silhouette rhyme with Hoard Crush
+  const stubGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.85, 10);
+  const stubL = new THREE.Mesh(stubGeo, mats.bronze);
+  stubL.position.set(-0.95, 1.05, 0.1);
+  stubL.rotation.z = Math.PI / 2;
+  stubL.name = "crushRoller";
+  const stubR = stubL.clone();
+  stubR.position.x = 0.95;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.98, 0.1, 5, 16), mats.gold);
   rim.position.y = 1.0;
   rim.rotation.x = Math.PI / 2;
   rim.name = "weightDisc";
-  const rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.07, 5, 14), mats.bronze);
+  const rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.07, 5, 12), mats.bronze);
   rim2.position.y = 1.55;
   rim2.rotation.x = Math.PI / 2;
   rim2.name = "ribbon";
-  const spike = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.7, 6), mats.gold);
-  spike.position.set(0, 2.05, 0);
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.12, 12), mats.gold);
+  crown.position.set(0, 1.95, 0);
+  crown.rotation.x = Math.PI / 2;
+  crown.name = "weightDisc";
+  const spike = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.55, 6), mats.bone);
+  spike.position.set(0, 2.25, 0);
   const eye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), mats.ember);
-  eye.position.set(0, 1.35, -0.85);
+  eye.position.set(0, 1.35, -0.9);
   eye.name = "ember";
-  g.add(discShadow(mats, 0.95), body, rim, rim2, spike, eye, nose(mats, 1.4, -0.95));
+  g.add(discShadow(mats, 0.95), body, stubL, stubR, rim, rim2, crown, spike, eye, nose(mats, 1.4, -0.98));
   shadow(g);
   return g;
 }
 
-/** Hoard Crush — crushing gold-coin iron Doré mass; rolling weights + readable silhouette. */
+/** Hoard Crush — Doré bone-gold iron mass; rollers, ledger plates, gold-on-black irony. */
 export function makeHoardCrush(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "hoard_crush";
+  const cheap = isCompactUi();
   const iron = new THREE.MeshStandardMaterial({
-    color: 0x3a3428,
-    roughness: 0.55,
-    metalness: 0.48,
+    color: 0x2e281c,
+    roughness: 0.52,
+    metalness: 0.52,
     emissive: 0x2a1c08,
-    emissiveIntensity: 0.35,
+    emissiveIntensity: 0.38,
   });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.55, 2.4, 14), iron);
+  iron.name = "crushIron";
+  const segs = cheap ? 10 : 14;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.62, 2.5, segs), iron);
   body.position.y = 1.55;
-  const shoulder = new THREE.Mesh(new THREE.SphereGeometry(1.05, 12, 10), iron);
-  shoulder.position.set(0, 2.85, 0.05);
-  shoulder.scale.set(1.35, 0.55, 1.05);
-  // Twin crushing weight rollers
-  const rollerGeo = new THREE.CylinderGeometry(0.55, 0.55, 1.8, 12);
+  body.name = "crushBody";
+  const shoulder = new THREE.Mesh(new THREE.SphereGeometry(1.1, cheap ? 10 : 12, 8), iron);
+  shoulder.position.set(0, 2.9, 0.05);
+  shoulder.scale.set(1.4, 0.55, 1.08);
+  // Ledger breastplate — measure / contrapasso at distance
+  const ledger = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.95, 0.12), mats.bone);
+  ledger.position.set(0, 1.85, -0.95);
+  const ledgerTrim = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.08, 0.04), mats.gold);
+  ledgerTrim.position.set(0, 2.28, -1.02);
+  const ledgerTrim2 = ledgerTrim.clone();
+  ledgerTrim2.position.y = 1.42;
+  // Twin crushing weight rollers with disc ends (readable silhouette)
+  const rollerGeo = new THREE.CylinderGeometry(0.58, 0.58, 1.95, cheap ? 10 : 12);
   const rollerL = new THREE.Mesh(rollerGeo, mats.bronze);
-  rollerL.position.set(-1.15, 1.35, 0.15);
+  rollerL.position.set(-1.28, 1.4, 0.2);
   rollerL.rotation.z = Math.PI / 2;
   rollerL.name = "crushRoller";
   const rollerR = rollerL.clone();
-  rollerR.position.x = 1.15;
-  // Coin crowns
-  const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.14, 14), mats.gold);
-  coin.position.set(0, 3.45, 0);
+  rollerR.position.x = 1.28;
+  const discEnd = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.12, 12), mats.gold);
+  discEnd.rotation.z = Math.PI / 2;
+  discEnd.position.set(-2.28, 1.4, 0.2);
+  discEnd.name = "weightDisc";
+  const discEndR = discEnd.clone();
+  discEndR.position.x = 2.28;
+  // Stacked coin crowns
+  const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.58, 0.14, 12), mats.gold);
+  coin.position.set(0, 3.5, 0);
   coin.rotation.x = Math.PI / 2;
   coin.name = "weightDisc";
   const coin2 = coin.clone();
-  coin2.position.y = 3.65;
-  coin2.scale.setScalar(0.82);
-  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), mats.ember);
-  eyeL.position.set(-0.35, 2.95, -0.85);
+  coin2.position.y = 3.68;
+  coin2.scale.setScalar(0.78);
+  const coin3 = coin.clone();
+  coin3.position.y = 3.82;
+  coin3.scale.setScalar(0.58);
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), mats.ember);
+  eyeL.position.set(-0.38, 3.0, -0.95);
   eyeL.name = "ember";
   const eyeR = eyeL.clone();
-  eyeR.position.x = 0.35;
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.1, 6, 18), mats.gold);
-  sash.position.y = 2.15;
+  eyeR.position.x = 0.38;
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.11, 5, cheap ? 14 : 18), mats.gold);
+  sash.position.y = 2.2;
   sash.rotation.x = Math.PI / 2;
   sash.name = "ribbon";
-  const sash2 = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.07, 5, 16), mats.bronze);
-  sash2.position.y = 1.45;
+  const sash2 = new THREE.Mesh(new THREE.TorusGeometry(1.42, 0.07, 5, cheap ? 12 : 16), mats.bronze);
+  sash2.position.y = 1.4;
   sash2.rotation.x = Math.PI / 2;
   sash2.name = "ribbon2";
   const aura = new THREE.Mesh(
-    new THREE.RingGeometry(2.05, 2.65, 20),
+    new THREE.RingGeometry(2.1, 2.7, cheap ? 16 : 20),
     new THREE.MeshBasicMaterial({
       color: 0xd4a840,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.38,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -1308,11 +1385,11 @@ export function makeHoardCrush(mats: MatKit): THREE.Group {
   aura.position.y = 0.1;
   aura.name = "judgeAura";
   const telegraph = new THREE.Mesh(
-    new THREE.RingGeometry(3.1, 3.35, 22),
+    new THREE.RingGeometry(3.15, 3.4, cheap ? 18 : 22),
     new THREE.MeshBasicMaterial({
       color: 0xc8a040,
       transparent: true,
-      opacity: 0.26,
+      opacity: 0.24,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
@@ -1320,16 +1397,22 @@ export function makeHoardCrush(mats: MatKit): THREE.Group {
   telegraph.rotation.x = -Math.PI / 2;
   telegraph.position.y = 0.06;
   telegraph.name = "mawTelegraph";
-  const glow = new THREE.PointLight(0xd4a840, 5.0, 20, 1.5);
+  const glow = new THREE.PointLight(0xd4a840, 4.6, 18, 1.5);
   glow.position.set(0, 3.2, 0.5);
   g.add(
-    discShadow(mats, 1.7),
+    discShadow(mats, 1.75),
     body,
     shoulder,
+    ledger,
+    ledgerTrim,
+    ledgerTrim2,
     rollerL,
     rollerR,
+    discEnd,
+    discEndR,
     coin,
     coin2,
+    coin3,
     eyeL,
     eyeR,
     sash,
@@ -1337,8 +1420,36 @@ export function makeHoardCrush(mats: MatKit): THREE.Group {
     aura,
     telegraph,
     glow,
-    nose(mats, 3.1, -1.0)
+    nose(mats, 3.15, -1.05)
   );
+  shadow(g);
+  return g;
+}
+
+/** Hoard Heart — stacked gold weights on iron shrine (ward focus; ≠ Ledger Shrine). */
+export function makeHoardHeart(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "hoard_heart";
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.42, 1.9, 8), mats.stone);
+  pillar.position.y = 0.95;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.55, 0.1), mats.bone);
+  plate.position.set(0, 1.55, -0.28);
+  const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.55, 10), mats.gold);
+  stack.position.y = 2.15;
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.1, 12), mats.gold);
+  disc.position.y = 2.48;
+  disc.rotation.x = Math.PI / 2;
+  disc.name = "weightDisc";
+  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.16, 7, 7), mats.ember);
+  flame.position.y = 2.72;
+  flame.name = "ember";
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.05, 5, 14), mats.gold);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.08;
+  ring.name = "ribbon";
+  const hang = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.22, 8), mats.bronze);
+  hang.position.set(0.35, 1.7, 0.2);
+  g.add(discShadow(mats, 0.55), pillar, plate, stack, disc, flame, ring, hang, nose(mats, 2.5, -0.35));
   shadow(g);
   return g;
 }
@@ -1902,20 +2013,25 @@ export function makeMireBell(mats: MatKit): THREE.Group {
 }
 
 
-/** Ledger Cache — chest with gold coin band (Avarice-readable vs Filth/Wind). */
+/** Ledger Cache — chest with coin stack + ledger plate (Avarice-readable vs Filth/Wind). */
 export function makeLedgerCache(mats: MatKit): THREE.Group {
   const g = makeChest(mats);
   g.name = "ledger_cache";
   const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.04, 10), mats.gold);
   coin.position.set(0.28, 0.55, 0.22);
   coin.rotation.x = Math.PI / 2;
+  const coin2 = coin.clone();
+  coin2.position.set(0.18, 0.6, 0.24);
+  coin2.scale.setScalar(0.85);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.22, 0.03), mats.bone);
+  plate.position.set(-0.2, 0.55, 0.3);
   const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.1, 0.08), mats.gold);
   band.position.set(0, 0.32, 0.28);
-  g.add(coin, band);
+  g.add(coin, coin2, plate, band);
   return g;
 }
 
-/** Ledger Shrine — gold mend pillar. */
+/** Ledger Shrine — gold mend pillar with balance motif. */
 export function makeLedgerShrine(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "ledger_shrine";
@@ -1926,18 +2042,25 @@ export function makeLedgerShrine(mats: MatKit): THREE.Group {
   const flame = new THREE.Mesh(new THREE.SphereGeometry(0.15, 7, 7), mats.ember);
   flame.position.y = 2.58;
   flame.name = "ember";
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.045, 5, 16), mats.gold);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.045, 5, 14), mats.gold);
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.08;
   const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.12, 8), mats.bronze);
   weight.position.set(0.22, 2.05, 0.18);
   weight.rotation.x = Math.PI / 2;
-  g.add(discShadow(mats, 0.55), pillar, bowl, flame, ring, weight);
+  // Balance beam across bowl
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.05, 0.05), mats.gold);
+  beam.position.set(0, 2.42, 0);
+  const panL = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.03, 8), mats.bronze);
+  panL.position.set(-0.28, 2.32, 0);
+  const panR = panL.clone();
+  panR.position.x = 0.28;
+  g.add(discShadow(mats, 0.55), pillar, bowl, flame, ring, weight, beam, panL, panR);
   shadow(g);
   return g;
 }
 
-/** Ledger Bell — toll post with hanging gold weight-bell. */
+/** Ledger Bell — toll post with hanging gold weight-bell + ledger plate. */
 export function makeLedgerBell(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "ledger_bell";
@@ -1951,10 +2074,12 @@ export function makeLedgerBell(mats: MatKit): THREE.Group {
   const lip = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.035, 5, 12), mats.bronze);
   lip.position.set(0.48, 1.32, 0);
   lip.rotation.x = Math.PI / 2;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.04), mats.bone);
+  plate.position.set(-0.05, 1.15, -0.14);
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 5, 14), mats.gold);
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.06;
-  g.add(discShadow(mats, 0.45), post, arm, bell, lip, ring);
+  g.add(discShadow(mats, 0.45), post, arm, bell, lip, plate, ring);
   shadow(g);
   return g;
 }

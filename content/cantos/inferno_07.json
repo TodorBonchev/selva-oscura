@@ -20,7 +20,7 @@
         "to_canto": "inferno_06",
         "x": 10,
         "y": 52,
-        "label": "Return to Gluttony"
+        "label": "Return to Gluttony ←"
       },
       {
         "to_canto": "inferno_01",
@@ -36,7 +36,7 @@
         "x": 86,
         "y": 58,
         "label": "Ledger Bell",
-        "hint": "Stills nearby weights — then press the Crush"
+        "hint": "Stills nearby weights — measure, then press the Crush"
       },
       {
         "id": "ledger_cache",
@@ -44,7 +44,7 @@
         "x": 54,
         "y": 68,
         "label": "Ledger Cache",
-        "hint": "One champion drop per visit — E to claim"
+        "hint": "One weighed drop per visit — E to claim"
       },
       {
         "id": "ledger_shrine",
@@ -52,14 +52,14 @@
         "x": 28,
         "y": 56,
         "label": "Ledger Shrine",
-        "hint": "Restores life and breath — E to kneel"
+        "hint": "Restores life and breath — kneel to rebalance"
       },
       {
         "id": "avarice_portal_gluttony",
         "kind": "portal",
         "x": 12,
         "y": 50,
-        "label": "Gluttony portal",
+        "label": "Gluttony gate",
         "to_canto": "inferno_06"
       }
     ]
@@ -76,7 +76,8 @@
       "anchor": {
         "x": 74,
         "y": 64
-      }
+      },
+      "notes": "Wards nearby weights until broken — the measure held against you"
     },
     {
       "id": "ava_coin_wisps",
@@ -89,7 +90,8 @@
       "anchor": {
         "x": 38,
         "y": 72
-      }
+      },
+      "notes": "Scattered greed; small, quick, easy to undervalue"
     },
     {
       "id": "ava_road_weights",
@@ -102,11 +104,12 @@
       "anchor": {
         "x": 28,
         "y": 50
-      }
+      },
+      "notes": "First counterweights on the scorched ledger road"
     },
     {
       "id": "ava_ledger_a",
-      "name": "Ledger Ward",
+      "name": "North Ledger",
       "archetype": "weight_shade",
       "count": 3,
       "elite": false,
@@ -115,7 +118,8 @@
       "anchor": {
         "x": 52,
         "y": 36
-      }
+      },
+      "notes": "Tallies unpaid — stills only when the Bell rings"
     },
     {
       "id": "ava_ledger_b",
@@ -128,7 +132,8 @@
       "anchor": {
         "x": 66,
         "y": 80
-      }
+      },
+      "notes": "Scale tipped wrong; push through or pay in blood"
     },
     {
       "id": "ava_champion_pair",
@@ -141,7 +146,8 @@
       "anchor": {
         "x": 96,
         "y": 42
-      }
+      },
+      "notes": "Heavy measures before the mid-lane elite"
     },
     {
       "id": "ava_strays",
@@ -154,7 +160,8 @@
       "anchor": {
         "x": 88,
         "y": 74
-      }
+      },
+      "notes": "Loose change of the damned — do not ignore the stack"
     },
     {
       "id": "ava_chorus",
@@ -167,7 +174,8 @@
       "anchor": {
         "x": 110,
         "y": 68
-      }
+      },
+      "notes": "A choir of weights chanting measure without mercy"
     },
     {
       "id": "ava_approach_flank",
@@ -180,7 +188,8 @@
       "anchor": {
         "x": 122,
         "y": 42
-      }
+      },
+      "notes": "Flank guards before the Crush dais"
     },
     {
       "id": "ava_ledger_warden",
@@ -193,7 +202,8 @@
       "anchor": {
         "x": 126,
         "y": 56
-      }
+      },
+      "notes": "Tablet shield; breaks the ward of the Hoard Heart"
     },
     {
       "id": "ava_counterweight",
@@ -207,7 +217,7 @@
         "x": 130,
         "y": 50
       },
-      "notes": "Mid-lane elite telegraph before Hoard Crush"
+      "notes": "Mid-lane elite telegraph — the measure tips toward Crush"
     }
   ],
   "bosses": [
@@ -219,27 +229,28 @@
         "x": 138,
         "y": 48
       },
-      "first_clear_emit": true
+      "first_clear_emit": true,
+      "notes": "Crushing iron and coin — weight without rest"
     }
   ],
   "first_clear": {
     "enabled": true,
     "event": "FirstClear",
     "requires": "hoard_crush",
-    "notes": "Hoard Crush broken — Avarice yields; bank loot at Dark Wood stash"
+    "notes": "Hoard Crush broken — Avarice yields its measure; bank loot at the Dark Wood stash"
   },
   "daily_quests": [
     {
       "id": "ava_daily_ledger",
       "objective": "Ring the Ledger Bell to still a pack, then break Hoard Crush (or return from Avarice once)",
       "emit_event": "DailyQuest",
-      "notes": "Flavor + alternate claim path via Ledger Bell after Guide; shares UTC daily cap with Dark Wood writ"
+      "notes": "Contrapasso of measure: still the weights, tip the Crush; shares UTC daily cap with Dark Wood writ"
     }
   ],
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_04_avarice",
-    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony; Doré line weight"
+    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony, Doré bone-gold; contrapasso of measure"
   },
   "loot_density": "raw_d2",
   "legal": {

@@ -61,6 +61,7 @@ import {
   makeCoinWisp,
   makeCounterweight,
   makeFilthCache,
+  makeHoardHeart,
   makeLedgerBell,
   makeLedgerCache,
   makeLedgerShrine,
@@ -98,6 +99,7 @@ import {
   placeBolt,
   releaseSparkBurst,
   spawnSparks,
+  spawnGoldDustSplash,
   spawnSludgeSplash,
   tickImpact,
   tickPortalHoldFx,
@@ -277,7 +279,9 @@ export class WorldApp {
   avaClearStashTipShown = false;
   poiHintsShown = new Set<string>();
   mawPressureOn = false;
+  crushPressureOn = false;
   glutFogBase = 0.022;
+  avaFogBase = 0.016;
   fogTargetDensity = 0.013;
   fogTargetColor = new THREE.Color(0x1c1812);
   clearTargetColor = new THREE.Color(0x1c1812);
@@ -1025,7 +1029,9 @@ export class WorldApp {
     if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
       this.renderer.shadowMap.needsUpdate = true;
     }
+    const inAva = this.room?.cantoId === "inferno_07";
     if (inGlut && this.frameN % 4 === 0) this.tickMawPressure();
+    if (inAva && this.frameN % 4 === 0) this.tickCrushPressure();
     this.tickAtmosphere();
     this.fadeTreeOccluders();
     this.tickFx(dt);
@@ -1261,13 +1267,28 @@ export class WorldApp {
         }
       }
       if ((n.kind === "whirl" || n.kind === "champion") && this.frameN % 2 === 0) {
-        tickWhirl(n.group, this.animT, n.kind === "champion");
+        // Far cull coin-wisp ribbon sparkle (cheap skip when off-cam)
+        if (n.group.userData.coinWisp) {
+          const wx = n.group.position.x - this.camFollow.x;
+          const wz = n.group.position.z - this.camFollow.z;
+          if (wx * wx + wz * wz > 36 * 36) {
+            /* skip */
+          } else {
+            tickWhirl(n.group, this.animT, n.kind === "champion");
+          }
+        } else {
+          tickWhirl(n.group, this.animT, n.kind === "champion");
+        }
       }
       if (n.kind === "triple_maw" && this.frameN % 2 === 0) {
         tickTripleMaw(n.group, this.animT);
       }
       if (n.kind === "hoard_crush" && this.frameN % 2 === 0) {
-        tickHoardCrush(n.group, this.animT);
+        const hx = n.group.position.x - this.camFollow.x;
+        const hz = n.group.position.z - this.camFollow.z;
+        if (hx * hx + hz * hz < 52 * 52) {
+          tickHoardCrush(n.group, this.animT);
+        }
       }
       const pulse = Number(n.group.userData.hitPulse) || 0;
       if (pulse > 0.04) {
@@ -1400,7 +1421,9 @@ export class WorldApp {
       arch.startsWith("weight_") || arch === "coin_wisp" || arch === "ledger_warden" || arch === "hoard_heart";
     const nm = String(e.name || "");
     let group: THREE.Group;
-    if (isHeartArch) {
+    if (arch === "hoard_heart") {
+      group = makeHoardHeart(this.mats!);
+    } else if (isHeartArch) {
       group = makeByKind("shrine", this.mats!, e.item?.rarity);
     } else if (arch === "mud_wisp") {
       group = makeMudWisp(this.mats!);
@@ -1622,6 +1645,28 @@ export class WorldApp {
     this.fogTargetDensity = near ? this.glutFogBase * 1.45 : this.glutFogBase;
   }
 
+  /** Audio-free Crush pressure: denser fog + gold haze fringe near Hoard Crush. */
+  tickCrushPressure() {
+    if (!this.room || this.room.cantoId !== "inferno_07") {
+      if (this.crushPressureOn) {
+        this.crushPressureOn = false;
+        document.body.classList.remove("crush-pressure");
+      }
+      return;
+    }
+    const boss = this.room.entities.find(
+      (e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)
+    );
+    const near = Boolean(
+      boss && Math.hypot(boss.x - this.renderYou.x, boss.y - this.renderYou.y) < 26
+    );
+    if (near !== this.crushPressureOn) {
+      this.crushPressureOn = near;
+      document.body.classList.toggle("crush-pressure", near);
+    }
+    this.fogTargetDensity = near ? this.avaFogBase * 1.4 : this.avaFogBase;
+  }
+
   /** Soft fog/clear lerp on canto change — avoids hard pop. */
   tickAtmosphere() {
     const fog = this.scene.fog;
@@ -1693,7 +1738,9 @@ export class WorldApp {
       // Slightly brighter hemi + cooler rim so mire labels read through olive fog.
       this.glutFogBase = 0.022;
       this.mawPressureOn = false;
+      this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
+      document.body.classList.remove("crush-pressure");
       this.fogTargetColor.setHex(0x1e1c10);
       this.fogTargetDensity = this.glutFogBase;
       this.clearTargetColor.setHex(0x100e08);
@@ -1708,11 +1755,14 @@ export class WorldApp {
       this.heroLight.distance = 9;
     } else if (ava) {
       // Gold-on-black irony — restrained fog so slash stays readable.
+      this.avaFogBase = 0.016;
       this.mawPressureOn = false;
+      this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
-      this.fogTargetColor.setHex(0x18140c);
-      this.fogTargetDensity = 0.016;
-      this.clearTargetColor.setHex(0x100c08);
+      document.body.classList.remove("crush-pressure");
+      this.fogTargetColor.setHex(0x16120a);
+      this.fogTargetDensity = this.avaFogBase;
+      this.clearTargetColor.setHex(0x0e0c06);
       this.hemi.color.set(0xd4c090);
       this.hemi.groundColor.set(0x14100a);
       this.hemi.intensity = 1.18;
@@ -1883,7 +1933,7 @@ export class WorldApp {
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
-          showToast("peso e contrapeso — clear the ledger, then Hoard Crush", "info");
+          showToast("peso e contrapeso — measure the road, then break Hoard Crush", "info");
         }
         if (
           cantoChanged &&
@@ -1899,7 +1949,7 @@ export class WorldApp {
           msg.room.cantoId === "inferno_06" &&
           clears.includes("inferno_06")
         ) {
-          showToast("The Avarice portal waits past the Maw", "info");
+          showToast("The Avarice gate (peso e contrapeso) waits past the Maw", "info");
         }
         const lootIds = new Set<string>();
         for (const e of msg.room.entities) {
@@ -2126,13 +2176,15 @@ export class WorldApp {
       const burst =
         this.room?.cantoId === "inferno_06" && heavy
           ? spawnSludgeSplash(pos.x, pos.y, this.standY(pos.x, pos.y, 1.35), this.animT)
-          : spawnSparks(
-              pos.x,
-              pos.y,
-              this.standY(pos.x, pos.y, heavy ? 1.35 : 1.1),
-              color,
-              this.animT
-            );
+          : this.room?.cantoId === "inferno_07" && heavy
+            ? spawnGoldDustSplash(pos.x, pos.y, this.standY(pos.x, pos.y, 1.35), this.animT)
+            : spawnSparks(
+                pos.x,
+                pos.y,
+                this.standY(pos.x, pos.y, heavy ? 1.35 : 1.1),
+                color,
+                this.animT
+              );
       burst.dur = heavy ? 640 : 420;
       this.scene.add(burst.points);
       this.sparks.push(burst);
@@ -3052,7 +3104,7 @@ export class WorldApp {
         )
       ) {
         this.hoardHeartDownToastShown = true;
-        showToast("Counterweight stirs — the Crush waits beyond", "emit");
+        showToast("Hoard Heart broken — Counterweight stirs; Crush waits beyond", "emit");
       }
     }
 
@@ -3077,7 +3129,7 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
           this.counterweightApproachShown = true;
-          showToast("Counterweight ahead — the ledger tips toward Crush", "warn");
+          showToast("Counterweight ahead — the measure tips toward Crush", "warn");
           break;
         }
       }

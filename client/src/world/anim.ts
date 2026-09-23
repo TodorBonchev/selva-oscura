@@ -349,11 +349,14 @@ type CrushCache = {
   ribbon?: THREE.Object3D;
   ribbon2?: THREE.Object3D;
   tele?: THREE.Object3D;
+  aura?: THREE.Object3D;
+  body?: THREE.Object3D;
   rollers: THREE.Object3D[];
   discs: THREE.Object3D[];
+  ironMat?: THREE.MeshStandardMaterial;
 };
 
-/** Idle for Hoard Crush — rolling weights + soft telegraph pulse (mirrors Triple Maw cadence). */
+/** Idle for Hoard Crush — rollers, discs, ribbon bob, telegraph, emissive pulse (cached). */
 export function tickHoardCrush(root: THREE.Object3D, tMs: number) {
   let cache = root.userData.crushCache as CrushCache | undefined;
   if (!cache) {
@@ -362,20 +365,35 @@ export function tickHoardCrush(root: THREE.Object3D, tMs: number) {
       if (o.name === "ribbon") cache!.ribbon = o;
       else if (o.name === "ribbon2") cache!.ribbon2 = o;
       else if (o.name === "mawTelegraph") cache!.tele = o;
+      else if (o.name === "judgeAura") cache!.aura = o;
+      else if (o.name === "crushBody") cache!.body = o;
       else if (o.name === "crushRoller") cache!.rollers.push(o);
       else if (o.name === "weightDisc") cache!.discs.push(o);
     });
+    const bodyMesh = cache.body as THREE.Mesh | undefined;
+    if (bodyMesh && bodyMesh.material && !Array.isArray(bodyMesh.material)) {
+      cache.ironMat = bodyMesh.material as THREE.MeshStandardMaterial;
+    }
     root.userData.crushCache = cache;
   }
   if (cache.ribbon) {
     cache.ribbon.rotation.z = tMs * 0.0016;
+    cache.ribbon.position.y = 2.2 + Math.sin(tMs * 0.002) * 0.04;
   }
   if (cache.ribbon2) {
     cache.ribbon2.rotation.z = -tMs * 0.0012;
+    cache.ribbon2.position.y = 1.4 + Math.sin(tMs * 0.0017 + 1.1) * 0.035;
   }
   if (cache.tele) {
     const s = 1 + Math.sin(tMs * 0.0024) * 0.05;
     cache.tele.scale.set(s, s, 1);
+  }
+  if (cache.aura) {
+    const s = 1 + Math.sin(tMs * 0.0031) * 0.04;
+    cache.aura.scale.set(s, s, 1);
+  }
+  if (cache.ironMat) {
+    cache.ironMat.emissiveIntensity = 0.34 + Math.sin(tMs * 0.0028) * 0.08;
   }
   for (let i = 0; i < cache.rollers.length; i++) {
     const o = cache.rollers[i]!;

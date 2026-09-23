@@ -494,6 +494,11 @@ export function spawnSludgeSplash(x: number, z: number, y: number, t: number): S
   return spawnSparks(x, z, y, 0xb8c858, t);
 }
 
+/** Sparse gold-dust hit spark — Avarice heavy hits only (no arcade neon). */
+export function spawnGoldDustSplash(x: number, z: number, y: number, t: number): SparkBurst {
+  return spawnSparks(x, z, y, 0xd4a840, t);
+}
+
 export function makeDustPuff(): THREE.Mesh {
   const m = new THREE.Mesh(
     new THREE.RingGeometry(0.08, 0.22, 16),

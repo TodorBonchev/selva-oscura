@@ -360,17 +360,17 @@ export function buildGround(
           colors[i * 3 + 2] = k * 0.32 * sink;
         }
       } else if (isAva) {
-        // Gold road vs pitch off-path (gold-on-black irony)
-        const onPath = pathD < 3.8;
-        const sink = pathD > 11 ? 0.55 : pathD > 6 ? 0.78 : 1;
+        // Stronger gold road vs pitch off-path (gold-on-black irony; slash-readable)
+        const onPath = pathD < 3.9;
+        const sink = pathD > 11 ? 0.48 : pathD > 6 ? 0.72 : 1;
         if (onPath) {
-          colors[i * 3] = k * 1.15;
-          colors[i * 3 + 1] = k * 0.95;
-          colors[i * 3 + 2] = k * 0.45;
+          colors[i * 3] = k * 1.22;
+          colors[i * 3 + 1] = k * 0.98;
+          colors[i * 3 + 2] = k * 0.42;
         } else {
-          colors[i * 3] = k * 0.45 * sink;
-          colors[i * 3 + 1] = k * 0.38 * sink;
-          colors[i * 3 + 2] = k * 0.22 * sink;
+          colors[i * 3] = k * 0.38 * sink;
+          colors[i * 3 + 1] = k * 0.32 * sink;
+          colors[i * 3 + 2] = k * 0.18 * sink;
         }
       } else {
         colors[i * 3] = k * 1.05;
@@ -615,7 +615,7 @@ export function buildGround(
         new THREE.MeshBasicMaterial({
           color: 0xd4a840,
           transparent: true,
-          opacity: 0.2,
+          opacity: 0.24,
           side: THREE.DoubleSide,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
@@ -629,13 +629,13 @@ export function buildGround(
 
       // Scorched coin discs along hunt (InstancedMesh)
       const coinMat = new THREE.MeshStandardMaterial({
-        color: 0x8a7040,
-        roughness: 0.4,
-        metalness: 0.55,
+        color: 0x9a7840,
+        roughness: 0.38,
+        metalness: 0.58,
         emissive: 0x4a3810,
-        emissiveIntensity: 0.28,
+        emissiveIntensity: 0.32,
         transparent: true,
-        opacity: 0.82,
+        opacity: 0.88,
       });
       const coinGeo = new THREE.CircleGeometry(1, 12);
       const coinN = compact ? Math.min(4, hunt.length) : hunt.length + 3;
@@ -684,12 +684,13 @@ export function buildGround(
       weightsMesh.instanceMatrix.needsUpdate = true;
       group.add(weightsMesh);
 
-      const hazeN = compact ? 3 : 4;
+      // Restrained gold haze (Lust-soften parity — keep slash readable)
+      const hazeN = compact ? 2 : 3;
       for (let i = 0; i < hazeN; i++) {
         const ribbon = makeGaleRibbon(mats, 14 + i * 3);
         const mat = ribbon.material as THREE.MeshBasicMaterial;
         mat.color.set(0xa88a40);
-        mat.opacity = compact ? 0.16 : 0.22;
+        mat.opacity = compact ? 0.12 : 0.16;
         const rx = 28 + i * 28;
         const rz = 44 + (i % 2) * 12;
         ribbon.position.set(rx, heightAt(rx, rz) + 0.7, rz);
