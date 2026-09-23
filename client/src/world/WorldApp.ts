@@ -1782,17 +1782,31 @@ export class WorldApp {
     const glutCompact =
       (this.room?.cantoId === "inferno_06" || this.room?.cantoId === "inferno_07") && isCompactUi();
     const midboss = rec.hpEl.classList.contains("midboss");
+    const inAva = this.room?.cantoId === "inferno_07";
+    const poiish =
+      rec.kind === "portal" ||
+      rec.kind === "shrine" ||
+      rec.kind === "stash" ||
+      rec.kind === "guide" ||
+      rec.hpEl.classList.contains("poi-marker");
     let far = rec.kind === "loot" ? 22 : boss ? 30 : midboss ? 28 : foe ? 26 : 16;
+    if (inAva && poiish) far = Math.min(far, 11);
     if (glutCompact) {
-      far = rec.kind === "loot" ? 14 : boss ? 20 : midboss ? 18 : foe ? 13 : 10;
+      far = rec.kind === "loot" ? 14 : boss ? 20 : midboss ? 18 : foe ? 13 : poiish ? 8 : 10;
+      if (inAva && foe && !boss && !midboss) far = 11;
     }
+    // Nearest interact always keeps its plate readable
+    if (this.nearestInteract && this.nearestInteract.id === rec.id) far = Math.max(far, 14);
     if (d > far) {
       if (rec.hpEl.style.opacity !== "0") rec.hpEl.style.opacity = "0";
       return;
     }
-    const nextOp = d > 10 && !foe && rec.kind !== "loot" ? "0.45" : "1";
+    const nextOp =
+      d > (inAva && poiish ? 7 : 10) && !foe && rec.kind !== "loot" && !midboss ? "0.4" : "1";
     if (rec.hpEl.style.opacity !== nextOp) rec.hpEl.style.opacity = nextOp;
-    const shown = foe || midboss || rec.kind === "loot" || d <= 8 ? name : "•";
+    const nameDist = inAva && poiish ? 6 : 8;
+    const shown =
+      foe || midboss || rec.kind === "loot" || d <= nameDist ? name : "•";
     if (nameEl && nameEl.textContent !== shown) nameEl.textContent = shown;
     rec.hpEl.classList.toggle("stilled", Number(rec.group.userData.stunLeft || 0) > 0.05);
     if (e.hp != null && e.maxHp) {

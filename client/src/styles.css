@@ -4453,3 +4453,15 @@ body.in-gluttony .world-label.ava-outbound:not(.portal-locked) .wl-name {
 body.in-avarice.hud-compact .world-label.foe.avarice.midboss .wl-name {
   font-size: 0.78rem;
 }
+
+/* Avarice label declutter — quieter POI plates when not nearest */
+body.in-avarice .world-label:not(.foe):not(.loot-label):not(.is-nearest) .wl-name {
+  opacity: 0.72;
+}
+body.in-avarice.hud-compact .world-label:not(.foe):not(.loot-label):not(.is-nearest) {
+  transform: scale(0.92);
+  transform-origin: bottom center;
+}
+body.in-avarice .world-label.is-nearest .wl-name {
+  opacity: 1;
+}
