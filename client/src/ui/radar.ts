@@ -428,6 +428,12 @@ export class Radar {
           Math.hypot(roadW.x - opts.you.x, roadW.y - opts.you.y) < 18
         ) {
           text = "Weigh the road";
+        } else if (opts.you.x < 42 && opts.you.y > 82) {
+          const sw = opts.entities.find(
+            (e: any) =>
+              /^southwest spill$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
+          );
+          text = sw ? "Sweep Southwest Spill" : "Scorched SW flats";
         } else if (heart && Math.hypot(heart.x - opts.you.x, heart.y - opts.you.y) < 34) {
           text = "Break Hoard Heart";
         } else if (
