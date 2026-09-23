@@ -449,7 +449,9 @@ export class Radar {
         } else if (foe && foe.kind === "boss" && opts.you.x > 108) {
           text = bossLabel;
         } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
-        else if (portal) text = `Travel — ${cantoShort(portal.toCanto) || "portal"}`;
+        else if (clears.includes("inferno_07") && portal) {
+          text = `Return — ${cantoShort(portal.toCanto) || "Gluttony"} (bank weighed drops)`;
+        } else if (portal) text = `Travel — ${cantoShort(portal.toCanto) || "portal"}`;
       } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
       else if (portal && portalLocked) {
         text =
@@ -462,6 +464,17 @@ export class Radar {
       }
     } else if (foe && foeD < 28) {
       text = `Hunt ${destLabel(foe)}`;
+    } else if (clears.includes("inferno_07")) {
+      const stash = opts.entities.find((e: any) => e.poiKind === "stash");
+      if (guide) {
+        const gd = Math.hypot(guide.x - opts.you.x, guide.y - opts.you.y);
+        text = gd < 10 ? "Guide — counsel after Avarice" : "Speak with the Guide (Avarice is clear)";
+      } else if (stash) {
+        text = "Bank weighed drops at the stash";
+      } else if (portal) {
+        const dest = cantoShort(portal.toCanto) || "Lust";
+        text = `Hunt again — ${dest}`;
+      } else text = "Avarice is clear — writ, stash, or hunt again";
     } else if (portal) {
       const d = Math.hypot(portal.x - opts.you.x, portal.y - opts.you.y);
       const dest = cantoShort(portal.toCanto) || "Lust";
