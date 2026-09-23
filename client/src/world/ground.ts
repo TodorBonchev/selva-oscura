@@ -81,9 +81,11 @@ const GLUTTONY_HUNT: [number, number][] = [
 ];
 const AVARICE_HUNT: [number, number][] = [
   [18, 52],
-  [44, 58],
-  [70, 46],
-  [100, 56],
+  [38, 56],
+  [54, 68],
+  [70, 48],
+  [86, 58],
+  [110, 52],
   [138, 48],
 ];
 
@@ -318,7 +320,16 @@ export function buildGround(
     const isAva = cantoId === "inferno_07";
     const isWeightLane = isGlut || isAva;
     const arenas: { x: number; z: number; r: number }[] = isWeightLane
-      ? [
+      ? isAva
+        ? [
+            { x: 30, z: 52, r: 5 },
+            { x: 70, z: 48, r: 5 },
+            { x: 86, z: 58, r: 6 },
+            { x: 100, z: 26, r: 5 },
+            { x: 112, z: 82, r: 5 },
+            { x: 138, z: 48, r: 9 },
+          ]
+        : [
           { x: 30, z: 48, r: 5 },
           { x: 52, z: 38, r: 7 },
           { x: 68, z: 78, r: 7 },
@@ -413,8 +424,8 @@ export function buildGround(
       ring.position.set(a.x, heightAt(a.x, a.z) + 0.12, a.z);
       ring.castShadow = false;
       group.add(ring);
-      // Compact: one brazier per arena in all combat cantos
-      const placeBoth = !compact;
+      // Compact / Avarice: one brazier per arena (density + tick cost)
+      const placeBoth = !compact && !isAva;
       const brazL = makeBrazier(mats);
       const lx = a.x - a.r * 0.72;
       const lz = a.z - a.r * 0.22;

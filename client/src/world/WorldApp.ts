@@ -273,6 +273,7 @@ export class WorldApp {
   mireHeartSeenAlive = false;
   counterweightApproachShown = false;
   ledgerMidApproachShown = false;
+  northMeasureApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1222,7 +1223,11 @@ export class WorldApp {
 
     for (const n of this.nodes.values()) {
       const ribbon = n.group.getObjectByName("ribbon");
-      if (ribbon) ribbon.rotation.y = this.animT * 0.003;
+      if (ribbon) {
+        const rdx = n.group.position.x - this.camFollow.x;
+        const rdz = n.group.position.z - this.camFollow.z;
+        if (rdx * rdx + rdz * rdz < 48 * 48) ribbon.rotation.y = this.animT * 0.003;
+      }
       const disc = n.group.getObjectByName("galeDisc");
       if (disc) {
         (disc as THREE.Mesh).rotation.z = this.animT * 0.0015;
@@ -1540,6 +1545,10 @@ export class WorldApp {
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
       if (this.portalIsLocked(e)) wrap.classList.add("portal-locked");
+    }
+    if (e.poiKind === "marker") {
+      wrap.classList.add("poi-marker");
+      label.position.set(0, 2.4, 0);
     }
     group.add(label);
     group.userData.baseScale = group.scale.x;
@@ -1939,6 +1948,7 @@ export class WorldApp {
           this.avaEnterTipShown = true;
           this.counterweightApproachShown = false;
           this.ledgerMidApproachShown = false;
+          this.northMeasureApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -3156,6 +3166,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
           this.ledgerMidApproachShown = true;
           showToast("The ledger stone marks mid-measure — Bell, then Crush", "info");
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.northMeasureApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^north measure$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.northMeasureApproachShown = true;
+          showToast("North Measure — unpaid tallies on the empty flats", "info");
+          break;
         }
       }
     }

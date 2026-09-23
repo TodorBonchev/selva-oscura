@@ -44,7 +44,7 @@
         "x": 54,
         "y": 68,
         "label": "Ledger Cache",
-        "hint": "One weighed drop per visit \u2014 E to claim"
+        "hint": "One weighed drop per visit \u2014 E to claim (Dor\u00e9 bone-gold irony)"
       },
       {
         "id": "ledger_shrine",
@@ -68,7 +68,7 @@
         "x": 70,
         "y": 48,
         "label": "Ledger Stone",
-        "hint": "Weights tip here \u2014 ring the Bell before the Crush"
+        "hint": "peso e contrapeso \u2014 ring the Bell before the Crush"
       }
     ]
   },
@@ -82,10 +82,10 @@
       "champion": true,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 74,
-        "y": 64
+        "x": 78,
+        "y": 58
       },
-      "notes": "Wards nearby weights until broken \u2014 the measure held against you"
+      "notes": "Wards nearby weights until broken \u2014 sits on the Bell\u2013Crush measure"
     },
     {
       "id": "ava_coin_wisps",
@@ -152,8 +152,8 @@
       "champion": true,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 96,
-        "y": 42
+        "x": 98,
+        "y": 38
       },
       "notes": "Heavy measures before the mid-lane elite"
     },
@@ -180,10 +180,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 110,
-        "y": 68
+        "x": 112,
+        "y": 82
       },
-      "notes": "A choir of weights chanting measure without mercy"
+      "notes": "South-east choir of weights \u2014 off the crush lane so the mid road breathes"
     },
     {
       "id": "ava_approach_flank",
@@ -194,10 +194,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 122,
-        "y": 42
+        "x": 124,
+        "y": 34
       },
-      "notes": "Flank guards before the Crush dais"
+      "notes": "North flank before the Crush dais \u2014 keep the approach readable"
     },
     {
       "id": "ava_ledger_warden",
@@ -286,7 +286,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_04_avarice",
-    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony, Dor\u00e9 bone-gold; contrapasso of measure"
+    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony, Dor\u00e9 bone-gold; contrapasso of measure; mid-path Ledger Stone beat"
   },
   "loot_density": "raw_d2",
   "legal": {

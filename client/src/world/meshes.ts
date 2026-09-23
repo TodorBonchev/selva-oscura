@@ -1303,6 +1303,12 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
   stubL.name = "crushRoller";
   const stubR = stubL.clone();
   stubR.position.x = 0.95;
+  const discEnd = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.08, 10), mats.gold);
+  discEnd.rotation.z = Math.PI / 2;
+  discEnd.position.set(-1.42, 1.05, 0.1);
+  discEnd.name = "weightDisc";
+  const discEndR = discEnd.clone();
+  discEndR.position.x = 1.42;
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.98, 0.1, 5, 16), mats.gold);
   rim.position.y = 1.0;
   rim.rotation.x = Math.PI / 2;
@@ -1320,7 +1326,7 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
   const eye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), mats.ember);
   eye.position.set(0, 1.35, -0.9);
   eye.name = "ember";
-  g.add(discShadow(mats, 0.95), body, stubL, stubR, rim, rim2, crown, spike, eye, nose(mats, 1.4, -0.98));
+  g.add(discShadow(mats, 0.95), body, stubL, stubR, discEnd, discEndR, rim, rim2, crown, spike, eye, nose(mats, 1.4, -0.98));
   shadow(g);
   return g;
 }
@@ -1462,26 +1468,47 @@ export function makeHoardCrush(mats: MatKit): THREE.Group {
 export function makeHoardHeart(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "hoard_heart";
-  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.42, 1.9, 8), mats.stone);
-  pillar.position.y = 0.95;
-  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.55, 0.1), mats.bone);
-  plate.position.set(0, 1.55, -0.28);
-  const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.55, 10), mats.gold);
-  stack.position.y = 2.15;
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.1, 12), mats.gold);
-  disc.position.y = 2.48;
+  const cheap = isCompactUi();
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.44, 1.95, cheap ? 7 : 8), mats.stone);
+  pillar.position.y = 0.98;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.62, 0.1), mats.bone);
+  plate.position.set(0, 1.55, -0.3);
+  const plateTrim = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.05, 0.03), mats.gold);
+  plateTrim.position.set(0, 1.84, -0.36);
+  const hash = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.02), mats.bronze);
+  hash.position.set(0, 1.55, -0.36);
+  const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.42, cheap ? 8 : 10), mats.gold);
+  stack.position.y = 2.1;
+  const stack2 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.28, cheap ? 8 : 10), mats.bronze);
+  stack2.position.y = 2.42;
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, cheap ? 10 : 12), mats.gold);
+  disc.position.y = 2.62;
   disc.rotation.x = Math.PI / 2;
   disc.name = "weightDisc";
   const flame = new THREE.Mesh(new THREE.SphereGeometry(0.16, 7, 7), mats.ember);
-  flame.position.y = 2.72;
+  flame.position.y = 2.88;
   flame.name = "ember";
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.05, 5, 14), mats.gold);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.05, 5, cheap ? 12 : 14), mats.gold);
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.08;
   ring.name = "ribbon";
   const hang = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.22, 8), mats.bronze);
-  hang.position.set(0.35, 1.7, 0.2);
-  g.add(discShadow(mats, 0.55), pillar, plate, stack, disc, flame, ring, hang, nose(mats, 2.5, -0.35));
+  hang.position.set(0.38, 1.7, 0.2);
+  hang.name = "weightDisc";
+  g.add(
+    discShadow(mats, 0.58),
+    pillar,
+    plate,
+    plateTrim,
+    hash,
+    stack,
+    stack2,
+    disc,
+    flame,
+    ring,
+    hang,
+    nose(mats, 2.6, -0.38)
+  );
   shadow(g);
   return g;
 }

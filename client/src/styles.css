@@ -2892,6 +2892,12 @@ body.tab-hidden.in-avarice #gold-dust {
   body.in-avarice.crush-pressure #gold-dust { animation: none; opacity: 0.22; }
 }
 .world-label.foe.avarice .wl-name { color: #e8c86a; }
+.world-label.poi-marker .wl-name { color: #e8d090; }
+.world-label.poi-marker .interact-prompt {
+  color: #f0e0a8;
+  background: #1a140acc;
+  border-color: #a88840;
+}
 .world-label.foe.avarice.boss .wl-name {
   color: #f2d888;
   text-shadow:

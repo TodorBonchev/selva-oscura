@@ -713,7 +713,11 @@ class CantoRoom {
       if (left === 0) {
         const line =
           this.cantoId === "inferno_07"
-            ? "The weights settle. Rebalance and press on."
+            ? entity.archetype === "coin_wisp"
+              ? "The coins still. Measure holds — press on."
+              : entity.archetype === "hoard_heart"
+                ? "The ward breaks. Counterweight stirs ahead."
+                : "The weights settle. Rebalance and press on."
             : this.cantoId === "inferno_06"
               ? "The sludge settles. Press on."
               : "The gust breaks. Press on.";
