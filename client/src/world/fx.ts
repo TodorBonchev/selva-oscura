@@ -176,25 +176,33 @@ export function makeSlamTelegraph(
   const tickHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffd078;
   const lightHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff4418;
 
-  const fill = new THREE.Mesh(new THREE.CircleGeometry(1, 48), slamMat(fillHex, ava ? 0.2 : 0.22));
+  // Compact Avarice: fewer segs/ticks — frame budget on phones near Crush
+  const compact =
+    typeof window !== "undefined" &&
+    (window.matchMedia("(max-width: 900px)").matches ||
+      window.matchMedia("(max-height: 520px)").matches);
+  const segs = ava && compact ? 28 : 48;
+  const tickN = ava && compact ? 8 : 16;
+
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(1, segs), slamMat(fillHex, ava ? 0.2 : 0.22));
   fill.rotation.x = -Math.PI / 2;
   fill.name = "slamFill";
   fill.renderOrder = 2;
 
-  const sweep = new THREE.Mesh(new THREE.CircleGeometry(1, 48), slamMat(sweepHex, ava ? 0.28 : 0.32, true));
+  const sweep = new THREE.Mesh(new THREE.CircleGeometry(1, segs), slamMat(sweepHex, ava ? 0.28 : 0.32, true));
   sweep.rotation.x = -Math.PI / 2;
   sweep.position.y = 0.02;
   sweep.scale.setScalar(0.06);
   sweep.name = "slamSweep";
   sweep.renderOrder = 3;
 
-  const rim = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 48), slamMat(rimHex, 0.92, true));
+  const rim = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, segs), slamMat(rimHex, 0.92, true));
   rim.rotation.x = -Math.PI / 2;
   rim.position.y = 0.03;
   rim.name = "slamRim";
   rim.renderOrder = 4;
 
-  const glow = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.2, 48), slamMat(glowHex, ava ? 0.24 : 0.28, true));
+  const glow = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.2, segs), slamMat(glowHex, ava ? 0.24 : 0.28, true));
   glow.rotation.x = -Math.PI / 2;
   glow.position.y = 0.025;
   glow.name = "slamGlow";
@@ -202,9 +210,9 @@ export function makeSlamTelegraph(
 
   const tickMat = slamMat(tickHex, 0.85, true);
   const tickGeo = new THREE.PlaneGeometry(0.16, 0.04);
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < tickN; i++) {
     const tick = new THREE.Mesh(tickGeo, tickMat);
-    const a = (i / 16) * Math.PI * 2;
+    const a = (i / tickN) * Math.PI * 2;
     tick.position.set(Math.cos(a) * 0.96, 0.035, Math.sin(a) * 0.96);
     tick.rotation.set(-Math.PI / 2, -a, 0);
     tick.name = "slamTick";

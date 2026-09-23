@@ -283,6 +283,20 @@
         "y": 96
       },
       "notes": "Coin spill on empty SW flats \u2014 fills the ledger corner west of South Balance"
+    },
+    {
+      "id": "ava_se_drift",
+      "name": "Southeast Drift",
+      "archetype": "weight_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 148,
+        "y": 92
+      },
+      "notes": "SE ledger flats past South Spill \u2014 unpaid weights drift off the Crush lane"
     }
   ],
   "bosses": [

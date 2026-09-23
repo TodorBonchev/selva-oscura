@@ -279,6 +279,7 @@ export class WorldApp {
   weightChampApproachShown = false;
   nwDriftApproachShown = false;
   swSpillApproachShown = false;
+  seDriftApproachShown = false;
   roadWeightsApproachShown = false;
   goldChorusApproachShown = false;
   crushFlankApproachShown = false;
@@ -1488,7 +1489,11 @@ export class WorldApp {
       }
       if (e.kind === "boss") {
         rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
-        rec.group.userData.bossPhase = Number(e.phase) || 1;
+        const ph = Number(e.phase) || 1;
+        rec.group.userData.bossPhase = ph;
+        if (this.room?.cantoId === "inferno_07" && e.id === "hoard_crush") {
+          document.body.classList.toggle("crush-phase2", ph >= 2);
+        }
       }
       if (e.kind === "mob") {
         const stun = Number(e.stunLeft) || 0;
@@ -1842,7 +1847,7 @@ export class WorldApp {
     if (!this.room || this.room.cantoId !== "inferno_07") {
       if (this.crushPressureOn) {
         this.crushPressureOn = false;
-        document.body.classList.remove("crush-pressure");
+        document.body.classList.remove("crush-pressure", "crush-phase2");
       }
       return;
     }
@@ -1938,7 +1943,7 @@ export class WorldApp {
       this.mawPressureOn = false;
       this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
-      document.body.classList.remove("crush-pressure");
+      document.body.classList.remove("crush-pressure", "crush-phase2");
       this.fogTargetColor.setHex(0x1e1c10);
       this.fogTargetDensity = this.glutFogBase;
       this.clearTargetColor.setHex(0x100e08);
@@ -1957,7 +1962,7 @@ export class WorldApp {
       this.mawPressureOn = false;
       this.crushPressureOn = false;
       document.body.classList.remove("maw-pressure");
-      document.body.classList.remove("crush-pressure");
+      document.body.classList.remove("crush-pressure", "crush-phase2");
       this.fogTargetColor.setHex(0x16120a);
       this.fogTargetDensity = this.avaFogBase;
       this.clearTargetColor.setHex(0x0e0c06);
@@ -2135,6 +2140,7 @@ export class WorldApp {
           this.weightChampApproachShown = false;
           this.nwDriftApproachShown = false;
           this.swSpillApproachShown = false;
+          this.seDriftApproachShown = false;
           this.roadWeightsApproachShown = false;
           this.goldChorusApproachShown = false;
           this.crushFlankApproachShown = false;
@@ -3551,6 +3557,19 @@ export class WorldApp {
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
           this.swSpillApproachShown = true;
           showToast("contrapeso — Southwest Spill; undervalued coin on empty flats", "info");
+          break;
+        }
+      }
+    }
+
+    if (this.room?.cantoId === "inferno_07" && !this.seDriftApproachShown) {
+      for (const e of this.room.entities) {
+        if (e.kind !== "mob") continue;
+        if (!/^southeast drift$/i.test(String(e.name || ""))) continue;
+        const pos = this.entityRenderPos(e);
+        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
+          this.seDriftApproachShown = true;
+          showToast("peso — Southeast Drift; unpaid weights off the Crush lane", "info");
           break;
         }
       }

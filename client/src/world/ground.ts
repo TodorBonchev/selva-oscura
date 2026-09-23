@@ -331,6 +331,7 @@ export function buildGround(
         ? [
             { x: 22, z: 22, r: 4 },
             { x: 24, z: 96, r: 4 },
+            { x: 148, z: 92, r: 4 },
             { x: 30, z: 52, r: 5 },
             { x: 70, z: 48, r: 5 },
             { x: 86, z: 58, r: 6 },
@@ -386,9 +387,11 @@ export function buildGround(
         // NW / SW Drift scorched flats — darker ledger corners
         const nw = Math.hypot(wx - 22, wz - 22);
         const sw = Math.hypot(wx - 24, wz - 96);
+        const se = Math.hypot(wx - 148, wz - 92);
         const corner =
           (nw < 18 ? 0.72 + (nw / 18) * 0.28 : 1) *
-          (sw < 18 ? 0.72 + (sw / 18) * 0.28 : 1);
+          (sw < 18 ? 0.72 + (sw / 18) * 0.28 : 1) *
+          (se < 16 ? 0.74 + (se / 16) * 0.26 : 1);
         if (onPath) {
           colors[i * 3] = k * 1.22;
           colors[i * 3 + 1] = k * 0.98;

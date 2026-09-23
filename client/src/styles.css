@@ -4384,3 +4384,23 @@ body.in-avarice.hud-compact #btn-interact.interact-ready {
     inset 0 0 0 2px #e8c86acc,
     0 0 12px #d4a84044;
 }
+
+
+/* Hoard Crush phase 2 — hotter pressure fringe (still bone-gold, no neon) */
+body.in-avarice.crush-pressure.crush-phase2 #heat-haze {
+  opacity: 0.4;
+  animation-duration: 2.8s;
+  background:
+    radial-gradient(ellipse 80% 55% at 50% 40%, rgba(242, 222, 160, 0.14), transparent 70%),
+    radial-gradient(ellipse 100% 80% at 50% 100%, rgba(20, 14, 6, 0.38), transparent 55%),
+    radial-gradient(ellipse 88% 78% at 50% 48%, transparent 48%, #2a1c0848 100%);
+}
+body.in-avarice.crush-pressure.crush-phase2 #gold-dust {
+  opacity: 0.3;
+}
+body.in-avarice.crush-pressure.crush-phase2.hud-compact #heat-haze {
+  opacity: 0.3;
+}
+body.in-avarice.crush-pressure.crush-phase2.hud-compact #gold-dust {
+  opacity: 0.22;
+}
