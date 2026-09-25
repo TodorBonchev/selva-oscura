@@ -29,7 +29,8 @@ ws.send(JSON.stringify({ type: "hello", name: "Buyer" }));
 await waitFor((m) => m.room?.cantoId === "inferno_01", 5000, "hub");
 
 // Gate check: Lust→Gluttony should fail before Lust clear
-ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_05" }));
+// Dev jump from hub spawn (travel otherwise requires standing at the road)
+ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_05", bypassGates: true }));
 await waitFor((m) => m.room?.cantoId === "inferno_05", 5000, "lust");
 ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_06" }));
 await sleep(400);
@@ -52,10 +53,16 @@ for (let i = 0; i < 28; i++) {
   );
   await sleep(40);
 }
-for (let i = 0; i < 55; i++) {
-  ws.send(JSON.stringify({ type: "attack", targetId: boss.id }));
-  await sleep(90);
-  if (lastSnap && !lastSnap.room.entities.some((e) => e.id === boss.id)) break;
+// Boss pools are sized for a real fight (Judge 520 HP): stay on it, sip when low.
+for (let i = 0; i < 600; i++) {
+  const live = lastSnap?.room.entities.find((e) => e.id === boss.id);
+  if (!live) break;
+  const me = lastSnap.room.you;
+  const d = Math.hypot(live.x - me.x, live.y - me.y);
+  if (d > 2.8) ws.send(JSON.stringify({ type: "move", x: live.x, y: live.y }));
+  else ws.send(JSON.stringify({ type: "attack", targetId: boss.id }));
+  if (me.hp < me.maxHp * 0.4 && i % 20 === 0) ws.send(JSON.stringify({ type: "sip" }));
+  await sleep(100);
 }
 await waitFor((m) => !m.room.entities.some((e) => e.id === boss.id), 3000, "bossdead");
 const loots = lastSnap.room.entities.filter((e) => e.kind === "loot");
@@ -81,7 +88,16 @@ await sleep(400);
 const ahRes = await fetch("http://127.0.0.1:8080/ah").then((r) => r.json());
 console.log("AH", ahRes.listings.length, ahRes.listings[0]?.item?.name, ahRes.listings[0]?.priceAsh);
 
-// After Lust clear → Gluttony
+// After Lust clear → Gluttony (travel is only accepted standing at the road)
+const road = lastSnap.room.entities.find(
+  (e) => (e.kind === "exit" || e.poiKind === "portal") && e.toCanto === "inferno_06"
+);
+for (let i = 0; i < 40; i++) {
+  const me = lastSnap.room.you;
+  if (Math.hypot(road.x - me.x, road.y - me.y) < 2) break;
+  ws.send(JSON.stringify({ type: "move", x: road.x, y: road.y }));
+  await sleep(120);
+}
 ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_06" }));
 await waitFor((m) => m.room?.cantoId === "inferno_06", 5000, "gluttony");
 const glutBoss = lastSnap.room.entities.find((e) => e.kind === "boss");

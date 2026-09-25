@@ -10,6 +10,10 @@ import { SPELLS, SPELL_HOTBAR, type SpellId } from "../spells";
 
 let selectedItemId: string | null = null;
 let lastBagItems: any[] = [];
+/** Stash mode: the bag opened from the Dark Wood stash shows the bank grid too. */
+let stashMode = false;
+let lastStashItems: any[] = [];
+const STASH_MAX_SLOTS = 60;
 let invWeighedOnly = false;
 let meltArmTimer: number | null = null;
 let toastTimer: number | null = null;
@@ -141,6 +145,24 @@ function placeToastLayer() {
   const layer = document.getElementById("toast-layer");
   const top = document.getElementById("hud-top");
   if (!layer || !top) return;
+  // Phone HUD: toasts stack in the left column under vitals + objective line.
+  if (document.body.classList.contains("hud-compact")) {
+    layer.classList.remove("toast-above-actions");
+    layer.style.bottom = "";
+    let y = top.getBoundingClientRect().bottom;
+    const quest = document.getElementById("quest-track");
+    // (fixed elements have no offsetParent — test the box instead)
+    const qr = quest?.getBoundingClientRect();
+    if (qr && qr.height > 0 && quest?.textContent?.trim()) y = Math.max(y, qr.bottom);
+    // Portrait: the foe plate shares this column — stack toasts beneath it
+    const tp = document.getElementById("target-plate");
+    if (tp && !document.body.classList.contains("hud-landscape")) {
+      const tr = tp.getBoundingClientRect();
+      if (tr.height > 0) y = Math.max(y, tr.bottom);
+    }
+    layer.style.top = `${Math.round(y + 6)}px`;
+    return;
+  }
   const narrow =
     window.matchMedia("(max-width: 400px)").matches ||
     window.matchMedia("(max-height: 520px) and (max-width: 900px)").matches;
@@ -287,6 +309,7 @@ export function renderInventory(
     equipped?: Record<string, any>;
     gearStats?: { dmg?: number; maxHp?: number; armor?: number };
     onEquipSlotClick?: (slot: string) => void;
+    stash?: any[];
   }
 ) {
   const grid = document.getElementById("inv-grid");
@@ -335,7 +358,8 @@ export function renderInventory(
   );
 
   if (selectedItemId && !items.some((it) => it.id === selectedItemId) &&
-      !Object.values(equipped).some((it: any) => it?.id === selectedItemId)) {
+      !Object.values(equipped).some((it: any) => it?.id === selectedItemId) &&
+      !(stashMode && (opts?.stash || []).some((it: any) => it?.id === selectedItemId))) {
     selectedItemId = null;
   }
 
@@ -405,6 +429,54 @@ export function renderInventory(
     };
   }
 
+  // Stash grid (only while opened at the Dark Wood stash)
+  const stashItems: any[] = opts?.stash || [];
+  lastStashItems = stashItems;
+  const stashWrap = document.getElementById("stash-wrap");
+  stashWrap?.classList.toggle("hidden", !stashMode);
+  document.body.classList.toggle("stash-mode", stashMode);
+  const stashGrid = document.getElementById("stash-grid");
+  if (stashGrid && stashMode) {
+    const sc = document.getElementById("stash-count");
+    if (sc) sc.textContent = `${stashItems.length}/${STASH_MAX_SLOTS}`;
+    stashGrid.innerHTML = "";
+    stashGrid.style.setProperty("--inv-cols", String(INV_COLS));
+    const sorted = sortInventoryItems(stashItems);
+    const n = Math.min(STASH_MAX_SLOTS, Math.max(INV_COLS * 2, Math.ceil(sorted.length / INV_COLS) * INV_COLS));
+    for (let i = 0; i < n; i++) {
+      const it = sorted[i];
+      const slot = document.createElement("button");
+      slot.type = "button";
+      slot.className = "inv-slot";
+      if (!it) {
+        slot.classList.add("empty");
+        slot.disabled = true;
+        slot.setAttribute("aria-hidden", "true");
+        stashGrid.appendChild(slot);
+        continue;
+      }
+      slot.classList.add(rarityClass(it.rarity));
+      slot.title = `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name} (stashed)`;
+      slot.setAttribute("aria-label", slot.title);
+      slot.innerHTML = `<img class="inv-icon" src="${itemIconUrl(it)}" alt="" draggable="false" /><span class="inv-tier" aria-hidden="true"></span>`;
+      if (it.id === selectedItemId) slot.classList.add("selected");
+      slot.onclick = (e) => {
+        e.preventDefault();
+        selectedItemId = it.id;
+        onSelect(it.id);
+        renderInventory(lastBagItems, onSelect, opts);
+      };
+      stashGrid.appendChild(slot);
+    }
+  }
+  const stashBtn = document.getElementById("btn-stash") as HTMLButtonElement | null;
+  if (stashBtn) {
+    const src = getSelectedItemSource();
+    stashBtn.classList.toggle("hidden", !stashMode);
+    stashBtn.disabled = src !== "bag" && src !== "stash";
+    stashBtn.textContent = src === "stash" ? "Withdraw" : "Bank";
+  }
+
   const statsEl = document.getElementById("equip-stats");
   if (statsEl) {
     const g = opts?.gearStats || {};
@@ -419,7 +491,8 @@ export function renderInventory(
   if (detail) {
     const sel =
       items.find((it) => it.id === selectedItemId) ||
-      Object.values(equipped).find((it: any) => it?.id === selectedItemId);
+      Object.values(equipped).find((it: any) => it?.id === selectedItemId) ||
+      (stashMode ? stashItems.find((it) => it.id === selectedItemId) : undefined);
     if (sel) {
       const wear = slotLabelForItem(sel);
       const st = itemStatBonus(sel);
@@ -442,6 +515,28 @@ export function renderInventory(
 
 export function getSelectedItemId() {
   return selectedItemId;
+}
+
+/** Where the selected item lives, so one button can Bank or Withdraw. */
+export function getSelectedItemSource(): "bag" | "stash" | "worn" | null {
+  if (!selectedItemId) return null;
+  if (lastBagItems.some((it) => it?.id === selectedItemId)) return "bag";
+  if (stashMode && lastStashItems.some((it) => it?.id === selectedItemId)) return "stash";
+  return "worn";
+}
+
+export function isStashMode() {
+  return stashMode;
+}
+
+/** Enter/leave stash mode (entering also opens the bag). Caller re-renders. */
+export function setStashMode(on: boolean) {
+  if (stashMode === on) return;
+  stashMode = on;
+  document.body.classList.toggle("stash-mode", on);
+  document.getElementById("stash-wrap")?.classList.toggle("hidden", !on);
+  document.getElementById("btn-stash")?.classList.toggle("hidden", !on);
+  if (on) setPanelOpen("inventory", true);
 }
 
 export function setQuestLine(text: string) {
@@ -546,6 +641,10 @@ export function renderAh(
 }
 
 function syncModalState() {
+  // Any path that hides the bag (✕, backdrop, opening AH) also leaves stash mode
+  if (stashMode && document.getElementById("inventory")?.classList.contains("hidden")) {
+    setStashMode(false);
+  }
   const anyOpen = !!document.querySelector(".panel.modal:not(.hidden)");
   document.getElementById("modal-backdrop")?.classList.toggle("hidden", !anyOpen);
   document.body.classList.toggle("has-modal", anyOpen);
@@ -1407,6 +1506,7 @@ export function wireHud(api: {
   onAttackHoldEnd?: () => void;
   equipSelected?: () => void;
   unequipSelected?: () => void;
+  stashSelected?: () => void;
   meltBag?: () => void;
   sip?: () => void;
   dash?: () => void;
@@ -1428,6 +1528,9 @@ export function wireHud(api: {
   });
   document.getElementById("btn-unequip")?.addEventListener("click", () => {
     api.unequipSelected?.();
+  });
+  document.getElementById("btn-stash")?.addEventListener("click", () => {
+    api.stashSelected?.();
   });
   const meltBtn = document.getElementById("btn-melt") as HTMLButtonElement | null;
   meltBtn?.addEventListener("click", () => {

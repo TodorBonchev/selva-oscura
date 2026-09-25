@@ -161,6 +161,11 @@ export class Radar {
       if (lust) return lust;
     }
     if (cantoId === "inferno_07") {
+      // Crush broken → the Dark Wood road beside the dais is the way home
+      if (cleared.includes("inferno_07")) {
+        const home = portals.find((e) => e.toCanto === "inferno_01" && e.requireClear && unlocked(e));
+        if (home) return home;
+      }
       const glut = portals.find((e) => e.toCanto === "inferno_06");
       if (glut) return glut;
     }
@@ -467,10 +472,13 @@ export class Radar {
     const seen = new Set<string>();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    // Phone HUD v2: keep arrows in the open band between the vitals strip and
+    // the stick / thumb arc (see styles.css "HUD v2").
+    const landscape = document.body.classList.contains("hud-landscape");
     const padL = opts.compact ? 16 : 24;
     const padR = opts.compact ? 16 : 24;
-    const padT = opts.compact ? 88 : 72;
-    const padB = opts.compact ? 108 : 84;
+    const padT = opts.compact ? (landscape ? 48 : 72) : 72;
+    const padB = opts.compact ? (landscape ? 236 : 284) : 84;
 
     for (const w of wanted) {
       seen.add(w.id);

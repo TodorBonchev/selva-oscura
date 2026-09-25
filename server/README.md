@@ -103,6 +103,22 @@ Omit `DATABASE_URL` only if you want a throwaway in-memory ledger.
 - `GET /emits`
 - `WS /ws`
 
+## Self-play regression bot
+
+`scripts/selfplay.mjs` plays the whole Slice 1 road through the real protocol —
+Dark Wood (Guide, pyre, stash, AH, writ) → Lust → Gluttony → Avarice → Dark Wood —
+checking sealed roads, first clears, loot, and that remote travel is refused, and
+prints per-canto time / deaths / lowest HP / damage taken.
+
+```bash
+npm start                                   # in another terminal
+node scripts/selfplay.mjs                   # one skilled run
+node scripts/selfplay.mjs --style naive --runs 2   # melee + flask only
+node scripts/selfplay.mjs --coop            # a party of two sharing rooms
+```
+
+Exits non-zero if any canto cannot be cleared.
+
 ## Docker / Railway
 
 Dockerfile assumes build context = `server/` (bundled `content/` + `vendor/` + `migrations/`).

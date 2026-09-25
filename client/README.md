@@ -32,16 +32,17 @@ http://localhost:5173/?server=http://localhost:8080&name=Virgil
 | **H** · **AH** button | Toggle auction house (+ browse refresh) |
 | **Attack** button (tap or hold) | Attack nearest foe in range |
 
-### Mobile / narrow screens
+### Mobile / narrow screens (HUD v2)
 
-- **Virtual joystick** (bottom-left): shown on touch, coarse pointer, or ≤640px width. Drag to move; release to stop. Uses the same rate-limited `socket.move` path as WASD.
-- Stick captures its own pointer events so world picking ignores stick drags. Tap-to-move still works on empty ground **outside** the stick zone; while the stick is active, continuous move wins over destination taps.
-- Bottom **action bar** sits to the **right of the stick** (Inv · AH · Interact · Attack) so thumbs don’t collide. Attack is slightly larger; hold Attack to keep swinging at the nearest foe.
-- HUD help switches to stick-oriented hints under ~640px / coarse pointer.
-- Inventory & AH panels become full-width bottom sheets with larger tap targets (~44px) and close buttons.
-- Camera pulls back on compact UI so hub POIs stay readable while stick-driving.
-- Entity picking uses a Three.js raycast from the tap; the canvas uses `pointerdown` for touch.
-- Safe-area insets are respected for notched phones (`viewport-fit=cover`). Game root uses `touch-action: none` to block browser scroll/zoom over the canvas.
+`WorldApp.resize()` sets `body.hud-compact` (phones / coarse pointer) and `body.hud-landscape` (compact + landscape); the phone layout lives in the "HUD v2" block at the end of `styles.css`.
+
+- **Portrait:** thin two-row vitals (canto + Ash, HP + MP); objective line, foe plate and toasts in a left column; minimap on the right. Camera pitch ≈43° with the hero near centre so the bottom third belongs to the thumbs.
+- **Landscape:** one-line vitals strip, minimap top-right, camera pitch ≈41°.
+- **Left thumb:** virtual stick bottom-left (drag to move; release stops at once). Inv / AH seals sit above it.
+- **Right thumb arc** around a large Attack seal (hold to keep swinging): inner ring Gale · Dash · Burst, outer ring Use · Ward · Flask. **Use** shows a context verb (Talk, Kneel, Ring, Claim, Take, Stash, Trade, Writ) and is held to travel through a road.
+- Compass arrows stay in the open band between vitals and thumbs. Trees between the camera and the hero (or overhanging the lens) fade out.
+- Inventory / AH open as sheets (portrait: tall bottom sheet; landscape: two-column card) and hide the thumbs while open. Interacting with the Dark Wood stash opens the bag in bank mode (Bank / Withdraw).
+- Safe-area insets are respected (`viewport-fit=cover`); the game root uses `touch-action: none`.
 
 Desktop still supports WASD / I / H / E; the stick stays hidden on fine-pointer wide viewports. Nothing in the server protocol changes for mobile.
 
@@ -78,3 +79,9 @@ cd client && npm install && npm run build
 ## 3D world
 
 The world is Three.js (y-up). Server planar `(x, y)` maps to world `(x, 0, y)`. Characters are original bronze-statue meshes with generated Doré albedos under `public/assets/tex/`. Image-to-GLB is not enabled on the current xAI team; swapping a `.glb` in later is a drop-in at `makeByKind`.
+
+### Hero rig
+
+The player (and every remote player) is the procedural pilgrim in `src/world/hero.ts`: ivory robe, crimson mantle and hood, laurel, sword and buckler. Each gear slot's pieces are tagged so `gearLook.ts` shows only what is equipped, and parts are merged per joint and material to keep draw calls low on phones. `anim.ts` drives it: a foot-planted walk/run, a diagonal forehand cut keyed to the attack windup, and the portal channel pose. `fx.ts` draws the matching swoosh. Remote players stride at their tracked speed and face where they walk. The Guide uses the same rig in a slate/umber scholar palette, holding a lantern staff and turning to face you.
+
+The dev-only character studio is not bundled. Run `npm run dev`, then open `http://localhost:5173/tools/char-studio.html`. It renders the hero bare and geared from three angles and at phone scale. Query options: `anim=idle|walk|attack`, `t=<ms>`, `u=<attack phase 0–1>`, `slash=0`, `hide=<joint names>` and `who=guide`.

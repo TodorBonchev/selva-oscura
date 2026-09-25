@@ -2,11 +2,11 @@
   "id": "avarice_pack_weights",
   "description": "Circle 4 Avarice \u2014 weighed drops; slightly greedier than shared Inferno common (Dor\u00e9 bone-gold irony)",
   "rolls": 1,
-  "no_drop_weight": 16,
+  "no_drop_weight": 60,
   "champion_bonus_rolls": 1,
   "entries": [
     {
-      "weight": 40,
+      "weight": 26,
       "rarity": "normal",
       "item_pool": "inferno_bases_t1",
       "qty_min": 1,

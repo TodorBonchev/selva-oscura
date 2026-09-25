@@ -7,6 +7,9 @@ import {
   renderInventory,
   renderAh,
   getSelectedItemId,
+  getSelectedItemSource,
+  isStashMode,
+  setStashMode,
   togglePanel,
   setPanelOpen,
   wireHud,
@@ -53,7 +56,7 @@ import {
   expAlpha,
   type Vec2,
 } from "../render/smoothing";
-import { camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from "./frames";
+import { isPortraitCompact, camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from "./frames";
 import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
 import {
   makeByKind,
@@ -94,6 +97,7 @@ import {
   makeLootBeam,
   makePortalHoldFx,
   makeSlashTrail,
+  tickSlashTrail,
   makeSlamTelegraph,
   makeTelegraph,
   makeWardRing,
@@ -190,6 +194,9 @@ export class WorldApp {
   gradePass: ShaderPass | null = null;
   bloom: UnrealBloomPass | null = null;
   hitLight = makeHitFlash();
+  sky: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> | null = null;
+  /** Last requested sky colours (a canto can load before the dome exists). */
+  skyColors: [number, number, number] | null = null;
   radar: Radar | null = null;
   frameN = 0;
   combatUntil = 0;
@@ -334,7 +341,7 @@ export class WorldApp {
   bursts: { mesh: THREE.Mesh; start: number; dur: number; r: number }[] = [];
   teles: { mesh: THREE.Mesh; until: number; r: number }[] = [];
   slams: SlamTele[] = [];
-  slash: THREE.Mesh | null = null;
+  slash: THREE.Group | null = null;
   slashUntil = 0;
   sparks: SparkBurst[] = [];
   dust: { mesh: THREE.Mesh; start: number }[] = [];
@@ -541,6 +548,16 @@ export class WorldApp {
         this.socket.unequip({ itemId: String(id) });
       },
       meltBag: () => this.socket.salvageBag(),
+      stashSelected: () => {
+        const id = getSelectedItemId();
+        const src = getSelectedItemSource();
+        if (!id || (src !== "bag" && src !== "stash")) {
+          showToast("Select a bag or stash item", "warn");
+          return;
+        }
+        if (src === "stash") this.socket.stashTake(String(id));
+        else this.socket.stashPut(String(id));
+      },
       sip: () => this.sip(),
       dash: () => this.dash(),
       castSpell: (spellId) => this.castSpell(spellId),
@@ -560,16 +577,49 @@ export class WorldApp {
     }
 
     {
-      const sky = new THREE.Mesh(
-        new THREE.SphereGeometry(160, 24, 16),
-        new THREE.MeshBasicMaterial({ color: 0x241810, side: THREE.BackSide, fog: false })
-      );
-      this.scene.add(sky);
+      // Gradient dome (zenith → glowing horizon → ground haze); follows the camera.
+      const skyMat = new THREE.ShaderMaterial({
+        uniforms: {
+          top: { value: new THREE.Color(0x0e0c09) },
+          horizon: { value: new THREE.Color(0x5a4a34) },
+          bottom: { value: new THREE.Color(0x1c1812) },
+        },
+        vertexShader: /* glsl */ `
+          varying vec3 vDir;
+          void main() {
+            vDir = normalize(position);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform vec3 top;
+          uniform vec3 horizon;
+          uniform vec3 bottom;
+          varying vec3 vDir;
+          void main() {
+            float h = vDir.y;
+            vec3 c = h > 0.0
+              ? mix(horizon, top, pow(clamp(h * 1.6, 0.0, 1.0), 0.6))
+              : mix(horizon, bottom, clamp(-h * 4.0, 0.0, 1.0));
+            gl_FragColor = vec4(c, 1.0);
+            #include <colorspace_fragment>
+          }
+        `,
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+      });
+      this.sky = new THREE.Mesh(new THREE.SphereGeometry(150, 24, 16), skyMat);
+      this.sky.renderOrder = -10;
+      this.scene.add(this.sky);
+      if (this.skyColors) this.setSky(...this.skyColors);
     }
     {
       const rig = makeComposer(this.renderer, this.scene, this.camera, { bloom: !isCompactUi() });
       this.composer = rig.composer;
       this.gradePass = rig.grade;
+      // Heavier edge falloff on phones frames the hero and lifts HUD legibility
+      if (isCompactUi()) this.gradePass.uniforms.darkness.value = 0.58;
       this.bloom = rig.bloom;
       const bw = this.root.clientWidth || window.innerWidth;
       const bh = this.root.clientHeight || window.innerHeight;
@@ -825,7 +875,7 @@ export class WorldApp {
     const { fwd, right } = camPlanarBasis(this.camera);
     let fx = 0;
     let sx = 0;
-    const stick = this.joystick.getVector();
+    const stick = this.joystick.getVector(dt);
     if (stick && (stick.x !== 0 || stick.y !== 0)) {
       fx += -stick.y;
       sx += stick.x;
@@ -1050,7 +1100,9 @@ export class WorldApp {
         this.youGroup.traverse((o) => {
           const m = o as THREE.Mesh;
           if (m.isMesh && m.material && "opacity" in m.material) {
-            (m.material as THREE.MeshStandardMaterial).transparent = true;
+            const mm = m.material as THREE.MeshStandardMaterial;
+            if (!mm.transparent) mm.needsUpdate = true; // OPAQUE variant ignores opacity
+            mm.transparent = true;
             (m.material as THREE.MeshStandardMaterial).opacity = 0.45;
           }
         });
@@ -1116,6 +1168,7 @@ export class WorldApp {
       this.hitFlashAmt *= Math.exp(-dt * 8.5);
     }
 
+    this.sky?.position.set(this.camFollow.x, 0, this.camFollow.z);
     this.sun.position.set(this.camFollow.x + 14, 22, this.camFollow.z + 8);
     this.sun.target.position.copy(this.camFollow);
     this.rim.position.set(this.camFollow.x - 10, 9, this.camFollow.z - 12);
@@ -1123,27 +1176,8 @@ export class WorldApp {
 
     if (this.slash && this.slashUntil > this.animT) {
       this.slash.visible = true;
-      const left = this.slashUntil - this.animT;
-      const u = 1 - left / ATTACK_ANIM_MS;
-      // Windup holds arc back; impact snaps through; recovery fades.
-      const swing = u < 0.22 ? u / 0.22 * 0.22 : u < 0.4 ? 0.22 + ((u - 0.22) / 0.18) * 0.7 : 0.92 + (u - 0.4) * 0.12;
-      this.slash.rotation.y = (1 - swing) * Math.PI * 1.05;
-      this.slash.rotation.z = 0.22 + swing * 0.7;
-      const sm = this.slash.material as THREE.MeshBasicMaterial;
-      const bright = u >= 0.22 && u < 0.45 ? 1 : 0.85;
-      sm.opacity = bright * (1 - u * u);
-      const avaSlash = this.room?.cantoId === "inferno_07";
-      sm.color.setHex(
-        u >= 0.22 && u < 0.4
-          ? avaSlash
-            ? 0xfff0c0
-            : 0xfff6d8
-          : avaSlash
-            ? 0xe8c86a
-            : 0xffe8a8
-      );
-      const punch = u >= 0.22 && u < 0.4 ? (avaSlash ? 1.3 : 1.24) : 1;
-      this.slash.scale.setScalar((0.82 + swing * 0.55) * punch * (compact ? 0.92 : 1));
+      const u = 1 - (this.slashUntil - this.animT) / ATTACK_ANIM_MS;
+      tickSlashTrail(this.slash, u, { gold: this.room?.cantoId === "inferno_07", compact });
     } else if (this.slash) this.slash.visible = false;
 
     this.frameN++;
@@ -1247,6 +1281,11 @@ export class WorldApp {
     this.aimY /= n;
   }
 
+  /**
+   * Fade trees that sit between the camera and the hero: anything the view ray
+   * touches, plus every trunk on the camera side of the hero inside the view
+   * corridor (their canopies otherwise fill the lower half of a phone screen).
+   */
   fadeTreeOccluders() {
     if (!this.youGroup || !this.trees.length) return;
     this.treeFadeTick++;
@@ -1267,28 +1306,66 @@ export class WorldApp {
       while (o && o.name !== "tree") o = o.parent;
       if (o) hidden.add(o);
     }
+    // Planar axis hero → camera
+    const px = this.tmp.x;
+    const pz = this.tmp.z;
+    let ax = this.camera.position.x - px;
+    let az = this.camera.position.z - pz;
+    const alen = Math.hypot(ax, az) || 1;
+    ax /= alen;
+    az /= alen;
+    const portrait = isPortraitCompact();
+    const halfW = portrait ? 5.2 : isCompactUi() ? 7.5 : 6.5;
+    const heroDist = dist;
+    // Trunks beside / behind the lens spill canopy into frame without projecting in view
+    const nearR = portrait ? 9 : isCompactUi() ? 12 : 8.8;
     const camX = this.camera.position.x;
     const camZ = this.camera.position.z;
     for (const tree of this.trees) {
-      const dx = tree.position.x - camX;
-      const dz = tree.position.z - camZ;
-      const nearCam = dx * dx + dz * dz < 8.8 * 8.8;
-      const fade = hidden.has(tree) || nearCam;
-      if (tree.userData.fade === fade) continue;
-      tree.userData.fade = fade;
-      tree.traverse((c) => {
-        const m = c as THREE.Mesh;
-        if (!m.isMesh) return;
-        const mats = Array.isArray(m.material) ? m.material : [m.material];
-        for (const mat of mats) {
-          const sm = mat as THREE.MeshStandardMaterial;
-          if (!("opacity" in sm)) continue;
-          sm.transparent = fade;
-          sm.opacity = fade ? 0.18 : 1;
-          sm.depthWrite = !fade;
+      const dx = tree.position.x - px;
+      const dz = tree.position.z - pz;
+      if (dx * dx + dz * dz > 45 * 45) {
+        if (tree.userData.fade) this.setTreeFade(tree, false);
+        continue;
+      }
+      const along = dx * ax + dz * az; // >0 = camera side of the hero
+      const side = Math.abs(dx * az - dz * ax);
+      const corridor = along > 1.2 && along < alen + 6 && side < halfW + along * 0.18;
+      // Screen-space: a canopy nearer the lens than the hero that lands in the
+      // lower two-thirds of the frame hides the play space (edges in landscape).
+      let screen = false;
+      if (along > -2) {
+        this.tmp2.set(tree.position.x, tree.position.y + 8.5, tree.position.z);
+        const dCam = this.tmp2.distanceTo(this.camera.position);
+        if (dCam < heroDist + 4) {
+          this.tmp2.project(this.camera);
+          screen = this.tmp2.z < 1 && this.tmp2.y < 0.34 && Math.abs(this.tmp2.x) < 1.25;
         }
-      });
+      }
+      const cx = tree.position.x - camX;
+      const cz = tree.position.z - camZ;
+      const nearCam = cx * cx + cz * cz < nearR * nearR;
+      const fade = hidden.has(tree) || corridor || screen || nearCam;
+      if (tree.userData.fade !== fade) this.setTreeFade(tree, fade);
     }
+  }
+
+  setTreeFade(tree: THREE.Object3D, fade: boolean) {
+    tree.userData.fade = fade;
+    tree.traverse((c) => {
+      const m = c as THREE.Mesh;
+      if (!m.isMesh || m.name === "discShadow") return;
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of mats) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        if (!("opacity" in sm)) continue;
+        // transparent selects a different shader variant (OPAQUE forces alpha=1)
+        if (sm.transparent !== fade) sm.needsUpdate = true;
+        sm.transparent = fade;
+        sm.opacity = fade ? 0.16 : 1;
+        sm.depthWrite = !fade;
+      }
+    });
   }
 
   tickFx(dt: number) {
@@ -1490,7 +1567,16 @@ export class WorldApp {
         // Skip far remotes/guides — idle pose freezes; resume when near.
         const humR = isCompactUi() ? 28 : 42;
         if (hdx * hdx + hdz * hdz < humR * humR) {
-          tickHumanoid(n.group, { moving: false, tMs: this.animT, attacking: false, speed: 0 });
+          // Remote pilgrims walk/run at their tracked speed (see syncEntities)
+          const gait = n.kind === "player" ? Number(n.group.userData.gaitSpeed) || 0 : 0;
+          tickHumanoid(n.group, { moving: gait > 0.6, tMs: this.animT, attacking: false, speed: gait });
+        }
+        // The Guide turns to meet an approaching pilgrim (it would otherwise show
+        // the phone camera its back)
+        if (n.kind === "guide" && hdx * hdx + hdz * hdz < 14 * 14) {
+          const want = yawFromPlanar(-hdx, -hdz);
+          const d = Math.atan2(Math.sin(want - n.group.rotation.y), Math.cos(want - n.group.rotation.y));
+          n.group.rotation.y += d * Math.min(1, dt * 3.5);
         }
       }
       if ((n.kind === "whirl" || n.kind === "champion") && this.frameN % 2 === 0) {
@@ -1673,12 +1759,27 @@ export class WorldApp {
     }
   }
 
+  /**
+   * Content often pairs an exit with a portal POI to the same canto a couple of
+   * units apart; drawing both stacks two gates and two overlapping labels.
+   * The portal POI is the one we show / target (the server accepts either).
+   */
+  isTwinExit(e: any): boolean {
+    if (e?.kind !== "exit" || !e.toCanto || !this.room) return false;
+    for (const o of this.room.entities) {
+      if (o.kind !== "poi" || o.poiKind !== "portal" || o.toCanto !== e.toCanto) continue;
+      if (Math.hypot(o.x - e.x, o.y - e.y) < 5) return true;
+    }
+    return false;
+  }
+
   syncEntities() {
     if (!this.room || !this.mats) return;
     const seen = new Set<string>();
     try {
     for (const e of this.room.entities) {
       const id = String(e.id);
+      if (this.isTwinExit(e)) continue;
       seen.add(id);
       const kind = resolveKind(e);
       let rec = this.nodes.get(id);
@@ -1822,7 +1923,30 @@ export class WorldApp {
       if (!rec) rec = this.spawnNode(id, "player", { kind: "player", name: pl.name });
       const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
-      rec.group.rotation.y = yawFromPlanar(this.renderYou.x - pos.x, this.renderYou.y - pos.y);
+      // Remote gait from the smoothed track: tickFx strides at this speed; the
+      // body turns toward where they walk and keeps that heading when they stop
+      const ud = rec.group.userData;
+      const stepS = ud.gaitT == null ? 0 : Math.min(0.1, Math.max(0, (this.animT - ud.gaitT) / 1000));
+      if (stepS > 0) {
+        const dx = pos.x - ud.gaitX;
+        const dy = pos.y - ud.gaitY;
+        const jump = Math.hypot(dx, dy);
+        if (jump < 3) {
+          // (a larger step is a snap/teleport, not a stride)
+          const sp = Math.min(12, jump / stepS);
+          ud.gaitSpeed = (ud.gaitSpeed || 0) + (sp - (ud.gaitSpeed || 0)) * Math.min(1, stepS * 8);
+          if (sp > 0.4) ud.gaitYaw = yawFromPlanar(dx, dy);
+        }
+      }
+      ud.gaitT = this.animT;
+      ud.gaitX = pos.x;
+      ud.gaitY = pos.y;
+      if (ud.gaitYaw == null) {
+        ud.gaitYaw = yawFromPlanar(this.renderYou.x - pos.x, this.renderYou.y - pos.y);
+        rec.group.rotation.y = ud.gaitYaw;
+      }
+      const turn = Math.atan2(Math.sin(ud.gaitYaw - rec.group.rotation.y), Math.cos(ud.gaitYaw - rec.group.rotation.y));
+      rec.group.rotation.y += turn * Math.min(1, stepS * 10);
       // 2+ remotes / gold haze: dim far rim lights (perf + declutter)
       const rim = rec.group.getObjectByName("avaRemoteRim") as THREE.PointLight | undefined;
       if (rim) {
@@ -2038,6 +2162,8 @@ export class WorldApp {
       wrap.classList.add("poi-marker");
       label.position.set(0, 2.4, 0);
     }
+    // Guide: the name plate sits above the lantern staff, not over the flame
+    if (kind === "guide") label.position.set(0, 2.6, 0);
     group.add(label);
     group.userData.baseScale = group.scale.x;
     this.scene.add(group);
@@ -2443,7 +2569,9 @@ export class WorldApp {
     const fog = this.scene.fog;
     if (!(fog instanceof THREE.FogExp2)) return;
     fog.color.lerp(this.fogTargetColor, 0.14);
-    fog.density += (this.fogTargetDensity - fog.density) * 0.14;
+    // Phones look down more steeply (shorter sight lines) — a little more haze keeps depth
+    const want = this.fogTargetDensity * (isCompactUi() ? 1.3 : 1);
+    fog.density += (want - fog.density) * 0.14;
     this._clearScratch.lerp(this.clearTargetColor, 0.14);
     this.renderer.setClearColor(this._clearScratch, 1);
   }
@@ -2453,6 +2581,11 @@ export class WorldApp {
     if (this.ground) {
       this.scene.remove(this.ground.group);
       this.ground.group.traverse((o) => {
+        // Light-shaft sprites own their material (texture is shared — keep it)
+        if ((o as THREE.Sprite).isSprite) {
+          ((o as THREE.Sprite).material as THREE.Material).dispose();
+          return;
+        }
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
         m.geometry?.dispose();
@@ -2498,16 +2631,22 @@ export class WorldApp {
       else if (lust) this.ash.setColor(0xffb090, isCompactUi() ? 0.45 : 0.55);
       else this.ash.setColor(0xe8d4b0, 0.55);
     }
+    this.setSky(
+      lust ? 0x12060a : glut ? 0x0a0c08 : ava ? 0x0a0804 : 0x0e0c09,
+      lust ? 0x6e2616 : glut ? 0x3a4022 : ava ? 0x5e4618 : 0x4e4230,
+      lust ? 0x2a0e08 : glut ? 0x14120a : ava ? 0x100c06 : 0x1c1812
+    );
     if (lust) {
       this.fogTargetColor.setHex(0x3a140e);
       this.fogTargetDensity = 0.0135;
       this.clearTargetColor.setHex(0x1a0c08);
-      this.hemi.color.set(0xffb080);
-      this.hemi.groundColor.set(0x2a1008);
+      // Red-black (bible: inferno_red_black) — keep the ember ground from washing out
+      this.hemi.color.set(0xe89870);
+      this.hemi.groundColor.set(0x1a0806);
       this.sun.color.set(0xff9960);
-      this.sun.intensity = 2.15;
+      this.sun.intensity = 1.7;
       this.rim.color.set(0xff8844);
-      this.hemi.intensity = 1.12;
+      this.hemi.intensity = 0.84;
       this.rim.intensity = 1.7;
       // Small hero fill so silhouette reads through Lust fog (point light, cheap).
       this.heroLight.intensity = 4.05;
@@ -2611,6 +2750,15 @@ export class WorldApp {
       );
       setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
     }
+  }
+
+  setSky(top: number, horizon: number, bottom: number) {
+    this.skyColors = [top, horizon, bottom];
+    const u = this.sky?.material.uniforms;
+    if (!u) return;
+    (u.top.value as THREE.Color).setHex(top);
+    (u.horizon.value as THREE.Color).setHex(horizon);
+    (u.bottom.value as THREE.Color).setHex(bottom);
   }
 
   onNet(msg: any) {
@@ -2950,6 +3098,10 @@ export class WorldApp {
         }
         break;
       }
+      case "stash_open":
+        setStashMode(true);
+        this.refreshInventoryUi();
+        break;
       case "ah_listings":
         renderAh(
           msg.listings,
@@ -3313,6 +3465,7 @@ export class WorldApp {
     renderInventory(you.inventory || [], () => {}, {
       equipped: you.equipped || {},
       gearStats: you.gearStats || {},
+      stash: you.stash || [],
       onEquipSlotClick: (slot) => {
         const worn = you.equipped?.[slot];
         if (worn) this.socket.unequip({ slot });
@@ -3390,6 +3543,7 @@ export class WorldApp {
     let bestPos: Vec2 = { x: 0, y: 0 };
     for (const e of this.room.entities) {
       if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
+      if (this.isTwinExit(e)) continue;
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       const cap = Math.max(maxRange, EXIT_TRAVEL_RANGE);
@@ -3403,6 +3557,7 @@ export class WorldApp {
       bestD = maxRange;
       for (const e of this.room.entities) {
         if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+        if (this.isTwinExit(e)) continue;
         const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
         const d = Math.hypot(pos.x - you.x, pos.y - you.y);
         if (d < bestD) {
@@ -4076,7 +4231,7 @@ export class WorldApp {
       this.cancelPortalHold();
       return;
     }
-    const stick = this.joystick.getVector();
+    const stick = this.joystick.peekVector();
     const steering =
       this.keys.has("KeyW") ||
       this.keys.has("KeyS") ||
@@ -4205,7 +4360,50 @@ export class WorldApp {
     }
   }
 
+  /** One-word action for the nearest interactable (world prompt + Use button caption). */
+  interactVerb(ent: any, kind: string): string {
+    if (kind === "loot") return "Take";
+    switch (ent?.poiKind) {
+      case "npc":
+        return "Talk";
+      case "stash":
+        return "Stash";
+      case "ah":
+        return "Trade";
+      case "quest":
+        return "Writ";
+      case "pyre":
+      case "shrine":
+        return "Kneel";
+      case "cache":
+        return "Claim";
+      case "bell":
+        return "Ring";
+      case "marker":
+        return "Read";
+      default:
+        return "Use";
+    }
+  }
+
+  /** Desktop shows the key ("E · Talk"); touch shows just the verb. */
+  keyedVerb(verb: string): string {
+    return isCompactUi() ? verb : `E · ${verb}`;
+  }
+
+  /** Bank mode only makes sense while standing at the stash. */
+  checkStashRange() {
+    if (!isStashMode() || !this.room) return;
+    const st = this.room.entities.find((e: any) => e.kind === "poi" && e.poiKind === "stash");
+    const you = this.renderYou;
+    if (!st || Math.hypot(st.x - you.x, st.y - you.y) > INTERACT_RANGE + 3) {
+      setStashMode(false);
+      this.refreshInventoryUi();
+    }
+  }
+
   scanNearestInteract() {
+    this.checkStashRange();
     if (!this.room) {
       this.nearestInteract = null;
       return;
@@ -4215,6 +4413,7 @@ export class WorldApp {
     let bestD = INTERACT_HIGHLIGHT_RANGE;
     for (const e of this.room.entities) {
       if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+      if (this.isTwinExit(e)) continue;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       if (d < bestD) {
@@ -4264,11 +4463,11 @@ export class WorldApp {
                 : "Sealed";
         } else if (isPortal) {
           const dest = this.portalDestName(best);
-          prompt.textContent = `Hold E — ${dest}`;
-        } else if (best.poiKind === "shrine" && this.room?.cantoId === "inferno_07") {
-          prompt.textContent = "Kneel";
-        } else if (best.poiKind === "cache" && this.room?.cantoId === "inferno_07") {
-          prompt.textContent = "Claim";
+          prompt.textContent = isCompactUi() ? `Hold Use — ${dest}` : `Hold E — ${dest}`;
+        } else if (best.poiKind === "shrine" || best.poiKind === "pyre") {
+          prompt.textContent = this.keyedVerb("Kneel");
+        } else if (best.poiKind === "cache") {
+          prompt.textContent = this.keyedVerb("Claim");
         } else if (best.poiKind === "bell") {
           const cd = Number(this.room?.you?.bellCd) || 0;
           if (cd > 0.4) {
@@ -4276,12 +4475,12 @@ export class WorldApp {
             prompt.classList.add("bell-cd");
             prompt.style.setProperty("--bell-cd", String(Math.min(1, cd / 18)));
           } else {
-            prompt.textContent = this.room?.cantoId === "inferno_07" ? "Ring" : "E";
+            prompt.textContent = this.keyedVerb("Ring");
             prompt.classList.remove("bell-cd");
             prompt.style.removeProperty("--bell-cd");
           }
         } else {
-          prompt.textContent = rec.kind === "loot" ? "Take" : "E";
+          prompt.textContent = this.keyedVerb(this.interactVerb(best, rec.kind));
           prompt.classList.remove("bell-cd");
         }
       }
@@ -4307,9 +4506,7 @@ export class WorldApp {
       const isPortal = best.kind === "exit" || best.poiKind === "portal";
       if (isPortal && this.portalIsLocked(best)) labelEl.textContent = "Sealed";
       else if (isPortal) labelEl.textContent = "Hold";
-      else if (avaKneel) labelEl.textContent = "Kneel";
-      else if (avaClaim) labelEl.textContent = "Claim";
-      else labelEl.textContent = "Interact";
+      else labelEl.textContent = this.interactVerb(best, best.kind);
     }
     if (this.lastInteractHintId !== String(best.id)) {
       this.lastInteractHintId = String(best.id);

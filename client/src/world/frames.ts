@@ -14,13 +14,18 @@ import * as THREE from "three";
 
 export const UP = new THREE.Vector3(0, 1, 0);
 
-/** Camera offset in world units. Pulled back on compact UI, more so in portrait. */
+/**
+ * Camera offset in world units. Phones sit higher (steeper pitch) so the camera
+ * clears the canopy band (trees are 7–14 tall) and the ground around the hero
+ * reads on a small screen; portrait is steepest since it has the most vertical room.
+ *   desktop  ≈ 27° pitch · landscape ≈ 41° · portrait ≈ 43°
+ */
 export const CAM_BACK_DESKTOP = 9.2;
 export const CAM_HEIGHT_DESKTOP = 6.7;
-export const CAM_BACK_MOBILE = 10.4;
-export const CAM_HEIGHT_MOBILE = 7.5;
-export const CAM_BACK_PORTRAIT = 11.6;
-export const CAM_HEIGHT_PORTRAIT = 8.4;
+export const CAM_BACK_MOBILE = 9.2;
+export const CAM_HEIGHT_MOBILE = 11.4;
+export const CAM_BACK_PORTRAIT = 9.8;
+export const CAM_HEIGHT_PORTRAIT = 13.2;
 
 /** Local Object3D forward. */
 export const LOCAL_FWD = new THREE.Vector3(0, 0, -1);
@@ -96,5 +101,7 @@ export function placeFollowCamera(
   camera.position.set(target.x + o.x, target.y + o.y, target.z + o.z);
   camera.position.y = Math.max(camera.position.y, target.y + 4.6);
   // Look a little past the hero into the scene so they sit in the lower third (D4-style).
-  camera.lookAt(target.x - 1.8, target.y + lookY, target.z - 1.8);
+  // Portrait phones keep the hero nearer centre: the bottom third belongs to the thumbs.
+  const ahead = compact && isPortraitCompact() ? 0.7 : 1.8;
+  camera.lookAt(target.x - ahead, target.y + lookY, target.z - ahead);
 }

@@ -39,7 +39,7 @@ Production client default: `VITE_GAME_SERVER_URL` → Railway URL above (overrid
 
 ### Controls
 
-Click / stick / WASD move · click foes or Attack · loot pickup · E / Interact · **I**/Inv · **H**/AH. Mobile: left virtual stick + right action bar.
+Click / stick / WASD move · click foes or Attack · loot pickup · E / Interact · **I**/Inv · **H**/AH. Mobile (portrait or landscape): left virtual stick + right-thumb arc (Attack, spells, Dash, Flask, context **Use**). Bank items at the Dark Wood stash.
 
 ### Legal
 

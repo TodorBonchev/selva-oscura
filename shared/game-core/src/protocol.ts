@@ -17,6 +17,8 @@ export type ClientMessage =
   | { type: "equip"; itemId: string }
   | { type: "unequip"; itemId?: string; slot?: string }
   | { type: "salvage_bag" }
+  | { type: "stash_put"; itemId: string }
+  | { type: "stash_take"; itemId: string }
   | { type: "sip" }
   | { type: "dash"; x?: number; y?: number }
   | { type: "cast"; spellId: string; aimX?: number; aimY?: number }
@@ -40,5 +42,7 @@ export type ServerMessage =
       duration?: number;
     }
   | { type: "entity_removed"; id: string }
+  /** Sent after interacting with the Dark Wood stash: client opens the bag in stash mode. */
+  | { type: "stash_open" }
   | { type: "error"; code: string; message: string }
   | { type: "pong"; t: number };

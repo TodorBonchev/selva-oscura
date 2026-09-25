@@ -64,6 +64,16 @@
         "hint": "di qua dal peso — return through the weighed gate; bank loot at the Dark Wood stash"
       },
       {
+        "id": "avarice_portal_home",
+        "kind": "portal",
+        "x": 151,
+        "y": 54,
+        "label": "Dark Wood road",
+        "to_canto": "inferno_01",
+        "require_clear": "inferno_07",
+        "hint": "misura spezzata — once the Crush yields, the road home opens past the dais"
+      },
+      {
         "id": "ledger_stone",
         "kind": "marker",
         "x": 70,

@@ -12,6 +12,8 @@ import {
   equipItem,
   unequipItem,
   unequipSlot,
+  stashItem,
+  unstashItem,
 } from "./ledger.mjs";
 import * as ah from "./ah.mjs";
 import {
@@ -25,11 +27,15 @@ const ATTACK_RANGE = 3.5;
 const PICKUP_RANGE = 6.5;
 const INTERACT_RANGE = 5.2;
 const INTERACT_RANGE_PORTAL = 6.2;
+/** Slack over portal reach for a direct travel request (client prediction lag). */
+const TRAVEL_REACH = INTERACT_RANGE_PORTAL + 2;
 const MOVE_SPEED = 8; // units per intent clamp
 const PLAYER_MAX_HP = 130;
 const RESPAWN_IFRAMES = 2.0; // seconds of invulnerability after waking at the entrance
 /** Avarice entrance keep-out so Road Weights never sit on spawn / death wake. */
 const AVA_SPAWN_KEEP = 11.5;
+/** Lust / Gluttony entrance keep-out (just outside mob aggro). */
+const SPAWN_KEEP = 10;
 const PLAYER_BASE_DMG = 22;
 const PLAYER_ATK_CD = 0.42;
 
@@ -55,20 +61,47 @@ const MOB_HP = {
 };
 
 const MOB_DMG = {
-  whirl_shade: 3,
-  gale_wisp: 2,
-  gale_warden: 6,
-  gale_champion: 7,
-  mire_shade: 3,
-  mud_wisp: 2,
-  mire_warden: 7,
-  mire_champion: 8,
-  weight_shade: 4,
-  coin_wisp: 2,
-  ledger_warden: 8,
-  weight_champion: 8,
-  boss: 12,
+  whirl_shade: 6,
+  gale_wisp: 4,
+  gale_warden: 11,
+  gale_champion: 12,
+  mire_shade: 6,
+  mud_wisp: 4,
+  mire_warden: 12,
+  mire_champion: 13,
+  weight_shade: 7,
+  coin_wisp: 4,
+  ledger_warden: 13,
+  weight_champion: 13,
+  boss: 20,
 };
+
+/** Each circle deeper hits a little harder and lasts a little longer. */
+const CANTO_TIER = {
+  inferno_05: { hp: 1.0, dmg: 1.0 },
+  inferno_06: { hp: 1.1, dmg: 1.15 },
+  inferno_07: { hp: 1.2, dmg: 1.3 },
+};
+function tierOf(cantoId) {
+  return CANTO_TIER[cantoId] || { hp: 1, dmg: 1 };
+}
+
+/** Boss pools sized so a fight spans a few telegraphed slams, not one burst. */
+const BOSS_HP = {
+  minos_gate: 520,
+  triple_maw: 680,
+  hoard_crush: 860,
+};
+
+/**
+ * Armor mitigates a share of each hit with diminishing returns
+ * (16 armor ≈ 35%, +18 Whirl Ward ≈ 53%), so gear matters without making foes harmless.
+ */
+function mitigate(dmg, armor) {
+  const a = Math.max(0, Number(armor) || 0);
+  const taken = Math.max(1, Math.round(dmg * (1 - a / (a + 30))));
+  return { taken, soaked: Math.max(0, dmg - taken) };
+}
 
 const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart"]);
 
@@ -107,6 +140,16 @@ function heartWards(room, e) {
   return false;
 }
 
+/** Remember every player who hurt a boss so a shared kill credits them all. */
+function noteBossHit(e, playerId) {
+  if (!e || e.kind !== "boss" || !playerId) return;
+  if (!e.hitBy) e.hitBy = new Set();
+  e.hitBy.add(playerId);
+}
+
+/** Seconds before a slain boss returns while the canto is still occupied. */
+const BOSS_RESPAWN_SEC = 75;
+
 function cantoTitle(id) {
   return CANTOS[id]?.title || id;
 }
@@ -133,9 +176,12 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
-/** Push combatants outside the canto spawn bubble (Avarice entrance safety). */
-function enforceSpawnKeepout(room, minR = AVA_SPAWN_KEEP) {
-  if (room.cantoId !== "inferno_07") return;
+/**
+ * Push combatants outside the canto spawn bubble so an arriving (or waking)
+ * pilgrim is never inside a pack's aggro radius (8) during the load-in.
+ */
+function enforceSpawnKeepout(room, minR = room.cantoId === "inferno_07" ? AVA_SPAWN_KEEP : SPAWN_KEEP) {
+  if (room.canto?.role !== "combat") return;
   const sp = room.canto?.geo?.spawn;
   if (!sp) return;
   const b = room.canto.geo.bounds;
@@ -207,6 +253,7 @@ class CantoRoom {
 
   spawnWorld() {
     this.entities.clear();
+    this.bossRespawns = [];
     this.packRespawns = [];
     this._packRespawnStagger = 0;
     this._packRespawnClock = 0;
@@ -246,35 +293,78 @@ class CantoRoom {
       this.spawnPackMembers(pack);
     }
 
-    for (const boss of this.canto.bosses || []) {
-      const id = boss.id;
-      this.entities.set(id, {
-        id,
-        kind: "boss",
-        name: boss.name,
-        x: boss.anchor.x,
-        y: boss.anchor.y,
-        hp: MOB_HP.boss,
-        maxHp: MOB_HP.boss,
-        dropTable: boss.drop_table,
-        firstClearEmit: boss.first_clear_emit !== false,
-        atkCd: 0,
-      });
-    }
+    for (const boss of this.canto.bosses || []) this.spawnBoss(boss);
     enforceSpawnKeepout(this);
+  }
+
+  spawnBoss(boss) {
+    const id = boss.id;
+    this.entities.set(id, {
+      id,
+      kind: "boss",
+      name: boss.name,
+      x: boss.anchor.x,
+      y: boss.anchor.y,
+      hp: BOSS_HP[boss.id] || MOB_HP.boss,
+      maxHp: BOSS_HP[boss.id] || MOB_HP.boss,
+      dropTable: boss.drop_table,
+      firstClearEmit: boss.first_clear_emit !== false,
+      atkCd: 0,
+    });
+  }
+
+  /**
+   * A slain boss returns after BOSS_RESPAWN_SEC while players remain, so someone
+   * who arrives after another pilgrim's kill is never locked out of the gate.
+   */
+  tickBossRespawns(dt) {
+    if (!this.bossRespawns.length) return;
+    const keep = [];
+    for (const r of this.bossRespawns) {
+      r.left -= dt;
+      if (r.left > 0 || this.entities.has(r.boss.id)) {
+        if (r.left > 0) keep.push(r);
+        continue;
+      }
+      // Never pop the boss on top of someone standing on the dais
+      const a = r.boss.anchor;
+      let crowded = false;
+      for (const s of this.sessions.values()) {
+        if (Math.hypot(s.x - a.x, s.y - a.y) < 7) crowded = true;
+      }
+      if (crowded) {
+        r.left = 4;
+        keep.push(r);
+        continue;
+      }
+      this.spawnBoss(r.boss);
+      this.markDirty();
+      for (const s of this.sessions.values()) {
+        this.toast(s.ws, "warn", `${r.boss.name} rises again.`);
+      }
+    }
+    this.bossRespawns = keep;
   }
 
   join(ws, playerId, name) {
     const ledger = getOrCreatePlayer(playerId, name);
-    // Empty bag → grant weapon + armor so Equip is testable without a kill
+    // Empty bag → grant and wear a weapon + cape, so a new pilgrim starts looking
+    // (and swinging) like the hero instead of a bare tunic with an invisible blade.
     if (!ledger.inventory || ledger.inventory.length === 0) {
       const kit = makeStarterKitItems();
-      for (const item of kit) {
-        void grantInventoryItem(playerId, item).catch((err) =>
-          console.error("[starter] grant failed", err.message)
-        );
-      }
-      this.toast(ws, "loot", "Starter kit: Ashen Club + Torn Cape (open INV → Equip).");
+      void Promise.all(
+        kit.map((item) => grantInventoryItem(playerId, item).then(() => equipItem(playerId, item.id)))
+      )
+        .then(() => {
+          const s = this.sessions.get(playerId);
+          if (s) {
+            s.maxHp = PLAYER_MAX_HP + computeGearStats(ledger).maxHp;
+            s.hp = s.maxHp;
+          }
+          this.pushSnapshot(playerId);
+        })
+        .catch((err) => console.error("[starter] grant failed", err.message));
+      this.toast(ws, "loot", "Starter kit worn: Ashen Club + Torn Cape.");
     }
     const spawn = this.canto.geo.spawn;
     const gear = computeGearStats(ledger);
@@ -321,7 +411,10 @@ class CantoRoom {
       const ox = Math.cos(ang) * ring + (Math.random() - 0.5) * jit;
       const oy = Math.sin(ang) * ring + (Math.random() - 0.5) * jit;
       const arch = pack.archetype || "whirl_shade";
-      let maxHp = MOB_HP[arch] || (pack.champion ? MOB_HP.gale_champion : MOB_HP.whirl_shade);
+      let maxHp = Math.round(
+        (MOB_HP[arch] || (pack.champion ? MOB_HP.gale_champion : MOB_HP.whirl_shade)) *
+          tierOf(this.cantoId).hp
+      );
       // Counterweight mid-boss: tankier than other weight champions
       if (pack.id === "ava_counterweight") maxHp = Math.round(maxHp * 1.35);
       this.entities.set(id, {
@@ -541,8 +634,8 @@ class CantoRoom {
       x = s.x + dx * scale;
       y = s.y + dy * scale;
     }
-    const nx = clamp(x, 0.5, b.width - 0.5);
-    const ny = clamp(y, 0.5, b.height - 0.5);
+    let nx = clamp(x, 0.5, b.width - 0.5);
+    let ny = clamp(y, 0.5, b.height - 0.5);
     const mdx = nx - s.x;
     const mdy = ny - s.y;
     if (Math.hypot(mdx, mdy) > 0.05) {
@@ -607,9 +700,11 @@ class CantoRoom {
     }
     let anyDead = false;
     for (const v of victims) {
+      if (v._dead) continue;
       let hit = v === target ? dmg : Math.max(8, Math.round(dmg * 0.55));
       if (heartWards(this, v)) hit = Math.max(1, Math.round(hit * 0.7));
       v.hp = Math.max(0, v.hp - hit);
+      noteBossHit(v, playerId);
       this.broadcast({
         type: "combat",
         attackerId: playerId,
@@ -737,6 +832,7 @@ class CantoRoom {
       if (heartWards(this, target)) dmg = Math.max(1, Math.round(dmg * 0.7));
       dmg = Math.max(1, Math.round(dmg * weightMatchupMult(spell.id, target)));
       target.hp = Math.max(0, target.hp - dmg);
+      noteBossHit(target, playerId);
       this.broadcast({
         type: "combat",
         attackerId: playerId,
@@ -801,11 +897,13 @@ class CantoRoom {
     const hit = [];
     for (const e of [...this.entities.values()]) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
+      if (e._dead) continue;
       if (dist(s, e) > spell.radius) continue;
       let dmg = base + Math.floor(Math.random() * 5);
       if (heartWards(this, e)) dmg = Math.max(1, Math.round(dmg * 0.7));
       dmg = Math.max(1, Math.round(dmg * weightMatchupMult(spell.id, e)));
       e.hp = Math.max(0, e.hp - dmg);
+      noteBossHit(e, playerId);
       hit.push({ id: e.id, dmg, hp: e.hp, ent: e });
       this.broadcast({
         type: "combat",
@@ -836,6 +934,10 @@ class CantoRoom {
   }
 
   onEntityKilled(killerId, entity) {
+    // A Heart's death burst can kill foes that an outer damage loop (cleave,
+    // Infernal Burst, Dash) still holds — never pay out the same corpse twice.
+    if (!entity || entity._dead || !this.entities.has(entity.id)) return;
+    entity._dead = true;
     const killer = this.sessions.get(killerId);
     const ledger = players.get(killerId);
     const dropTable = entity.dropTable || "inferno_pack_common";
@@ -881,7 +983,7 @@ class CantoRoom {
 
     if (HEART_ARCHETYPES.has(entity.archetype)) {
       for (const e of [...this.entities.values()]) {
-        if (e === entity || e.kind !== "mob") continue;
+        if (e === entity || e.kind !== "mob" || e._dead) continue;
         if (Math.hypot(e.x - entity.x, e.y - entity.y) > 14) continue;
         const burst = 22;
         e.hp = Math.max(0, e.hp - burst);
@@ -983,38 +1085,35 @@ class CantoRoom {
       }
     }
     if (isBoss) {
-      const r = tryEmit(killerId, "Boss", { bossId: entity.id, cantoId: this.cantoId });
-      if (r.ok && killer) {
-        this.toast(killer.ws, "emit", `Boss pending +${ashStelleTag(r.payoutAsh)}`);
-      }
-      const fc = this.canto.first_clear;
-      if (fc?.enabled && entity.firstClearEmit) {
-        const r2 = tryEmit(killerId, "FirstClear", { cantoId: this.cantoId, requires: entity.id });
-        if (r2.ok && killer) {
-          this.toast(killer.ws, "emit", `FirstClear pending +${ashStelleTag(r2.payoutAsh)}`);
-          if (this.cantoId === "inferno_05") {
-            this.toast(
-              killer.ws,
-              "emit",
-              "Lust falls — the Gluttony gate past the dais opens."
-            );
-          } else if (this.cantoId === "inferno_06") {
-            this.toast(
-              killer.ws,
-              "emit",
-              "Triple Maw broken — the Avarice gate past the Maw opens."
-            );
-          } else if (this.cantoId === "inferno_07") {
-            this.toast(
-              killer.ws,
-              "emit",
-              "misura spezzata — Hoard Crush yields; bank weighed drops or return through Gluttony."
-            );
-          }
-        } else if (killer && r2.reason === "already_cleared") {
-          this.toast(killer.ws, "info", "First clear already claimed for this canto.");
+      // Everyone still in the canto who hurt the boss shares the kill (a
+      // last-hit-only first clear would leave helpers stuck at a sealed gate).
+      const credited = new Set([killerId, ...(entity.hitBy || [])]);
+      console.log(`[boss] ${entity.id} slain in ${this.cantoId} (credited ${credited.size})`);
+      for (const pid of credited) {
+        const sess = this.sessions.get(pid);
+        if (!sess) continue;
+        const r = tryEmit(pid, "Boss", { bossId: entity.id, cantoId: this.cantoId });
+        if (r.ok) this.toast(sess.ws, "emit", `Boss pending +${ashStelleTag(r.payoutAsh)}`);
+        const fc = this.canto.first_clear;
+        if (!fc?.enabled || !entity.firstClearEmit) continue;
+        const r2 = tryEmit(pid, "FirstClear", { cantoId: this.cantoId, requires: entity.id });
+        if (r2.ok) {
+          this.toast(sess.ws, "emit", `FirstClear pending +${ashStelleTag(r2.payoutAsh)}`);
+          const gateLine =
+            this.cantoId === "inferno_05"
+              ? "Lust falls — the Gluttony gate past the dais opens."
+              : this.cantoId === "inferno_06"
+                ? "Triple Maw broken — the Avarice gate past the Maw opens."
+                : this.cantoId === "inferno_07"
+                  ? "misura spezzata — Hoard Crush yields; the Dark Wood road opens past the dais."
+                  : null;
+          if (gateLine) this.toast(sess.ws, "emit", gateLine);
+        } else if (r2.reason === "already_cleared" && pid === killerId) {
+          this.toast(sess.ws, "info", "First clear already claimed for this canto.");
         }
       }
+      const def = (this.canto.bosses || []).find((b) => b.id === entity.id);
+      if (def) this.bossRespawns.push({ boss: def, left: BOSS_RESPAWN_SEC });
     }
 
     this.pushAllSnapshots();
@@ -1045,12 +1144,14 @@ class CantoRoom {
     let cut = 0;
     for (const e of [...this.entities.values()]) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
+      if (e._dead) continue;
       const d0 = Math.hypot(e.x - fromX, e.y - fromY);
       const d1 = Math.hypot(e.x - s.x, e.y - s.y);
       if (Math.min(d0, d1) > 2.2) continue;
       let dmg = e.kind === "boss" ? 12 : 18;
       if (heartWards(this, e)) dmg = Math.max(1, Math.round(dmg * 0.7));
       e.hp = Math.max(0, e.hp - dmg);
+      noteBossHit(e, playerId);
       cut++;
       this.broadcast({
         type: "combat",
@@ -1199,6 +1300,7 @@ class CantoRoom {
             ? `Stash holds ${ledger.stash.length} item${ledger.stash.length === 1 ? "" : "s"} — bank Lust, Gluttony, and Avarice drops here.`
             : "Stash is empty — bank champion drops here after Lust, Gluttony, or Avarice."
         );
+        this.send(s.ws, { type: "stash_open" });
         // After banking Ava loot (Crush clear + bag/stash weighed): nudge Guide counsel once per session
         const clearsStash = ledger.firstClears instanceof Set ? ledger.firstClears : new Set();
         const weighedBag =
@@ -1396,6 +1498,37 @@ class CantoRoom {
     this.pushAllSnapshots();
   }
 
+  /** Deposit / withdraw at the Dark Wood stash — only while standing at it. */
+  async handleStash(playerId, itemId, dir) {
+    const s = this.sessions.get(playerId);
+    if (!s) return;
+    const stash = [...this.entities.values()].find((e) => e.kind === "poi" && e.poiKind === "stash");
+    if (!stash || dist(s, stash) > INTERACT_RANGE + 1.5) {
+      this.toast(s.ws, "warn", "Walk to the Dark Wood stash to bank items.");
+      return;
+    }
+    let r;
+    try {
+      r = dir === "take" ? await unstashItem(playerId, itemId) : await stashItem(playerId, itemId);
+    } catch (err) {
+      console.error("[stash] failed", err.message);
+      this.toast(s.ws, "warn", "The stash will not open. Try again.");
+      return;
+    }
+    if (!r.ok) {
+      const why = {
+        stash_full: "The stash is full (60).",
+        bag_full: "Your bag is full (40).",
+        worn: "Unequip it first.",
+        not_found: "That item is gone.",
+      };
+      this.toast(s.ws, "warn", why[r.reason] || "Cannot move that item.");
+      return;
+    }
+    this.toast(s.ws, "loot", dir === "take" ? `Withdrew ${r.item.name}` : `Banked ${r.item.name}`);
+    this.pushSnapshot(playerId);
+  }
+
   async handleUnequip(playerId, itemId, slot) {
     const s = this.sessions.get(playerId);
     if (!s) return;
@@ -1421,6 +1554,7 @@ class CantoRoom {
   tick(dt) {
     if (this.sessions.size === 0) return;
     this.tickPackRespawns(dt);
+    this.tickBossRespawns(dt);
     let manaDirty = false;
     for (const s of this.sessions.values()) {
       if (s.atkCd > 0) s.atkCd = Math.max(0, s.atkCd - dt);
@@ -1642,12 +1776,11 @@ class CantoRoom {
                 : MOB_DMG[arch] || MOB_DMG.boss || 18;
               // Crush phase 2: slightly heavier coin-iron blow
               if (!isChampWind && e.phase === 2 && e.id === "hoard_crush") dmg = Math.floor(dmg * 1.2);
+              dmg = Math.round(dmg * tierOf(this.cantoId).dmg);
               const led = players.get(target.playerId);
               const armor =
                 (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
-              const soak = Math.floor(armor * 0.5);
-              const taken = Math.max(1, dmg - soak);
-              const soaked = Math.max(0, dmg - taken);
+              const { taken, soaked } = mitigate(dmg, armor);
               target.hp = Math.max(0, target.hp - taken);
               this.broadcast({
                 type: "combat",
@@ -1729,15 +1862,14 @@ class CantoRoom {
           continue;
         }
         const arch = e.archetype || "whirl_shade";
-        const dmg = e.champion
+        const base = e.champion
           ? MOB_DMG[arch] || MOB_DMG.gale_champion
           : MOB_DMG[arch] || MOB_DMG.whirl_shade;
+        const dmg = Math.round(base * tierOf(this.cantoId).dmg);
         const led = players.get(nearest.playerId);
         const armor =
           (led ? computeGearStats(led).armor : 0) + (nearest.armorBuff || 0);
-        const soak = Math.floor(armor * 0.5);
-        const taken = Math.max(1, dmg - soak);
-        const soaked = Math.max(0, dmg - taken);
+        const { taken, soaked } = mitigate(dmg, armor);
         nearest.hp = Math.max(0, nearest.hp - taken);
         e.atkCd = 0.9;
         this.broadcast({
@@ -1849,10 +1981,27 @@ export class World {
   travel(playerId, toCanto, ws, name, opts = {}) {
     if (!this.rooms.has(toCanto)) return { ok: false, reason: "unknown_canto" };
     const from = this.getRoom(playerId);
-    const sess = from?.sessions.get(playerId);
+    if (!from) return { ok: false, reason: "no_room" }; // hello joins the hub first
+    const sess = from.sessions.get(playerId);
+    // Already there (the client's follow-up travel after a portal interact): no
+    // re-join — that would reset the session to spawn with full HP.
+    if (from.cantoId === toCanto) return { ok: false, reason: "already_here" };
+    // Server-authoritative roads: you must be standing at a gate that leads there.
+    if (sess && !opts.bypassGates) {
+      let near = false;
+      for (const e of from.entities.values()) {
+        if (e.kind !== "exit" && e.poiKind !== "portal") continue;
+        if (e.toCanto !== toCanto) continue;
+        if (Math.hypot(e.x - sess.x, e.y - sess.y) <= TRAVEL_REACH) near = true;
+      }
+      if (!near) {
+        from.toast(ws, "warn", `Walk to the road toward ${cantoTitle(toCanto)} first.`);
+        return { ok: false, reason: "too_far" };
+      }
+    }
     // Enforce require_clear on exits/portals defined in the current canto toward toCanto.
     // DEV __selvaTravel may pass bypassGates to skip for playtest (portal path never does).
-    if (from && !opts.bypassGates) {
+    if (!opts.bypassGates) {
       const gated = [];
       for (const ex of from.canto.geo.exits || []) {
         if (ex.to_canto === toCanto && ex.require_clear) gated.push(ex.require_clear);

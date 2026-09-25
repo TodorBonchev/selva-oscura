@@ -15,6 +15,7 @@ import {
   makeTree,
 } from "./meshes";
 import { isCompactUi } from "../ui/hud";
+import { makeLightShaft } from "./fx";
 
 export type GroundRig = {
   group: THREE.Group;
@@ -278,6 +279,16 @@ export function buildGround(
         break;
       }
       if (!placedGrove) continue;
+    }
+
+    // Light shafts through the canopy over the camp clearing and the east trail
+    const shafts: [number, number, number][] = compactHub
+      ? [[60, 66, 12], [70, 76, 10], [80, 56, 13]]
+      : [[58, 64, 12], [70, 77, 10], [66, 60, 11], [80, 56, 13], [88, 46, 12]];
+    for (const [sx, sz, sh] of shafts) {
+      const shaft = makeLightShaft(sh, compactHub ? 0.13 : 0.16);
+      shaft.position.set(sx, heightAt(sx, sz), sz);
+      group.add(shaft);
     }
 
     let placed = 0;
