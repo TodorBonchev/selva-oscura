@@ -1977,9 +1977,9 @@ export class World {
     const sess = from.sessions.get(playerId);
     // Already there (the client's follow-up travel after a portal interact): no
     // re-join — that would reset the session to spawn with full HP.
-    if (from && from.cantoId === toCanto) return { ok: false, reason: "already_here" };
+    if (from.cantoId === toCanto) return { ok: false, reason: "already_here" };
     // Server-authoritative roads: you must be standing at a gate that leads there.
-    if (from && sess && !opts.bypassGates) {
+    if (sess && !opts.bypassGates) {
       let near = false;
       for (const e of from.entities.values()) {
         if (e.kind !== "exit" && e.poiKind !== "portal") continue;
@@ -1993,7 +1993,7 @@ export class World {
     }
     // Enforce require_clear on exits/portals defined in the current canto toward toCanto.
     // DEV __selvaTravel may pass bypassGates to skip for playtest (portal path never does).
-    if (from && !opts.bypassGates) {
+    if (!opts.bypassGates) {
       const gated = [];
       for (const ex of from.canto.geo.exits || []) {
         if (ex.to_canto === toCanto && ex.require_clear) gated.push(ex.require_clear);
