@@ -2790,14 +2790,16 @@ body.slam-sting #slam-sting {
 /* Subtle heat-haze fringe at screen edges while ×75+ */
 body.in-lust #heat-haze {
   /* Ava slash-read restraint — Lust wash was burying the trail */
-  opacity: 0.18;
+  --haze-op: 0.18;
+  opacity: var(--haze-op);
   animation: heat-haze-shimmer 4.5s ease-in-out infinite;
 }
 body.in-lust.hud-compact #heat-haze {
-  opacity: 0.14;
+  --haze-op: 0.14;
 }
 body.in-avarice #heat-haze {
-  opacity: 0.18;
+  --haze-op: 0.18;
+  opacity: var(--haze-op);
   animation: heat-haze-shimmer 5.6s ease-in-out infinite;
   background:
     radial-gradient(ellipse 80% 55% at 50% 40%, rgba(212, 168, 64, 0.09), transparent 70%),
@@ -2807,7 +2809,7 @@ body.in-avarice #heat-haze {
 
 /* Audio-free Hoard Crush pressure fringe (toggled near boss) */
 body.in-avarice.crush-pressure #heat-haze {
-  opacity: 0.32;
+  --haze-op: 0.32;
   animation-duration: 3.8s;
   background:
     radial-gradient(ellipse 80% 55% at 50% 40%, rgba(212, 168, 64, 0.11), transparent 70%),
@@ -2815,14 +2817,15 @@ body.in-avarice.crush-pressure #heat-haze {
     radial-gradient(ellipse 88% 78% at 50% 48%, transparent 52%, #1a140848 100%);
 }
 body.in-avarice.crush-pressure.hud-compact #heat-haze {
-  opacity: 0.24;
+  --haze-op: 0.24;
 }
 body.in-avarice.crush-pressure #gold-dust {
   opacity: 0.22;
 }
 body.in-gluttony #heat-haze {
   /* Parity with Ava restraint — olive fringe, slash stays readable */
-  opacity: 0.26;
+  --haze-op: 0.26;
+  opacity: var(--haze-op);
   animation: heat-haze-shimmer 5.2s ease-in-out infinite;
   background:
     radial-gradient(ellipse 110% 40% at 50% -5%, #8a7a3028 0%, transparent 55%),
@@ -2834,7 +2837,7 @@ body.in-gluttony #heat-haze {
 /* Audio-free Triple Maw pressure fringe (toggled near boss) */
 body.in-gluttony.maw-pressure #heat-haze {
   /* Maw pressure retained, but slash-readable (was 0.72 wash) */
-  opacity: 0.4;
+  --haze-op: 0.4;
   animation-duration: 3.4s;
   background:
     radial-gradient(ellipse 110% 42% at 50% -5%, #a0903830 0%, transparent 55%),
@@ -2844,7 +2847,7 @@ body.in-gluttony.maw-pressure #heat-haze {
     radial-gradient(ellipse 88% 78% at 50% 48%, transparent 52%, #1a180c38 100%);
 }
 body.in-gluttony.maw-pressure.hud-compact #heat-haze {
-  opacity: 0.3;
+  --haze-op: 0.3;
 }
 
 /* Gluttony locked-portal + mire rain atmosphere */
@@ -2876,34 +2879,45 @@ body.in-gluttony.maw-pressure.hud-compact #heat-haze {
     0 0 10px #8aa028aa;
 }
 
-/* Single animated layer + static veil — cheaper than dual animated gradients */
+/* Static veil on the element; the stripes fall on a pseudo layer via transform only */
 #mire-rain {
   position: fixed;
   inset: 0;
   z-index: 7;
   pointer-events: none;
   opacity: 0;
-  background:
-    repeating-linear-gradient(
-      108deg,
-      transparent 0 13px,
-      #c8c09018 13px 14px,
-      transparent 14px 28px
-    ),
-    radial-gradient(ellipse 90% 70% at 50% 20%, #6a783022 0%, transparent 62%);
+  overflow: hidden;
+  background: radial-gradient(ellipse 90% 70% at 50% 20%, #6a783022 0%, transparent 62%);
   mix-blend-mode: soft-light;
   transition: opacity 0.45s ease;
 }
+#mire-rain::before {
+  content: "";
+  position: absolute;
+  /* One stripe period along 108° is 28px ÷ cos(72°) ≈ 90.6px straight down */
+  inset: -91px 0 0 0;
+  background: repeating-linear-gradient(
+    108deg,
+    transparent 0 13px,
+    #c8c09018 13px 14px,
+    transparent 14px 28px
+  );
+  will-change: transform;
+}
 body.in-gluttony #mire-rain {
   opacity: 0.52;
-  animation: mire-rain-fall 3.8s linear infinite;
+}
+body.in-gluttony #mire-rain::before {
+  animation: mire-rain-fall 2.45s linear infinite;
 }
 body.in-gluttony.hud-compact #mire-rain {
   opacity: 0.34;
+}
+body.in-gluttony.hud-compact #mire-rain::before {
   animation: none; /* static veil on compact — saves mobile composite cost */
 }
-body.tab-hidden #mire-rain,
-body:not(.in-gluttony) #mire-rain {
+body.tab-hidden #mire-rain::before,
+body:not(.in-gluttony) #mire-rain::before {
   animation: none !important;
 }
 body.tab-hidden.in-gluttony #mire-rain {
@@ -2913,26 +2927,36 @@ body.tab-hidden #heat-haze {
   animation: none !important;
 }
 body.in-gluttony #heat-haze {
-  opacity: 0.26;
+  --haze-op: 0.26;
 }
 body.in-gluttony.hud-compact #heat-haze {
-  opacity: 0.18;
+  --haze-op: 0.18;
 }
 
 /* Avarice gold-black irony haze (restrained — slash stays readable) */
 body.in-avarice.hud-compact #heat-haze {
-  opacity: 0.14;
+  --haze-op: 0.14;
 }
 body.tab-hidden.in-avarice #heat-haze {
   animation: none;
 }
 body.in-avarice #gold-dust {
   opacity: 0.16;
-  animation: gold-dust-drift 14s linear infinite;
+}
+body.in-avarice #gold-dust::before {
+  animation: gold-dust-drift-a 18s linear infinite;
+}
+body.in-avarice #gold-dust::after {
+  animation: gold-dust-drift-b 30s linear infinite;
 }
 body.in-avarice.hud-compact #gold-dust {
   opacity: 0.12;
-  animation-duration: 18s;
+}
+body.in-avarice.hud-compact #gold-dust::before {
+  animation-duration: 23s;
+}
+body.in-avarice.hud-compact #gold-dust::after {
+  animation-duration: 38s;
 }
 body:not(.in-avarice) #gold-dust {
   opacity: 0;
@@ -2940,24 +2964,35 @@ body:not(.in-avarice) #gold-dust {
 }
 /* Tab already/just hidden: freeze gold ash like rain — lower opacity, no drift cost */
 body.tab-hidden.in-avarice #gold-dust {
-  animation: none !important;
   opacity: 0.08;
 }
-@keyframes gold-dust-drift {
-  0% { background-position: 0 0, 40px 20px; }
-  100% { background-position: 80px -120px, -40px -80px; }
+body.tab-hidden.in-avarice #gold-dust::before,
+body.tab-hidden.in-avarice #gold-dust::after {
+  animation: none !important;
+}
+/* One tile per loop, so each layer wraps seamlessly */
+@keyframes gold-dust-drift-a {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(120px, -160px, 0); }
+}
+@keyframes gold-dust-drift-b {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-180px, -220px, 0); }
 }
 /* Idle Avarice: freeze gold-dust CSS drift — ash field already stride-culled */
 body.in-avarice.ava-idle #gold-dust {
-  animation-play-state: paused;
   opacity: 0.1;
+}
+body.in-avarice.ava-idle #gold-dust::before,
+body.in-avarice.ava-idle #gold-dust::after {
+  animation-play-state: paused;
 }
 body.in-avarice.ava-idle.hud-compact #gold-dust {
   opacity: 0.08;
 }
 body.in-avarice.ava-idle #heat-haze {
   animation-play-state: paused;
-  opacity: 0.1;
+  --haze-op: 0.1;
 }
 
 #gold-dust {
@@ -2966,17 +3001,33 @@ body.in-avarice.ava-idle #heat-haze {
   pointer-events: none;
   z-index: 2;
   opacity: 0;
-  background-image:
-    radial-gradient(1px 1px at 20% 30%, rgba(232, 200, 106, 0.55), transparent),
-    radial-gradient(1.5px 1.5px at 70% 60%, rgba(200, 160, 64, 0.4), transparent);
-  background-size: 120px 160px, 180px 220px;
+  overflow: hidden;
   mix-blend-mode: screen;
+}
+/* Two mote layers, each oversized by one tile toward where it drifts from */
+#gold-dust::before,
+#gold-dust::after {
+  content: "";
+  position: absolute;
+  will-change: transform;
+}
+#gold-dust::before {
+  inset: 0 0 -160px -120px;
+  background-image: radial-gradient(1px 1px at 20% 30%, rgba(232, 200, 106, 0.55), transparent);
+  background-size: 120px 160px;
+}
+#gold-dust::after {
+  inset: 0 -180px -220px 0;
+  background-image: radial-gradient(1.5px 1.5px at 70% 60%, rgba(200, 160, 64, 0.4), transparent);
+  background-size: 180px 220px;
 }
 @media (prefers-reduced-motion: reduce) {
   body.in-avarice #heat-haze { animation: none; }
-  body.in-avarice.crush-pressure #heat-haze { animation: none; opacity: 0.28; }
-  body.in-avarice #gold-dust { animation: none; opacity: 0.16; }
-  body.in-avarice.crush-pressure #gold-dust { animation: none; opacity: 0.22; }
+  body.in-avarice.crush-pressure #heat-haze { animation: none; --haze-op: 0.28; }
+  body.in-avarice #gold-dust::before,
+  body.in-avarice #gold-dust::after { animation: none; }
+  body.in-avarice #gold-dust { opacity: 0.16; }
+  body.in-avarice.crush-pressure #gold-dust { opacity: 0.22; }
 }
 .world-label.foe.avarice .wl-name { color: #e8c86a; }
 .world-label.foe.avarice:not(.elite):not(.boss) .wl-name { color: #d8b868; }
@@ -2994,11 +3045,12 @@ body.in-avarice.ava-idle #heat-haze {
     0 0 10px #c8a04088;
 }
 @keyframes mire-rain-fall {
-  0% { background-position: 0 0, 0 0; }
-  100% { background-position: 22px 140px, 0 0; }
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(0, 90.6px, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  body.in-gluttony #mire-rain { animation: none; opacity: 0.5; }
+  body.in-gluttony #mire-rain::before { animation: none; }
+  body.in-gluttony #mire-rain { opacity: 0.5; }
   body.in-lust #heat-haze,
   body.in-gluttony #heat-haze,
   body.in-avarice #heat-haze { animation: none; }
@@ -3020,20 +3072,31 @@ body.in-avarice.ava-idle #heat-haze {
   transition: opacity 0.35s ease;
 }
 body.combo-heat #heat-haze {
-  opacity: 1;
+  --haze-op: 0.85;
+  opacity: var(--haze-op);
   animation: heat-haze-shimmer 1.8s ease-in-out infinite;
 }
+/*
+ * Opacity-only shimmer around each state's --haze-op. It used to animate absolute
+ * opacity 0.55–0.85 (overriding the restrained 0.14–0.4 per-canto values above) plus an
+ * animated blur + hue-rotate filter on a full-screen blend layer every frame.
+ */
 @keyframes heat-haze-shimmer {
   0%, 100% {
-    opacity: 0.55;
-    filter: blur(0.4px) hue-rotate(0deg);
-    transform: scale(1.001);
+    opacity: calc(var(--haze-op, 0.2) * 0.72);
   }
   50% {
-    opacity: 0.85;
-    filter: blur(1.1px) hue-rotate(8deg);
-    transform: scale(1.008);
+    opacity: var(--haze-op, 0.2);
   }
+}
+
+/* Low gfx tier: the canto overlays composite with plain alpha instead of blend modes /
+   filters (each is an extra full-screen compositor pass on a phone) */
+body.gfx-low #heat-haze,
+body.gfx-low #gold-dust,
+body.gfx-low #mire-rain {
+  mix-blend-mode: normal;
+  filter: none;
 }
 
 /* Gold “just safe” rim overlay */
@@ -3160,17 +3223,10 @@ body.combo-eclipse-heat #heat-haze {
   opacity: 1;
   animation: heat-eclipse-shimmer 1.5s ease-in-out infinite;
 }
+/* Opacity only — an animated blur/hue filter re-rasterised the full-screen layer per frame */
 @keyframes heat-eclipse-shimmer {
-  0%, 100% {
-    opacity: 0.5;
-    filter: blur(0.5px) hue-rotate(-8deg);
-    transform: scale(1.002);
-  }
-  50% {
-    opacity: 0.88;
-    filter: blur(1.3px) hue-rotate(12deg);
-    transform: scale(1.012);
-  }
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.88; }
 }
 
 /* Attack CD sweep sits over the sword glyph (icon-mode), like spell seals */
@@ -3316,8 +3372,8 @@ body.combo-void-heat #heat-haze,
   animation: heat-void-shimmer 1.35s ease-in-out infinite;
 }
 @keyframes heat-void-shimmer {
-  0%, 100% { opacity: 0.45; filter: blur(0.6px) saturate(0.7); }
-  50% { opacity: 0.82; filter: blur(1.4px) saturate(0.55); }
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.82; }
 }
 
 /* Unify Attack ready gold rim with spell ready-chime intensity */
@@ -3477,8 +3533,8 @@ body.combo-abyss-heat #heat-haze,
   animation: heat-abyss-shimmer 1.15s ease-in-out infinite;
 }
 @keyframes heat-abyss-shimmer {
-  0%, 100% { opacity: 0.5; filter: blur(0.7px) hue-rotate(-8deg) saturate(1.1); }
-  50% { opacity: 0.9; filter: blur(1.5px) hue-rotate(14deg) saturate(1.3); }
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.9; }
 }
 
 /* Death mini-compass pulse synced with corpse X fade (--corpse-fade) */
@@ -4491,7 +4547,7 @@ body.in-avarice.hud-compact #btn-interact.interact-ready {
 
 /* Hoard Crush phase 2 — hotter pressure fringe (still bone-gold, no neon) */
 body.in-avarice.crush-pressure.crush-phase2 #heat-haze {
-  opacity: 0.4;
+  --haze-op: 0.4;
   animation-duration: 2.8s;
   background:
     radial-gradient(ellipse 80% 55% at 50% 40%, rgba(242, 222, 160, 0.14), transparent 70%),
@@ -4502,7 +4558,7 @@ body.in-avarice.crush-pressure.crush-phase2 #gold-dust {
   opacity: 0.3;
 }
 body.in-avarice.crush-pressure.crush-phase2.hud-compact #heat-haze {
-  opacity: 0.3;
+  --haze-op: 0.3;
 }
 body.in-avarice.crush-pressure.crush-phase2.hud-compact #gold-dust {
   opacity: 0.22;
@@ -4531,7 +4587,7 @@ body.ava-first-clear #game-root::after {
   100% { opacity: 0; filter: brightness(1); }
 }
 body.in-avarice.ava-first-clear #heat-haze {
-  opacity: 0.18;
+  --haze-op: 0.18;
 }
 body.in-avarice.ava-first-clear #gold-dust {
   opacity: 0.4;
@@ -4633,8 +4689,7 @@ body.in-avarice.hud-compact.crush-windup #game-root::before {
 
 /* Avarice Ledger Bell still — brief gold measure wash (SFX-less) */
 body.in-avarice.ava-bell-still #heat-haze {
-  opacity: 0.42;
-  filter: saturate(1.08) brightness(1.06);
+  --haze-op: 0.42;
 }
 body.in-avarice.ava-bell-still #gold-dust {
   opacity: 0.34;
@@ -4934,7 +4989,7 @@ body.in-avarice.crush-enrage #game-root::after {
   animation: crush-enrage-flash 1.4s ease-out forwards;
 }
 body.in-avarice.crush-enrage #heat-haze {
-  opacity: 0.55 !important;
+  --haze-op: 0.55 !important;
   animation-duration: 1.6s !important;
 }
 body.in-avarice.crush-enrage #boss-hp-plate {

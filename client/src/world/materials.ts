@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { markShared } from "./dispose";
 
 export type MatKit = {
   cloth: THREE.MeshStandardMaterial;
@@ -23,40 +24,50 @@ export type MatKit = {
   moss: THREE.MeshStandardMaterial;
 };
 
-/** Dual-scale world-XZ albedo so tiled ground maps stop reading as wallpaper. */
+/**
+ * Dual-scale world-XZ albedo so tiled ground maps stop reading as wallpaper.
+ * The floor covers most of the screen, so the per-pixel work is kept to the two map
+ * fetches: both UV sets and the two slow sin() noises (periods of 50–120u) are computed
+ * per vertex (~4.6u apart on the 40-segment plane, so the interpolated noise is exact to
+ * <1%) instead of per pixel.
+ */
 export function breakAlbedoTiling(mat: THREE.MeshStandardMaterial, scale: number) {
-  mat.customProgramCacheKey = () => `break-albedo:${scale.toFixed(3)}`;
+  mat.customProgramCacheKey = () => `break-albedo-v:${scale.toFixed(3)}`;
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
         `#include <common>
-varying vec3 vWp;`
+varying vec4 vWuv;
+varying vec2 vMixMacro;`
       )
       .replace(
         "#include <project_vertex>",
         `#include <project_vertex>
-vWp = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+vec3 wp = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vec2 wu = wp.xz * ${scale.toFixed(4)};
+vec2 wr = vec2(wu.x * 0.72 - wu.y * 0.69, wu.x * 0.69 + wu.y * 0.72);
+vWuv = vec4(wu, wr * 0.37 + vec2(0.41, 0.17));
+vMixMacro = vec2(
+  0.35 + 0.4 * (0.5 + 0.5 * sin(wp.x * 0.093 + wp.z * 0.071)),
+  0.88 + 0.16 * (0.5 + 0.5 * sin(wp.x * 0.031 - wp.z * 0.044))
+);`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
-varying vec3 vWp;`
+varying vec4 vWuv;
+varying vec2 vMixMacro;`
       )
       .replace(
         "#include <map_fragment>",
         `
 #ifdef USE_MAP
-  vec2 wu = vWp.xz * ${scale.toFixed(4)};
-  vec2 wr = vec2(wu.x * 0.72 - wu.y * 0.69, wu.x * 0.69 + wu.y * 0.72);
-  vec4 a = texture2D(map, wu);
-  vec4 b = texture2D(map, wr * 0.37 + vec2(0.41, 0.17));
-  float n = 0.5 + 0.5 * sin(vWp.x * 0.093 + vWp.z * 0.071);
-  float n2 = 0.5 + 0.5 * sin(vWp.x * 0.031 - vWp.z * 0.044);
-  vec4 sampledDiffuseColor = mix(a, b, 0.35 + 0.4 * n);
-  float macro = 0.88 + 0.16 * n2;
-  sampledDiffuseColor.rgb *= macro;
+  vec4 a = texture2D(map, vWuv.xy);
+  vec4 b = texture2D(map, vWuv.zw);
+  vec4 sampledDiffuseColor = mix(a, b, vMixMacro.x);
+  sampledDiffuseColor.rgb *= vMixMacro.y;
   float lum = dot(sampledDiffuseColor.rgb, vec3(0.30, 0.54, 0.16));
   sampledDiffuseColor.rgb = mix(vec3(lum * 0.94, lum * 0.86, lum * 0.72), sampledDiffuseColor.rgb, 0.74);
   diffuseColor *= sampledDiffuseColor;
@@ -64,6 +75,28 @@ varying vec3 vWp;`
 `
       );
   };
+}
+
+/**
+ * Tier-dependent texture settings: anisotropy caps (the Avarice floor samples the shared
+ * gold map twice per pixel, so that one is capped too — at a grazing phone camera,
+ * anisotropic taps were ~20% of the frame). Safe to call again on a runtime tier change
+ * (re-uploads only the maps whose setting changed).
+ */
+export function applyTextureTier(mats: MatKit, flags: { anisotropy: number }) {
+  const seen = new Set<THREE.Texture>();
+  for (const m of Object.values(mats)) {
+    const map = (m as THREE.MeshStandardMaterial).map;
+    if (!map || seen.has(map)) continue;
+    seen.add(map);
+    const base = Number(map.userData.baseAnisotropy ?? map.anisotropy) || 1;
+    map.userData.baseAnisotropy = base;
+    const want = Math.max(1, Math.min(base, flags.anisotropy));
+    if (map.anisotropy !== want) {
+      map.anisotropy = want;
+      map.needsUpdate = true;
+    }
+  }
 }
 
 const TEX = (name: string) =>
@@ -309,6 +342,10 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
 
   for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, groundGlut, groundAvarice, leather, armor, canopyA, canopyB, moss]) {
     engrave(m, hatch);
+  }
+  // Kit materials are shared by every builder: node disposal must keep them
+  for (const m of [cloth, bronze, gold, bark, stone, gale, gem, groundHub, groundLust, groundGlut, groundAvarice, mire, bone, ember, shadowCatch, leather, armor, canopyA, canopyB, moss]) {
+    markShared(m);
   }
 
   return {

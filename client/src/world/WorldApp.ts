@@ -15,6 +15,8 @@ import {
   wireHud,
   isCompactUi,
   isLandscapeCompact,
+  isPanelOpen,
+  onPanelOpen,
   noteSpellCast,
   flashManaDeny,
   noteWardBuff,
@@ -103,6 +105,9 @@ import {
   makeWardRing,
   placeBolt,
   releaseSparkBurst,
+  releaseFx,
+  acquireFxRing,
+  acquireFxMote,
   spawnSparks,
   spawnGoldDustSplash,
   spawnSludgeSplash,
@@ -117,11 +122,21 @@ import {
   type SparkBurst,
 } from "./fx";
 import { tickCounterweight, tickHoardHeart, tickHumanoid, tickHoardCrush, tickLedgerWarden, tickTripleMaw, tickWhirl } from "./anim";
-import { makeComposer } from "./post";
+import { makeComposer, type GradeOutputPass } from "./post";
+import {
+  FrameGovernor,
+  FramePacer,
+  flagsFor,
+  pickInitialTier,
+  type Tier,
+  type TierFlags,
+} from "./quality";
+import { LightPool, VirtualLight, isVirtualLight } from "./lightPool";
+import { applyTextureTier } from "./materials";
+import { disposeNode3D, markShared, sharedGeo } from "./dispose";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import type { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
 type RoomSnap = any;
 
@@ -169,7 +184,70 @@ type NodeRec = {
   group: THREE.Group;
   label: CSS2DObject;
   hpEl: HTMLElement;
+  /** Label parts, looked up once at spawn (updateLabel runs per node per frame). */
+  nameEl: HTMLElement;
+  hpBar: HTMLElement;
+  hpFill: HTMLElement;
 };
+
+/** Named parts tickFx/syncEntities animate — resolved once per node, not per frame. */
+type NodeFx = {
+  ribbon?: THREE.Object3D;
+  galeDisc?: THREE.Object3D;
+  galeRibbon?: THREE.Object3D;
+  galeRing?: THREE.Object3D;
+  portalInner?: THREE.Object3D;
+  portalSparks?: THREE.Object3D;
+  lootBeam?: THREE.Object3D;
+  gem?: THREE.Object3D;
+  judgeAura?: THREE.Object3D;
+  crushBody?: THREE.Object3D;
+  cwTelegraph?: THREE.Object3D;
+  wardRing?: THREE.Object3D;
+  stillRing?: THREE.Mesh;
+  remoteRim?: VirtualLight;
+};
+
+const NODE_FX_NAMES: Record<string, keyof NodeFx> = {
+  ribbon: "ribbon",
+  galeDisc: "galeDisc",
+  galeRibbon: "galeRibbon",
+  galeRing: "galeRing",
+  portalInner: "portalInner",
+  portalSparks: "portalSparks",
+  lootBeam: "lootBeam",
+  gem: "gem",
+  judgeAura: "judgeAura",
+  crushBody: "crushBody",
+  cwTelegraph: "cwTelegraph",
+  wardRing: "wardRing",
+  stillRing: "stillRing",
+  avaRemoteRim: "remoteRim",
+};
+
+/** Fingerprint of everything renderInventory draws (bag, stash, worn gear, gear stats). */
+function inventorySignature(you: any): string {
+  const list = (items: any[] | undefined) => {
+    let s = "";
+    if (Array.isArray(items)) for (const it of items) s += `${it?.id}:${it?.name}:${it?.rarity},`;
+    return s;
+  };
+  let worn = "";
+  const eq = you.equipped || {};
+  for (const slot in eq) worn += `${slot}=${eq[slot]?.id ?? ""};`;
+  const gs = you.gearStats || {};
+  return `${list(you.inventory)}|${list(you.stash)}|${worn}|${gs.dmg ?? 0},${gs.maxHp ?? 0},${gs.armor ?? 0}`;
+}
+
+/** First object per name in traversal order — same pick as getObjectByName. */
+function collectNodeFx(root: THREE.Object3D): NodeFx {
+  const fx: NodeFx = {};
+  root.traverse((o) => {
+    const key = NODE_FX_NAMES[o.name];
+    if (key && !fx[key]) (fx as Record<string, THREE.Object3D>)[key] = o;
+  });
+  return fx;
+}
 
 export class WorldApp {
   socket: GameSocket;
@@ -187,11 +265,13 @@ export class WorldApp {
   sun: THREE.DirectionalLight;
   fill!: THREE.DirectionalLight;
   rim = new THREE.DirectionalLight(0xffe0b0, 1.7);
-  portalLight = new THREE.PointLight(0xff6633, 0, 18, 2);
+  /** Target-portal fill — a pooled light marker (see lightPool.ts). */
+  portalLight = new VirtualLight(0xff6633, 0, 18, 2, 1.1);
   heroLight = new THREE.PointLight(0xffc878, 4.2, 12, 1.6);
+  ambient = new THREE.AmbientLight(0x8a7a62, 0.48);
   clickMark: THREE.Group | null = null;
   composer: EffectComposer | null = null;
-  gradePass: ShaderPass | null = null;
+  gradePass: GradeOutputPass | null = null;
   bloom: UnrealBloomPass | null = null;
   hitLight = makeHitFlash();
   sky: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> | null = null;
@@ -204,15 +284,33 @@ export class WorldApp {
   dashReadyAt = 0;
   lockedId: string | null = null;
   lockRing: THREE.Mesh | null = null;
-  wardMat = new THREE.MeshBasicMaterial({
-    color: 0xff5533,
-    transparent: true,
-    opacity: 0.5,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-  slowFrames = 0;
-  gfxDropped = false;
+  wardMat = markShared(
+    new THREE.MeshBasicMaterial({
+      color: 0xff5533,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  /** Quality tier flags (quality.ts). */
+  gfx: TierFlags;
+  governor: FrameGovernor;
+  pacer = new FramePacer();
+  lightPool: LightPool;
+  lastFrameAt = 0;
+  fpsEma = 60;
+  /** Throttled UTC day string for the radar's daily-writ check (no Date per frame). */
+  utcDay = "";
+  utcDayAt = 0;
+  _targets = new Map<string, Vec2>();
+  _targetPool: Vec2[] = [];
+  lastInvSig = "";
+  prewarmPending = false;
+  _packCounts = new Map<string, number>();
+  fxWarm: THREE.Group | null = null;
+  invDirty = true;
+  lastLookKey = "";
   propAnims: THREE.Object3D[] = [];
   treeFadeTick = 0;
 
@@ -358,8 +456,15 @@ export class WorldApp {
     this.root = root;
     this.socket = socket;
     this.camera = new THREE.PerspectiveCamera(this.camFov(), 1, 0.2, isCompactUi() ? 170 : 240);
+    const compact = isCompactUi();
+    const pick = pickInitialTier(compact);
+    this.gfx = flagsFor(pick.tier, compact);
+    const dpr = window.devicePixelRatio || 1;
+    this.governor = new FrameGovernor(this.gfx, Math.min(this.gfx.maxRatio, dpr), dpr, pick.pinned);
     this.renderer = new THREE.WebGLRenderer({
-      antialias: !isCompactUi(),
+      // The scene renders into the composer's (non-MSAA) target, so canvas MSAA only
+      // ever smoothed the final full-screen quad (~8% of a desktop frame for nothing).
+      antialias: false,
       alpha: false,
       powerPreference: "high-performance",
     });
@@ -368,10 +473,14 @@ export class WorldApp {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.22;
-    this.renderer.shadowMap.enabled = !isCompactUi();
+    this.renderer.shadowMap.enabled = this.gfx.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
+    // draw() resets per frame so composer passes add up (see __selvaRenderInfo)
+    this.renderer.info.autoReset = false;
     root.appendChild(this.renderer.domElement);
+    this.lightPool = new LightPool(this.scene, this.gfx.pointLights);
+    this.applyGfxClasses();
 
     this.labelRenderer = new CSS2DRenderer();
     this.labelRenderer.domElement.style.position = "absolute";
@@ -390,20 +499,27 @@ export class WorldApp {
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xffe6c0, 1.85);
     this.sun.castShadow = this.renderer.shadowMap.enabled;
-    this.sun.shadow.mapSize.set(256, 256);
-    this.sun.shadow.camera.near = 2;
-    this.sun.shadow.camera.far = 90;
-    this.sun.shadow.camera.left = -40;
-    this.sun.shadow.camera.right = 40;
-    this.sun.shadow.camera.top = 40;
-    this.sun.shadow.camera.bottom = -40;
+    // Tight box around the camera focus: only the hero and nearby foes/props cast (the
+    // frustum culls the rest), and 512² over 36u is ~5× sharper than 256² over 80u.
+    this.sun.shadow.mapSize.set(512, 512);
+    this.sun.shadow.camera.near = 4;
+    this.sun.shadow.camera.far = 56;
+    this.sun.shadow.camera.left = -18;
+    this.sun.shadow.camera.right = 18;
+    this.sun.shadow.camera.top = 18;
+    this.sun.shadow.camera.bottom = -18;
+    this.sun.shadow.bias = -0.0006;
+    this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
     this.scene.add(this.portalLight);
     this.scene.add(this.hitLight);
 
-    const amb = new THREE.AmbientLight(0x8a7a62, 0.48);
-    this.scene.add(amb);
+    // The old PMREM "environment" was a solid clear-colour cube (0x1c1812 — the env
+    // scene had a light but no meshes), i.e. a dim constant ambient that cost two cube
+    // lookups per pixel. This bump reproduces it: PI × env × ~0.75 envMapIntensity.
+    this.ambient.intensity = 0.59;
+    this.scene.add(this.ambient);
     this.fill = new THREE.DirectionalLight(0x88aacc, 0.55);
     this.fill.position.set(-12, 10, -8);
     this.scene.add(this.fill);
@@ -429,13 +545,7 @@ export class WorldApp {
 
   async start() {
     this.mats = await loadMatKit(this.renderer);
-    {
-      const pmrem = new THREE.PMREMGenerator(this.renderer);
-      const env = new THREE.Scene();
-      env.add(new THREE.HemisphereLight(0xf0e0c0, 0x22180c, 1.35));
-      this.scene.environment = pmrem.fromScene(env, 0.04).texture;
-      pmrem.dispose();
-    }
+    applyTextureTier(this.mats, this.gfx);
     this.youGroup = makeByKind("player", this.mats);
     this.youGroup.userData.entityId = "you";
     this.youGroup.scale.setScalar(1.42);
@@ -509,6 +619,10 @@ export class WorldApp {
     this.radar = new Radar();
 
     this.bindInput();
+    // Inventory rebuilds are deferred while the bag is closed — catch up when it opens
+    onPanelOpen((id) => {
+      if (id === "inventory") this.refreshInventoryUi();
+    });
     this.socket.on((msg) => this.onNet(msg));
     if (this.socket.lastSnapshot) this.onNet(this.socket.lastSnapshot);
 
@@ -610,31 +724,142 @@ export class WorldApp {
         fog: false,
       });
       this.sky = new THREE.Mesh(new THREE.SphereGeometry(150, 24, 16), skyMat);
-      this.sky.renderOrder = -10;
+      // Drawn after the opaque world (depth-tested, no depth write): only the pixels the
+      // floor and props leave uncovered run the sky shader, instead of the whole screen
+      this.sky.renderOrder = 10;
       this.scene.add(this.sky);
       if (this.skyColors) this.setSky(...this.skyColors);
     }
-    {
-      const rig = makeComposer(this.renderer, this.scene, this.camera, { bloom: !isCompactUi() });
-      this.composer = rig.composer;
-      this.gradePass = rig.grade;
-      // Heavier edge falloff on phones frames the hero and lifts HUD legibility
-      if (isCompactUi()) this.gradePass.uniforms.darkness.value = 0.58;
-      this.bloom = rig.bloom;
-      const bw = this.root.clientWidth || window.innerWidth;
-      const bh = this.root.clientHeight || window.innerHeight;
-      this.composer.setSize(bw, bh);
-      this.bloom?.setSize(Math.max(2, bw >> 1), Math.max(2, bh >> 1));
-    }
+    this.buildComposer();
+    if (import.meta.env.DEV) this.exposeRenderInfo();
     this.running = true;
     this.clock.start();
     this.loop();
     document.getElementById("boot-veil")?.classList.add("out");
   }
 
+  /** Render resolution: the governor's adaptive ratio (never above the tier cap or DPR). */
   pixelRatio(): number {
     const dpr = window.devicePixelRatio || 1;
-    return Math.min(isCompactUi() ? 1.2 : 1.5, dpr);
+    return Math.min(dpr, this.governor ? this.governor.ratio : Math.min(1.2, dpr));
+  }
+
+  /** Tier cap for the ratio (benches pin this to compare like with like). */
+  maxPixelRatio(): number {
+    return this.governor.maxFor(this.gfx);
+  }
+
+  /** Apply a render ratio to the canvas, the composer targets and bloom together. */
+  applyPixelRatio(pr: number) {
+    this.governor.ratio = pr;
+    const w = this.root.clientWidth || window.innerWidth;
+    const h = this.root.clientHeight || window.innerHeight;
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(w, h, false);
+    if (this.composer) {
+      this.composer.setPixelRatio(pr);
+      this.composer.setSize(w, h);
+    }
+    // Bloom runs at half the scene resolution (EffectComposer resets it to full)
+    this.bloom?.setSize(Math.max(2, Math.round((w * pr) / 2)), Math.max(2, Math.round((h * pr) / 2)));
+  }
+
+  /** (Re)build the post chain for the current tier (bloom only on high). */
+  buildComposer() {
+    if (this.composer) {
+      this.composer.dispose();
+      for (const p of this.composer.passes) (p as { dispose?: () => void }).dispose?.();
+      this.composer = null;
+      this.gradePass = null;
+      this.bloom = null;
+    }
+    const rig = makeComposer(this.renderer, this.scene, this.camera, { bloom: this.gfx.bloom });
+    this.composer = rig.composer;
+    this.gradePass = rig.grade;
+    this.bloom = rig.bloom;
+    this.applyPixelRatio(this.pixelRatio());
+  }
+
+  /** Scene → screen for the current tier (benches call this directly). */
+  renderFrame() {
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Step down one quality tier (FrameGovernor asks; never steps back up). */
+  setTier(tier: Tier) {
+    if (tier === this.gfx.tier) return;
+    const flags = flagsFor(tier, isCompactUi());
+    this.gfx = flags;
+    this.governor.setFlags(flags);
+    this.renderer.shadowMap.enabled = flags.shadows;
+    this.sun.castShadow = flags.shadows;
+    this.lightPool.setCount(flags.pointLights);
+    if (this.mats) applyTextureTier(this.mats, flags);
+    this.buildComposer();
+    this.applyGfxClasses();
+    this.prewarmShaders();
+    if (import.meta.env.DEV) console.info(`[gfx] tier → ${tier}`);
+  }
+
+  applyGfxClasses() {
+    const b = document.body.classList;
+    b.toggle("gfx-low", this.gfx.tier === "low");
+    b.toggle("gfx-mid", this.gfx.tier === "mid");
+    b.toggle("gfx-high", this.gfx.tier === "high");
+  }
+
+  /**
+   * Compile every material in the scene for the current lights/target now, so the first
+   * slam / portal hold / boss approach does not stall on a shader build mid-fight.
+   */
+  prewarmShaders() {
+    if (!this.mats) return;
+    if (!this.fxWarm) {
+      // One hidden instance of each on-demand effect so its program exists before the
+      // first slam / hit (compile() walks invisible objects too; hidden ones never draw)
+      const g = new THREE.Group();
+      g.name = "fxWarm";
+      g.visible = false;
+      g.add(makeSlamTelegraph("lust").group, makeImpactRing(0xffffff), makeDustPuff(), makeLootBeam(0xffffff));
+      g.add(spawnSparks(0, 0, 0, 0xffffff, 0).points);
+      g.add(makeBurst(this.mats));
+      this.fxWarm = g;
+      this.scene.add(g);
+    }
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    // Composer tiers draw the scene into renderTarget1: compile for that program key
+    if (this.composer) r.setRenderTarget(this.composer.renderTarget1);
+    try {
+      r.compileAsync(this.scene, this.camera).catch(() => {});
+    } catch {
+      /* compile errors surface on the real draw too */
+    }
+    r.setRenderTarget(prev);
+    this.governor.hold(2.5);
+  }
+
+  exposeRenderInfo() {
+    (window as unknown as { __selvaRenderInfo?: () => unknown }).__selvaRenderInfo = () => {
+      const info = this.renderer.info;
+      const composerPR = this.composer ? (this.composer as unknown as { _pixelRatio: number })._pixelRatio : null;
+      return {
+        calls: info.render.calls,
+        triangles: info.render.triangles,
+        points: info.render.points,
+        programs: info.programs?.length ?? 0,
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+        pixelRatio: +this.renderer.getPixelRatio().toFixed(3),
+        composer: Boolean(this.composer),
+        composerPR,
+        tier: this.gfx.tier,
+        fps: +this.fpsEma.toFixed(1),
+        frameMsEma: +this.governor.ema.toFixed(2),
+        pointLights: this.lightPool.slots.length + 1,
+      };
+    };
   }
 
   camFov(): number {
@@ -672,11 +897,16 @@ export class WorldApp {
     this.camera.far = isCompactUi() ? 170 : 240;
     this.camera.aspect = w / Math.max(1, h);
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(this.pixelRatio());
+    this.governor?.setDpr(window.devicePixelRatio || 1);
+    const pr = this.pixelRatio();
+    this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.labelRenderer.setSize(w, h);
-    this.composer?.setSize(w, h);
-    this.bloom?.setSize(Math.max(2, w >> 1), Math.max(2, h >> 1));
+    if (this.composer) {
+      this.composer.setPixelRatio(pr);
+      this.composer.setSize(w, h);
+    }
+    this.bloom?.setSize(Math.max(2, Math.round((w * pr) / 2)), Math.max(2, Math.round((h * pr) / 2)));
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
     document.body.classList.toggle("hud-compact", isCompactUi());
@@ -845,30 +1075,37 @@ export class WorldApp {
     this.socket.move(x, y);
   }
 
-  loop = () => {
+  loop = (now: number = performance.now()) => {
     if (!this.running) return;
     requestAnimationFrame(this.loop);
     // Tab hidden: drain clock, skip sim/draw (rain + gold-dust CSS pause via .tab-hidden).
     if (document.hidden) {
       this.clock.getDelta();
+      this.lastFrameAt = 0;
       if (this.ash?.points) this.ash.points.visible = false;
       return;
     }
+    // 60fps cap: 120Hz+ displays skip alternate vsyncs (accumulated, so no 40fps judder)
+    if (!this.pacer.shouldRun(now)) return;
     if (this.ash?.points && !this.ash.points.visible) this.ash.points.visible = true;
+    if (this.lastFrameAt > 0) this.noteFrameTime(now - this.lastFrameAt);
+    this.lastFrameAt = now;
     let dt = this.clock.getDelta();
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
     dt = Math.min(0.05, dt);
-    if (dt > 0.034) this.slowFrames++;
-    else this.slowFrames = Math.max(0, this.slowFrames - 1);
-    if (!this.gfxDropped && this.slowFrames > 40) {
-      this.gfxDropped = true;
-      this.renderer.setPixelRatio(1);
-      this.resize();
-    }
     this.animT += dt * 1000;
     this.tick(dt);
     this.draw(dt);
   };
+
+  /** Feed the resolution/tier governor with the interval between drawn frames. */
+  noteFrameTime(ms: number) {
+    if (ms < 250) this.fpsEma += (1000 / Math.max(1, ms) - this.fpsEma) * 0.05;
+    const ev = this.governor.sample(ms);
+    if (!ev) return;
+    if (ev.tier) this.setTier(ev.tier);
+    else if (ev.ratio != null) this.applyPixelRatio(ev.ratio);
+  }
 
   tick(dt: number) {
     if (!this.room) return;
@@ -898,11 +1135,25 @@ export class WorldApp {
       y: this.velY,
     });
 
-    const targets = new Map<string, Vec2>();
-    for (const e of this.room.entities) targets.set(e.id, { x: e.x, y: e.y });
+    // Reused map + target points (SmoothStore.tick reads them, never keeps them)
+    const targets = this._targets;
+    const pool = this._targetPool;
+    targets.clear();
+    let k = 0;
+    for (const e of this.room.entities) {
+      const t = pool[k] || (pool[k] = { x: 0, y: 0 });
+      k++;
+      t.x = e.x;
+      t.y = e.y;
+      targets.set(e.id, t);
+    }
     for (const pl of this.room.players) {
       if (pl.id === this.room.you.id) continue;
-      targets.set(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+      const t = pool[k] || (pool[k] = { x: 0, y: 0 });
+      k++;
+      t.x = pl.x;
+      t.y = pl.y;
+      targets.set(`pl:${pl.id}`, t);
     }
     this.remoteSmooth.tick(targets, dt);
 
@@ -1076,6 +1327,7 @@ export class WorldApp {
 
   draw(dt: number) {
     const compact = isCompactUi();
+    this.renderer.info.reset();
     if (this.youGroup) {
       setPlanar(this.youGroup.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
       this.youGroup.rotation.y = yawFromPlanar(this.aimX, this.aimY);
@@ -1110,6 +1362,11 @@ export class WorldApp {
     }
 
     this.syncEntities();
+    if (this.prewarmPending) {
+      // New canto: ground + first entity wave exist now — build their programs up front
+      this.prewarmPending = false;
+      this.prewarmShaders();
+    }
     if (this.lockRing) {
       const lock = this.lockedId ? this.foeById(this.lockedId, 80) : null;
       this.lockRing.visible = Boolean(lock);
@@ -1163,10 +1420,8 @@ export class WorldApp {
       this.camera.updateProjectionMatrix();
       this.camFovKick = 0;
     }
-    if (this.gradePass) {
-      this.gradePass.uniforms.hitFlash.value = this.hitFlashAmt;
-      this.hitFlashAmt *= Math.exp(-dt * 8.5);
-    }
+    if (this.gradePass) this.gradePass.flash.value = this.hitFlashAmt;
+    this.hitFlashAmt = this.hitFlashAmt > 0.004 ? this.hitFlashAmt * Math.exp(-dt * 8.5) : 0;
 
     this.sky?.position.set(this.camFollow.x, 0, this.camFollow.z);
     this.sun.position.set(this.camFollow.x + 14, 22, this.camFollow.z + 8);
@@ -1188,13 +1443,7 @@ export class WorldApp {
     const inGlut = this.room?.cantoId === "inferno_06";
     const inAva = this.room?.cantoId === "inferno_07";
     const fighting = this.inCombat();
-    // Compact combat: ease pixel ratio slightly when still at the soft cap (skip if already gfx-dropped).
-    if (compact && !this.gfxDropped && this.frameN % 30 === 0) {
-      const want = Math.min(fighting ? 1.05 : 1.2, window.devicePixelRatio || 1);
-      if (Math.abs(this.renderer.getPixelRatio() - want) > 0.04) {
-        this.renderer.setPixelRatio(want);
-      }
-    }
+    // Resolution is owned by the FrameGovernor (noteFrameTime → applyPixelRatio)
     const shadowEvery = compact && inCombatRoom ? (inAva ? 5 : 3) : 2;
     const remoteN = this.room?.players ? this.room.players.length - 1 : 0;
     // Compact combat cantos share Ava label cadence (Lust/Glut parity)
@@ -1220,8 +1469,8 @@ export class WorldApp {
     this.tickAtmosphere();
     this.fadeTreeOccluders();
     this.tickFx(dt);
-    if (this.composer) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
+    this.lightPool.update(this.camFollow, dt);
+    this.renderFrame();
     if (this.frameN % labelEvery === 0) {
       this.labelRenderer.render(this.scene, this.camera);
     }
@@ -1229,7 +1478,11 @@ export class WorldApp {
     if (this.radar && this.room) {
       {
         const yu = this.room.you;
-        const day = new Date().toISOString().slice(0, 10);
+        if (this.animT - this.utcDayAt > 1000 || !this.utcDay) {
+          this.utcDayAt = this.animT;
+          this.utcDay = new Date().toISOString().slice(0, 10);
+        }
+        const day = this.utcDay;
         const dailyWritOpen = Boolean(yu?.spokeToGuide) && yu?.dailyQuestDoneUtc !== day;
         this.radar.tick({
           you: this.renderYou,
@@ -1395,6 +1648,7 @@ export class WorldApp {
     this.bursts = this.bursts.filter((b) => {
       if (this.animT - b.start > b.dur) {
         this.scene.remove(b.mesh);
+        (b.mesh.material as THREE.Material).dispose(); // per-burst material (shared sphere)
         return false;
       }
       return true;
@@ -1415,8 +1669,7 @@ export class WorldApp {
       mat.opacity = Math.max(0, 0.4 * (1 - u));
       if (u >= 1) {
         this.scene.remove(d.mesh);
-        d.mesh.geometry.dispose();
-        mat.dispose();
+        releaseFx(d.mesh);
         return false;
       }
       return true;
@@ -1425,8 +1678,7 @@ export class WorldApp {
       tickImpact(r, this.animT);
       if (this.animT - r.start > r.dur) {
         this.scene.remove(r.mesh);
-        r.mesh.geometry.dispose();
-        (r.mesh.material as THREE.Material).dispose();
+        releaseFx(r.mesh);
         return false;
       }
       return true;
@@ -1440,6 +1692,7 @@ export class WorldApp {
       t.mesh.scale.setScalar(t.r * (0.85 + 0.15 * Math.sin(this.animT * 0.02)));
       if (left <= 0) {
         this.scene.remove(t.mesh);
+        releaseFx(t.mesh);
         return false;
       }
       return true;
@@ -1456,13 +1709,14 @@ export class WorldApp {
     });
 
     for (const n of this.nodes.values()) {
-      const ribbon = n.group.getObjectByName("ribbon");
+      const fx = n.group.userData.fx as NodeFx;
+      const ribbon = fx.ribbon;
       if (ribbon) {
         const rdx = n.group.position.x - this.camFollow.x;
         const rdz = n.group.position.z - this.camFollow.z;
         if (rdx * rdx + rdz * rdz < 48 * 48) ribbon.rotation.y = this.animT * 0.003;
       }
-      const disc = n.group.getObjectByName("galeDisc");
+      const disc = fx.galeDisc;
       if (disc) {
         (disc as THREE.Mesh).rotation.z = this.animT * 0.0015;
         let s = 1 + Math.sin(this.animT * 0.004) * 0.04;
@@ -1472,11 +1726,11 @@ export class WorldApp {
         }
         disc.scale.set(s, s, 1);
       }
-      const galeRibbon = n.group.getObjectByName("galeRibbon");
+      const galeRibbon = fx.galeRibbon;
       if (galeRibbon) galeRibbon.rotation.y += 0.0008;
-      const galeRing = n.group.getObjectByName("galeRing");
+      const galeRing = fx.galeRing;
       if (galeRing) galeRing.rotation.z = -this.animT * 0.0022;
-      const inner = n.group.getObjectByName("portalInner");
+      const inner = fx.portalInner;
       if (inner) {
         const hubGlow =
           this.room?.cantoId === "inferno_07" &&
@@ -1489,7 +1743,7 @@ export class WorldApp {
           inner.scale.set(s, s, 1);
         }
       }
-      const ps = n.group.getObjectByName("portalSparks") as THREE.Points | undefined;
+      const ps = fx.portalSparks as THREE.Points | undefined;
       if (ps && this.frameN % 2 === 0) {
         const px = n.group.position.x - this.camFollow.x;
         const pz = n.group.position.z - this.camFollow.z;
@@ -1511,18 +1765,8 @@ export class WorldApp {
           }
         }
       }
-      // Avarice: kill far portal PointLights (each gate ships one fill)
-      if (n.kind === "portal" && this.room?.cantoId === "inferno_07" && this.frameN % 4 === 0) {
-        const pdx = n.group.position.x - this.camFollow.x;
-        const pdz = n.group.position.z - this.camFollow.z;
-        const nearPortal = pdx * pdx + pdz * pdz < 36 * 36;
-        n.group.traverse((o) => {
-          if ((o as THREE.PointLight).isPointLight) {
-            (o as THREE.PointLight).visible = nearPortal || Boolean(n.group.userData.avaHubHomeGlow);
-          }
-        });
-      }
-      const beam = n.group.getObjectByName("lootBeam");
+      // (Far portal glows need no culling: the LightPool only lights markers near the camera)
+      const beam = fx.lootBeam;
       if (beam) {
         const avaLoot = this.room?.cantoId === "inferno_07";
         const crushPile = Boolean((n.label?.element as HTMLElement | undefined)?.classList.contains("ava-crush-pile"));
@@ -1551,7 +1795,7 @@ export class WorldApp {
           n.label.position.y = 1.55 + phase * 0.55 + Math.sin(this.animT * 0.004 + phase * 6) * 0.08;
         }
       }
-      const gem = n.group.getObjectByName("gem");
+      const gem = fx.gem;
       if (gem) {
         const gx = n.group.position.x - this.camFollow.x;
         const gz = n.group.position.z - this.camFollow.z;
@@ -1598,13 +1842,13 @@ export class WorldApp {
         if (wx * wx + wz * wz > cullR * cullR) {
           /* skip far idle */
         } else if (stunned) {
-          const bob = n.group.getObjectByName("ribbon");
+          const bob = fx.ribbon;
           if (bob) bob.position.y = 0.95 + Math.sin(this.animT * 0.0012) * 0.03;
         } else if (n.group.userData.isHoardHeart) {
           tickHoardHeart(n.group, this.animT);
         } else if (n.group.userData.isCounterweight) {
           tickCounterweight(n.group, this.animT);
-          const cwTele = n.group.getObjectByName("cwTelegraph") as THREE.Mesh | undefined;
+          const cwTele = fx.cwTelegraph as THREE.Mesh | undefined;
           if (cwTele) {
             const mat = cwTele.material as THREE.MeshBasicMaterial;
             mat.opacity = 0.22 + Math.sin(this.animT * 0.004) * 0.1;
@@ -1645,10 +1889,11 @@ export class WorldApp {
         if (d2 < crushIdleR * crushIdleR) {
           tickHoardCrush(n.group, this.animT);
         }
-        let glow = n.group.userData.crushGlow as THREE.PointLight | undefined;
+        let glow = n.group.userData.crushGlow as VirtualLight | null | undefined;
         if (glow === undefined) {
-          glow = n.group.getObjectByName("crushGlow") as THREE.PointLight | undefined;
-          n.group.userData.crushGlow = glow || null;
+          const found = n.group.getObjectByName("crushGlow");
+          glow = isVirtualLight(found) ? found : null;
+          n.group.userData.crushGlow = glow;
         }
         if (glow) {
           const compact = isCompactUi();
@@ -1662,7 +1907,7 @@ export class WorldApp {
         // Windup / phase-2: hot iron emissive telegraph (capped on compact light budget)
         const wind = Number(n.group.userData.windupLeft || 0);
         const phase = Number(n.group.userData.bossPhase || 1);
-        const body = n.group.getObjectByName("crushBody") as THREE.Mesh | undefined;
+        const body = fx.crushBody as THREE.Mesh | undefined;
         if (body && body.material && !Array.isArray(body.material)) {
           const mat = body.material as THREE.MeshStandardMaterial;
           const compact = isCompactUi();
@@ -1692,7 +1937,7 @@ export class WorldApp {
         const base = Number(n.group.userData.baseScale) || 1;
         n.group.scale.setScalar(base);
       }
-      const aura = n.group.getObjectByName("judgeAura");
+      const aura = fx.judgeAura;
       if (aura && this.frameN % 2 === 0) {
         const ax = n.group.position.x - this.camFollow.x;
         const az = n.group.position.z - this.camFollow.z;
@@ -1759,27 +2004,21 @@ export class WorldApp {
     }
   }
 
-  /**
-   * Content often pairs an exit with a portal POI to the same canto a couple of
-   * units apart; drawing both stacks two gates and two overlapping labels.
-   * The portal POI is the one we show / target (the server accepts either).
-   */
-  isTwinExit(e: any): boolean {
-    if (e?.kind !== "exit" || !e.toCanto || !this.room) return false;
-    for (const o of this.room.entities) {
-      if (o.kind !== "poi" || o.poiKind !== "portal" || o.toCanto !== e.toCanto) continue;
-      if (Math.hypot(o.x - e.x, o.y - e.y) < 5) return true;
-    }
-    return false;
-  }
-
   syncEntities() {
     if (!this.room || !this.mats) return;
     const seen = new Set<string>();
+    // Live ward heart (storm/mire/hoard), found once per frame instead of once per mob
+    let heart: any = null;
+    for (const h of this.room.entities) {
+      const a = h.archetype;
+      if ((a === "storm_heart" || a === "mire_heart" || a === "hoard_heart") && (h.hp == null || h.hp > 0)) {
+        heart = h;
+        break;
+      }
+    }
     try {
     for (const e of this.room.entities) {
       const id = String(e.id);
-      if (this.isTwinExit(e)) continue;
       seen.add(id);
       const kind = resolveKind(e);
       let rec = this.nodes.get(id);
@@ -1815,13 +2054,14 @@ export class WorldApp {
       if (e.kind === "mob") {
         const stun = Number(e.stunLeft) || 0;
         rec.group.userData.stunLeft = stun;
-        let still = rec.group.getObjectByName("stillRing") as THREE.Mesh | undefined;
+        const fx = rec.group.userData.fx as NodeFx;
+        let still = fx.stillRing;
         if (stun > 0.05) {
           if (!still && this.room.cantoId === "inferno_07") {
             // Compact: fewer segs — still rings can spike after Ledger Bell
             const segs = isCompactUi() ? 12 : 18;
             still = new THREE.Mesh(
-              new THREE.RingGeometry(0.55, 0.78, segs),
+              sharedGeo(`stillRing${segs}`, () => new THREE.RingGeometry(0.55, 0.78, segs)),
               new THREE.MeshBasicMaterial({
                 color: 0xd4a840,
                 transparent: true,
@@ -1835,6 +2075,7 @@ export class WorldApp {
             still.position.y = 0.12;
             still.name = "stillRing";
             rec.group.add(still);
+            fx.stillRing = still;
           }
           if (still) {
             const dx = rec.group.position.x - this.camFollow.x;
@@ -1854,23 +2095,27 @@ export class WorldApp {
           still.visible = false;
         }
       }
-      const ward = rec.group.getObjectByName("wardRing");
+      const ward = (rec.group.userData.fx as NodeFx).wardRing;
       if (ward) {
-        const isHeart = (a: string | undefined) =>
-          a === "storm_heart" || a === "mire_heart" || a === "hoard_heart";
-        const heart = this.room.entities.find(
-          (h: any) => isHeart(h.archetype) && (h.hp == null || h.hp > 0)
-        );
+        const a = e.archetype;
         const near =
           heart &&
           e.kind === "mob" &&
-          !isHeart(e.archetype) &&
+          a !== "storm_heart" &&
+          a !== "mire_heart" &&
+          a !== "hoard_heart" &&
           Math.hypot(heart.x - e.x, heart.y - e.y) <= 14;
         ward.visible = Boolean(near);
       }
       if (rec.kind === "portal") {
         const locked = this.portalIsLocked(e);
-        setPortalGateVisual(rec.group, locked, this.portalOpenTint(e));
+        const tint = this.portalOpenTint(e);
+        // Gate visual only on change (it traverses the gate and retints its materials)
+        const gateKey = locked ? -1 : tint;
+        if (rec.group.userData.gateKey !== gateKey) {
+          rec.group.userData.gateKey = gateKey;
+          setPortalGateVisual(rec.group, locked, tint);
+        }
         rec.hpEl.classList.toggle("portal-locked", locked);
         const hubHome =
           this.room?.cantoId === "inferno_07" &&
@@ -1948,7 +2193,7 @@ export class WorldApp {
       const turn = Math.atan2(Math.sin(ud.gaitYaw - rec.group.rotation.y), Math.cos(ud.gaitYaw - rec.group.rotation.y));
       rec.group.rotation.y += turn * Math.min(1, stepS * 10);
       // 2+ remotes / gold haze: dim far rim lights (perf + declutter)
-      const rim = rec.group.getObjectByName("avaRemoteRim") as THREE.PointLight | undefined;
+      const rim = rec.group.userData.fx?.remoteRim as VirtualLight | undefined;
       if (rim) {
         const rd = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
         const many = (this.room?.players?.length || 1) >= 3;
@@ -2035,7 +2280,7 @@ export class WorldApp {
         if (canto === "inferno_07" || canto === "inferno_05" || canto === "inferno_06") {
           const col =
             canto === "inferno_07" ? 0xe8c86a : canto === "inferno_06" ? 0xc8d080 : 0xf0c8a0;
-          const rim = new THREE.PointLight(col, canto === "inferno_07" ? 0.4 : 0.34, 5.5, 2);
+          const rim = new VirtualLight(col, canto === "inferno_07" ? 0.4 : 0.34, 5.5, 2, 0.8);
           rim.name = "avaRemoteRim";
           rim.position.set(0, 1.6, 0);
           group.add(rim);
@@ -2069,7 +2314,7 @@ export class WorldApp {
     }
     if (kind === "whirl" || kind === "champion") {
       const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.62, 0.74, 18),
+        sharedGeo("wardRing", () => new THREE.RingGeometry(0.62, 0.74, 18)),
         this.wardMat
       );
       ring.name = "wardRing";
@@ -2166,8 +2411,18 @@ export class WorldApp {
     if (kind === "guide") label.position.set(0, 2.6, 0);
     group.add(label);
     group.userData.baseScale = group.scale.x;
+    group.userData.fx = collectNodeFx(group);
     this.scene.add(group);
-    const rec: NodeRec = { id, kind, group, label, hpEl: wrap };
+    const rec: NodeRec = {
+      id,
+      kind,
+      group,
+      label,
+      hpEl: wrap,
+      nameEl: wrap.querySelector(".wl-name") as HTMLElement,
+      hpBar: wrap.querySelector(".wl-hp") as HTMLElement,
+      hpFill: wrap.querySelector(".wl-hp i") as HTMLElement,
+    };
     this.nodes.set(id, rec);
     return rec;
   }
@@ -2192,6 +2447,8 @@ export class WorldApp {
     }
     this.scene.remove(rec.group);
     rec.label.element.remove();
+    // Free the node's own buffers/materials (shared kit + cached parts are marked shared)
+    disposeNode3D(rec.group);
   }
 
   /** Sparse bone-gold coin motes on pack death — budgeted, SFX-less. */
@@ -2201,7 +2458,7 @@ export class WorldApp {
     const n = isCompactUi() ? 3 : 5;
     for (let i = 0; i < n; i++) {
       const mote = new THREE.Mesh(
-        (this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8))),
+        (this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = markShared(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8)))),
         new THREE.MeshBasicMaterial({
           color: i % 2 ? 0xf2dea0 : 0xd4a840,
           transparent: true,
@@ -2232,9 +2489,9 @@ export class WorldApp {
   updateLabel(rec: NodeRec, e: any, pos: Vec2) {
     const you = this.youPos();
     const d = Math.hypot(pos.x - you.x, pos.y - you.y);
-    const nameEl = rec.hpEl.querySelector(".wl-name") as HTMLElement;
-    const hp = rec.hpEl.querySelector(".wl-hp") as HTMLElement;
-    const fill = rec.hpEl.querySelector(".wl-hp i") as HTMLElement;
+    const nameEl = rec.nameEl;
+    const hp = rec.hpBar;
+    const fill = rec.hpFill;
     const name = e.item?.name || e.label || e.name || "";
     const foe =
       rec.kind === "whirl" ||
@@ -2331,18 +2588,7 @@ export class WorldApp {
   /** Brief bone-gold claim ring at a POI (shrine/cache) — no audio required. */
   spawnAvaClaimRing(ent: any, color: number, from: number, to: number, dur: number) {
     const pos = this.entityRenderPos(ent);
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.7, 1.05, isCompactUi() ? 22 : 32),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.78,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    ring.rotation.x = -Math.PI / 2;
+    const ring = acquireFxRing(0.7, 1.05, isCompactUi() ? 22 : 32, color, 0.78);
     setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.14));
     this.scene.add(ring);
     this.impacts.push({ mesh: ring, start: this.animT, dur, from, to });
@@ -2356,34 +2602,14 @@ export class WorldApp {
     // Inner quick measure
     this.spawnAvaClaimRing(ent, 0xf2dea0, 1.2, 4.2, 720);
     // Outer slow ledger wash
-    const outer = new THREE.Mesh(
-      new THREE.RingGeometry(1.1, 1.45, isCompactUi() ? 24 : 36),
-      new THREE.MeshBasicMaterial({
-        color: 0xe8c86a,
-        transparent: true,
-        opacity: 0.7,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    outer.rotation.x = -Math.PI / 2;
+    const outer = acquireFxRing(1.1, 1.45, isCompactUi() ? 24 : 36, 0xe8c86a, 0.7);
     setPlanar(outer.position, pos.x, pos.y, y0);
     this.scene.add(outer);
     this.impacts.push({ mesh: outer, start: this.animT, dur: 1400, from: 1.4, to: 7.2 });
     // Rising ash motes (bone dust, no neon)
     const n = isCompactUi() ? 8 : 14;
     for (let i = 0; i < n; i++) {
-      const mote = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06 + Math.random() * 0.05, 6, 6),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xf2dea0 : 0xd4a840,
-          transparent: true,
-          opacity: 0.85,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
+      const mote = acquireFxMote(0.06 + Math.random() * 0.05, 6, i % 2 ? 0xf2dea0 : 0xd4a840, 0.85);
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.4;
       const r = 0.6 + Math.random() * 1.4;
       setPlanar(mote.position, pos.x + Math.cos(ang) * r, pos.y + Math.sin(ang) * r, y0 + 0.2);
@@ -2404,18 +2630,7 @@ export class WorldApp {
 
   /** Soft entrance keep-out pulse — bone-gold, no neon (spawn / death wake). */
   spawnAvaEntrancePulse(x: number, y: number) {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(1.15, 1.55, isCompactUi() ? 20 : 28),
-      new THREE.MeshBasicMaterial({
-        color: 0xe8d4a8,
-        transparent: true,
-        opacity: 0.55,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    ring.rotation.x = -Math.PI / 2;
+    const ring = acquireFxRing(1.15, 1.55, isCompactUi() ? 20 : 28, 0xe8d4a8, 0.55);
     setPlanar(ring.position, x, y, this.standY(x, y, 0.12));
     this.scene.add(ring);
     this.impacts.push({ mesh: ring, start: this.animT, dur: 900, from: 1.2, to: 4.2 });
@@ -2426,16 +2641,7 @@ export class WorldApp {
     const y0 = this.standY(x, y, 0.4);
     const n = isCompactUi() ? 6 : 9;
     for (let i = 0; i < n; i++) {
-      const mote = new THREE.Mesh(
-        new THREE.SphereGeometry(0.05 + Math.random() * 0.04, 5, 5),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xfff0c8 : 0xe8c86a,
-          transparent: true,
-          opacity: 0.92,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
+      const mote = acquireFxMote(0.05 + Math.random() * 0.04, 5, i % 2 ? 0xfff0c8 : 0xe8c86a, 0.92);
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.35;
       const r = 0.15 + Math.random() * 0.45;
       setPlanar(mote.position, x + Math.cos(ang) * r, y + Math.sin(ang) * r, y0 + 0.6);
@@ -2456,16 +2662,7 @@ export class WorldApp {
     const y0 = this.standY(x, y, 0.18);
     const n = isCompactUi() ? (rich ? 6 : 4) : rich ? 10 : 7;
     for (let i = 0; i < n; i++) {
-      const mote = new THREE.Mesh(
-        new THREE.SphereGeometry(0.045 + Math.random() * 0.04, 5, 5),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xf2dea0 : 0xd4a840,
-          transparent: true,
-          opacity: 0.9,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
+      const mote = acquireFxMote(0.045 + Math.random() * 0.04, 5, i % 2 ? 0xf2dea0 : 0xd4a840, 0.9);
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.5;
       const r = 0.25 + Math.random() * (rich ? 0.9 : 0.55);
       setPlanar(mote.position, x + Math.cos(ang) * r, y + Math.sin(ang) * r, y0);
@@ -2580,17 +2777,8 @@ export class WorldApp {
     if (!this.room || !this.mats) return;
     if (this.ground) {
       this.scene.remove(this.ground.group);
-      this.ground.group.traverse((o) => {
-        // Light-shaft sprites own their material (texture is shared — keep it)
-        if ((o as THREE.Sprite).isSprite) {
-          ((o as THREE.Sprite).material as THREE.Material).dispose();
-          return;
-        }
-        const m = o as THREE.Mesh;
-        if (!m.isMesh) return;
-        m.geometry?.dispose();
-        // Shared MatKit materials must not be disposed
-      });
+      // Per-build geometry/materials go; kit materials, cached prop parts and textures stay
+      disposeNode3D(this.ground.group);
     }
     const keepouts = [
       { x: this.room.you.x, y: this.room.you.y, r: 4.2 },
@@ -2798,6 +2986,7 @@ export class WorldApp {
           // if spawn throws mid-loop (HUD/title already updated from this snapshot).
           this.disposeAllNodes();
           this.rebuildGround();
+          this.prewarmPending = true;
           this.camFollow.set(sx, this.standY(sx, sy), sy);
           this.cancelPortalHold();
           if (cantoChanged) this.camPunch = 1.2;
@@ -2805,6 +2994,7 @@ export class WorldApp {
           // Recover desync: title/you.cantoId moved but ground rebuild was skipped/raced.
           this.disposeAllNodes();
           this.rebuildGround();
+          this.prewarmPending = true;
           this.camFollow.set(sx, this.standY(sx, sy), sy);
         }
         const targets = new Map<string, Vec2>();
@@ -3076,18 +3266,7 @@ export class WorldApp {
           const bell = this.room.entities.find((e: any) => e.poiKind === "bell" || e.id === "ledger_bell");
           if (bell) {
             const pos = this.entityRenderPos(bell);
-            const ring = new THREE.Mesh(
-              new THREE.RingGeometry(0.8, 1.15, 36),
-              new THREE.MeshBasicMaterial({
-                color: 0xe8c86a,
-                transparent: true,
-                opacity: 0.78,
-                side: THREE.DoubleSide,
-                depthWrite: false,
-                blending: THREE.AdditiveBlending,
-              })
-            );
-            ring.rotation.x = -Math.PI / 2;
+            const ring = acquireFxRing(0.8, 1.15, 36, 0xe8c86a, 0.78);
             setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.14));
             this.scene.add(ring);
             this.impacts.push({ mesh: ring, start: this.animT, dur: 1180, from: 1.15, to: 5.4 });
@@ -3100,7 +3279,7 @@ export class WorldApp {
       }
       case "stash_open":
         setStashMode(true);
-        this.refreshInventoryUi();
+        this.refreshInventoryUi(true);
         break;
       case "ah_listings":
         renderAh(
@@ -3215,6 +3394,9 @@ export class WorldApp {
       return;
     }
     const ent = this.room?.entities?.find((e: any) => String(e.id) === tid);
+    // The server no longer pushes a full snapshot per hit: apply the new HP right away so
+    // plates/bars move on the hit frame (the next ~12Hz snapshot confirms it)
+    if (ent && msg.targetHp != null && Number.isFinite(Number(msg.targetHp))) ent.hp = Number(msg.targetHp);
     const attacker = String(msg.attackerId ?? "");
     const weHit = Boolean(attacker) && (attacker === youId || attacker === sockId);
     let comboBoost = 0;
@@ -3301,33 +3483,11 @@ export class WorldApp {
     const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
     const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
     const sparkHex = coreHex;
-    const shock = new THREE.Mesh(
-      new THREE.RingGeometry(0.9, 1.08, 48),
-      new THREE.MeshBasicMaterial({
-        color: shockHex,
-        transparent: true,
-        opacity: 0.95,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    shock.rotation.x = -Math.PI / 2;
+    const shock = acquireFxRing(0.9, 1.08, 48, shockHex, 0.95);
     setPlanar(shock.position, s.x, s.y, this.standY(s.x, s.y, 0.4));
     this.scene.add(shock);
     this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: s.r * 0.96, to: s.r * 1.55 });
-    const core = new THREE.Mesh(
-      new THREE.RingGeometry(0.72, 1.0, 48),
-      new THREE.MeshBasicMaterial({
-        color: coreHex,
-        transparent: true,
-        opacity: 0.9,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    core.rotation.x = -Math.PI / 2;
+    const core = acquireFxRing(0.72, 1.0, 48, coreHex, 0.9);
     setPlanar(core.position, s.x, s.y, this.standY(s.x, s.y, 0.42));
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: s.r * 0.2, to: s.r * 1.05 });
@@ -3459,9 +3619,34 @@ export class WorldApp {
     requestAnimationFrame(tick);
   }
 
-  refreshInventoryUi() {
+  /**
+   * Snapshots arrive ~12Hz (plus kills/casts): rebuild the inventory grid only when bag,
+   * stash, equipped or gear stats changed, and only while the panel is open (opening it
+   * renders a pending change — see onInventoryOpen). The hero look re-applies only when
+   * the equipped set changes.
+   */
+  refreshInventoryUi(force = false) {
     const you = this.lastYouSnapshot;
     if (!you) return;
+    const sig = inventorySignature(you);
+    if (sig !== this.lastInvSig) {
+      this.lastInvSig = sig;
+      this.invDirty = true;
+    }
+    const lookKey = equipLookKey(you.equipped || {});
+    if (this.youGroup && lookKey !== this.lastLookKey) {
+      this.lastLookKey = lookKey;
+      applyEquippedLook(this.youGroup, you.equipped || {});
+    }
+    if (!force && (!this.invDirty || !isPanelOpen("inventory"))) {
+      // The HUD bag button's "crowded" cue is the one grid-derived bit visible while closed
+      if (this.invDirty) {
+        const n = Array.isArray(you.inventory) ? you.inventory.length : 0;
+        document.getElementById("btn-inv")?.classList.toggle("bag-crowded", n >= 32);
+      }
+      return;
+    }
+    this.invDirty = false;
     renderInventory(you.inventory || [], () => {}, {
       equipped: you.equipped || {},
       gearStats: you.gearStats || {},
@@ -3515,18 +3700,7 @@ export class WorldApp {
         hit.poiKind === "marker")
     ) {
       const pos = this.entityRenderPos(hit);
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.35, 0.72, 28),
-        new THREE.MeshBasicMaterial({
-          color: 0xd4a840,
-          transparent: true,
-          opacity: 0.78,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
-      ring.rotation.x = -Math.PI / 2;
+      const ring = acquireFxRing(0.35, 0.72, 28, 0xd4a840, 0.78);
       setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.12));
       this.scene.add(ring);
       this.impacts.push({ mesh: ring, start: this.animT, dur: 520, from: 0.55, to: 2.4 });
@@ -3543,7 +3717,6 @@ export class WorldApp {
     let bestPos: Vec2 = { x: 0, y: 0 };
     for (const e of this.room.entities) {
       if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
-      if (this.isTwinExit(e)) continue;
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       const cap = Math.max(maxRange, EXIT_TRAVEL_RANGE);
@@ -3557,7 +3730,6 @@ export class WorldApp {
       bestD = maxRange;
       for (const e of this.room.entities) {
         if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
-        if (this.isTwinExit(e)) continue;
         const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
         const d = Math.hypot(pos.x - you.x, pos.y - you.y);
         if (d < bestD) {
@@ -4269,10 +4441,7 @@ export class WorldApp {
   disposeCombatEphemerals() {
     for (const r of this.impacts) {
       this.scene.remove(r.mesh);
-      if (r.mesh.geometry && r.mesh.geometry !== this.sharedCoinDiscGeo) {
-        r.mesh.geometry.dispose();
-      }
-      (r.mesh.material as THREE.Material).dispose();
+      releaseFx(r.mesh);
     }
     this.impacts = [];
   }
@@ -4281,7 +4450,6 @@ export class WorldApp {
   disposeAvaEphemerals() {
     for (const cell of this.emptyPackCells.values()) {
       this.scene.remove(cell.mesh);
-      cell.mesh.geometry?.dispose();
       (cell.mesh.material as THREE.Material).dispose();
     }
     this.emptyPackCells.clear();
@@ -4307,19 +4475,21 @@ export class WorldApp {
       return;
     }
     const lastPackPos = this.lastPackPos;
-    const counts = new Map<string, number>();
+    // Reused per frame (this runs every Avarice frame)
+    const counts = this._packCounts;
+    counts.clear();
     for (const e of this.room.entities) {
       if (e.kind !== "mob" || !e.packId) continue;
       if (e.hp != null && e.hp <= 0) continue;
       const arch = String(e.archetype || "");
       if (arch.includes("heart") || /counterweight/i.test(String(e.name || "")) || arch.includes("warden")) continue;
-      counts.set(e.packId, (counts.get(e.packId) || 0) + 1);
-      const prev = lastPackPos.get(e.packId) || { x: 0, z: 0 };
-      const n = counts.get(e.packId)!;
-      lastPackPos.set(e.packId, {
-        x: prev.x + (e.x - prev.x) / n,
-        z: prev.z + (e.y - prev.z) / n,
-      });
+      const n = (counts.get(e.packId) || 0) + 1;
+      counts.set(e.packId, n);
+      let prev = lastPackPos.get(e.packId);
+      if (!prev) lastPackPos.set(e.packId, (prev = { x: 0, z: 0 }));
+      // Running mean (n === 1 resets it to this mob)
+      prev.x += (e.x - prev.x) / n;
+      prev.z += (e.y - prev.z) / n;
     }
     for (const [packId, n] of counts) {
       this.lastPackAlive.set(packId, n);
@@ -4330,15 +4500,15 @@ export class WorldApp {
         this.emptyPackCells.delete(packId);
       }
     }
-    for (const [packId, prev] of [...this.lastPackAlive.entries()]) {
+    for (const [packId, prev] of this.lastPackAlive) {
       if (counts.has(packId) || prev <= 0) continue;
       this.lastPackAlive.set(packId, 0);
       if (this.emptyPackCells.has(packId)) continue;
       const pos = lastPackPos.get(packId);
       if (!pos) continue;
-      const geo = this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8));
+      const geo = this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = markShared(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8)));
       const mesh = new THREE.Mesh(
-        new THREE.RingGeometry(0.55, 1.15, 24),
+        sharedGeo("packCell", () => new THREE.RingGeometry(0.55, 1.15, 24)),
         new THREE.MeshBasicMaterial({
           color: 0xa89050,
           transparent: true,
@@ -4398,7 +4568,7 @@ export class WorldApp {
     const you = this.renderYou;
     if (!st || Math.hypot(st.x - you.x, st.y - you.y) > INTERACT_RANGE + 3) {
       setStashMode(false);
-      this.refreshInventoryUi();
+      this.refreshInventoryUi(true);
     }
   }
 
@@ -4413,7 +4583,6 @@ export class WorldApp {
     let bestD = INTERACT_HIGHLIGHT_RANGE;
     for (const e of this.room.entities) {
       if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
-      if (this.isTwinExit(e)) continue;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       if (d < bestD) {

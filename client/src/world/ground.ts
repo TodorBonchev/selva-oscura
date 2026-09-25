@@ -200,6 +200,9 @@ export function buildGround(
         ? mats.groundGlut
         : mats.groundLust;
   const floor = new THREE.Mesh(geo, floorMat);
+  // The floor has the costliest pixels on screen: draw it after the other opaques (sky
+  // goes last) so depth rejects the parts hidden under the hero, foes and props
+  floor.renderOrder = 5;
   floor.receiveShadow = true;
   floor.position.set(w / 2, 0, h / 2);
   floor.name = "floor";
@@ -873,5 +876,22 @@ export function buildGround(
     }
   }
 
+  freezeStaticProps(group);
   return { group, floor, cantoId, heightAt };
+}
+
+/** Ground nodes WorldApp animates by name (tickFx prop animator / tree sway). */
+const ANIMATED_PROPS = new Set(["tree", "galeRibbon", "ember", "daisPulse", "daisTelegraph"]);
+
+/**
+ * Hundreds of ground props never move after build: bake their local matrices once so
+ * the per-frame scene update skips recomposing them. Animated props (and flame sprites,
+ * which rescale themselves) keep auto-update; world matrices still follow parents.
+ */
+function freezeStaticProps(group: THREE.Group) {
+  group.traverse((o) => {
+    if (o === group || ANIMATED_PROPS.has(o.name) || (o as THREE.Sprite).isSprite) return;
+    o.updateMatrix();
+    o.matrixAutoUpdate = false;
+  });
 }

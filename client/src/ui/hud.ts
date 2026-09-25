@@ -22,6 +22,9 @@ let lastManaShown: number | null = null;
 let lastPendingAsh = 0;
 let pendingPulseTimer: number | null = null;
 let helpFadeTimer: number | null = null;
+let lastAshHtml = "";
+let inventoryWasOpen = false;
+let panelOpenHook: ((id: string) => void) | null = null;
 
 /** Instructional overlay fades out after this long (any input re-arms nothing; it's a one-shot). */
 const HELP_FADE_MS = 10_000;
@@ -209,7 +212,8 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
   const maxHp = Number(you.maxHp) || 1;
   const cur = Math.max(0, Number(you.hp) || 0);
   const ratio = Math.max(0, Math.min(1, cur / maxHp));
-  if (hp) hp.textContent = `${cur} / ${maxHp}`;
+  const hpTxt = `${cur} / ${maxHp}`;
+  if (hp && hp.textContent !== hpTxt) hp.textContent = hpTxt;
   if (hpFill) {
     hpFill.style.width = `${(ratio * 100).toFixed(1)}%`;
     hpFill.classList.toggle("low", ratio <= 0.3);
@@ -223,16 +227,20 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
   if (hpPlate) {
     hpPlate.setAttribute("aria-valuenow", String(cur));
     hpPlate.setAttribute("aria-valuemax", String(maxHp));
-    // Pulse the frame on damage
+    // Pulse the frame on damage (restart across a frame instead of forcing a reflow)
     if (lastHpShown != null && cur < lastHpShown) {
       hpPlate.classList.remove("hp-hurt");
-      void hpPlate.offsetWidth;
-      hpPlate.classList.add("hp-hurt");
+      requestAnimationFrame(() => hpPlate.classList.add("hp-hurt"));
     }
     lastHpShown = cur;
   }
   if (ash) {
-    ash.innerHTML = `<b>${formatAsh(you.ash)}</b> <i>Ash</i> <em>${ashToStelleDisplay(you.ash)} STELLE</em>`;
+    // Snapshots arrive ~12Hz: only touch the DOM when the balance changed
+    const html = `<b>${formatAsh(you.ash)}</b> <i>Ash</i> <em>${ashToStelleDisplay(you.ash)} STELLE</em>`;
+    if (html !== lastAshHtml || !ash.firstChild) {
+      lastAshHtml = html;
+      ash.innerHTML = html;
+    }
   }
   const maxMp = Number(you.maxMana) || 100;
   const curMp = Math.max(0, Number(you.mana) || 0);
@@ -240,7 +248,8 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
   const mp = document.getElementById("mp");
   const mpFill = document.getElementById("mp-fill");
   const mpPlate = document.getElementById("mp-plate");
-  if (mp) mp.textContent = `${Math.floor(curMp)} / ${maxMp}`;
+  const mpTxt = `${Math.floor(curMp)} / ${maxMp}`;
+  if (mp && mp.textContent !== mpTxt) mp.textContent = mpTxt;
   if (mpFill) {
     mpFill.style.width = `${(mpRatio * 100).toFixed(1)}%`;
     mpFill.classList.toggle("low", mpRatio <= 0.25);
@@ -640,11 +649,27 @@ export function renderAh(
   }
 }
 
+/** Is a panel (e.g. "inventory") currently shown? */
+export function isPanelOpen(id: string): boolean {
+  const el = document.getElementById(id);
+  return Boolean(el && !el.classList.contains("hidden"));
+}
+
+/** Called when a panel opens (WorldApp renders a deferred inventory change then). */
+export function onPanelOpen(cb: (id: string) => void) {
+  panelOpenHook = cb;
+}
+
 function syncModalState() {
   // Any path that hides the bag (✕, backdrop, opening AH) also leaves stash mode
   if (stashMode && document.getElementById("inventory")?.classList.contains("hidden")) {
     setStashMode(false);
   }
+  const invOpen = isPanelOpen("inventory");
+  if (invOpen && !inventoryWasOpen) {
+    inventoryWasOpen = true;
+    panelOpenHook?.("inventory");
+  } else if (!invOpen) inventoryWasOpen = false;
   const anyOpen = !!document.querySelector(".panel.modal:not(.hidden)");
   document.getElementById("modal-backdrop")?.classList.toggle("hidden", !anyOpen);
   document.body.classList.toggle("has-modal", anyOpen);
@@ -676,22 +701,46 @@ export function setPanelOpen(id: string, open: boolean) {
   syncModalState();
 }
 
+/**
+ * Layout heuristics are read dozens of times per frame (world, radar, labels) and each
+ * matchMedia() call is a style query, so cache them until the viewport or pointer
+ * changes. The listeners register at module load, before WorldApp's own resize handler
+ * reads the fresh values.
+ */
+let compactCache: boolean | null = null;
+let landscapeCache: boolean | null = null;
+const dropLayoutCache = () => {
+  compactCache = null;
+  landscapeCache = null;
+};
+if (typeof window !== "undefined") {
+  window.addEventListener("resize", dropLayoutCache);
+  window.addEventListener("orientationchange", dropLayoutCache);
+  window.visualViewport?.addEventListener("resize", dropLayoutCache);
+  for (const q of ["(pointer: coarse)", "(max-width: 640px)", "(orientation: landscape)"]) {
+    window.matchMedia(q).addEventListener?.("change", dropLayoutCache);
+  }
+}
+
 /** Narrow / touch-first UI (phones and compact tablets). */
 export function isCompactUi(): boolean {
   if (typeof window === "undefined") return false;
+  if (compactCache != null) return compactCache;
   const w = window.innerWidth;
   const h = window.innerHeight;
-  if (h <= 520 && w <= 1100) return true;
-  return (
+  if (h <= 520 && w <= 1100) return (compactCache = true);
+  compactCache =
     window.matchMedia("(max-width: 640px)").matches ||
-    (window.matchMedia("(pointer: coarse)").matches && Math.min(w, h) < 900)
-  );
+    (window.matchMedia("(pointer: coarse)").matches && Math.min(w, h) < 900);
+  return compactCache;
 }
 
 /** Phone/tablet held sideways — HUD must stay a single short row. */
 export function isLandscapeCompact(): boolean {
   if (typeof window === "undefined") return false;
-  return isCompactUi() && window.matchMedia("(orientation: landscape)").matches;
+  if (landscapeCache != null) return landscapeCache;
+  landscapeCache = isCompactUi() && window.matchMedia("(orientation: landscape)").matches;
+  return landscapeCache;
 }
 
 /** Optional device vibrate — no-op when Vibration API is missing. */
