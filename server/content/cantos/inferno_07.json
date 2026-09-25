@@ -20,7 +20,8 @@
         "to_canto": "inferno_06",
         "x": 10,
         "y": 52,
-        "label": "Return to Gluttony ←"
+        "label": "Return to Gluttony ←",
+        "hint": "di qua dal peso — return through the weighed gate; bank loot at the Dark Wood stash"
       },
       {
         "to_canto": "inferno_01",
@@ -53,15 +54,6 @@
         "y": 56,
         "label": "Ledger Shrine",
         "hint": "rebalance — restores life and breath (kneel at the measure)"
-      },
-      {
-        "id": "avarice_portal_gluttony",
-        "kind": "portal",
-        "x": 12,
-        "y": 50,
-        "label": "Gluttony gate ←",
-        "to_canto": "inferno_06",
-        "hint": "di qua dal peso — return through the weighed gate; bank loot at the Dark Wood stash"
       },
       {
         "id": "avarice_portal_home",

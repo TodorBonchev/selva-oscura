@@ -61,24 +61,6 @@
         "y": 56,
         "label": "Mire Shrine",
         "hint": "Restores life and breath — E to kneel"
-      },
-      {
-        "id": "gluttony_portal_lust",
-        "kind": "portal",
-        "x": 12,
-        "y": 50,
-        "label": "Lust portal",
-        "to_canto": "inferno_05"
-      },
-      {
-        "id": "gluttony_portal_avarice",
-        "kind": "portal",
-        "x": 148,
-        "y": 50,
-        "label": "Avarice gate →",
-        "to_canto": "inferno_07",
-        "require_clear": "inferno_06",
-        "hint": "peso e contrapeso — clear Triple Maw, then Hold E into the weighed circle"
       }
     ]
   },

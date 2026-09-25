@@ -54,23 +54,6 @@
         "y": 64,
         "label": "Wind Shrine",
         "hint": "Restores life and breath — E to kneel"
-      },
-      {
-        "id": "lust_portal_home",
-        "kind": "portal",
-        "x": 14,
-        "y": 58,
-        "label": "Hub portal",
-        "to_canto": "inferno_01"
-      },
-      {
-        "id": "lust_portal_gluttony",
-        "kind": "portal",
-        "x": 148,
-        "y": 58,
-        "label": "Gluttony portal",
-        "to_canto": "inferno_06",
-        "require_clear": "inferno_05"
       }
     ]
   },
