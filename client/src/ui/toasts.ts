@@ -237,6 +237,9 @@ export function showDialogue(speaker: string, text: string) {
   const el = dialogueEl();
   (el.querySelector(".dlg-speaker") as HTMLElement).textContent = speaker;
   (el.querySelector(".dlg-text") as HTMLElement).textContent = text;
+  (el.querySelector(".dlg-close") as HTMLElement).textContent = document.body.classList.contains("hud-compact")
+    ? "Tap anywhere to close"
+    : "Click anywhere or Esc to close";
   el.classList.remove("hidden", "dlg-out");
   void el.offsetWidth;
   el.classList.add("dlg-in");

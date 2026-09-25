@@ -5745,6 +5745,9 @@ body.hud-compact:not(.hud-landscape) #dialogue {
   width: min(34rem, calc(100vw - 2rem));
   text-align: center;
   pointer-events: none;
+  padding: 0.6rem 0;
+  /* Soft dark vignette behind the words so world labels don't fight them */
+  background: radial-gradient(ellipse 60% 55% at 50% 50%, #0a0806c0 0%, #0a080680 45%, transparent 75%);
   opacity: 0;
   transition: opacity 0.8s ease, transform 0.8s ease;
 }
