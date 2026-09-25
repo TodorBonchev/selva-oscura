@@ -666,8 +666,9 @@ function buildHead(rig: Rig, torso: THREE.Bone, M: HeroPaints, hi: boolean, pale
     rig.add(hood, M.mantle, at(shell, C.x, C.y + 0.012, C.z + 0.014, 0, 0, 0, 0.96, 1.06, 1.08), "Head");
     rig.add(hood, M.tunic, at(new THREE.TorusGeometry(0.092, 0.0075, 5, hi ? 20 : 12, Math.PI * 1.25), 0, C.y + 0.004, -0.088, 0.1, 0, -Math.PI * 0.125, 0.98, 1.18, 1), "Head");
     // cowl collar that drapes onto the shoulders
-    rig.add(hood, M.mantle, lathe([[0.255, -0.17], [0.215, -0.1], [0.155, -0.03], [0.115, 0.03]], seg), "Head");
-    rig.add(hood, M.gold, at(new THREE.TorusGeometry(0.255, 0.008, 5, hi ? 28 : 18), 0, -0.17, 0, Math.PI / 2), "Head");
+    // (elliptical so it lies on chest and back instead of standing off like a brim)
+    rig.add(hood, M.mantle, at(lathe([[0.24, -0.2], [0.21, -0.12], [0.16, -0.04], [0.115, 0.03]], seg), 0, 0, 0.01, 0, 0, 0, 1.08, 1, 0.8), "Head");
+    rig.add(hood, M.gold, at(new THREE.TorusGeometry(0.24, 0.008, 5, hi ? 28 : 18), 0, -0.2, 0.01, Math.PI / 2, 0, 0, 1.08, 0.8, 1), "Head");
     // liripipe tail
     rig.add(
       hood,
