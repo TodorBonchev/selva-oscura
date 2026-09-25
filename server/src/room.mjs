@@ -34,6 +34,8 @@ const PLAYER_MAX_HP = 130;
 const RESPAWN_IFRAMES = 2.0; // seconds of invulnerability after waking at the entrance
 /** Avarice entrance keep-out so Road Weights never sit on spawn / death wake. */
 const AVA_SPAWN_KEEP = 11.5;
+/** Lust / Gluttony entrance keep-out (just outside mob aggro). */
+const SPAWN_KEEP = 10;
 const PLAYER_BASE_DMG = 22;
 const PLAYER_ATK_CD = 0.42;
 
@@ -174,9 +176,12 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
-/** Push combatants outside the canto spawn bubble (Avarice entrance safety). */
-function enforceSpawnKeepout(room, minR = AVA_SPAWN_KEEP) {
-  if (room.cantoId !== "inferno_07") return;
+/**
+ * Push combatants outside the canto spawn bubble so an arriving (or waking)
+ * pilgrim is never inside a pack's aggro radius (8) during the load-in.
+ */
+function enforceSpawnKeepout(room, minR = room.cantoId === "inferno_07" ? AVA_SPAWN_KEEP : SPAWN_KEEP) {
+  if (room.canto?.role !== "combat") return;
   const sp = room.canto?.geo?.spawn;
   if (!sp) return;
   const b = room.canto.geo.bounds;

@@ -84,14 +84,28 @@ export class VirtualJoystick {
     return this.visible;
   }
 
-  /** Normalized direction after deadzone + easing, magnitude 0..1. */
-  getVector(): StickVector {
-    const k = 0.28;
+  /**
+   * Normalized direction after deadzone + easing, magnitude 0..1.
+   * Easing is time-based (same feel at 30 or 120 fps). On release the output
+   * drops to zero at once — velocity friction already glides the hero to a
+   * stop, and a lingering vector would cancel a tap-to-move made right after.
+   */
+  getVector(dtSec = 1 / 60): StickVector {
+    if (this.activeId == null) {
+      this.eased = { x: 0, y: 0 };
+      return this.eased;
+    }
+    const k = 1 - Math.exp(-Math.max(0, dtSec) * 19.7); // ≈0.28 per 60 Hz frame
     this.eased = {
       x: this.eased.x + (this.vector.x - this.eased.x) * k,
       y: this.eased.y + (this.vector.y - this.eased.y) * k,
     };
     if (Math.hypot(this.eased.x, this.eased.y) < 0.02) this.eased = { x: 0, y: 0 };
+    return this.eased;
+  }
+
+  /** Last eased output without advancing the easing (safe to read twice per frame). */
+  peekVector(): StickVector {
     return this.eased;
   }
 

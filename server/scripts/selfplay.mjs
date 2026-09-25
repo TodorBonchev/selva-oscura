@@ -270,12 +270,22 @@ class Bot {
       // Target: nearest foe, but leave the boss for last unless it's the only thing near
       const foes = this.foes().sort((a, b) => dist(a, you) - dist(b, you));
       const nonBoss = foes.filter((f) => f.kind !== "boss");
-      if (sealedRoad && nonBoss.length === 0) {
+      // Like a player: sweep packs first, then push for the boss (Avarice refills
+      // fodder packs, so "clear everything" never ends there).
+      const pushBoss = Date.now() - t0 > 100000 || foes.length <= startFoes * 0.3;
+      if (sealedRoad && (nonBoss.length === 0 || pushBoss)) {
         await this.checkSealedRoad(sealedRoad);
         sealedRoad = null;
         continue;
       }
-      const target = nonBoss.length && (dist(nonBoss[0], you) < 30 || dist(boss, you) > 12) ? nonBoss[0] : boss;
+      const adjacent = nonBoss.length && dist(nonBoss[0], you) < 3.2;
+      const target = pushBoss
+        ? adjacent
+          ? nonBoss[0]
+          : boss
+        : nonBoss.length && (dist(nonBoss[0], you) < 30 || dist(boss, you) > 12)
+          ? nonBoss[0]
+          : boss;
       await this.fightStep(target);
       if (this.ents("loot").some((l) => dist(l, you) < 6)) await this.pickupNearby(6);
     }

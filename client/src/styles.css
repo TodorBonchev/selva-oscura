@@ -5114,7 +5114,11 @@ body.hud-compact #quest-track {
   line-clamp: 2;
   overflow: hidden;
 }
-body.hud-landscape #quest-track { -webkit-line-clamp: 1; line-clamp: 1; }
+body.hud-landscape #quest-track {
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 body.hud-compact #toast-layer,
 body.hud-compact #toast-layer.toast-above-actions {
   left: calc(var(--hv-gut) + var(--safe-left));
@@ -5278,7 +5282,7 @@ body.hud-compact #action-bar #btn-attack {
 }
 body.hud-compact #action-bar #btn-attack .action-icon { width: 58%; height: 58%; filter: drop-shadow(0 0 6px #ff6a5599) brightness(1.2); }
 body.hud-compact #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 100px); --y: var(--arc-cy); }
-body.hud-compact #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 71px); --y: calc(var(--arc-cy) + 71px); }
+body.hud-compact #action-bar #btn-spell-whirl_ward { --s: var(--arc-outer); --x: calc(var(--arc-cx) + 115px); --y: calc(var(--arc-cy) + 128px); }
 body.hud-compact #action-bar #btn-spell-infernal_burst { --x: var(--arc-cx); --y: calc(var(--arc-cy) + 100px); }
 body.hud-compact #action-bar #btn-interact {
   --s: var(--arc-use);
@@ -5286,7 +5290,8 @@ body.hud-compact #action-bar #btn-interact {
   --y: calc(var(--arc-cy) + 30px);
   --edge: #b89a52;
 }
-body.hud-compact #action-bar #btn-dash { --s: var(--arc-outer); --x: calc(var(--arc-cx) + 115px); --y: calc(var(--arc-cy) + 128px); --edge: #6f8aa6; }
+/* Dash (slam dodge) rides the inner arc; Ward (buff) the outer */
+body.hud-compact #action-bar #btn-dash { --s: var(--arc-spell); --x: calc(var(--arc-cx) + 71px); --y: calc(var(--arc-cy) + 71px); --edge: #6f8aa6; }
 body.hud-compact #action-bar #btn-sip { --s: var(--arc-outer); --x: calc(var(--arc-cx) + 15px); --y: calc(var(--arc-cy) + 171px); --edge: #a04038; }
 
 /* Interact keeps a caption: it changes meaning (Talk / Enter / Take / Kneel) */
@@ -5349,10 +5354,10 @@ body.hud-compact #panels { padding-bottom: 0; }
     --arc-use: 54px;
   }
   body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 90px); }
-  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 64px); --y: calc(var(--arc-cy) + 64px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 103px); --y: calc(var(--arc-cy) + 114px); }
   body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-infernal_burst { --y: calc(var(--arc-cy) + 90px); }
   body.hud-compact:not(.hud-landscape) #action-bar #btn-interact { --x: calc(var(--arc-cx) + 150px); --y: calc(var(--arc-cy) + 28px); }
-  body.hud-compact:not(.hud-landscape) #action-bar #btn-dash { --x: calc(var(--arc-cx) + 103px); --y: calc(var(--arc-cy) + 114px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-dash { --x: calc(var(--arc-cx) + 64px); --y: calc(var(--arc-cy) + 64px); }
   body.hud-compact:not(.hud-landscape) #action-bar #btn-sip { --x: calc(var(--arc-cx) + 13px); --y: calc(var(--arc-cy) + 153px); }
 }
 
@@ -5406,10 +5411,10 @@ body.hud-landscape #target-plate {
   width: min(30vw, 14rem);
 }
 body.hud-landscape #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 86px); --y: var(--arc-cy); }
-body.hud-landscape #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 61px); --y: calc(var(--arc-cy) + 61px); }
+body.hud-landscape #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 99px); --y: calc(var(--arc-cy) + 110px); }
 body.hud-landscape #action-bar #btn-spell-infernal_burst { --x: var(--arc-cx); --y: calc(var(--arc-cy) + 86px); }
 body.hud-landscape #action-bar #btn-interact { --x: calc(var(--arc-cx) + 146px); --y: calc(var(--arc-cy) + 26px); }
-body.hud-landscape #action-bar #btn-dash { --x: calc(var(--arc-cx) + 99px); --y: calc(var(--arc-cy) + 110px); }
+body.hud-landscape #action-bar #btn-dash { --x: calc(var(--arc-cx) + 61px); --y: calc(var(--arc-cy) + 61px); }
 body.hud-landscape #action-bar #btn-sip { --x: calc(var(--arc-cx) + 13px); --y: calc(var(--arc-cy) + 146px); }
 body.hud-landscape #virtual-joystick {
   left: calc(var(--hv-gut) + var(--safe-left) + 6px);
@@ -5505,3 +5510,6 @@ body.hud-landscape #inventory .inv-footer .inv-actions {
   text-align: center;
 }
 #boot-veil .boot-hint b { color: var(--gold-2); font-weight: 400; }
+/* Touch: the hold prompt's key cap ("E") means nothing — the Use seal is charging */
+body.hud-compact #portal-hold-prompt .php-key { display: none; }
+body.hud-compact #portal-hold-prompt { min-width: 9.5rem; }

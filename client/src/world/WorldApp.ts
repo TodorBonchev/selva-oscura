@@ -874,7 +874,7 @@ export class WorldApp {
     const { fwd, right } = camPlanarBasis(this.camera);
     let fx = 0;
     let sx = 0;
-    const stick = this.joystick.getVector();
+    const stick = this.joystick.getVector(dt);
     if (stick && (stick.x !== 0 || stick.y !== 0)) {
       fx += -stick.y;
       sx += stick.x;
@@ -1768,12 +1768,27 @@ export class WorldApp {
     }
   }
 
+  /**
+   * Content often pairs an exit with a portal POI to the same canto a couple of
+   * units apart; drawing both stacks two gates and two overlapping labels.
+   * The portal POI is the one we show / target (the server accepts either).
+   */
+  isTwinExit(e: any): boolean {
+    if (e?.kind !== "exit" || !e.toCanto || !this.room) return false;
+    for (const o of this.room.entities) {
+      if (o.kind !== "poi" || o.poiKind !== "portal" || o.toCanto !== e.toCanto) continue;
+      if (Math.hypot(o.x - e.x, o.y - e.y) < 5) return true;
+    }
+    return false;
+  }
+
   syncEntities() {
     if (!this.room || !this.mats) return;
     const seen = new Set<string>();
     try {
     for (const e of this.room.entities) {
       const id = String(e.id);
+      if (this.isTwinExit(e)) continue;
       seen.add(id);
       const kind = resolveKind(e);
       let rec = this.nodes.get(id);
@@ -3512,6 +3527,7 @@ export class WorldApp {
     let bestPos: Vec2 = { x: 0, y: 0 };
     for (const e of this.room.entities) {
       if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
+      if (this.isTwinExit(e)) continue;
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       const cap = Math.max(maxRange, EXIT_TRAVEL_RANGE);
@@ -3525,6 +3541,7 @@ export class WorldApp {
       bestD = maxRange;
       for (const e of this.room.entities) {
         if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+        if (this.isTwinExit(e)) continue;
         const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
         const d = Math.hypot(pos.x - you.x, pos.y - you.y);
         if (d < bestD) {
@@ -4198,7 +4215,7 @@ export class WorldApp {
       this.cancelPortalHold();
       return;
     }
-    const stick = this.joystick.getVector();
+    const stick = this.joystick.peekVector();
     const steering =
       this.keys.has("KeyW") ||
       this.keys.has("KeyS") ||
@@ -4380,6 +4397,7 @@ export class WorldApp {
     let bestD = INTERACT_HIGHLIGHT_RANGE;
     for (const e of this.room.entities) {
       if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
+      if (this.isTwinExit(e)) continue;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       if (d < bestD) {
