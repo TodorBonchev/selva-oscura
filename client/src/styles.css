@@ -5513,3 +5513,357 @@ body.hud-landscape #inventory .inv-footer .inv-actions {
 /* Touch: the hold prompt's key cap ("E") means nothing — the Use seal is charging */
 body.hud-compact #portal-hold-prompt .php-key { display: none; }
 body.hud-compact #portal-hold-prompt { min-width: 9.5rem; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Wave 1 UX — wayfinding, gates, toasts, dialogue, phone input
+   (world/guidance.ts, world/objective.ts, ui/toasts.ts, ui/radar.ts)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ——— Objective line: main goal + secondary hint (never replaces the goal) ——— */
+#quest-track .qt-main { display: block; }
+#quest-track .qt-sub {
+  display: block;
+  margin-top: 0.12rem;
+  font-size: 0.82em;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  color: #c9d8b0;
+  opacity: 0.9;
+}
+#quest-track .qt-sub[hidden] { display: none; }
+body.hud-landscape #quest-track .qt-main,
+body.hud-landscape #quest-track .qt-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.hud-compact #quest-track { -webkit-line-clamp: 3; line-clamp: 3; }
+
+/* ——— Compass: one gold objective arrow + one red foe arrow, moved by transform ——— */
+.compass-arrow {
+  left: 0;
+  top: 0;
+  will-change: transform;
+  filter: none;
+}
+.compass-label,
+.compass-dist { white-space: nowrap; }
+.compass-arrow[data-dest="objective"] .compass-chevron {
+  border-bottom-color: #ffd46a;
+  filter: drop-shadow(0 0 6px #ffb838cc);
+}
+.compass-arrow[data-dest="objective"] .compass-label {
+  color: #ffe7a0;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-shadow: 0 1px 0 #000, 0 0 8px #000, 0 0 10px #ffb83866;
+}
+.compass-arrow[data-dest="objective"] .compass-dist { color: #ffe7a0; opacity: 1; font-size: 0.6rem; }
+.compass-arrow[data-dest="foe"] .compass-chevron {
+  border-bottom-color: #d63a2a;
+  border-left-width: 6px;
+  border-right-width: 6px;
+  border-bottom-width: 10px;
+}
+.compass-arrow[data-dest="foe"] .compass-label { color: #ffb0a0; font-size: 0.5rem; }
+.compass-arrow[data-dest="foe"] .compass-dist { color: #e8a090; }
+@media (max-width: 640px) {
+  .compass-arrow[data-dest="objective"] .compass-label { font-size: 0.56rem; }
+  .compass-arrow[data-dest="objective"] .compass-dist { font-size: 0.5rem; }
+}
+body.hud-compact .compass-arrow[data-dest="objective"] .compass-label { font-size: 0.56rem; }
+
+#minimap-hint.hidden { display: none !important; }
+/* Minimap caption on phones: one line under the disc, free to run left past it */
+body.hud-compact #minimap-hint {
+  position: absolute;
+  left: auto;
+  right: 0;
+  top: calc(100% + 3px);
+  bottom: auto;
+  width: max-content;
+  max-width: 60vw;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ——— Gate labels: one colour language (forward gold · return bone-blue · locked grey) ——— */
+.world-label.portal-label .wl-name {
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.world-label.portal-label .wl-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--bone-2);
+  text-shadow: 0 1px 2px #000, 0 0 6px #000;
+}
+.world-label.gate-forward .wl-name {
+  color: #ffd46a;
+  text-shadow: 0 1px 2px #000, 0 0 12px #ffb838aa;
+}
+.world-label.gate-forward .wl-sub { color: #ffe7a0; }
+.world-label.gate-return .wl-name {
+  color: #c8dcf4;
+  text-shadow: 0 1px 2px #000, 0 0 10px #6f9ad866;
+}
+.world-label.gate-return .wl-sub { color: #9cb8dc; }
+.world-label.gate-locked .wl-name { color: #a8a496; }
+.world-label.gate-locked .wl-name::before {
+  content: "";
+  display: inline-block;
+  width: 0.8em;
+  height: 0.92em;
+  margin-right: 0.35em;
+  vertical-align: -0.08em;
+  background: no-repeat center / contain
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 14'%3E%3Cpath d='M3 6.2V4.4a3 3 0 0 1 6 0v1.8' fill='none' stroke='%23c8c2b0' stroke-width='1.7'/%3E%3Crect x='1.3' y='6' width='9.4' height='7.4' rx='1.3' fill='%23c8c2b0'/%3E%3Crect x='5.3' y='8.4' width='1.4' height='2.6' rx='.6' fill='%23302c24'/%3E%3C/svg%3E");
+}
+.world-label.gate-locked .wl-sub { color: #8f8a7a; }
+/* Combat-canto declutter must not dim the way out */
+body.in-lust .world-label.portal-label .wl-name,
+body.in-gluttony .world-label.portal-label .wl-name,
+body.in-avarice .world-label.portal-label .wl-name { opacity: 1; }
+body.in-lust.hud-compact .world-label.portal-label,
+body.in-gluttony.hud-compact .world-label.portal-label,
+body.in-avarice.hud-compact .world-label.portal-label { transform: none; }
+/* The OPENED moment */
+.world-label.gate-opened .wl-name { animation: gate-opened 1.1s ease-out 3; }
+.world-label.gate-opened .wl-sub {
+  color: #fff3c0;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px #ffd46a, 0 1px 2px #000;
+}
+@keyframes gate-opened {
+  0% { transform: scale(1); text-shadow: 0 1px 2px #000, 0 0 6px #ffb83866; }
+  35% { transform: scale(1.28); text-shadow: 0 1px 2px #000, 0 0 22px #ffd46a; }
+  100% { transform: scale(1); text-shadow: 0 1px 2px #000, 0 0 12px #ffb838aa; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-label.gate-opened .wl-name { animation: none; }
+}
+
+/* ——— Loot names coloured by rarity ——— */
+.world-label.loot-label.r-normal .wl-name { color: #d8d0bc; text-shadow: 0 1px 2px #000, 0 0 6px #000a; }
+.world-label.loot-label.r-magic .wl-name { color: #7eaaf0; text-shadow: 0 1px 2px #000, 0 0 8px #4a7fd488; }
+.world-label.loot-label.r-rare .wl-name { color: #f0d860; text-shadow: 0 1px 2px #000, 0 0 8px #d4b84a88; }
+.world-label.loot-label.r-set .wl-name { color: #5ee0a0; text-shadow: 0 1px 2px #000, 0 0 8px #33cc8888; }
+.world-label.loot-label.r-unique .wl-name { color: #f0a030; text-shadow: 0 1px 2px #000, 0 0 10px #cc880099; }
+.world-label.loot-label.r-canto_unique .wl-name { color: #f590dc; text-shadow: 0 1px 2px #000, 0 0 10px #ee66cc99; }
+
+/* ——— Desktop hover: the thing under the cursor lifts its plate ——— */
+.world-label.is-hover .wl-name {
+  filter: brightness(1.25);
+  text-decoration: underline;
+  text-decoration-color: #e8c86a88;
+  text-underline-offset: 3px;
+}
+.world-label.foe.is-hover .wl-name { text-decoration-color: #d63a2a99; }
+
+/* ——— Toasts: one line on phones ——— */
+body.hud-compact #toast-layer #toast,
+body.hud-compact #toast-layer.toast-above-actions #toast {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ——— Dialogue panel (Guide counsel) ——— */
+#dialogue {
+  position: fixed;
+  z-index: 29;
+  left: 50%;
+  bottom: calc(var(--action-bar-h) + 4.2rem);
+  transform: translateX(-50%);
+  width: min(34rem, calc(100vw - 2rem));
+  padding: 0.6rem 0.9rem 0.5rem;
+  background:
+    linear-gradient(180deg, #ffffff0c, transparent 45%),
+    linear-gradient(180deg, #1e1b14f2 0%, #0f0e0bf2 100%);
+  border: 1px solid #6a5e3f;
+  border-left: 3px solid var(--gold);
+  box-shadow: inset 0 0 0 1px #000c, 0 6px 24px #000c;
+  border-radius: 3px;
+  pointer-events: none; /* never eats a tap — any tap dismisses it (ui/toasts.ts) */
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+#dialogue.dlg-in { opacity: 1; transform: translateX(-50%) translateY(0); }
+#dialogue.dlg-out { opacity: 0; transform: translateX(-50%) translateY(6px); }
+#dialogue .dlg-speaker {
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold-2);
+  margin-bottom: 0.2rem;
+}
+#dialogue .dlg-text {
+  font-size: 0.98rem;
+  line-height: 1.4;
+  color: var(--text);
+  text-shadow: 0 1px 0 #000;
+}
+#dialogue .dlg-close {
+  margin-top: 0.3rem;
+  text-align: right;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+body.hud-compact #dialogue {
+  bottom: auto;
+  top: calc(var(--hv-top) + 58px);
+  width: min(30rem, calc(100vw - 150px - var(--safe-left) - var(--safe-right)));
+  left: calc(50% - 40px);
+  padding: 0.45rem 0.7rem 0.4rem;
+}
+body.hud-compact #dialogue .dlg-text { font-size: 0.8rem; line-height: 1.32; }
+body.hud-compact:not(.hud-landscape) #dialogue {
+  top: auto;
+  bottom: calc(var(--action-bar-h) + 0.5rem);
+  left: 50%;
+  width: calc(100vw - 1.2rem);
+}
+
+/* ——— Canto title card (arrival) ——— */
+#canto-card {
+  position: fixed;
+  z-index: 12;
+  left: 50%;
+  top: 22%;
+  transform: translate(-50%, -6px);
+  width: min(34rem, calc(100vw - 2rem));
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease, transform 0.8s ease;
+}
+#canto-card.cc-show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+#canto-card .cc-rule {
+  height: 1px;
+  margin: 0.35rem auto;
+  width: 62%;
+  background: linear-gradient(90deg, transparent, #c9a227aa, transparent);
+}
+#canto-card .cc-title {
+  font-size: 2.6rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #f3e3b0;
+  text-shadow: 0 2px 0 #000, 0 0 24px #000, 0 0 18px #c9a22755;
+}
+#canto-card .cc-epi {
+  margin-top: 0.1rem;
+  font-size: 1.05rem;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  color: #d9cfae;
+  text-shadow: 0 1px 0 #000, 0 0 12px #000;
+}
+#canto-card .cc-goal {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffe7a0;
+  text-shadow: 0 1px 0 #000, 0 0 10px #000;
+}
+body.hud-compact #canto-card { top: 24%; }
+body.hud-compact #canto-card .cc-title { font-size: 1.7rem; letter-spacing: 0.24em; }
+body.hud-compact #canto-card .cc-epi { font-size: 0.82rem; }
+body.hud-compact #canto-card .cc-goal { font-size: 0.64rem; }
+
+/* ——— Phones: floating stick capture zone over the lower-left ——— */
+body.hud-compact #virtual-joystick {
+  z-index: 24; /* under the action buttons (25): a thumb on a button hits the button */
+  left: 0;
+  bottom: 0;
+  width: 44vw;
+  height: 64vh;
+  height: 64dvh;
+}
+body.hud-compact:not(.hud-landscape) #virtual-joystick {
+  width: 58vw;
+  height: 46vh;
+  height: 46dvh;
+}
+body.hud-compact #virtual-joystick .vj-base {
+  inset: auto;
+  left: calc(var(--hv-gut) + var(--safe-left) + 8px);
+  bottom: calc(14px + var(--safe-bottom) + 8px);
+  width: calc(var(--stick-size) - 16px);
+  height: calc(var(--stick-size) - 16px);
+  transition: transform 0.16s ease-out, opacity 0.2s ease;
+  opacity: 0.78;
+}
+body.hud-compact #virtual-joystick.vj-active .vj-base {
+  transition: none;
+  opacity: 1;
+}
+
+/* ——— Phones: Inv / AH / fullscreen as a small top-right menu (not above the stick) ——— */
+body.hud-compact #action-bar #btn-inv,
+body.hud-compact #action-bar #btn-ah,
+body.hud-compact #btn-fullscreen {
+  --s: 38px;
+  position: fixed;
+  left: auto;
+  bottom: auto;
+  top: calc(var(--hv-top) + 62px + 100px + 26px);
+  width: var(--s);
+  height: var(--s);
+  border-radius: 10px;
+}
+body.hud-compact #action-bar #btn-inv { right: calc(var(--hv-gut) + var(--safe-right)); }
+body.hud-compact #action-bar #btn-ah { right: calc(var(--hv-gut) + var(--safe-right) + 46px); }
+body.hud-compact #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 92px); }
+body.hud-landscape #action-bar #btn-inv,
+body.hud-landscape #action-bar #btn-ah,
+body.hud-landscape #btn-fullscreen {
+  --s: 34px;
+  top: calc(var(--hv-top) + 96px + 22px);
+}
+body.hud-landscape #action-bar #btn-ah { right: calc(var(--hv-gut) + var(--safe-right) + 42px); }
+body.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 84px); }
+/* The Auction House lives in the Dark Wood: no AH seal inside the combat circles */
+body.in-lust #btn-ah,
+body.in-gluttony #btn-ah,
+body.in-avarice #btn-ah { display: none !important; }
+body.in-lust.hud-compact #btn-fullscreen,
+body.in-gluttony.hud-compact #btn-fullscreen,
+body.in-avarice.hud-compact #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 46px); }
+body.in-lust.hud-landscape #btn-fullscreen,
+body.in-gluttony.hud-landscape #btn-fullscreen,
+body.in-avarice.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 42px); }
+
+/* Fullscreen re-enter seal (phones, only while windowed) */
+#btn-fullscreen {
+  position: fixed;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--gold-2);
+  background: radial-gradient(circle at 50% 32%, #3a3322 0%, #1b1811 55%, #0c0b08 100%);
+  border: 2px solid #8a7440;
+  box-shadow: inset 0 0 0 2px #000, 0 3px 10px #000c;
+  cursor: pointer;
+  pointer-events: auto;
+}
+#btn-fullscreen svg { width: 58%; height: 58%; }
+body.has-modal #btn-fullscreen { visibility: hidden; }

@@ -204,4 +204,39 @@ export function installFullscreenGestureHook(): void {
   document.addEventListener("fullscreenchange", syncClass);
   document.addEventListener("webkitfullscreenchange", syncClass as EventListener);
   syncClass();
+  installFullscreenButton();
+}
+
+/**
+ * Re-enter seal: once a phone player leaves fullscreen (swipe, back gesture,
+ * notification) there was no way back in. Shown only while windowed.
+ */
+function installFullscreenButton(): void {
+  const el = document.documentElement as FsEl;
+  const supported =
+    typeof el.requestFullscreen === "function" ||
+    typeof el.webkitRequestFullscreen === "function" ||
+    typeof el.webkitRequestFullScreen === "function";
+  if (!supported || document.getElementById("btn-fullscreen")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = "btn-fullscreen";
+  btn.className = "hidden";
+  btn.setAttribute("aria-label", "Fullscreen");
+  btn.title = "Fullscreen";
+  btn.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void requestGameFullscreen();
+  });
+  document.body.appendChild(btn);
+  const sync = () => {
+    btn.classList.toggle("hidden", !prefersMobileImmersive() || isGameFullscreen());
+  };
+  document.addEventListener("fullscreenchange", sync);
+  document.addEventListener("webkitfullscreenchange", sync as EventListener);
+  window.addEventListener("resize", sync);
+  sync();
 }

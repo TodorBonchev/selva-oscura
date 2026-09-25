@@ -121,6 +121,14 @@ function weightMatchupMult(spellId, ent) {
 }
 
 
+/** Player-facing rarity word for loot toasts ("Magic Cloak"; normal items stay plain). */
+function rarityWord(r) {
+  const k = String(r || "normal");
+  if (k === "normal") return "";
+  if (k === "canto_unique") return "Canto Unique ";
+  return `${k.charAt(0).toUpperCase()}${k.slice(1)} `;
+}
+
 /** Compact Ash+Stelle tag for emit/daily toasts (1 Stelle = 1000 Ash). */
 function ashStelleTag(ash) {
   const n = Math.max(0, Math.floor(Number(ash) || 0));
@@ -1072,7 +1080,7 @@ class CantoRoom {
         this.toast(
           killer.ws,
           "loot",
-          `${dropPrefix}: ${showDrops.map((d) => `${d.rarity} ${d.name}`).join(", ")}`
+          `${dropPrefix}: ${showDrops.map((d) => `${rarityWord(d.rarity)}${d.name}`).join(", ")}`
         );
       }
     }
@@ -1081,7 +1089,7 @@ class CantoRoom {
     if (isChampion) {
       const r = tryEmit(killerId, "ChampionPack", { packId: entity.packId });
       if (r.ok && killer) {
-        this.toast(killer.ws, "emit", `ChampionPack pending +${ashStelleTag(r.payoutAsh)}`);
+        this.toast(killer.ws, "emit", `Champion bounty +${ashStelleTag(r.payoutAsh)} (pending)`);
       }
     }
     if (isBoss) {
@@ -1093,12 +1101,12 @@ class CantoRoom {
         const sess = this.sessions.get(pid);
         if (!sess) continue;
         const r = tryEmit(pid, "Boss", { bossId: entity.id, cantoId: this.cantoId });
-        if (r.ok) this.toast(sess.ws, "emit", `Boss pending +${ashStelleTag(r.payoutAsh)}`);
+        if (r.ok) this.toast(sess.ws, "emit", `Boss bounty +${ashStelleTag(r.payoutAsh)} (pending)`);
         const fc = this.canto.first_clear;
         if (!fc?.enabled || !entity.firstClearEmit) continue;
         const r2 = tryEmit(pid, "FirstClear", { cantoId: this.cantoId, requires: entity.id });
         if (r2.ok) {
-          this.toast(sess.ws, "emit", `FirstClear pending +${ashStelleTag(r2.payoutAsh)}`);
+          this.toast(sess.ws, "emit", `First clear reward +${ashStelleTag(r2.payoutAsh)} (pending)`);
           const gateLine =
             this.cantoId === "inferno_05"
               ? "Lust falls — the Gluttony gate past the dais opens."
@@ -1163,7 +1171,8 @@ class CantoRoom {
       });
       if (e.hp <= 0) this.onEntityKilled(playerId, e);
     }
-    this.toast(s.ws, cut ? "loot" : "info", cut ? `Dash cuts ${cut}` : "Dash");
+    // A plain dash needs no words; a dash that cuts foes says how many
+    if (cut) this.toast(s.ws, "loot", `Dash cuts ${cut}`);
     this.markDirty();
     this.pushSnapshot(playerId);
   }
@@ -1229,7 +1238,7 @@ class CantoRoom {
     }
     this.entities.delete(lootId);
     await grantInventoryItem(playerId, loot.item);
-    this.toast(s.ws, "loot", `Picked up ${loot.item.rarity} ${loot.item.name}`);
+    this.toast(s.ws, "loot", `Picked up ${rarityWord(loot.item.rarity)}${loot.item.name}`);
     this.pushAllSnapshots();
   }
 
@@ -1261,7 +1270,6 @@ class CantoRoom {
         this.toast(s.ws, "warn", tip);
         return;
       }
-      this.send(s.ws, { type: "toast", level: "info", text: `Travel: ${e.toCanto}` });
       // Client/world manager will travel
       return { travel: e.toCanto };
     }
@@ -1375,7 +1383,7 @@ class CantoRoom {
               : this.cantoId === "inferno_06"
                 ? "Filth Cache"
                 : "Cache";
-          this.toast(s.ws, "loot", `${prefix}: ${item.rarity} ${item.name}`);
+          this.toast(s.ws, "loot", `${prefix}: ${rarityWord(item.rarity)}${item.name}`);
           if (this.cantoId === "inferno_07") {
             this.toast(s.ws, "info", "contrapeso — the cache yields its weight");
           }
@@ -1448,7 +1456,7 @@ class CantoRoom {
       return;
     }
     if (!ledger.visitedInferno) {
-      if (!quiet) this.toast(s.ws, "warn", "Return from any Inferno instance once (travel to Lust).");
+      if (!quiet) this.toast(s.ws, "warn", "Walk into Lust once first — then the writ opens.");
       return;
     }
     const qid = questId || "dw_daily_scout";
@@ -2027,7 +2035,7 @@ export class World {
     // Allow travel if near exit OR explicit travel after interact
     const room = this.ensureJoin(ws, playerId, name, toCanto);
     room.pushSnapshot(playerId);
-    room.toast(ws, "info", `Entered ${room.canto.title}.`);
+    // (no "Entered X." toast: the client shows a canto title card on arrival)
     if (room.canto.role === "hub" || room.cantoId === "inferno_01") {
       const hubLine = hasCleared(playerId, "inferno_07")
         ? "Dark Wood rest — writ, stash, or hunt Lust / Gluttony / Avarice again."
@@ -2035,12 +2043,9 @@ export class World {
           ? "Dark Wood rest — bank loot, then Avarice past the Maw (or Lust again)."
           : hasCleared(playerId, "inferno_05")
             ? "Dark Wood rest — bank loot, then Gluttony past the Judge."
-            : "No foes in the Dark Wood — take the eastern portal Toward Lust.";
+            : "No foes in the Dark Wood — the gold gate leads to Lust.";
       room.toast(ws, "info", hubLine);
-    } else if (room.cantoId === "inferno_07") {
-      room.toast(ws, "info", "peso e contrapeso — measure the road, then break Hoard Crush.");
     } else if (room.cantoId === "inferno_06") {
-      room.toast(ws, "info", "The eternal rain falls. Clear the mire, then the Triple Maw.");
       if (hasCleared(playerId, "inferno_06")) {
         room.toast(ws, "info", "The Avarice gate past the Maw stands open.");
       }

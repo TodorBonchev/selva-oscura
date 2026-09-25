@@ -1168,9 +1168,163 @@ export function makeWrit(mats: MatKit): THREE.Group {
   return g;
 }
 
+export type PortalVisualState = "forward" | "return" | "locked";
+
+/**
+ * Gate palette. forward = gold (the next objective), return = cool bone/blue,
+ * locked = grey. Each state owns ONE clone of the gale disc/ring material and one
+ * beacon/ground material shared by every gate in that state — portals never
+ * recolour the shared `mats.gale` (whirl ribbons, champion plumes and shrine
+ * rings use it too).
+ */
+const PORTAL_STYLE: Record<
+  PortalVisualState,
+  {
+    disc: number;
+    discOp: number;
+    ring: number;
+    ringOp: number;
+    beacon: number;
+    beaconOp: number;
+    ground: number;
+    groundOp: number;
+    spark: number;
+    light: number;
+    lightI: number;
+  }
+> = {
+  forward: {
+    disc: 0xffb838,
+    discOp: 0.78,
+    ring: 0xffe7a0,
+    ringOp: 0.7,
+    beacon: 0xffcf5a,
+    beaconOp: 0.62,
+    ground: 0xffd46a,
+    groundOp: 0.62,
+    spark: 0xffe08a,
+    light: 0xffc050,
+    lightI: 1.9,
+  },
+  return: {
+    disc: 0x6f9ad8,
+    discOp: 0.55,
+    ring: 0xdce6f2,
+    ringOp: 0.5,
+    beacon: 0x9cc0ee,
+    beaconOp: 0.3,
+    ground: 0x7fa6e0,
+    groundOp: 0.3,
+    spark: 0xc8dcf4,
+    light: 0x8fb4e8,
+    lightI: 1.2,
+  },
+  locked: {
+    disc: 0x2e2c26,
+    discOp: 0.22,
+    ring: 0x55524a,
+    ringOp: 0.2,
+    beacon: 0x6a6658,
+    beaconOp: 0,
+    ground: 0x6a6658,
+    groundOp: 0.24,
+    spark: 0x5a5648,
+    light: 0x6a6040,
+    lightI: 0.35,
+  },
+};
+
+type PortalMatSet = {
+  disc: THREE.MeshBasicMaterial;
+  ring: THREE.MeshBasicMaterial;
+  beacon: THREE.MeshBasicMaterial;
+  ground: THREE.MeshBasicMaterial;
+};
+
+let portalMatCache: { gale: THREE.Material; sets: Record<PortalVisualState, PortalMatSet> } | null = null;
+let beaconGradTex: THREE.DataTexture | null = null;
+let beaconGeo: THREE.CylinderGeometry | null = null;
+let groundRingGeo: THREE.RingGeometry | null = null;
+
+/** Vertical luminance ramp (bright foot → clear top) for additive light pillars. */
+export function beaconGradient(): THREE.DataTexture {
+  if (beaconGradTex) return beaconGradTex;
+  const n = 64;
+  const data = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const v = i / (n - 1);
+    // Hot at the foot, long soft tail upward
+    const a = Math.pow(1 - v, 1.7) * (0.55 + 0.45 * Math.min(1, v * 10));
+    const c = Math.round(255 * a);
+    data[i * 4] = c;
+    data[i * 4 + 1] = c;
+    data[i * 4 + 2] = c;
+    data[i * 4 + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, 1, n, THREE.RGBAFormat);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  beaconGradTex = t;
+  return t;
+}
+
+/** Additive, fog-free pillar material (reads through canto haze like a lighthouse). */
+export function makeBeaconMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({
+    map: beaconGradient(),
+    color,
+    transparent: true,
+    opacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false,
+  });
+  m.userData.baseOpacity = opacity;
+  return m;
+}
+
+function portalMats(mats: MatKit): Record<PortalVisualState, PortalMatSet> {
+  if (portalMatCache && portalMatCache.gale === mats.gale) return portalMatCache.sets;
+  const make = (st: PortalVisualState): PortalMatSet => {
+    const k = PORTAL_STYLE[st];
+    const disc = mats.gale.clone();
+    disc.color.setHex(k.disc);
+    disc.opacity = k.discOp;
+    const ring = mats.gale.clone();
+    ring.color.setHex(k.ring);
+    ring.opacity = k.ringOp;
+    const beacon = makeBeaconMaterial(k.beacon, k.beaconOp);
+    const ground = new THREE.MeshBasicMaterial({
+      color: k.ground,
+      transparent: true,
+      opacity: k.groundOp,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    ground.userData.baseOpacity = k.groundOp;
+    return { disc, ring, beacon, ground };
+  };
+  const sets = { forward: make("forward"), return: make("return"), locked: make("locked") };
+  portalMatCache = { gale: mats.gale, sets };
+  return sets;
+}
+
+/** Breathe the shared gate beacons once per frame (all gates of a state pulse together). */
+export function tickPortalMaterials(tMs: number) {
+  if (!portalMatCache) return;
+  const { forward, return: back } = portalMatCache.sets;
+  const f = 0.5 + 0.5 * Math.sin(tMs * 0.0024);
+  forward.beacon.opacity = Number(forward.beacon.userData.baseOpacity) * (0.78 + 0.22 * f);
+  forward.ground.opacity = Number(forward.ground.userData.baseOpacity) * (0.7 + 0.3 * f);
+  back.ground.opacity = Number(back.ground.userData.baseOpacity) * (0.8 + 0.2 * f);
+}
+
 export function makePortal(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "portal";
+  const pm = portalMats(mats);
   const colL = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 3.6, 12), mats.stone);
   colL.position.set(-1.15, 1.8, 0);
   const colR = colL.clone();
@@ -1182,10 +1336,11 @@ export function makePortal(mats: MatKit): THREE.Group {
   const arch = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.14, 10, 28, Math.PI), mats.stone);
   arch.position.y = 3.55;
   arch.rotation.z = Math.PI;
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(1.05, 32), mats.gale);
+  // Disc + swirl ring wear the per-state gate materials (setPortalGateVisual swaps them)
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(1.05, 32), pm.locked.disc);
   disc.position.set(0, 2.05, 0);
   disc.name = "galeDisc";
-  const disc2 = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.95, 28), mats.gale);
+  const disc2 = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.95, 28), pm.locked.ring);
   disc2.position.set(0, 2.05, 0.02);
   disc2.name = "galeRing";
   const trim = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.05, 8, 32), mats.gold);
@@ -1217,47 +1372,62 @@ export function makePortal(mats: MatKit): THREE.Group {
     })
   );
   sparks.name = "portalSparks";
+  // Light pillar + ground ring read from across the canto (geometry shared, no extra lights)
+  beaconGeo ??= new THREE.CylinderGeometry(0.62, 1.05, 18, 18, 1, true);
+  const beacon = new THREE.Mesh(beaconGeo, pm.locked.beacon);
+  beacon.name = "gateBeacon";
+  beacon.position.y = 9;
+  beacon.renderOrder = 2;
+  beacon.visible = false;
+  groundRingGeo ??= new THREE.RingGeometry(1.75, 2.35, 44);
+  const ground = new THREE.Mesh(groundRingGeo, pm.locked.ground);
+  ground.name = "gateGround";
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = 0.07;
+  ground.renderOrder = 1;
   g.add(discShadow(mats, 1.45), colL, colR, capL, capR, arch, disc, disc2, trim, inner, glow, sparks, nose(mats, 2.0, -0.2));
   shadow(g);
+  // Added after shadow(): light never casts or receives
+  g.add(beacon, ground);
   return g;
 }
 
 
-/** Dim / brighten a portal group for require_clear lock state. */
-export function setPortalGateVisual(root: THREE.Object3D, locked: boolean, openTint = 0xff6633) {
-  root.userData.portalLocked = locked;
+/** Swap a gate onto its state's shared materials (no-op when unchanged). */
+export function setPortalGateVisual(root: THREE.Object3D, state: PortalVisualState, mats: MatKit) {
+  if (root.userData.portalState === state) return;
+  root.userData.portalState = state;
+  root.userData.portalLocked = state === "locked";
+  const set = portalMats(mats)[state];
+  const k = PORTAL_STYLE[state];
   const disc = root.getObjectByName("galeDisc") as THREE.Mesh | undefined;
   const ring = root.getObjectByName("galeRing") as THREE.Mesh | undefined;
+  const beacon = root.getObjectByName("gateBeacon") as THREE.Mesh | undefined;
+  const ground = root.getObjectByName("gateGround") as THREE.Mesh | undefined;
   const sparks = root.getObjectByName("portalSparks") as THREE.Points | undefined;
-  const apply = (m: THREE.Material | THREE.Material[] | undefined, fn: (mat: any) => void) => {
-    if (!m) return;
-    if (Array.isArray(m)) m.forEach(fn);
-    else fn(m);
-  };
-  if (disc) {
-    apply(disc.material, (mat) => {
-      if (mat.color) mat.color.setHex(locked ? 0x3a3428 : openTint);
-      if ("opacity" in mat) mat.opacity = locked ? 0.22 : 0.62;
-    });
-  }
-  if (ring) {
-    apply(ring.material, (mat) => {
-      if (mat.color) mat.color.setHex(locked ? 0x2a2818 : openTint);
-      if ("opacity" in mat) mat.opacity = locked ? 0.18 : 0.55;
-    });
+  if (disc) disc.material = set.disc;
+  if (ring) ring.material = set.ring;
+  if (ground) ground.material = set.ground;
+  if (beacon) {
+    beacon.material = set.beacon;
+    beacon.visible = state !== "locked";
+    // Return roads get a shorter, quieter pillar than the way forward
+    const fw = state === "forward";
+    beacon.userData.baseW = fw ? 1 : 0.7;
+    beacon.scale.set(fw ? 1 : 0.7, fw ? 1 : 0.5, fw ? 1 : 0.7);
+    beacon.position.y = 9 * beacon.scale.y;
   }
   if (sparks) {
-    apply(sparks.material, (mat) => {
-      if (mat.color) mat.color.setHex(locked ? 0x5a5040 : 0xff8844);
-      if ("opacity" in mat) mat.opacity = locked ? 0.25 : 0.85;
-      if ("size" in mat) mat.size = locked ? 0.05 : 0.11;
-    });
+    const mat = sparks.material as THREE.PointsMaterial;
+    mat.color.setHex(k.spark);
+    mat.opacity = state === "locked" ? 0.25 : 0.85;
+    mat.size = state === "locked" ? 0.05 : state === "forward" ? 0.13 : 0.1;
   }
   root.traverse((o) => {
     if ((o as THREE.PointLight).isPointLight) {
       const L = o as THREE.PointLight;
-      L.intensity = locked ? 0.35 : 1.6;
-      L.color.setHex(locked ? 0x6a6040 : openTint);
+      L.intensity = k.lightI;
+      L.color.setHex(k.light);
     }
   });
 }

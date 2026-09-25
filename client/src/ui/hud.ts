@@ -7,6 +7,7 @@ import {
 } from "../items/icons";
 import { formatItemStats, itemStatBonus, itemStatsHtml, slotLabelForItem, vendorAsh } from "../items/stats";
 import { SPELLS, SPELL_HOTBAR, type SpellId } from "../spells";
+import { placeToastLayer, pushToast } from "./toasts";
 
 let selectedItemId: string | null = null;
 let lastBagItems: any[] = [];
@@ -16,7 +17,6 @@ let lastStashItems: any[] = [];
 const STASH_MAX_SLOTS = 60;
 let invWeighedOnly = false;
 let meltArmTimer: number | null = null;
-let toastTimer: number | null = null;
 let lastHpShown: number | null = null;
 let lastManaShown: number | null = null;
 let lastPendingAsh = 0;
@@ -84,101 +84,12 @@ function rarityClass(r: string | undefined): string {
   return `r-${k in RARITY_LABEL ? k : "normal"}`;
 }
 
-/** Toast with brief fade; level → gold (loot), bright gold (emit), crimson (warn), bone (info). */
-let lastToastText = "";
-let lastToastAt = 0;
-let lastToastFamily = "";
-let toastFadeTimer: number | null = null;
-
-/** Collapse spammy combat/approach lines into a family for longer dedupe. */
-function toastFamily(text: string): string {
-  const t = text.trim();
-  if (/^Closing on /i.test(t)) return "closing";
-  if (/^Approaching /i.test(t)) return "approach";
-  if (/^Picking up /i.test(t)) return "pickup";
-  if (/^Interact:/i.test(t)) return "interact";
-  if (/out of (range|mana)|not enough mana|nothing to strike|no foe/i.test(t)) return "oor";
-  return t;
-}
-
-export function showToast(text: string, level = "info") {
-  const el = document.getElementById("toast");
-  if (!el) return;
-  const now = Date.now();
-  const family = toastFamily(text);
-  // Exact repeat: 900ms. Same spam family (closing/approach/pickup): 1600ms.
-  const windowMs = family === text.trim() ? 900 : 1600;
-  if (
-    (text === lastToastText && now - lastToastAt < 900) ||
-    (family === lastToastFamily && family !== text.trim() && now - lastToastAt < windowMs)
-  ) {
-    return;
-  }
-  lastToastText = text;
-  lastToastFamily = family;
-  lastToastAt = now;
-  placeToastLayer();
-  el.textContent = text;
-  el.className = "";
-  // Restart CSS animation even if the same class is re-applied
-  void el.offsetWidth;
-  el.classList.add("toast-show", `toast-${level}`);
-  if (toastTimer != null) window.clearTimeout(toastTimer);
-  if (toastFadeTimer != null) window.clearTimeout(toastFadeTimer);
-  const hold = level === "warn" ? 2600 : level === "emit" ? 3600 : 3000;
-  toastTimer = window.setTimeout(() => {
-    el.classList.remove("toast-show");
-    el.classList.add("toast-fade");
-    // Drop text after fade so detached nodes / long strings don't linger for GC
-    toastFadeTimer = window.setTimeout(() => {
-      if (!el.classList.contains("toast-show")) el.textContent = "";
-      toastFadeTimer = null;
-    }, 420);
-  }, hold);
-}
-
-/** #toast-layer is fixed (above modals).
- *  Desktop / wide: pin under HUD plates.
- *  Narrow / short phones: raise above the two-row action bar so combat toasts stay readable.
+/**
+ * Toast: level → gold (loot), bright gold (emit), crimson (warn), bone (info).
+ * Queued with priorities and family collapse — see ui/toasts.ts.
  */
-function placeToastLayer() {
-  const layer = document.getElementById("toast-layer");
-  const top = document.getElementById("hud-top");
-  if (!layer || !top) return;
-  // Phone HUD: toasts stack in the left column under vitals + objective line.
-  if (document.body.classList.contains("hud-compact")) {
-    layer.classList.remove("toast-above-actions");
-    layer.style.bottom = "";
-    let y = top.getBoundingClientRect().bottom;
-    const quest = document.getElementById("quest-track");
-    // (fixed elements have no offsetParent — test the box instead)
-    const qr = quest?.getBoundingClientRect();
-    if (qr && qr.height > 0 && quest?.textContent?.trim()) y = Math.max(y, qr.bottom);
-    // Portrait: the foe plate shares this column — stack toasts beneath it
-    const tp = document.getElementById("target-plate");
-    if (tp && !document.body.classList.contains("hud-landscape")) {
-      const tr = tp.getBoundingClientRect();
-      if (tr.height > 0) y = Math.max(y, tr.bottom);
-    }
-    layer.style.top = `${Math.round(y + 6)}px`;
-    return;
-  }
-  const narrow =
-    window.matchMedia("(max-width: 400px)").matches ||
-    window.matchMedia("(max-height: 520px) and (max-width: 900px)").matches;
-  if (narrow) {
-    layer.classList.add("toast-above-actions");
-    layer.style.top = "";
-    const bar = document.getElementById("action-bar");
-    const barH = bar ? bar.getBoundingClientRect().height : 0;
-    const gap = 10;
-    layer.style.bottom = `${Math.round(barH + gap)}px`;
-  } else {
-    layer.classList.remove("toast-above-actions");
-    layer.style.bottom = "";
-    const r = top.getBoundingClientRect();
-    layer.style.top = `${Math.round(r.bottom + 6)}px`;
-  }
+export function showToast(text: string, level = "info") {
+  pushToast(text, level);
 }
 
 /** Fade the "how to play" tip overlay after a short grace period; call once on boot. */
@@ -539,17 +450,40 @@ export function setStashMode(on: boolean) {
   if (on) setPanelOpen("inventory", true);
 }
 
-export function setQuestLine(text: string) {
+let questMain: HTMLElement | null = null;
+let questSub: HTMLElement | null = null;
+
+/** Objective line + an optional secondary hint beneath it (never replaces it). */
+export function setQuestLine(text: string, sub = "") {
   const el = document.getElementById("quest-track");
-  if (!el || el.textContent === text) return;
-  el.textContent = text;
+  if (!el) return;
+  if (!questMain || !el.contains(questMain)) {
+    el.textContent = "";
+    questMain = document.createElement("span");
+    questMain.className = "qt-main";
+    questSub = document.createElement("span");
+    questSub.className = "qt-sub";
+    el.append(questMain, questSub);
+  }
+  if (questMain.textContent !== text) questMain.textContent = text;
+  if (questSub && questSub.textContent !== sub) {
+    questSub.textContent = sub;
+    questSub.hidden = !sub;
+  }
 }
+
+/** Last painted target plate — the plate is rewritten only when this changes. */
+let plateKey = "";
 
 export function setTargetPlate(
   name: string | null,
   ratio: number,
   opts?: { boss?: boolean; avarice?: boolean }
 ) {
+  const pctNum = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  const key = name ? `${name}|${pctNum}|${opts?.boss ? 1 : 0}|${opts?.avarice ? 1 : 0}` : "";
+  if (key === plateKey) return;
+  plateKey = key;
   const el = document.getElementById("target-plate");
   if (!el) return;
   if (!name) {
@@ -563,12 +497,12 @@ export function setTargetPlate(
   const n = el.querySelector("#target-name");
   if (n && n.textContent !== name) n.textContent = name;
   const bar = el.querySelector("#target-hp") as HTMLElement | null;
-  if (bar) bar.style.width = `${Math.max(0, Math.min(100, Math.round(ratio * 100)))}%`;
+  if (bar) bar.style.width = `${pctNum}%`;
   const pct = el.querySelector("#target-hp-pct") as HTMLElement | null;
   if (pct) {
     const show = Boolean(opts?.boss);
     pct.hidden = !show;
-    if (show) pct.textContent = `${Math.max(0, Math.min(100, Math.round(ratio * 100)))}%`;
+    if (show) pct.textContent = `${pctNum}%`;
   }
 }
 
@@ -754,13 +688,15 @@ export function hapticPortalComplete() {
 }
 
 /** D4-style hold-to-travel: radial fill on Interact + bottom prompt. `frac` null hides. */
-export function setPortalHoldUi(frac: number | null, dest = "portal") {
+export function setPortalHoldUi(frac: number | null, dest = "portal", title = "Hold to enter") {
   const btn = document.getElementById("btn-interact");
   const cd = btn?.querySelector<HTMLElement>(".interact-cd");
   const label = btn?.querySelector<HTMLElement>(".action-label");
   const prompt = document.getElementById("portal-hold-prompt");
   const bar = prompt?.querySelector<HTMLElement>(".php-bar i");
   const destEl = prompt?.querySelector<HTMLElement>(".php-dest");
+  const titleEl = prompt?.querySelector<HTMLElement>(".php-title");
+  if (titleEl && frac != null && titleEl.textContent !== title) titleEl.textContent = title;
   if (frac == null) {
     btn?.classList.remove("charging");
     btn?.style.removeProperty("--portal-charge-deg");
