@@ -38,6 +38,14 @@ const AVA_SPAWN_KEEP = 11.5;
 const SPAWN_KEEP = 10;
 const PLAYER_BASE_DMG = 22;
 const PLAYER_ATK_CD = 0.42;
+/**
+ * The melee cooldown is checked against the wall clock (atkCd alone only ticks at
+ * ~15 Hz, so a swing 0.42 s after the last could meet a sliver of cooldown and be
+ * dropped silently — a phantom slash on the client). The grace absorbs network
+ * jitter and client frame quantization: the client swings every 0.44 s and sends
+ * at blade contact, so every honest swing lands; nothing gets faster than 0.36 s.
+ */
+const PLAYER_ATK_GRACE = 0.06;
 
 const MOB_HP = {
   whirl_shade: 36,
@@ -672,7 +680,7 @@ class CantoRoom {
   handleAttack(playerId, targetId) {
     const s = this.sessions.get(playerId);
     if (!s) return;
-    if (s.atkCd > 0) return;
+    if (Date.now() < (s.atkReadyAt || 0)) return;
     const target = this.entities.get(targetId);
     if (!target) return;
     if (target.kind !== "mob" && target.kind !== "boss") {
@@ -689,6 +697,7 @@ class CantoRoom {
       return;
     }
     s.atkCd = PLAYER_ATK_CD;
+    s.atkReadyAt = Date.now() + (PLAYER_ATK_CD - PLAYER_ATK_GRACE) * 1000;
     const gear = computeGearStats(players.get(playerId) || { inventory: [] });
     const dmg = PLAYER_BASE_DMG + gear.dmg + Math.floor(Math.random() * 6);
     const victims = [target];

@@ -1641,6 +1641,12 @@ export function wireHud(api: {
     };
     attackBtn.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      // Capture: a thumb sliding off the button keeps the hold (ends on lift only)
+      try {
+        attackBtn.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
       holdArmed = true;
       attackBtn.classList.add("pressed");
       hapticLight();
@@ -1648,8 +1654,8 @@ export function wireHud(api: {
       else api.attackNearest();
     });
     attackBtn.addEventListener("pointerup", endHold);
-    attackBtn.addEventListener("pointerleave", endHold);
     attackBtn.addEventListener("pointercancel", endHold);
+    attackBtn.addEventListener("lostpointercapture", endHold);
     // Avoid duplicate click after pointerup
     attackBtn.addEventListener("click", (e) => e.preventDefault());
   }
