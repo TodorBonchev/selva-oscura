@@ -4,6 +4,7 @@
  * of the mount (threejs-frame-conventions Rule 3 / 4).
  */
 import * as THREE from "three";
+import { makeFlame } from "./fx";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { MatKit } from "./materials";
 import { isCompactUi } from "../ui/hud";
@@ -67,6 +68,8 @@ function nose(mats: MatKit, y: number, z: number) {
 
 function discShadow(mats: MatKit, r: number) {
   const s = new THREE.Mesh(new THREE.CircleGeometry(r, 16), mats.shadowCatch);
+  // Shared material: occluder fades must skip it (see WorldApp.fadeTreeOccluders)
+  s.name = "discShadow";
   s.rotation.x = -Math.PI / 2;
   s.position.y = 0.02;
   s.receiveShadow = false;
@@ -2012,10 +2015,11 @@ export function makeBrazier(mats: MatKit): THREE.Group {
   bowl.position.y = 0.55;
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.12, 0.5, 8), mats.stone);
   stem.position.y = 0.25;
-  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.42, 7), mats.ember);
-  flame.position.y = 0.85;
-  flame.name = "ember";
-  g.add(discShadow(mats, 0.32), stem, bowl, flame);
+  const coals = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.05, 10), mats.ember);
+  coals.position.y = 0.66;
+  const flame = makeFlame(0.72);
+  flame.position.y = 0.64;
+  g.add(discShadow(mats, 0.32), stem, bowl, coals, flame);
   return g;
 }
 
@@ -2049,9 +2053,8 @@ export function makeShrine(mats: MatKit): THREE.Group {
   pillar.position.y = 1.2;
   const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10), mats.gold);
   bowl.position.y = 2.45;
-  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), mats.ember);
-  flame.position.y = 2.72;
-  flame.name = "ember";
+  const flame = makeFlame(0.55, 0xffe8c0);
+  flame.position.y = 2.6;
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(0.7, 0.04, 6, 20),
     mats.gale

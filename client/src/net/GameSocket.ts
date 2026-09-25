@@ -132,6 +132,12 @@ export class GameSocket {
   salvageBag() {
     this.send({ type: "salvage_bag" });
   }
+  stashPut(itemId: string) {
+    this.send({ type: "stash_put", itemId });
+  }
+  stashTake(itemId: string) {
+    this.send({ type: "stash_take", itemId });
+  }
   sip() {
     this.send({ type: "sip" });
   }

@@ -2,6 +2,165 @@ import * as THREE from "three";
 import { setPlanar } from "./frames";
 import type { MatKit } from "./materials";
 
+/** Canvas-drawn sprite textures, built once and shared (no extra asset fetches). */
+let _softDot: THREE.CanvasTexture | null = null;
+let _flameTex: THREE.CanvasTexture | null = null;
+
+/** Soft round mote: bright core, feathered edge (points were square without a map). */
+export function softDotTexture(): THREE.CanvasTexture {
+  if (_softDot) return _softDot;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, "rgba(255,255,255,1)");
+  grd.addColorStop(0.35, "rgba(255,255,255,0.75)");
+  grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  _softDot = new THREE.CanvasTexture(c);
+  _softDot.colorSpace = THREE.SRGBColorSpace;
+  return _softDot;
+}
+
+/** Teardrop flame: white-gold core → ember → transparent tip. */
+export function flameTexture(): THREE.CanvasTexture {
+  if (_flameTex) return _flameTex;
+  const c = document.createElement("canvas");
+  c.width = 64;
+  c.height = 128;
+  const g = c.getContext("2d")!;
+  g.translate(32, 0);
+  const body = new Path2D();
+  body.moveTo(0, 4);
+  body.bezierCurveTo(20, 46, 30, 76, 26, 96);
+  body.bezierCurveTo(22, 118, -22, 118, -26, 96);
+  body.bezierCurveTo(-30, 76, -20, 46, 0, 4);
+  const grd = g.createRadialGradient(0, 94, 2, 0, 80, 70);
+  grd.addColorStop(0, "rgba(255,248,220,1)");
+  grd.addColorStop(0.25, "rgba(255,196,96,0.95)");
+  grd.addColorStop(0.6, "rgba(232,86,32,0.7)");
+  grd.addColorStop(1, "rgba(120,20,8,0)");
+  g.fillStyle = grd;
+  g.filter = "blur(3px)";
+  g.fill(body);
+  _flameTex = new THREE.CanvasTexture(c);
+  _flameTex.colorSpace = THREE.SRGBColorSpace;
+  return _flameTex;
+}
+
+/**
+ * Layered additive flame billboards + a ground glow. Returned group is named
+ * "ember" so WorldApp's prop animator flickers it (scale pulse).
+ */
+export function makeFlame(scale = 1, tint = 0xffffff): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "ember";
+  const tex = flameTexture();
+  const layers: [number, number, number][] = [
+    // [width, height, opacity]
+    [0.62, 1.15, 0.95],
+    [0.42, 0.85, 0.9],
+    [0.9, 0.7, 0.35],
+  ];
+  for (const [w, h, op] of layers) {
+    const sp = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: tex,
+        color: tint,
+        transparent: true,
+        opacity: op,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+      })
+    );
+    sp.center.set(0.5, 0.08);
+    sp.scale.set(w * scale, h * scale, 1);
+    g.add(sp);
+  }
+  const glow = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: softDotTexture(),
+      color: 0xff8a3a,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  glow.scale.set(1.8 * scale, 1.8 * scale, 1);
+  glow.position.y = 0.25 * scale;
+  g.add(glow);
+  // Self-driven flicker (POI nodes are not in the ground prop animator).
+  const sprites = g.children.slice(0, layers.length) as THREE.Sprite[];
+  const baseH = layers.map(([, h]) => h * scale);
+  const baseW = layers.map(([w]) => w * scale);
+  const seed = Math.random() * 100;
+  sprites[0].onBeforeRender = () => {
+    const t = performance.now() * 0.001 + seed;
+    for (let i = 0; i < sprites.length; i++) {
+      const f = 1 + Math.sin(t * (11 + i * 3.7)) * 0.07 + Math.sin(t * (5.3 + i)) * 0.05;
+      sprites[i].scale.set(baseW[i] * (2 - f) * 0.5 + baseW[i] * 0.5, baseH[i] * f, 1);
+    }
+    (glow.material as THREE.SpriteMaterial).opacity = 0.38 + Math.sin(t * 9.1) * 0.07;
+  };
+  return g;
+}
+
+let _shaftTex: THREE.CanvasTexture | null = null;
+
+/** Slanted god-ray: bright at the canopy gap, feathered toward the ground. */
+function shaftTexture(): THREE.CanvasTexture {
+  if (_shaftTex) return _shaftTex;
+  const c = document.createElement("canvas");
+  c.width = 128;
+  c.height = 512;
+  const g = c.getContext("2d")!;
+  g.filter = "blur(10px)";
+  const grd = g.createLinearGradient(0, 0, 0, 512);
+  grd.addColorStop(0, "rgba(255,240,205,0)");
+  grd.addColorStop(0.12, "rgba(255,240,205,0.9)");
+  grd.addColorStop(0.7, "rgba(255,232,190,0.35)");
+  grd.addColorStop(1, "rgba(255,232,190,0)");
+  g.fillStyle = grd;
+  g.beginPath();
+  g.moveTo(58, 0);
+  g.lineTo(100, 0);
+  g.lineTo(82, 512);
+  g.lineTo(18, 512);
+  g.closePath();
+  g.fill();
+  _shaftTex = new THREE.CanvasTexture(c);
+  _shaftTex.colorSpace = THREE.SRGBColorSpace;
+  return _shaftTex;
+}
+
+/**
+ * Doré light shaft through the canopy (bible: "dramatic shafts of light").
+ * A camera-facing additive sprite anchored at its foot; breathes slowly.
+ */
+export function makeLightShaft(height = 11, opacity = 0.16): THREE.Sprite {
+  const mat = new THREE.SpriteMaterial({
+    map: shaftTexture(),
+    color: 0xffe2b0,
+    transparent: true,
+    opacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false,
+  });
+  const sp = new THREE.Sprite(mat);
+  sp.center.set(0.5, 0);
+  sp.scale.set(height * 0.42, height, 1);
+  sp.name = "lightShaft";
+  const seed = Math.random() * 10;
+  sp.onBeforeRender = () => {
+    mat.opacity = opacity * (0.75 + 0.25 * Math.sin(performance.now() * 0.0004 + seed));
+  };
+  return sp;
+}
+
 export class AshField {
   points: THREE.Points;
   private pos: Float32Array;
@@ -17,7 +176,8 @@ export class AshField {
     geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
     const mat = new THREE.PointsMaterial({
       color,
-      size: 0.16,
+      map: softDotTexture(),
+      size: 0.22,
       transparent: true,
       opacity: 0.55,
       depthWrite: false,

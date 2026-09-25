@@ -63,6 +63,8 @@ input, textarea, .panel, #panels, #boot-veil, #boot-veil input, #boot-veil butto
   overscroll-behavior: none;
 }
 .hidden { display: none !important; }
+/* Component rules set display on CD overlays etc.; the attribute must still win. */
+[hidden] { display: none !important; }
 
 /* ——— Shared bone / gold plate ——— */
 .plate {
@@ -4976,3 +4978,530 @@ body.in-avarice.hud-compact.crush-enrage #game-root::after {
 body.in-avarice .interact-prompt.bell-cd::after {
   border-color: #e8c86a;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   HUD v2 — phone layout (portrait + landscape)
+   Scoped to body.hud-compact / body.hud-landscape (set by WorldApp.resize).
+   Desktop keeps the classic single-row bar above.
+
+   Portrait:  thin two-row vitals up top · objective + toasts on the left ·
+              minimap on the right · stick bottom-left · thumb arc bottom-right.
+   Landscape: one-line vitals strip · minimap top-right · same thumb arc, smaller.
+   ════════════════════════════════════════════════════════════════════════ */
+
+body.hud-compact {
+  --hv-gut: 10px;
+  --hv-top: calc(var(--safe-top) + 6px);
+  --stick-size: 124px;
+  /* Thumb arc geometry: centre of Attack measured from the bottom-right corner */
+  --arc-cx: 58px;
+  --arc-cy: 62px;
+  --arc-atk: 78px;
+  --arc-spell: 56px;
+  --arc-outer: 50px;
+  --arc-use: 60px;
+  --arc-menu: 42px;
+  --action-bar-h: calc(270px + var(--safe-bottom));
+}
+
+/* ——— Top vitals ——— */
+body.hud-compact #hud {
+  padding: var(--hv-top) calc(var(--hv-gut) + var(--safe-right)) 0 calc(var(--hv-gut) + var(--safe-left));
+  background: linear-gradient(180deg, #050706d9 0%, #05070680 60%, transparent 100%);
+}
+body.hud-compact #hud-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-areas: "zone ash" "hp mp";
+  gap: 3px 8px;
+  align-items: center;
+}
+body.hud-compact #stats { display: contents; }
+body.hud-compact #zone-plate { grid-area: zone; }
+body.hud-compact #ash-plate { grid-area: ash; }
+body.hud-compact #hp-plate { grid-area: hp; }
+body.hud-compact #mp-plate { grid-area: mp; }
+
+/* Zone: engraved text, no plate — the canto name is a caption, not a panel */
+body.hud-compact #zone-plate.plate {
+  min-width: 0;
+  max-width: none;
+  padding: 0 0 0 2px;
+  text-align: left;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  clip-path: none;
+}
+body.hud-compact #zone-plate .finial,
+body.hud-compact #hud h1 { display: none; }
+body.hud-compact #canto-title {
+  font-size: 1.02rem;
+  line-height: 1.05;
+  color: #efe3c0;
+  letter-spacing: 0.07em;
+  text-shadow: 0 1px 0 #000, 0 0 10px #000;
+}
+body.hud-compact #canto-title::after {
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #b3a888;
+}
+
+/* Ash: slim gold pill, right-aligned */
+body.hud-compact #ash-plate.plate {
+  justify-self: end;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 10px 2px 8px;
+  gap: 0.3rem;
+  border-radius: 999px;
+  border-color: #6a5a34;
+  background: linear-gradient(180deg, #1f1b12e6, #0e0c09e6);
+  box-shadow: inset 0 0 0 1px #000, 0 1px 6px #000a;
+}
+body.hud-compact #ash-plate.plate::before,
+body.hud-compact #ash-plate.plate::after { display: none; }
+body.hud-compact .ash-sigil { font-size: 0.72rem; }
+body.hud-compact #ash b { font-size: 0.86rem; }
+body.hud-compact #ash i { font-size: 0.55rem; letter-spacing: 0.12em; }
+body.hud-compact #ash em { display: none; }
+body.hud-compact #pending { font-size: 0.6rem; }
+
+/* HP / MP: thin etched bars */
+body.hud-compact #hp-plate.plate,
+body.hud-compact #mp-plate.plate {
+  min-width: 0;
+  padding: 2px 5px;
+  border-radius: 2px;
+}
+body.hud-compact #hp-plate.plate::before,
+body.hud-compact #hp-plate.plate::after,
+body.hud-compact #mp-plate.plate::before,
+body.hud-compact #mp-plate.plate::after { width: 3px; }
+body.hud-compact #hp-bar,
+body.hud-compact #mp-bar { height: 15px; }
+body.hud-compact #hp,
+body.hud-compact #mp { font-size: 0.66rem; letter-spacing: 0.06em; }
+body.hud-compact .buff-pip { transform: scale(0.82); }
+
+/* Onboarding line: the objective tracker + pulsing Use button carry this on phones */
+body.hud-compact #help,
+body.hud-compact #help-mobile { display: none; }
+
+/* ——— Objective + toasts (left column under vitals) ——— */
+body.hud-compact #quest-track {
+  top: calc(var(--hv-top) + 62px);
+  left: calc(var(--hv-gut) + var(--safe-left));
+  right: auto;
+  transform: none;
+  max-width: calc(100vw - 132px - var(--safe-left) - var(--safe-right));
+  padding: 3px 9px 3px 8px;
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-align: left;
+  border: 0;
+  border-left: 2px solid var(--gold);
+  background: linear-gradient(90deg, #0e0c09e0, #0e0c0999 80%, transparent);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+body.hud-landscape #quest-track { -webkit-line-clamp: 1; line-clamp: 1; }
+body.hud-compact #toast-layer,
+body.hud-compact #toast-layer.toast-above-actions {
+  left: calc(var(--hv-gut) + var(--safe-left));
+  right: calc(118px + var(--safe-right));
+  bottom: auto;
+  display: block;
+}
+body.hud-compact #toast-layer #toast,
+body.hud-compact #toast-layer.toast-above-actions #toast {
+  max-width: 100%;
+  text-align: left;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  border-bottom: 0;
+  border-left: 3px solid var(--bone-dim);
+  background: linear-gradient(90deg, #0b0f0cf0, #0b0f0cb3 75%, #0b0f0c00);
+  box-shadow: none;
+}
+body.hud-compact #toast-layer #toast.toast-warn { border-left-color: var(--crimson-2); background: linear-gradient(90deg, #2a0c0af0, #2a0c0ab3 75%, #2a0c0a00); }
+body.hud-compact #toast-layer #toast.toast-loot,
+body.hud-compact #toast-layer #toast.toast-emit { border-left-color: var(--gold); }
+body.hud-compact #toast-layer #toast.toast-emit { background: linear-gradient(90deg, #2a2208f0, #2a2208b3 75%, #2a220800); }
+
+/* ——— Minimap: right column under vitals ——— */
+body.hud-compact #minimap {
+  top: calc(var(--hv-top) + 62px);
+  bottom: auto;
+  right: calc(var(--hv-gut) + var(--safe-right) - 2px);
+  width: 100px;
+}
+body.hud-compact #minimap-canvas { width: 100px; height: 100px; }
+body.hud-compact #minimap-hint {
+  position: static;
+  margin-top: 3px;
+  padding: 2px 4px;
+  font-size: 0.5rem;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  border-radius: 2px;
+}
+
+/* ——— Target plate: portrait → left column under the objective (never over the hero);
+       landscape → bottom centre between stick and thumbs ——— */
+body.hud-compact #target-plate {
+  top: calc(var(--hv-top) + 100px);
+  bottom: auto;
+  left: calc(var(--hv-gut) + var(--safe-left));
+  transform: none;
+  min-width: 0;
+  width: min(calc(100vw - 136px - var(--safe-left) - var(--safe-right)), 15rem);
+  padding: 3px 8px 5px;
+  border-color: #8a3030;
+  background: linear-gradient(180deg, #1a0e0ce6, #0e0908e6);
+}
+body.hud-compact #target-name { font-size: 0.68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ——— Stick ——— */
+body.hud-compact #virtual-joystick {
+  left: calc(var(--hv-gut) + var(--safe-left));
+  bottom: calc(14px + var(--safe-bottom));
+}
+
+/* ——— Thumb arc ——— */
+body.hud-compact #action-bar {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: auto;
+  max-width: none;
+  height: var(--action-bar-h);
+  display: block;
+  padding: 0;
+  background: radial-gradient(circle at calc(100% - var(--arc-cx)) calc(100% - var(--arc-cy)), #050706c7 0, #05070688 120px, #05070600 250px);
+}
+body.hud-compact #action-bar .spell-bar { display: contents; }
+body.hud-compact #action-bar .action-btn {
+  --s: var(--arc-spell);
+  --edge: #8a7440;
+  position: absolute;
+  right: calc(var(--safe-right) + var(--x) - var(--s) / 2);
+  bottom: calc(var(--safe-bottom) + var(--y) - var(--s) / 2);
+  width: var(--s);
+  min-width: 0;
+  max-width: none;
+  height: var(--s);
+  min-height: 0;
+  padding: 0;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--edge);
+  background:
+    radial-gradient(circle at 50% 32%, #3a3322 0%, #1b1811 55%, #0c0b08 100%);
+  box-shadow:
+    inset 0 0 0 2px #000,
+    inset 0 0 0 3px #c9a22740,
+    inset 0 -6px 12px #000a,
+    0 3px 10px #000c;
+  overflow: visible;
+}
+body.hud-compact #action-bar .action-btn::before {
+  /* Engraved outer ring with four gold studs (N/E/S/W) */
+  content: "";
+  inset: -5px;
+  border-radius: 50%;
+  clip-path: none;
+  background:
+    radial-gradient(circle at 50% 2px, #e8c86a 0 2.5px, transparent 3px),
+    radial-gradient(circle at 50% calc(100% - 2px), #e8c86a 0 2.5px, transparent 3px),
+    radial-gradient(circle at 2px 50%, #e8c86a 0 2.5px, transparent 3px),
+    radial-gradient(circle at calc(100% - 2px) 50%, #e8c86a 0 2.5px, transparent 3px);
+  border: 1px solid #c9a22733;
+  filter: none;
+  opacity: 0.9;
+}
+body.hud-compact #action-bar .action-btn::after { display: none; }
+body.hud-compact #action-bar .action-btn .action-hint,
+body.hud-compact #action-bar .action-btn .action-label { display: none; }
+body.hud-compact #action-bar .action-btn .action-icon,
+body.hud-compact #action-bar .action-btn .spell-icon {
+  display: block;
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 0 5px #c9a22788) brightness(1.1);
+}
+body.hud-compact #action-bar .action-btn .spell-cd {
+  inset: 0;
+  border-radius: 50%;
+  font-size: 0.95rem;
+  box-shadow: none;
+}
+body.hud-compact #action-bar .action-btn .spell-cd::before { border-radius: 50%; }
+body.hud-compact #action-bar .spell-btn .spell-cost {
+  top: -3px;
+  left: -3px;
+  right: auto;
+  padding: 1px 4px;
+  font-size: 0.54rem;
+  border-color: #c9a22799;
+  background: #0b0d0cf0;
+}
+body.hud-compact #action-bar .action-btn:active,
+body.hud-compact #action-bar .action-btn.pressed {
+  transform: scale(0.92);
+  border-color: var(--gold-2);
+}
+
+/* Placement (x,y = centre measured from the bottom-right corner) */
+body.hud-compact #action-bar #btn-attack {
+  --s: var(--arc-atk);
+  --x: var(--arc-cx);
+  --y: var(--arc-cy);
+  --edge: #b0443a;
+  background: radial-gradient(circle at 50% 30%, #5a2219 0%, #2a0f0c 58%, #120706 100%);
+  box-shadow: inset 0 0 0 2px #000, inset 0 0 0 3px #d63a2a55, inset 0 -8px 14px #000b, 0 3px 12px #000d, 0 0 16px #d63a2a33;
+}
+body.hud-compact #action-bar #btn-attack .action-icon { width: 58%; height: 58%; filter: drop-shadow(0 0 6px #ff6a5599) brightness(1.2); }
+body.hud-compact #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 100px); --y: var(--arc-cy); }
+body.hud-compact #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 71px); --y: calc(var(--arc-cy) + 71px); }
+body.hud-compact #action-bar #btn-spell-infernal_burst { --x: var(--arc-cx); --y: calc(var(--arc-cy) + 100px); }
+body.hud-compact #action-bar #btn-interact {
+  --s: var(--arc-use);
+  --x: calc(var(--arc-cx) + 169px);
+  --y: calc(var(--arc-cy) + 30px);
+  --edge: #b89a52;
+}
+body.hud-compact #action-bar #btn-dash { --s: var(--arc-outer); --x: calc(var(--arc-cx) + 115px); --y: calc(var(--arc-cy) + 128px); --edge: #6f8aa6; }
+body.hud-compact #action-bar #btn-sip { --s: var(--arc-outer); --x: calc(var(--arc-cx) + 15px); --y: calc(var(--arc-cy) + 171px); --edge: #a04038; }
+
+/* Interact keeps a caption: it changes meaning (Talk / Enter / Take / Kneel) */
+body.hud-compact #action-bar #btn-interact .action-label {
+  display: block;
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  transform: translateX(-50%);
+  max-width: 5.6rem;
+  padding: 1px 6px;
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  color: #1a140c;
+  background: linear-gradient(180deg, #e8c86a, #b8912a);
+  border: 1px solid #f3e9c9aa;
+  border-radius: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: none;
+  z-index: 4;
+}
+body.hud-compact #action-bar #btn-interact .action-label[data-short] { font-size: 0.58rem; }
+body.hud-compact #action-bar #btn-interact .action-label[data-short]::after { content: none; }
+body.hud-compact #action-bar #btn-interact.interact-idle .action-label { opacity: 0; }
+body.hud-compact #action-bar #btn-interact.interact-idle { opacity: 0.55; filter: saturate(0.5); }
+body.hud-compact #action-bar #btn-interact.interact-ready {
+  border-color: var(--gold-2);
+  box-shadow: inset 0 0 0 2px #000, inset 0 0 0 3px #e8c86a88, 0 0 16px #c9a227aa, 0 0 30px #c9a22744;
+}
+
+/* Menus: two small seals above the stick */
+body.hud-compact #action-bar #btn-inv,
+body.hud-compact #action-bar #btn-ah {
+  --s: var(--arc-menu);
+  right: auto;
+  left: calc(var(--safe-left) + var(--hv-gut) + var(--mx));
+  bottom: calc(var(--safe-bottom) + var(--stick-size) + 26px);
+  border-radius: 10px;
+}
+body.hud-compact #action-bar #btn-inv::before,
+body.hud-compact #action-bar #btn-ah::before { border-radius: 12px; background: none; }
+body.hud-compact #action-bar #btn-inv { --mx: 0px; }
+body.hud-compact #action-bar #btn-ah { --mx: calc(var(--arc-menu) + 10px); }
+
+/* Sheets hide the thumbs while open (they have their own buttons) */
+body.hud-compact.has-modal #action-bar { visibility: hidden; }
+body.hud-compact #panels { padding-bottom: 0; }
+
+/* Narrow phones (≤374px): shrink the arc so it never meets the stick */
+@media (max-width: 374px) {
+  body.hud-compact:not(.hud-landscape) {
+    --stick-size: 112px;
+    --arc-cx: 52px;
+    --arc-cy: 56px;
+    --arc-atk: 70px;
+    --arc-spell: 50px;
+    --arc-outer: 46px;
+    --arc-use: 54px;
+  }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 90px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 64px); --y: calc(var(--arc-cy) + 64px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-infernal_burst { --y: calc(var(--arc-cy) + 90px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-interact { --x: calc(var(--arc-cx) + 150px); --y: calc(var(--arc-cy) + 28px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-dash { --x: calc(var(--arc-cx) + 103px); --y: calc(var(--arc-cy) + 114px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-sip { --x: calc(var(--arc-cx) + 13px); --y: calc(var(--arc-cy) + 153px); }
+}
+
+/* ——— Landscape phones ——— */
+body.hud-landscape {
+  --hv-gut: 12px;
+  --hv-top: calc(var(--safe-top) + 5px);
+  --stick-size: 108px;
+  --arc-cx: 52px;
+  --arc-cy: 52px;
+  --arc-atk: 68px;
+  --arc-spell: 50px;
+  --arc-outer: 44px;
+  --arc-use: 54px;
+  --arc-menu: 40px;
+  --action-bar-h: calc(230px + var(--safe-bottom));
+}
+body.hud-landscape #hud {
+  padding-right: calc(118px + var(--safe-right));
+  background: linear-gradient(180deg, #050706cc 0%, #05070666 70%, transparent 100%);
+}
+body.hud-landscape #hud-top {
+  grid-template-columns: auto minmax(0, 1.3fr) minmax(0, 1fr) auto;
+  grid-template-areas: "zone hp mp ash";
+  gap: 0 10px;
+}
+body.hud-landscape #canto-title { font-size: 0.95rem; }
+body.hud-landscape #canto-title::after { display: none; }
+body.hud-landscape #hp-bar,
+body.hud-landscape #mp-bar { height: 15px; }
+body.hud-landscape #quest-track {
+  top: calc(var(--hv-top) + 30px);
+  max-width: min(46vw, 24rem);
+  max-width: min(46vw, 24rem);
+}
+body.hud-landscape #toast-layer,
+body.hud-landscape #toast-layer.toast-above-actions {
+  right: auto;
+  width: min(46vw, 26rem);
+}
+body.hud-landscape #minimap {
+  top: var(--hv-top);
+  width: 96px;
+}
+body.hud-landscape #minimap-canvas { width: 96px; height: 96px; }
+body.hud-landscape #target-plate {
+  top: auto;
+  bottom: calc(var(--safe-bottom) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(30vw, 14rem);
+}
+body.hud-landscape #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 86px); --y: var(--arc-cy); }
+body.hud-landscape #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 61px); --y: calc(var(--arc-cy) + 61px); }
+body.hud-landscape #action-bar #btn-spell-infernal_burst { --x: var(--arc-cx); --y: calc(var(--arc-cy) + 86px); }
+body.hud-landscape #action-bar #btn-interact { --x: calc(var(--arc-cx) + 146px); --y: calc(var(--arc-cy) + 26px); }
+body.hud-landscape #action-bar #btn-dash { --x: calc(var(--arc-cx) + 99px); --y: calc(var(--arc-cy) + 110px); }
+body.hud-landscape #action-bar #btn-sip { --x: calc(var(--arc-cx) + 13px); --y: calc(var(--arc-cy) + 146px); }
+body.hud-landscape #virtual-joystick {
+  left: calc(var(--hv-gut) + var(--safe-left) + 6px);
+  bottom: calc(12px + var(--safe-bottom));
+}
+body.hud-landscape .vj-knob { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
+/* Landscape sheets: centred card instead of a full-width bottom sheet */
+body.hud-landscape #panels {
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-top) + 6px) calc(var(--safe-right) + 8px) calc(var(--safe-bottom) + 6px) calc(var(--safe-left) + 8px);
+}
+body.hud-landscape .panel,
+body.hud-landscape #inventory.inv-panel {
+  width: min(40rem, 94vw);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 12px);
+  border-radius: 6px;
+  border: 1px solid #5a4e34;
+}
+
+/* ——— Dark Wood stash (bag opened at the stash POI) ——— */
+.stash-wrap {
+  grid-column: 1 / -1;
+  margin-top: 0.55rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid #4a4030;
+}
+.stash-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 0.1rem 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-2);
+}
+.stash-head em {
+  font-style: normal;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: var(--bone-dim);
+}
+.stash-grid {
+  background: linear-gradient(180deg, #0f0d0a, #16130e);
+  box-shadow: inset 0 0 0 1px #3a3222, inset 0 0 18px #000a;
+}
+/* Thumbs are hidden while a sheet is open, so portrait sheets can use the height */
+body.hud-compact:not(.hud-landscape) #inventory.inv-panel { max-height: min(88dvh, 46rem); }
+#btn-stash:not(:disabled) {
+  box-shadow: 0 0 10px #c9a22755;
+}
+
+/* Landscape bag: items scroll on the left, detail + actions stay on the right */
+body.hud-landscape #inventory.inv-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 12px;
+}
+body.hud-landscape #inventory .panel-head { grid-column: 1 / -1; }
+body.hud-landscape #inventory .inv-scroll { grid-column: 1; grid-row: 2; }
+body.hud-landscape #inventory .inv-footer {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 0;
+  padding: 0 0 0 12px;
+  border-top: 0;
+  border-left: 1px solid #4a4030;
+}
+body.hud-landscape #inventory .inv-footer .inv-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Desktop bar: Dash / Flask glyphs sit at spell-icon scale above their labels */
+#btn-dash .action-icon,
+#btn-sip .action-icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px #c9a22766);
+}
+
+/* Boot primer: controls on one line, fullscreen note beneath */
+#boot-veil .boot-hint {
+  max-width: min(22rem, 86vw);
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.7;
+  text-align: center;
+}
+#boot-veil .boot-hint b { color: var(--gold-2); font-weight: 400; }

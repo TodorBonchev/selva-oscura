@@ -83,6 +83,10 @@
             <div id="equip-stats" class="equip-stats"></div>
           </div>
           <div id="inv-grid" class="inv-grid"></div>
+          <section id="stash-wrap" class="stash-wrap hidden" aria-label="Dark Wood stash">
+            <div class="stash-head"><span>Dark Wood Stash</span><em id="stash-count"></em></div>
+            <div id="stash-grid" class="inv-grid stash-grid"></div>
+          </section>
         </div>
       </div>
       <div class="inv-footer">
@@ -90,6 +94,7 @@
           <span class="inv-detail-name muted">Select an item to equip or list on the Auction House.</span>
         </div>
         <div class="row inv-actions">
+          <button id="btn-stash" type="button" class="btn-gold hidden" disabled>Bank</button>
           <button id="btn-melt" type="button" class="btn-gold" disabled>Nothing to melt</button>
         </div>
         <div class="row inv-actions">
@@ -122,12 +127,12 @@
   </div>
   <nav id="action-bar" aria-label="Game actions">
     <button type="button" id="btn-inv" class="action-btn" title="Inventory">
-      <img class="action-icon" src="/assets/dore/poi_stash.png" alt="" draggable="false" />
+      <img class="action-icon" src="/assets/ui/bag.svg" alt="" draggable="false" />
       <span class="action-label">Inv</span>
       <span class="action-hint" aria-hidden="true">I</span>
     </button>
     <button type="button" id="btn-ah" class="action-btn" title="Auction House">
-      <img class="action-icon" src="/assets/dore/poi_ah.png" alt="" draggable="false" />
+      <img class="action-icon" src="/assets/ui/scales.svg" alt="" draggable="false" />
       <span class="action-label">AH</span>
       <span class="action-hint" aria-hidden="true">H</span>
     </button>
@@ -155,23 +160,25 @@
       </button>
     </div>
     <button type="button" id="btn-dash" class="action-btn" title="Dash — short leap, brief safety (Space)">
+      <img class="action-icon" src="/assets/ui/dash.svg" alt="" draggable="false" />
       <span class="spell-cd" hidden></span>
       <span class="action-label" data-short="Dash">Dash</span>
       <span class="action-hint" aria-hidden="true">␣</span>
     </button>
     <button type="button" id="btn-sip" class="action-btn" title="Flask — heal and breath (Q)">
+      <img class="action-icon" src="/assets/ui/flask.svg" alt="" draggable="false" />
       <span class="spell-cd" hidden></span>
       <span class="action-label" data-short="Sip">Flask</span>
       <span class="action-hint" aria-hidden="true">Q</span>
     </button>
     <button type="button" id="btn-interact" class="action-btn action-primary interact-idle" title="Interact">
-      <img class="action-icon" src="/assets/dore/poi_quest.png" alt="" draggable="false" />
+      <img class="action-icon" src="/assets/ui/hand.svg" alt="" draggable="false" />
       <span class="spell-cd interact-cd" hidden></span>
       <span class="action-label" data-short="Use">Interact</span>
       <span class="action-hint" aria-hidden="true">E</span>
     </button>
     <button type="button" id="btn-attack" class="action-btn action-attack" title="Attack">
-      <img class="action-icon" src="/assets/items/item_sword.png" alt="" draggable="false" />
+      <img class="action-icon" src="/assets/ui/sword.svg" alt="" draggable="false" />
       <span class="spell-cd attack-cd" hidden></span>
       <span class="action-label">Attack</span>
       <span class="action-hint" aria-hidden="true">•</span>
@@ -223,7 +230,7 @@
         <input id="boot-name" type="text" maxlength="24" autocomplete="nickname" enterkeyhint="go" hidden />
       </label>
       <button type="button" id="btn-enter-wood" class="btn-enter-wood" hidden>Enter the wood</button>
-      <p class="boot-hint" hidden>Tap to enter · fullscreen on supported phones</p>
+      <p class="boot-hint" hidden>Left stick walks · right thumb strikes &amp; casts · <b>Use</b> talks, kneels, enters<br />Fullscreen on supported phones</p>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
