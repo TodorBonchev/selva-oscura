@@ -29,7 +29,8 @@ ws.send(JSON.stringify({ type: "hello", name: "Buyer" }));
 await waitFor((m) => m.room?.cantoId === "inferno_01", 5000, "hub");
 
 // Gate check: Lust→Gluttony should fail before Lust clear
-ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_05" }));
+// Dev jump from hub spawn (travel otherwise requires standing at the road)
+ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_05", bypassGates: true }));
 await waitFor((m) => m.room?.cantoId === "inferno_05", 5000, "lust");
 ws.send(JSON.stringify({ type: "travel", toCanto: "inferno_06" }));
 await sleep(400);

@@ -276,6 +276,13 @@ async function handleMessage(ws, meta, msg) {
       );
       break;
     }
+    case "stash_put":
+    case "stash_take": {
+      const room = world.getRoom(playerId);
+      if (!room) return;
+      await room.handleStash(playerId, String(msg.itemId), msg.type === "stash_take" ? "take" : "put");
+      break;
+    }
     case "salvage_bag": {
       const room = world.getRoom(playerId);
       if (!room) return;

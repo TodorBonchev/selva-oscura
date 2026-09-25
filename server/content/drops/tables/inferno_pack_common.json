@@ -2,11 +2,11 @@
   "id": "inferno_pack_common",
   "description": "Slice 1 Inferno pack/boss shared table \u2014 D2-style weights; server rolls seed+affixes",
   "rolls": 1,
-  "no_drop_weight": 22,
+  "no_drop_weight": 70,
   "champion_bonus_rolls": 1,
   "entries": [
     {
-      "weight": 45,
+      "weight": 30,
       "rarity": "normal",
       "item_pool": "inferno_bases_t1",
       "qty_min": 1,

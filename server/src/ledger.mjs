@@ -340,6 +340,54 @@ export function getOrCreatePlayer(id, name) {
   return p;
 }
 
+export const BAG_MAX = 40;
+export const STASH_MAX = 60;
+
+/**
+ * Move one bag item into the Dark Wood stash (never worn gear).
+ * Rolls back in memory if persistence fails.
+ */
+export async function stashItem(playerId, itemId) {
+  const p = players.get(playerId);
+  if (!p) return { ok: false, reason: "no_player" };
+  const i = (p.inventory || []).findIndex((it) => String(it.id) === String(itemId));
+  if (i < 0) return { ok: false, reason: "not_found" };
+  const item = p.inventory[i];
+  if (item.equipSlot) return { ok: false, reason: "worn" };
+  if ((p.stash || []).length >= STASH_MAX) return { ok: false, reason: "stash_full" };
+  p.inventory.splice(i, 1);
+  p.stash = p.stash || [];
+  p.stash.push(item);
+  try {
+    await persistItem(playerId, item, "stash");
+  } catch (err) {
+    p.stash.pop();
+    p.inventory.splice(i, 0, item);
+    throw err;
+  }
+  return { ok: true, item };
+}
+
+/** Move one stashed item back into the bag. */
+export async function unstashItem(playerId, itemId) {
+  const p = players.get(playerId);
+  if (!p) return { ok: false, reason: "no_player" };
+  const i = (p.stash || []).findIndex((it) => String(it.id) === String(itemId));
+  if (i < 0) return { ok: false, reason: "not_found" };
+  const bag = (p.inventory || []).filter((it) => !it.equipSlot).length;
+  if (bag >= BAG_MAX) return { ok: false, reason: "bag_full" };
+  const [item] = p.stash.splice(i, 1);
+  p.inventory.push(item);
+  try {
+    await persistItem(playerId, item, "inventory");
+  } catch (err) {
+    p.inventory.pop();
+    p.stash.splice(i, 0, item);
+    throw err;
+  }
+  return { ok: true, item };
+}
+
 export function snapshotPlayer(p, pos) {
   const equipped = {};
   for (const it of p.inventory || []) {
@@ -359,6 +407,7 @@ export function snapshotPlayer(p, pos) {
     ash: p.ash,
     pendingAsh: p.pendingAsh,
     inventory: bag,
+    stash: p.stash || [],
     equipped,
     gearStats: computeGearStats(p),
     firstClears: [...p.firstClears],
