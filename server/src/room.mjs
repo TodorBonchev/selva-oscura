@@ -348,15 +348,23 @@ class CantoRoom {
 
   join(ws, playerId, name) {
     const ledger = getOrCreatePlayer(playerId, name);
-    // Empty bag → grant weapon + armor so Equip is testable without a kill
+    // Empty bag → grant and wear a weapon + cape, so a new pilgrim starts looking
+    // (and swinging) like the hero instead of a bare tunic with an invisible blade.
     if (!ledger.inventory || ledger.inventory.length === 0) {
       const kit = makeStarterKitItems();
-      for (const item of kit) {
-        void grantInventoryItem(playerId, item).catch((err) =>
-          console.error("[starter] grant failed", err.message)
-        );
-      }
-      this.toast(ws, "loot", "Starter kit: Ashen Club + Torn Cape (open INV → Equip).");
+      void Promise.all(
+        kit.map((item) => grantInventoryItem(playerId, item).then(() => equipItem(playerId, item.id)))
+      )
+        .then(() => {
+          const s = this.sessions.get(playerId);
+          if (s) {
+            s.maxHp = PLAYER_MAX_HP + computeGearStats(ledger).maxHp;
+            s.hp = s.maxHp;
+          }
+          this.pushSnapshot(playerId);
+        })
+        .catch((err) => console.error("[starter] grant failed", err.message));
+      this.toast(ws, "loot", "Starter kit worn: Ashen Club + Torn Cape.");
     }
     const spawn = this.canto.geo.spawn;
     const gear = computeGearStats(ledger);
