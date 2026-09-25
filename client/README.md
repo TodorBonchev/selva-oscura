@@ -79,3 +79,9 @@ cd client && npm install && npm run build
 ## 3D world
 
 The world is Three.js (y-up). Server planar `(x, y)` maps to world `(x, 0, y)`. Characters are original bronze-statue meshes with generated Doré albedos under `public/assets/tex/`. Image-to-GLB is not enabled on the current xAI team; swapping a `.glb` in later is a drop-in at `makeByKind`.
+
+### Hero rig
+
+The player (and every remote player) is the procedural pilgrim in `src/world/hero.ts`: ivory robe, crimson mantle and hood, laurel, sword and buckler. Each gear slot's pieces are tagged so `gearLook.ts` shows only what is equipped, and parts are merged per joint and material to keep draw calls low on phones. `anim.ts` drives it: a foot-planted walk/run, a diagonal forehand cut keyed to the attack windup, and the portal channel pose. `fx.ts` draws the matching swoosh. Remote players stride at their tracked speed and face where they walk. The Guide uses the same rig in a slate/umber scholar palette, holding a lantern staff and turning to face you.
+
+The dev-only character studio is not bundled. Run `npm run dev`, then open `http://localhost:5173/tools/char-studio.html`. It renders the hero bare and geared from three angles and at phone scale. Query options: `anim=idle|walk|attack`, `t=<ms>`, `u=<attack phase 0–1>`, `slash=0`, `hide=<joint names>` and `who=guide`.

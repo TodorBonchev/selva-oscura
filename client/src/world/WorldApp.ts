@@ -97,6 +97,7 @@ import {
   makeLootBeam,
   makePortalHoldFx,
   makeSlashTrail,
+  tickSlashTrail,
   makeSlamTelegraph,
   makeTelegraph,
   makeWardRing,
@@ -340,7 +341,7 @@ export class WorldApp {
   bursts: { mesh: THREE.Mesh; start: number; dur: number; r: number }[] = [];
   teles: { mesh: THREE.Mesh; until: number; r: number }[] = [];
   slams: SlamTele[] = [];
-  slash: THREE.Mesh | null = null;
+  slash: THREE.Group | null = null;
   slashUntil = 0;
   sparks: SparkBurst[] = [];
   dust: { mesh: THREE.Mesh; start: number }[] = [];
@@ -1175,27 +1176,8 @@ export class WorldApp {
 
     if (this.slash && this.slashUntil > this.animT) {
       this.slash.visible = true;
-      const left = this.slashUntil - this.animT;
-      const u = 1 - left / ATTACK_ANIM_MS;
-      // Windup holds arc back; impact snaps through; recovery fades.
-      const swing = u < 0.22 ? u / 0.22 * 0.22 : u < 0.4 ? 0.22 + ((u - 0.22) / 0.18) * 0.7 : 0.92 + (u - 0.4) * 0.12;
-      this.slash.rotation.y = (1 - swing) * Math.PI * 1.05;
-      this.slash.rotation.z = 0.22 + swing * 0.7;
-      const sm = this.slash.material as THREE.MeshBasicMaterial;
-      const bright = u >= 0.22 && u < 0.45 ? 1 : 0.85;
-      sm.opacity = bright * (1 - u * u);
-      const avaSlash = this.room?.cantoId === "inferno_07";
-      sm.color.setHex(
-        u >= 0.22 && u < 0.4
-          ? avaSlash
-            ? 0xfff0c0
-            : 0xfff6d8
-          : avaSlash
-            ? 0xe8c86a
-            : 0xffe8a8
-      );
-      const punch = u >= 0.22 && u < 0.4 ? (avaSlash ? 1.3 : 1.24) : 1;
-      this.slash.scale.setScalar((0.82 + swing * 0.55) * punch * (compact ? 0.92 : 1));
+      const u = 1 - (this.slashUntil - this.animT) / ATTACK_ANIM_MS;
+      tickSlashTrail(this.slash, u, { gold: this.room?.cantoId === "inferno_07", compact });
     } else if (this.slash) this.slash.visible = false;
 
     this.frameN++;
@@ -1585,7 +1567,16 @@ export class WorldApp {
         // Skip far remotes/guides — idle pose freezes; resume when near.
         const humR = isCompactUi() ? 28 : 42;
         if (hdx * hdx + hdz * hdz < humR * humR) {
-          tickHumanoid(n.group, { moving: false, tMs: this.animT, attacking: false, speed: 0 });
+          // Remote pilgrims walk/run at their tracked speed (see syncEntities)
+          const gait = n.kind === "player" ? Number(n.group.userData.gaitSpeed) || 0 : 0;
+          tickHumanoid(n.group, { moving: gait > 0.6, tMs: this.animT, attacking: false, speed: gait });
+        }
+        // The Guide turns to meet an approaching pilgrim (it would otherwise show
+        // the phone camera its back)
+        if (n.kind === "guide" && hdx * hdx + hdz * hdz < 14 * 14) {
+          const want = yawFromPlanar(-hdx, -hdz);
+          const d = Math.atan2(Math.sin(want - n.group.rotation.y), Math.cos(want - n.group.rotation.y));
+          n.group.rotation.y += d * Math.min(1, dt * 3.5);
         }
       }
       if ((n.kind === "whirl" || n.kind === "champion") && this.frameN % 2 === 0) {
@@ -1932,7 +1923,30 @@ export class WorldApp {
       if (!rec) rec = this.spawnNode(id, "player", { kind: "player", name: pl.name });
       const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
-      rec.group.rotation.y = yawFromPlanar(this.renderYou.x - pos.x, this.renderYou.y - pos.y);
+      // Remote gait from the smoothed track: tickFx strides at this speed; the
+      // body turns toward where they walk and keeps that heading when they stop
+      const ud = rec.group.userData;
+      const stepS = ud.gaitT == null ? 0 : Math.min(0.1, Math.max(0, (this.animT - ud.gaitT) / 1000));
+      if (stepS > 0) {
+        const dx = pos.x - ud.gaitX;
+        const dy = pos.y - ud.gaitY;
+        const jump = Math.hypot(dx, dy);
+        if (jump < 3) {
+          // (a larger step is a snap/teleport, not a stride)
+          const sp = Math.min(12, jump / stepS);
+          ud.gaitSpeed = (ud.gaitSpeed || 0) + (sp - (ud.gaitSpeed || 0)) * Math.min(1, stepS * 8);
+          if (sp > 0.4) ud.gaitYaw = yawFromPlanar(dx, dy);
+        }
+      }
+      ud.gaitT = this.animT;
+      ud.gaitX = pos.x;
+      ud.gaitY = pos.y;
+      if (ud.gaitYaw == null) {
+        ud.gaitYaw = yawFromPlanar(this.renderYou.x - pos.x, this.renderYou.y - pos.y);
+        rec.group.rotation.y = ud.gaitYaw;
+      }
+      const turn = Math.atan2(Math.sin(ud.gaitYaw - rec.group.rotation.y), Math.cos(ud.gaitYaw - rec.group.rotation.y));
+      rec.group.rotation.y += turn * Math.min(1, stepS * 10);
       // 2+ remotes / gold haze: dim far rim lights (perf + declutter)
       const rim = rec.group.getObjectByName("avaRemoteRim") as THREE.PointLight | undefined;
       if (rim) {
@@ -2148,6 +2162,8 @@ export class WorldApp {
       wrap.classList.add("poi-marker");
       label.position.set(0, 2.4, 0);
     }
+    // Guide: the name plate sits above the lantern staff, not over the flame
+    if (kind === "guide") label.position.set(0, 2.6, 0);
     group.add(label);
     group.userData.baseScale = group.scale.x;
     this.scene.add(group);

@@ -587,29 +587,90 @@ export function tickPortalHoldFx(fx: PortalHoldFx, u: number) {
   }
 }
 
-export function makeSlashTrail(): THREE.Mesh {
-  // Brighter bone-gold arc; fewer segments on compact via caller scale, not geometry thrash.
-  // depthTest off so Lust fog/haze doesn't bury the trail; tube ~+8% for combat read.
-  const m = new THREE.Mesh(
-    new THREE.TorusGeometry(1.22, 0.076, 6, 24, Math.PI * 1.22),
+/** Arc length (rad) of the swoosh ribbon behind its leading edge. */
+const SLASH_ARC = 1.9;
+
+/**
+ * Blade swoosh: a flat crescent ribbon lying in the cut plane, brightest at the
+ * leading edge and the outer rim, fading to nothing at the tail. Parent it to
+ * the hero's torso-level "slashAnchor"; drive it with tickSlashTrail().
+ * Cut plane (anchor frame): a descending sweep — high on the right, around the
+ * front, low on the left. Kept near-horizontal so the high follow camera sees a
+ * crescent, not an edge-on sliver. X′ = right (rising), Y′ = forward (−z, dipping).
+ */
+export function makeSlashTrail(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "slashTrail";
+  const X = new THREE.Vector3(1, 0.42, 0).normalize();
+  const Y0 = new THREE.Vector3(0, -0.22, -1).normalize();
+  const Z = new THREE.Vector3().crossVectors(X, Y0).normalize();
+  const Y = new THREE.Vector3().crossVectors(Z, X).normalize();
+  g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
+
+  const N = 28;
+  const r0 = 0.86;
+  const r1 = 1.48;
+  const pos: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N; // 0 tail → 1 head
+    const a = t * SLASH_ARC;
+    const outer = r1 - (1 - t) * 0.16;
+    const inner = r0 + (1 - t) * 0.22;
+    const f = Math.pow(t, 1.5);
+    pos.push(Math.cos(a) * inner, Math.sin(a) * inner, 0, Math.cos(a) * outer, Math.sin(a) * outer, 0);
+    col.push(f * 0.28, f * 0.26, f * 0.22, f, f, f);
+    if (i < N) {
+      const k = i * 2;
+      idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  const arc = new THREE.Mesh(
+    geo,
     new THREE.MeshBasicMaterial({
-      color: 0xfff6d8,
+      color: 0xfff4dc,
+      vertexColors: true,
       transparent: true,
       opacity: 1,
+      side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
+      // depthTest off so Lust fog / canto haze never buries the cut
       depthTest: false,
     })
   );
-  m.name = "slashTrail";
-  // Hand-local (parent: slashAnchor on handR). Mid-blade ~ weapon rest rx=0.55.
-  // youGroup root scale (~1.42) still applies; offsets are model-space.
-  // Tuned so arc sits along the blade when weapon shown and still reads when hidden.
-  m.position.set(0.02, -0.40, -0.22);
-  m.rotation.x = Math.PI * 0.24;
-  m.rotation.z = 0.22;
-  m.renderOrder = 4;
-  return m;
+  arc.name = "slashArc";
+  arc.renderOrder = 4;
+  arc.frustumCulled = false;
+  g.add(arc);
+  return g;
+}
+
+/**
+ * Pose the swoosh for attack progress u ∈ [0, 1] (same phases as tickHumanoid:
+ * cock → impact snap → follow-through). The ribbon's head follows the blade.
+ */
+export function tickSlashTrail(trail: THREE.Object3D, u: number, opts: { gold?: boolean; compact?: boolean } = {}) {
+  const arc = trail.getObjectByName("slashArc") as THREE.Mesh | undefined;
+  if (!arc) return;
+  const mat = arc.material as THREE.MeshBasicMaterial;
+  let swing: number;
+  if (u < 0.22) swing = (u / 0.22) * 0.1;
+  else if (u < 0.4) {
+    const k = (u - 0.22) / 0.18;
+    swing = 0.1 + k * k * 0.8;
+  } else swing = 0.9 + (u - 0.4) * 0.18;
+  const lead = -0.55 + swing * (Math.PI + 0.85);
+  arc.rotation.z = lead - SLASH_ARC;
+  const impact = u >= 0.22 && u < 0.42;
+  mat.opacity = u < 0.22 ? 0.18 * (u / 0.22) : impact ? 1 : Math.max(0, 1 - (u - 0.42) / 0.5);
+  mat.color.setHex(opts.gold ? (impact ? 0xfff0c0 : 0xe8c86a) : impact ? 0xfff8e4 : 0xffe8a8);
+  trail.scale.setScalar((impact ? 1.06 : 1) * (opts.compact ? 0.95 : 1));
 }
 
 export type SparkBurst = {

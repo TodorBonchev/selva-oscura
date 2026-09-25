@@ -20,6 +20,8 @@ type HumJoints = {
   elbowR?: THREE.Object3D;
   weapon?: THREE.Object3D;
   hood?: THREE.Object3D;
+  head?: THREE.Object3D;
+  apron?: THREE.Object3D;
 };
 
 type MawCache = {
@@ -48,6 +50,8 @@ function jointsOf(root: THREE.Object3D): HumJoints {
       elbowR: root.getObjectByName("elbowR") ?? undefined,
       weapon: root.getObjectByName("weapon") ?? undefined,
       hood: root.getObjectByName("hood") ?? undefined,
+      head: root.getObjectByName("head") ?? undefined,
+      apron: root.getObjectByName("apron") ?? undefined,
     };
     root.userData.humJoints = j;
   }
@@ -104,6 +108,8 @@ export function tickHumanoid(
     elbowR,
     weapon,
     hood,
+    head,
+    apron,
   } = jointsOf(root);
 
   if (opts.channeling) {
@@ -115,159 +121,217 @@ export function tickHumanoid(
     }
     if (torso) {
       torso.rotation.y = 0;
-      torso.rotation.x = 0.18;
+      torso.rotation.x = -0.08;
       torso.rotation.z = 0;
     }
     if (cloak) {
-      cloak.rotation.x = 0.34 + Math.sin(t * 3.6) * 0.05;
+      // Negative x swings the hem back (+z): the mantle lifts in the portal draught
+      cloak.rotation.x = -0.32 + Math.sin(t * 3.6) * 0.05;
       cloak.rotation.y = Math.sin(t * 2.4) * 0.07;
       cloak.rotation.z = 0;
     }
-    if (tabard) tabard.rotation.x = 0.04;
-    if (legL) legL.rotation.x = 0.06;
-    if (legR) legR.rotation.x = -0.05;
-    if (kneeL) kneeL.rotation.x = 0.12;
-    if (kneeR) kneeR.rotation.x = 0.1;
+    if (tabard) tabard.rotation.x = -0.04;
+    if (apron) apron.rotation.x = 0.02;
+    if (head) {
+      head.rotation.x = -0.12;
+      head.rotation.y = 0;
+    }
+    if (legL) legL.rotation.x = 0.08;
+    if (legR) legR.rotation.x = -0.08;
+    if (kneeL) kneeL.rotation.x = -0.14;
+    if (kneeR) kneeR.rotation.x = -0.1;
     if (armL) {
-      armL.rotation.x = -0.62;
+      armL.rotation.x = 0.9;
       armL.rotation.z = -0.16;
     }
     if (armR) {
-      armR.rotation.x = -0.7;
+      armR.rotation.x = 0.55;
       armR.rotation.z = 0.16;
     }
-    if (elbowL) elbowL.rotation.x = -0.35;
-    if (elbowR) elbowR.rotation.x = -0.4;
+    if (elbowL) elbowL.rotation.x = 0.45;
+    if (elbowR) elbowR.rotation.x = 0.35;
     if (weapon) {
       weapon.rotation.x = 0.35;
       weapon.rotation.z = 0.18;
     }
-    if (hood) hood.rotation.x = -0.38 + Math.sin(t * 2.1) * 0.02;
+    if (hood) hood.rotation.x = Math.sin(t * 2.1) * 0.015;
     return;
   }
 
-  const swingL = Math.sin(gait);
-  const swingR = Math.sin(gait + Math.PI);
-  // Foot-plant weight: peaks just after downstroke (less floaty than |sin|).
+  // Joint conventions (three.js, model forward = −z): +rotation.x swings a
+  // hanging limb FORWARD and tilts an upright part BACK. Knees flex with −x,
+  // elbows with +x. legL leads when sin(gait) > 0.
+  const sL = Math.sin(gait);
+  const cL = Math.cos(gait);
+  const run = Math.min(1, opts.speed / 8);
   const plant = Math.max(0, Math.sin(gait * 2));
   const idleBreath = Math.sin(t * 1.85);
 
-  if (hips) {
-    hips.position.y =
-      plant * 0.048 * step + idleBreath * 0.014 * (1 - step * 0.85);
-    hips.position.z = 0;
-    hips.rotation.y = swingL * 0.08 * step;
-    hips.rotation.z = swingL * 0.038 * step;
-  }
-  if (torso) {
-    torso.rotation.y = -swingL * 0.1 * step;
-    torso.rotation.x = 0.06 * step + idleBreath * 0.022 * (1 - step * 0.7);
-    torso.rotation.z = -swingL * 0.028 * step;
-  }
-  if (cloak) {
-    const idle = 1 - step;
-    cloak.rotation.x =
-      0.14 +
-      Math.sin(gait * 2) * 0.1 * step +
-      Math.sin(t * 1.35) * 0.028 +
-      Math.sin(t * 2.4) * 0.055 * idle;
-    cloak.rotation.y = swingL * 0.07 * step + Math.sin(t * 1.8) * 0.048 * idle;
-    cloak.rotation.z = Math.sin(t * 2.05) * 0.028 * idle;
-  }
-  if (tabard) {
-    tabard.rotation.x = Math.sin(gait * 2) * 0.055 * step + Math.sin(t * 1.55) * 0.018;
-    tabard.rotation.z = swingL * 0.035 * step;
-  }
-  // Longer-limb stride: slightly deeper thigh swing, delayed knee fold on plant.
+  // Thighs: walk ±0.34 rad → run ±0.56 rad
+  const A = (0.34 + 0.22 * run) * step;
+  const aL = A * sL;
+  const aR = -A * sL;
+  // Knee flexion peaks mid-swing (foot tucked), eases out to plant, stays soft in stance
+  const flexOf = (c: number) => 0.06 + step * (0.14 + (0.75 + 0.35 * run) * Math.pow(Math.max(0, c), 1.3));
+  const fL = flexOf(cL);
+  const fR = flexOf(-cL);
   if (legL) {
-    legL.rotation.x = -swingL * 0.88 * step;
+    legL.rotation.x = aL;
     legL.rotation.z = 0;
   }
   if (legR) {
-    legR.rotation.x = -swingR * 0.88 * step;
+    legR.rotation.x = aR;
     legR.rotation.z = 0;
   }
-  if (kneeL) kneeL.rotation.x = 0.1 + Math.max(0, -swingL) * 1.12 * step;
-  if (kneeR) kneeR.rotation.x = 0.1 + Math.max(0, -swingR) * 1.12 * step;
-  // Arm counter-swing matches longer reach; rest rz stays ±0.16 for gear.
+  if (kneeL) kneeL.rotation.x = -fL;
+  if (kneeR) kneeR.rotation.x = -fR;
+
+  if (hips) {
+    // Foot plant: lower the pelvis until the lower foot meets the ground, so a
+    // wide stride never floats; a small bounce on each plant when running.
+    const T = 0.43;
+    const S = 0.5;
+    const reach = Math.max(T * Math.cos(aL) + S * Math.cos(aL - fL), T * Math.cos(aR) + S * Math.cos(aR - fR));
+    hips.position.y = reach - (T + S) + plant * 0.02 * step * run + idleBreath * 0.01 * (1 - step);
+    hips.position.z = 0;
+    hips.rotation.y = -sL * 0.09 * step;
+    hips.rotation.z = -sL * 0.03 * step;
+  }
+  if (torso) {
+    // Child of the hips: cancel their yaw/roll, then counter-swing the shoulders
+    // (+0.10 world yaw) and lean into the run (−x is forward for an upright part).
+    torso.rotation.y = sL * 0.19 * step;
+    torso.rotation.x = -(0.03 + 0.12 * run) * step + idleBreath * 0.02 * (1 - step * 0.7);
+    torso.rotation.z = sL * 0.05 * step;
+  }
+  if (cloak) {
+    const idle = 1 - step;
+    // Negative x trails the hem behind (+z); more speed → more lift, with a
+    // double-time flutter on each foot plant. Idle hangs almost straight.
+    const lift = run * step;
+    cloak.rotation.x =
+      -0.03 -
+      0.3 * lift -
+      Math.sin(gait * 2) * 0.07 * step -
+      Math.sin(t * 1.35) * 0.02 * idle;
+    cloak.rotation.y = -sL * 0.06 * step + Math.sin(t * 1.8) * 0.03 * idle;
+    cloak.rotation.z = -sL * 0.03 * step + Math.sin(t * 2.05) * 0.018 * idle;
+  }
+  // Robe panels ride the thighs so knees never poke through: the front apron
+  // follows whichever leg is forward (+x), the back tabard the trailing leg.
+  if (apron) {
+    apron.rotation.x = Math.max(0, aL, aR) * 0.95 + Math.sin(t * 1.6) * 0.012;
+    apron.rotation.z = (aL - aR) * 0.05;
+  }
+  if (tabard) {
+    tabard.rotation.x = Math.min(0, aL, aR) * 0.85 - 0.04 * run * step + Math.sin(t * 1.55) * 0.012;
+    tabard.rotation.z = -sL * 0.03 * step;
+  }
+  // Arms counter-swing their opposite leg; elbows soften, more on the forward swing
+  const restArmLx = -sL * (0.34 + 0.18 * run) * step;
+  const restArmRx = sL * (0.24 + 0.1 * run) * step + 0.06;
+  const restElL = 0.22 + 0.5 * run * step + Math.max(0, -sL) * 0.35 * step;
+  const restElR = 0.28 + 0.4 * run * step + Math.max(0, sL) * 0.25 * step;
   if (armL) {
-    armL.rotation.x = -swingR * 0.52 * step;
+    armL.rotation.x = restArmLx;
     armL.rotation.z = -0.16;
   }
   if (armR) {
-    armR.rotation.x = -swingL * 0.34 * step - 0.1;
+    armR.rotation.x = restArmRx;
     armR.rotation.z = 0.16;
   }
-  if (elbowL) elbowL.rotation.x = -0.2 - Math.max(0, swingR) * 0.42 * step;
-  if (elbowR) elbowR.rotation.x = -0.16 - Math.max(0, swingL) * 0.26 * step;
+  if (elbowL) elbowL.rotation.x = restElL;
+  if (elbowR) elbowR.rotation.x = restElR;
+  // The Guide grips its lantern staff (meshes.makeGuide plants it through this
+  // fist): forearm forward, upper arm steady against the breathing torso
+  const grip = root.userData.staffGrip as { arm: number; elbow: number } | undefined;
+  if (grip) {
+    if (armL) armL.rotation.x = grip.arm - (torso?.rotation.x ?? 0);
+    if (elbowL) elbowL.rotation.x = grip.elbow;
+  }
+  // Blade carried low, point angled down and back, whatever the arm swing
+  const restWepX = -0.45 - (restArmRx + restElR);
   if (weapon) {
-    weapon.rotation.x = 0.55;
+    weapon.rotation.x = restWepX;
     weapon.rotation.z = 0.12;
     weapon.rotation.y = 0;
   }
-  if (hood) hood.rotation.x = -0.38 + idleBreath * 0.02;
+  if (head) {
+    // Idle: slow look-around; moving: steady gaze with a small counter-nod
+    const idle = 1 - step;
+    head.rotation.y = Math.sin(t * 0.37) * 0.16 * idle - sL * 0.05 * step;
+    head.rotation.x = idleBreath * 0.018 * idle + (0.04 + 0.08 * run) * step - plant * 0.02 * step;
+  }
+  if (hood) hood.rotation.x = idleBreath * 0.012;
 
   if (!opts.attacking) return;
 
-  // Phases aligned to client WINDUP(~22%) → impact snap → RECOVERY.
+  // Diagonal forehand cut, phases aligned to the client WINDUP(~22%) → impact
+  // snap → RECOVERY. Same joint conventions as locomotion (+x forward/flex).
   const u = Math.max(0, Math.min(1, opts.attackU ?? 0));
+  const restTorsoX = -(0.03 + 0.12 * run) * step;
   let torsoY = 0;
-  let torsoX = 0.06 * step + 0.02 * (1 - step);
-  let armRx = armR?.rotation.x ?? -0.1;
+  let torsoX = restTorsoX;
+  let armRx = restArmRx;
   let armRz = 0.16;
-  let armLx = armL?.rotation.x ?? 0;
-  let elRx = elbowR?.rotation.x ?? -0.16;
-  let elLx = elbowL?.rotation.x ?? -0.2;
-  let wepX = 0.55;
+  let armLx = restArmLx;
+  let elRx = restElR;
+  let elLx = restElL;
+  let wepX = restWepX;
   let wepZ = 0.12;
   let wepY = 0;
   let lungeZ = 0;
 
+  // Key poses: cocked (sword raised over the right shoulder, chest turned away)
+  // → struck (arm swept down across the body, chest turned into the cut).
+  const COCK = { ty: -0.55, tx: 0.06, arx: 2.15, arz: 0.5, alx: 0.55, erx: 1.25, elx: 0.9, wx: 0.25, wz: 0.35, wy: 0.2, lz: 0.03 };
+  const HIT = { ty: 0.62, tx: -0.2, arx: 0.85, arz: -0.32, alx: 0.1, erx: 0.12, elx: 0.55, wx: 0.45, wz: -0.45, wy: -0.1, lz: -0.12 };
   if (u < 0.22) {
     const k = u / 0.22;
-    torsoY = smooth(0, -0.68, k);
-    torsoX = smooth(torsoX, 0.14, k);
-    armRx = smooth(armRx, 0.62, k);
-    armRz = smooth(0.16, 0.78, k);
-    armLx = smooth(armLx, -0.5, k);
-    elRx = smooth(elRx, -1.52, k);
-    elLx = smooth(elLx, -0.58, k);
-    wepX = smooth(0.55, -0.22, k);
-    wepZ = smooth(0.12, 0.62, k);
-    wepY = smooth(0, 0.28, k);
-    lungeZ = smooth(0, 0.04, k);
+    torsoY = smooth(0, COCK.ty, k);
+    torsoX = smooth(restTorsoX, COCK.tx, k);
+    armRx = smooth(restArmRx, COCK.arx, k);
+    armRz = smooth(0.16, COCK.arz, k);
+    armLx = smooth(restArmLx, COCK.alx, k);
+    elRx = smooth(restElR, COCK.erx, k);
+    elLx = smooth(restElL, COCK.elx, k);
+    wepX = smooth(restWepX, COCK.wx, k);
+    wepZ = smooth(0.12, COCK.wz, k);
+    wepY = smooth(0, COCK.wy, k);
+    lungeZ = smooth(0, COCK.lz, k);
   } else if (u < 0.4) {
-    const k = (u - 0.22) / 0.18;
     // Impact snap — sharp ease into contact.
+    const k = (u - 0.22) / 0.18;
     const snap = k * k;
-    torsoY = smooth(-0.68, 0.85, snap);
-    torsoX = smooth(0.14, 0.26, snap);
-    armRx = smooth(0.62, -1.55, snap);
-    armRz = smooth(0.78, -0.28, snap);
-    armLx = smooth(-0.5, -0.85, snap);
-    elRx = smooth(-1.52, -0.05, snap);
-    elLx = smooth(-0.58, -0.32, snap);
-    wepX = smooth(-0.22, 0.52, snap);
-    wepZ = smooth(0.62, -0.92, snap);
-    wepY = smooth(0.28, -0.18, snap);
-    lungeZ = smooth(0.04, -0.1, snap);
+    torsoY = smooth(COCK.ty, HIT.ty, snap);
+    torsoX = smooth(COCK.tx, HIT.tx, snap);
+    armRx = smooth(COCK.arx, HIT.arx, snap);
+    armRz = smooth(COCK.arz, HIT.arz, snap);
+    armLx = smooth(COCK.alx, HIT.alx, snap);
+    elRx = smooth(COCK.erx, HIT.erx, snap);
+    elLx = smooth(COCK.elx, HIT.elx, snap);
+    wepX = smooth(COCK.wx, HIT.wx, snap);
+    wepZ = smooth(COCK.wz, HIT.wz, snap);
+    wepY = smooth(COCK.wy, HIT.wy, snap);
+    lungeZ = smooth(COCK.lz, HIT.lz, snap);
   } else {
     const k = (u - 0.4) / 0.6;
-    torsoY = smooth(0.85, 0, k);
-    torsoX = smooth(0.26, 0.06 * step + 0.02 * (1 - step), k);
-    armRx = smooth(-1.55, -swingL * 0.34 * step - 0.1, k);
-    armRz = smooth(-0.28, 0.16, k);
-    armLx = smooth(-0.85, -swingR * 0.52 * step, k);
-    elRx = smooth(-0.05, -0.16 - Math.max(0, swingL) * 0.26 * step, k);
-    elLx = smooth(-0.32, -0.2 - Math.max(0, swingR) * 0.42 * step, k);
-    wepX = smooth(0.52, 0.55, k);
-    wepZ = smooth(-0.92, 0.12, k);
-    wepY = smooth(-0.18, 0, k);
-    lungeZ = smooth(-0.1, 0, k);
+    torsoY = smooth(HIT.ty, 0, k);
+    torsoX = smooth(HIT.tx, restTorsoX, k);
+    armRx = smooth(HIT.arx, restArmRx, k);
+    armRz = smooth(HIT.arz, 0.16, k);
+    armLx = smooth(HIT.alx, restArmLx, k);
+    elRx = smooth(HIT.erx, restElR, k);
+    elLx = smooth(HIT.elx, restElL, k);
+    wepX = smooth(HIT.wx, restWepX, k);
+    wepZ = smooth(HIT.wz, 0.12, k);
+    wepY = smooth(HIT.wy, 0, k);
+    lungeZ = smooth(HIT.lz, 0, k);
   }
 
   if (torso) {
-    torso.rotation.y = torsoY;
+    // hips counter-rotate by −0.28·torsoY below; the child torso adds it back
+    torso.rotation.y = torsoY * 1.28;
     torso.rotation.x = torsoX;
   }
   if (armR) {
