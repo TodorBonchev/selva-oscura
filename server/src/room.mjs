@@ -38,6 +38,16 @@ const AVA_SPAWN_KEEP = 11.5;
 const SPAWN_KEEP = 10;
 const PLAYER_BASE_DMG = 22;
 const PLAYER_ATK_CD = 0.42;
+/**
+ * The melee cooldown is checked against the wall clock (atkCd alone only ticks at
+ * ~15 Hz, so a swing 0.42 s after the last could meet a sliver of cooldown and be
+ * dropped silently — a phantom slash on the client). One blow may arrive up to
+ * the grace early (network jitter, client frame quantization), but the early
+ * part is carried forward as debt: the sustained rate stays one blow per
+ * PLAYER_ATK_CD however a client paces its packets. The client swings every
+ * 0.44 s and sends at blade contact, so every honest swing lands.
+ */
+const PLAYER_ATK_GRACE = 0.06;
 
 const MOB_HP = {
   whirl_shade: 36,
@@ -672,7 +682,8 @@ class CantoRoom {
   handleAttack(playerId, targetId) {
     const s = this.sessions.get(playerId);
     if (!s) return;
-    if (s.atkCd > 0) return;
+    const now = Date.now();
+    if (now < (s.atkReadyAt || 0) - PLAYER_ATK_GRACE * 1000) return;
     const target = this.entities.get(targetId);
     if (!target) return;
     if (target.kind !== "mob" && target.kind !== "boss") {
@@ -680,7 +691,6 @@ class CantoRoom {
       return;
     }
     if (dist(s, target) > ATTACK_RANGE) {
-      const now = Date.now();
       // Quiet OOR: longer gap + info (not warn) so measure spam stays bone-soft
       if (!s._oorToastAt || now - s._oorToastAt > 2400) {
         s._oorToastAt = now;
@@ -689,6 +699,7 @@ class CantoRoom {
       return;
     }
     s.atkCd = PLAYER_ATK_CD;
+    s.atkReadyAt = Math.max(now, s.atkReadyAt || 0) + PLAYER_ATK_CD * 1000;
     const gear = computeGearStats(players.get(playerId) || { inventory: [] });
     const dmg = PLAYER_BASE_DMG + gear.dmg + Math.floor(Math.random() * 6);
     const victims = [target];

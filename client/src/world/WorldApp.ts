@@ -134,6 +134,9 @@ import {
 import { LightPool, VirtualLight, isVirtualLight } from "./lightPool";
 import { applyTextureTier } from "./materials";
 import { disposeNode3D, markShared, sharedGeo } from "./dispose";
+import { HeroMotor, SWING_MS } from "./heroMotor";
+import { humanoidCast, humanoidFlinch, humanoidSwing } from "./heroAnim";
+import { disposeHero, setHeroGhost } from "./hero";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -159,12 +162,15 @@ const MAGNET_RANGE = 5.5;
 const AUTO_PICKUP_RETRY_MS = 900;
 const PREDICT_SPEED = 8.0;
 const MOVE_ACCEL = 28;
-const MOVE_FRICTION = 18;
+/** Coasting stop (no input): a planted stop, not a skid. */
+const MOVE_FRICTION = 24;
+/** Braking against the input on a reversal: plant, then push off (no moonwalk). */
+const MOVE_BRAKE = 52;
+/** Sideways slip decay (1/s) when steering: turns carve instead of drifting. */
+const MOVE_SLIP = 9;
 const TAP_ARRIVE = 0.35;
-const ATTACK_WINDUP_MS = 70;
-const ATTACK_RECOVERY_MS = 240;
-/** Client slash/attackU duration — matches windup+recovery so anim hits with send. */
-const ATTACK_ANIM_MS = ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
+/** One swing (busy time) — heroMotor.SWING_MS, paced to the server's PLAYER_ATK_CD. */
+const ATTACK_ANIM_MS = SWING_MS;
 const SPELL_TELEGRAPH_MS: Record<string, number> = {
   gale_bolt: 180,
   whirl_ward: 260,
@@ -174,7 +180,6 @@ const SPELL_HOLD_CONFIRM_MS = 200;
 const GALE_DRAG_AIM_PX = 26;
 const PORTAL_HOLD_MS = 680;
 const DEATH_FX_LOCK_MS = 1600;
-const ATTACK_HOLD_MS = 720;
 const GALE_HOLD_TOAST_MS = 90;
 const HIT_STOP_MS = 58;
 
@@ -361,7 +366,14 @@ export class WorldApp {
   autoPickupSent = new Map<string, number>();
   lastAutoPickupScan = 0;
   attackBusyUntil = 0;
-  attackHoldTimer: number | null = null;
+  /** Hold-to-attack (button, F key, mouse held on a foe): swing whenever ready. */
+  attackHeld = false;
+  attackHoldRelease: ((e: PointerEvent) => void) | null = null;
+  heroMotor: HeroMotor | null = null;
+  /** Real (unclamped, un-hit-stopped) step of the current frame; null outside loop(). */
+  frameRawDt: number | null = null;
+  _pin: Vec2 = { x: 0, y: 0 };
+  _step: Vec2 = { x: 0, y: 0 };
   lastHitFoe: { id: string; until: number } | null = null;
   deathFxUntil = 0;
   pendingCast: { spellId: SpellId; aimX: number; aimY: number; until: number } | null = null;
@@ -612,15 +624,8 @@ export class WorldApp {
       this.lockRing = lock;
       this.scene.add(lock);
     }
-    this.slash = makeSlashTrail();
-    this.slash.visible = false;
-    {
-      const anchor =
-        this.youGroup.getObjectByName("slashAnchor") ||
-        this.youGroup.getObjectByName("handR") ||
-        this.youGroup;
-      anchor.add(this.slash);
-    }
+    // Swing arcs, dash, death pose, blade trail and foot dust for your pilgrim
+    this.heroMotor = new HeroMotor(this);
     this.portalHoldFx = makePortalHoldFx();
     this.scene.add(this.portalHoldFx.group);
 
@@ -942,6 +947,7 @@ export class WorldApp {
         this.cancelPortalHold();
       }
       if (e.code === "KeyQ") this.sip();
+      if (e.code === "KeyF") this.startAttackHold();
       if (e.code === "Space") {
         e.preventDefault();
         this.dash();
@@ -957,6 +963,17 @@ export class WorldApp {
       if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
         this.releaseSpellHold(true);
       }
+      if (e.code === "KeyF") this.stopAttackHold();
+    });
+    // Focus lost with F / WASD / a mouse button down never sees the keyup: drop
+    // the held keys and the attack hold, or the hero would fight (and chase) alone
+    const dropHeld = () => {
+      this.stopAttackHold();
+      this.keys.clear();
+    };
+    window.addEventListener("blur", dropHeld);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) dropHeld();
     });
 
     this.renderer.domElement.addEventListener("pointerdown", (ev) => {
@@ -971,7 +988,7 @@ export class WorldApp {
       if (hit) {
         if (hit.kind === "mob" || hit.kind === "boss") {
           this.lockedId = String(hit.id);
-          this.attackNearest();
+          this.startAttackHold(ev.pointerId);
           return;
         }
         if (hit.kind === "loot") {
@@ -1104,11 +1121,14 @@ export class WorldApp {
     this.lastFrameAt = now;
     this.countFrame(now);
     let dt = this.clock.getDelta();
+    // (the hero's combat clock runs on real frame time: no clamp, no hit-stop)
+    this.frameRawDt = dt;
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
     dt = Math.min(0.05, dt);
     this.animT += dt * 1000;
     this.tick(dt);
     this.draw(dt);
+    this.frameRawDt = null;
   };
 
   countFrame(now: number) {
@@ -1136,6 +1156,7 @@ export class WorldApp {
 
   tick(dt: number) {
     if (!this.room) return;
+    this.heroMotor?.advance(this.frameRawDt ?? dt);
     const { fwd, right } = camPlanarBasis(this.camera);
     let fx = 0;
     let sx = 0;
@@ -1153,7 +1174,13 @@ export class WorldApp {
     const iy = fwd.z * fx + right.z * sx;
     this.predicting = false;
 
-    if (ix !== 0 || iy !== 0) this.applyContinuousMove(ix, iy, dt);
+    // Hold-to-attack: swing the moment the last one ends, re-targeting live foes
+    if (this.attackHeld && this.heroMotor?.canSwing()) this.attackNearest({ silent: true });
+    // Dash tween / death collapse pin the hero: no steering or move packets meanwhile
+    const pinned = this.heroMotor ? this.heroMotor.pinnedPos(this._pin) : null;
+    if (pinned) {
+      /* held by the motor */
+    } else if (ix !== 0 || iy !== 0) this.applyContinuousMove(ix, iy, dt);
     else if (this.moveTarget) this.advanceTapMove(dt);
     else this.integrateVelocity(dt, false);
 
@@ -1161,6 +1188,7 @@ export class WorldApp {
       x: this.velX,
       y: this.velY,
     });
+    if (pinned) this.renderYou = { x: pinned.x, y: pinned.y };
 
     // Reused map + target points (SmoothStore.tick reads them, never keeps them)
     const targets = this._targets;
@@ -1253,15 +1281,9 @@ export class WorldApp {
       const feel = this.avaMoveFeel();
       const nx = dx / len;
       const ny = dy / len;
-      this.velX += nx * feel.accel * dtSec;
-      this.velY += ny * feel.accel * dtSec;
       const mag = Math.min(1, len);
-      const maxSp = feel.maxSp * Math.max(0.35, mag);
-      const sp = Math.hypot(this.velX, this.velY);
-      if (sp > maxSp) {
-        this.velX = (this.velX / sp) * maxSp;
-        this.velY = (this.velY / sp) * maxSp;
-      }
+      const maxSp = feel.maxSp * Math.max(0.35, mag) * (this.heroMotor?.moveScale() ?? 1);
+      this.steerVelocity(nx, ny, feel.accel, maxSp, dtSec);
       if (mag > 0.2) {
         this.aimX = nx;
         this.aimY = ny;
@@ -1311,17 +1333,28 @@ export class WorldApp {
     }
     // Near target: cap speed so click doesn't overshoot relative to WASD stride
     const nearMag = d < 2.2 ? Math.max(0.4, d / 2.2) : 1;
-    this.velX += (dx / d) * feel.accel * dtSec;
-    this.velY += (dy / d) * feel.accel * dtSec;
-    const maxSp = feel.maxSp * nearMag;
-    const sp = Math.hypot(this.velX, this.velY);
-    if (sp > maxSp) {
-      this.velX = (this.velX / sp) * maxSp;
-      this.velY = (this.velY / sp) * maxSp;
-    }
+    const maxSp = feel.maxSp * nearMag * (this.heroMotor?.moveScale() ?? 1);
+    this.steerVelocity(dx / d, dy / d, feel.accel, maxSp, dtSec);
     this.aimX = dx / d;
     this.aimY = dy / d;
     this.integrateVelocity(dtSec, true);
+  }
+
+  /**
+   * Steer toward a unit heading: speed along it accelerates to maxSp (or eases
+   * down to it), sideways slip decays so turns carve, and a reversal brakes hard
+   * first — the body plants and pivots instead of moonwalking backwards.
+   */
+  steerVelocity(nx: number, ny: number, accel: number, maxSp: number, dtSec: number) {
+    let along = this.velX * nx + this.velY * ny;
+    const slip = Math.exp(-MOVE_SLIP * dtSec);
+    const px = (this.velX - nx * along) * slip;
+    const py = (this.velY - ny * along) * slip;
+    if (along < 0) along = Math.min(0, along + MOVE_BRAKE * dtSec);
+    else if (along > maxSp) along = Math.max(maxSp, along - MOVE_BRAKE * dtSec);
+    else along = Math.min(maxSp, along + accel * dtSec);
+    this.velX = nx * along + px;
+    this.velY = ny * along + py;
   }
 
   integrateVelocity(dtSec: number, driven: boolean) {
@@ -1341,12 +1374,14 @@ export class WorldApp {
         this.velY = (this.velY / sp) * cut;
       }
     }
-    if (this.velX === 0 && this.velY === 0) {
+    // Root step into a sword cut (small, only with room to the target)
+    const step = this.heroMotor ? this.heroMotor.stepVelocity(this._step) : this._step;
+    if (this.velX === 0 && this.velY === 0 && step.x === 0 && step.y === 0) {
       if (!driven) this.predicting = false;
       return;
     }
-    const nx = this.renderYou.x + this.velX * dtSec;
-    const ny = this.renderYou.y + this.velY * dtSec;
+    const nx = this.renderYou.x + (this.velX + step.x) * dtSec;
+    const ny = this.renderYou.y + (this.velY + step.y) * dtSec;
     this.renderYou = this.clampToBounds(nx, ny);
     this.predicting = true;
     this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
@@ -1355,37 +1390,14 @@ export class WorldApp {
   draw(dt: number) {
     const compact = isCompactUi();
     this.renderer.info.reset();
-    if (this.youGroup) {
-      setPlanar(this.youGroup.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
-      this.youGroup.rotation.y = yawFromPlanar(this.aimX, this.aimY);
-      const moving = Math.hypot(this.velX, this.velY) > 0.4;
-      const attacking = this.animT < this.slashUntil;
-      tickHumanoid(this.youGroup, {
-        moving,
-        tMs: this.animT,
-        attacking,
-        attackU: attacking ? 1 - (this.slashUntil - this.animT) / ATTACK_ANIM_MS : 0,
-        speed: Math.hypot(this.velX, this.velY),
+    if (this.youGroup && this.heroMotor) {
+      // Facing, swing/dash/death poses, blade trail and foot dust (heroMotor.ts)
+      this.heroMotor.update(dt, {
         channeling: Boolean(this.portalHold && !this.portalHold.completed),
+        dtRaw: this.frameRawDt ?? dt,
       });
-      if (moving && this.animT - this.lastDustAt > 160 && this.dust.length < 8) {
-        this.lastDustAt = this.animT;
-        const puff = makeDustPuff();
-        setPlanar(puff.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.05));
-        this.scene.add(puff);
-        this.dust.push({ mesh: puff, start: this.animT });
-      }
-      if (this.netOffline) {
-        this.youGroup.traverse((o) => {
-          const m = o as THREE.Mesh;
-          if (m.isMesh && m.material && "opacity" in m.material) {
-            const mm = m.material as THREE.MeshStandardMaterial;
-            if (!mm.transparent) mm.needsUpdate = true; // OPAQUE variant ignores opacity
-            mm.transparent = true;
-            (m.material as THREE.MeshStandardMaterial).opacity = 0.45;
-          }
-        });
-      }
+      // Net-offline ghost swaps in translucent twins; shared hero materials stay opaque
+      setHeroGhost(this.youGroup, this.netOffline);
     }
 
     this.syncEntities();
@@ -1456,11 +1468,7 @@ export class WorldApp {
     this.rim.position.set(this.camFollow.x - 10, 9, this.camFollow.z - 12);
     this.rim.target.position.copy(this.camFollow);
 
-    if (this.slash && this.slashUntil > this.animT) {
-      this.slash.visible = true;
-      const u = 1 - (this.slashUntil - this.animT) / ATTACK_ANIM_MS;
-      tickSlashTrail(this.slash, u, { gold: this.room?.cantoId === "inferno_07", compact });
-    } else if (this.slash) this.slash.visible = false;
+    this.heroMotor?.setPalette(this.room?.cantoId === "inferno_07");
 
     this.frameN++;
     const inCombatRoom =
@@ -1855,6 +1863,8 @@ export class WorldApp {
           // Remote pilgrims walk/run at their tracked speed (see syncEntities)
           const gait = n.kind === "player" ? Number(n.group.userData.gaitSpeed) || 0 : 0;
           tickHumanoid(n.group, { moving: gait > 0.6, tMs: this.animT, attacking: false, speed: gait });
+          // a swinging pilgrim draws its blade trail (pooled, see heroMotor)
+          if (n.kind === "player") this.heroMotor?.remoteTick(n.group, dt);
         }
         // The Guide turns to meet an approaching pilgrim (it would otherwise show
         // the phone camera its back)
@@ -2488,6 +2498,11 @@ export class WorldApp {
       this.spawnAvaPackDeathCoins(x, z);
     }
     this.scene.remove(rec.group);
+    // Pilgrims / the Guide share geometry + materials; free only the bone texture
+    if (rec.kind === "player" || rec.kind === "guide") {
+      disposeHero(rec.group);
+      this.heroMotor?.releaseRemote(rec.group);
+    }
     rec.label.element.remove();
     // Free the node's own buffers/materials (shared kit + cached parts are marked shared)
     disposeNode3D(rec.group);
@@ -3217,14 +3232,9 @@ export class WorldApp {
           this.netOffline = true;
           showToast("Connection lost — reconnecting…", "warn");
         } else if (msg.state === "reconnected") {
+          // (draw() swaps the hero's shared materials back: setHeroGhost)
           this.netOffline = false;
           showToast("Reconnected", "info");
-          this.youGroup?.traverse((o) => {
-            const m = o as THREE.Mesh;
-            if (m.isMesh && m.material && "opacity" in m.material) {
-              (m.material as THREE.MeshStandardMaterial).opacity = 1;
-            }
-          });
         }
         break;
       case "toast": {
@@ -3415,6 +3425,7 @@ export class WorldApp {
     const youId = this.room?.you?.id != null ? String(this.room.you.id) : "";
     const sockId = this.socket.playerId != null ? String(this.socket.playerId) : "";
     const hitSelf = Boolean(tid) && (tid === youId || tid === sockId);
+    this.remoteHeroCombatPose(msg, tid);
     if (hitSelf) {
       // Crush/champ slam resolved while dashed/respawn-iframed — gold safe rim, not a sting
       if (msg.iframeBlocked) {
@@ -3428,6 +3439,7 @@ export class WorldApp {
       this.camFovKick = Math.min(this.camFovKick, -3.2);
       this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.38);
       this.hitStopUntil = performance.now() + HIT_STOP_MS + 20;
+      this.heroFlinchFrom(String(msg.attackerId ?? ""));
       this.spawnHitFx(this.renderYou, 0xff6644, true);
       this.floatDmg(this.renderYou, msg.damage, true);
       const soaked = Number(msg.soaked) || 0;
@@ -3491,6 +3503,45 @@ export class WorldApp {
           // Regular weights: light coin dust every other hit for measure read
           (ent.archetype === "weight_shade" && (this.frameN & 1) === 0));
       this.spawnHitFx(pos, heavy ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, heavy || comboBoost > 0.2, dustElite);
+    }
+  }
+
+  /** Your pilgrim recoils away from whoever struck (the aim side when unknown). */
+  heroFlinchFrom(attackerId: string) {
+    const src = attackerId ? this.room?.entities?.find((e: any) => String(e.id) === attackerId) : null;
+    if (src) {
+      const p = this.entityRenderPos(src);
+      this.heroMotor?.flinch(p.x - this.renderYou.x, p.y - this.renderYou.y);
+    } else this.heroMotor?.flinch(this.aimX, this.aimY);
+  }
+
+  /** Remote pilgrims: swing at whoever they hit (melee only), flinch when struck. */
+  remoteHeroCombatPose(msg: any, tid: string) {
+    const attacker = String(msg.attackerId ?? "");
+    const atk = attacker ? this.nodes.get(`pl:${attacker}`) : undefined;
+    if (atk && !msg.spellId) {
+      const ud = atk.group.userData;
+      // one swing per blow, not per cleave victim
+      if (!(this.animT - (Number(ud.lastSwingAt) || -1e9) < 250)) {
+        const chain = this.animT - (Number(ud.lastSwingAt) || -1e9) < SWING_MS + 320;
+        ud.swingKind = chain ? ((Number(ud.swingKind) || 0) + 1) % 3 : 0;
+        ud.lastSwingAt = this.animT;
+        // the packet marks contact: skip most of the anticipation
+        humanoidSwing(atk.group, this.animT, ud.swingKind, SWING_MS, 0.22);
+        this.heroMotor?.remoteSwing(atk.group, ud.swingKind);
+        const tgt = this.room?.entities?.find((e: any) => String(e.id) === tid);
+        if (tgt) {
+          const p = this.entityRenderPos(tgt);
+          ud.gaitYaw = yawFromPlanar(p.x - atk.group.position.x, p.y - atk.group.position.z);
+        }
+      }
+    }
+    const hurt = msg.targetIsPlayer && tid ? this.nodes.get(`pl:${tid}`) : undefined;
+    if (hurt) {
+      const src = this.room?.entities?.find((e: any) => String(e.id) === attacker);
+      const p = src ? this.entityRenderPos(src) : null;
+      const g = hurt.group;
+      if (p) humanoidFlinch(g, p.x - g.position.x, p.y - g.position.z, this.animT);
     }
   }
 
@@ -3592,6 +3643,11 @@ export class WorldApp {
 
   onSpellFx(msg: any) {
     const id = String(msg.spellId || "");
+    // Remote pilgrims strike the matching cast pose (release frame: short wind)
+    const caster = msg.casterId != null ? this.nodes.get(`pl:${msg.casterId}`) : undefined;
+    if (caster && (id === "gale_bolt" || id === "whirl_ward" || id === "infernal_burst")) {
+      humanoidCast(caster.group, id === "gale_bolt" ? "gale" : id === "whirl_ward" ? "ward" : "burst", this.animT, 70);
+    }
     if (id === "gale_bolt") {
       const bolt: Bolt = {
         // Avarice: gold bolt (a cached tinted copy — the ember kit material is shared)
@@ -4034,25 +4090,25 @@ export class WorldApp {
   dash() {
     const now = Date.now();
     if (now < this.dashReadyAt) return;
+    if (this.heroMotor && !this.heroMotor.canDash()) return;
     this.dashReadyAt = now + 4000;
     noteUtilityCd("btn-dash", 4);
     const len = Math.hypot(this.aimX, this.aimY) || 1;
     const nx = this.aimX / len;
     const ny = this.aimY / len;
     const step = 5.5;
-    const nxPos = this.renderYou.x + nx * step;
-    const nyPos = this.renderYou.y + ny * step;
-    this.renderYou.x = nxPos;
-    this.renderYou.y = nyPos;
-    this.serverYou.x = nxPos;
-    this.serverYou.y = nyPos;
+    // Same clamp as the server (room.handleDash): it teleports, we tween there
+    const b = this.room?.bounds;
+    const to = {
+      x: b ? Math.max(2, Math.min(b.width - 2, this.renderYou.x + nx * step)) : this.renderYou.x + nx * step,
+      y: b ? Math.max(2, Math.min(b.height - 2, this.renderYou.y + ny * step)) : this.renderYou.y + ny * step,
+    };
+    this.moveTarget = null;
+    if (this.heroMotor) this.heroMotor.startDash(this.renderYou, to);
+    else this.renderYou = { x: to.x, y: to.y };
+    this.serverYou.x = to.x;
+    this.serverYou.y = to.y;
     this.socket.dash(nx, ny);
-    if (this.dust.length < 8) {
-      const puff = makeDustPuff();
-      setPlanar(puff.position, nxPos, nyPos, this.standY(nxPos, nyPos, 0.05));
-      this.scene.add(puff);
-      this.dust.push({ mesh: puff, start: this.animT });
-    }
   }
 
   attackNearest(opts?: { silent?: boolean }) {
@@ -4089,34 +4145,67 @@ export class WorldApp {
     }
   }
 
+  /**
+   * Start a swing. The attack packet is NOT sent here: heroMotor calls
+   * onSwingContact when the blade meets the target (~150 ms in), so the hit
+   * flash, number and server damage line up with the cut.
+   */
   sendAttack(targetId: string) {
-    const now = Date.now();
-    if (now < this.attackBusyUntil) return;
+    if (this.heroMotor && !this.heroMotor.canSwing()) return;
+    if (!this.heroMotor && Date.now() < this.attackBusyUntil) return;
     this.noteCombat();
-    this.attackBusyUntil = now + ATTACK_ANIM_MS;
+    this.attackBusyUntil = Date.now() + ATTACK_ANIM_MS;
     noteAttackCd(ATTACK_ANIM_MS / 1000);
     this.slashUntil = this.animT + ATTACK_ANIM_MS;
-    this.camPunch = Math.max(this.camPunch, 0.22);
-    this.camFovKick = Math.max(this.camFovKick, 1.35);
-    window.setTimeout(() => {
-      const live = this.room?.entities.find((e: any) => String(e.id) === String(targetId));
-      if (!live || (live.hp != null && live.hp <= 0)) return;
-      const pos = this.entityRenderPos(live);
-      if (Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) > ATTACK_RANGE + 0.45) return;
-      this.socket.attack(targetId);
-    }, ATTACK_WINDUP_MS);
+    if (this.heroMotor) this.heroMotor.startSwing(targetId);
+    else this.onSwingContact(targetId, 0);
   }
 
-  startAttackHold() {
-    this.attackNearest({ silent: true });
+  /** heroMotor: the blade reached the target — punch the camera and send the attack. */
+  onSwingContact(targetId: string | null, kind: number) {
+    this.camPunch = Math.max(this.camPunch, kind === 2 ? 0.3 : 0.22);
+    this.camFovKick = Math.max(this.camFovKick, kind === 2 ? 1.7 : 1.35);
+    if (!targetId) return;
+    const live = this.room?.entities.find((e: any) => String(e.id) === String(targetId));
+    if (!live || (live.hp != null && live.hp <= 0)) return;
+    const pos = this.entityRenderPos(live);
+    if (Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) > ATTACK_RANGE + 0.45) return;
+    this.socket.attack(targetId);
+  }
+
+  /** heroMotor: live render position of a foe (null once gone or dead). */
+  foeRenderPos(id: string): Vec2 | null {
+    const e = this.room?.entities?.find((x: any) => String(x.id) === id);
+    if (!e || (e.hp != null && e.hp <= 0)) return null;
+    return this.entityRenderPos(e);
+  }
+
+  /**
+   * Hold to attack: tick() swings whenever the last swing ends (re-targeting
+   * the live nearest / locked foe, chasing when out of reach). With a pointer id
+   * (mouse held on a foe) the hold ends on that pointer's release.
+   */
+  startAttackHold(pointerId?: number) {
     this.stopAttackHold();
-    this.attackHoldTimer = window.setInterval(() => this.attackNearest({ silent: true }), ATTACK_HOLD_MS);
+    this.attackHeld = true;
+    // a click on a foe still says "Closing on …" when it has to walk in
+    this.attackNearest({ silent: pointerId == null });
+    if (pointerId != null) {
+      const release = (e: PointerEvent) => {
+        if (e.pointerId === pointerId) this.stopAttackHold();
+      };
+      this.attackHoldRelease = release;
+      window.addEventListener("pointerup", release);
+      window.addEventListener("pointercancel", release);
+    }
   }
 
   stopAttackHold() {
-    if (this.attackHoldTimer != null) {
-      window.clearInterval(this.attackHoldTimer);
-      this.attackHoldTimer = null;
+    this.attackHeld = false;
+    if (this.attackHoldRelease) {
+      window.removeEventListener("pointerup", this.attackHoldRelease);
+      window.removeEventListener("pointercancel", this.attackHoldRelease);
+      this.attackHoldRelease = null;
     }
   }
 
@@ -4143,6 +4232,7 @@ export class WorldApp {
     this.aimY = ay / len;
     const wind = SPELL_TELEGRAPH_MS[spellId] ?? 220;
     this.pendingCast = { spellId, aimX: this.aimX, aimY: this.aimY, until: this.animT + wind };
+    this.heroMotor?.cast(spellId, wind);
     if (spellId === "gale_bolt") {
       const mesh = makeTelegraph(0xffd078);
       setPlanar(mesh.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.1));
@@ -5156,16 +5246,25 @@ export class WorldApp {
     }
     this.camShake = ava ? 0.72 : 0.6;
     if (ava) this.camPunch = Math.max(this.camPunch, 0.85);
-    window.setTimeout(() => {
-      this.renderYou = { x: this.serverYou.x, y: this.serverYou.y };
-      this.velX = 0;
-      this.velY = 0;
-      this.moveTarget = null;
-      // Avarice: bone-gold wake pulse at the entrance keep-out
-      if (ava) {
-        this.spawnAvaEntrancePulse(this.serverYou.x, this.serverYou.y);
-      }
-    }, 200);
+    this.stopAttackHold();
+    this.velX = 0;
+    this.velY = 0;
+    this.moveTarget = null;
+    // Collapse where you fell (heroMotor pins you there), then wake at the entrance
+    if (this.heroMotor) this.heroMotor.startDeath(this.renderYou);
+    else window.setTimeout(() => this.onReviveTeleport(), 200);
+  }
+
+  /** Death pose done (or no motor): jump to the server's respawn point. */
+  onReviveTeleport() {
+    this.renderYou = { x: this.serverYou.x, y: this.serverYou.y };
+    this.velX = 0;
+    this.velY = 0;
+    this.moveTarget = null;
+    // Avarice: bone-gold wake pulse at the entrance keep-out
+    if (this.room?.cantoId === "inferno_07") {
+      this.spawnAvaEntrancePulse(this.serverYou.x, this.serverYou.y);
+    }
   }
 
   /**
