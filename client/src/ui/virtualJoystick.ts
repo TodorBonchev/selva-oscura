@@ -1,12 +1,20 @@
 /**
  * DOM virtual joystick for touch / compact viewports.
  * Emits normalized screen-space vector (x right, y down); WorldScene maps to iso WASD axes.
+ *
+ * On phones the root is a floating-stick capture zone over the lower-left of
+ * the screen (styles.css "Wave 1 UX"): the ring appears under the thumb
+ * wherever it lands. A quick touch that never drags is reported via onTap so
+ * loot / gates / ground inside the zone can still be tapped.
  */
 
 export type StickVector = { x: number; y: number };
 
 const DEADZONE = 0.22;
 const MAX_TRAVEL = 42; // px knob travel from center
+/** A touch is a tap (not a stick push) if it moves less than this and lifts quickly. */
+const TAP_SLOP_PX = 10;
+const TAP_MAX_MS = 300;
 
 export class VirtualJoystick {
   readonly root: HTMLElement;
@@ -18,6 +26,12 @@ export class VirtualJoystick {
   private vector: StickVector = { x: 0, y: 0 };
   private eased: StickVector = { x: 0, y: 0 };
   private visible = false;
+  private downX = 0;
+  private downY = 0;
+  private downT = 0;
+  private dragged = false;
+  /** Quick non-drag touch inside the capture zone (client coords). */
+  onTap: ((clientX: number, clientY: number) => void) | null = null;
 
   constructor() {
     this.root = document.createElement("div");
@@ -140,15 +154,34 @@ export class VirtualJoystick {
       e.preventDefault();
       e.stopPropagation();
       this.activeId = e.pointerId;
+      this.downX = e.clientX;
+      this.downY = e.clientY;
+      this.downT = performance.now();
+      this.dragged = false;
       this.root.classList.add("vj-active");
       try {
         this.root.setPointerCapture(e.pointerId);
       } catch {
         /* ignore */
       }
+      // Floating stick: the ring jumps under the thumb anywhere in the capture
+      // zone (clamped on screen), then springs back to its rest spot on release.
+      this.base.style.transform = "";
       const rect = this.base.getBoundingClientRect();
-      this.originX = rect.left + rect.width / 2;
-      this.originY = rect.top + rect.height / 2;
+      const restX = rect.left + rect.width / 2;
+      const restY = rect.top + rect.height / 2;
+      const half = rect.width / 2 + 4;
+      const cx = Math.max(half, Math.min(window.innerWidth - half, e.clientX));
+      const cy = Math.max(half, Math.min(window.innerHeight - half, e.clientY));
+      const floating = this.root.getBoundingClientRect().width > rect.width * 1.6;
+      if (floating) {
+        this.base.style.transform = `translate(${Math.round(cx - restX)}px, ${Math.round(cy - restY)}px)`;
+        this.originX = cx;
+        this.originY = cy;
+      } else {
+        this.originX = restX;
+        this.originY = restY;
+      }
       this.applyPointer(e.clientX, e.clientY);
     };
 
@@ -156,6 +189,9 @@ export class VirtualJoystick {
       if (e.pointerId !== this.activeId) return;
       e.preventDefault();
       e.stopPropagation();
+      if (!this.dragged && Math.hypot(e.clientX - this.downX, e.clientY - this.downY) > TAP_SLOP_PX) {
+        this.dragged = true;
+      }
       this.applyPointer(e.clientX, e.clientY);
     };
 
@@ -168,7 +204,14 @@ export class VirtualJoystick {
       } catch {
         /* ignore */
       }
+      const tap =
+        e.type === "pointerup" &&
+        !this.dragged &&
+        performance.now() - this.downT < TAP_MAX_MS &&
+        Math.hypot(e.clientX - this.downX, e.clientY - this.downY) <= TAP_SLOP_PX;
       this.reset();
+      // A quick touch that never dragged was a world tap (loot, gate, ground)
+      if (tap) this.onTap?.(e.clientX, e.clientY);
     };
 
     this.root.addEventListener("pointerdown", onDown, { passive: false });
@@ -210,6 +253,7 @@ export class VirtualJoystick {
     this.activeId = null;
     this.vector = { x: 0, y: 0 };
     this.knob.style.transform = "translate(0px, 0px)";
+    this.base.style.transform = "";
     this.root.classList.remove("vj-active");
     this.root.style.setProperty("--vj-mag", "0");
   }

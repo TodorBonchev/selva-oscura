@@ -47,6 +47,7 @@ import {
   pulseRiftShear,
   pulseHorizonFold,
 } from "../ui/hud";
+import { flushStaleToasts, showCantoCard } from "../ui/toasts";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
 import {
@@ -58,7 +59,7 @@ import {
   expAlpha,
   type Vec2,
 } from "../render/smoothing";
-import { isPortraitCompact, camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from "./frames";
+import { isPortraitCompact, camPlanarBasis, camRel, placeFollowCamera, setPlanar, tickCamLead, yawFromPlanar, UP } from "./frames";
 import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
 import {
   makeByKind,
@@ -82,7 +83,6 @@ import {
   makeWeightShade,
   modelFrontWorld,
   resolveKind,
-  setPortalGateVisual,
   tintMireEnemy,
   type KindKey,
 } from "./meshes";
@@ -139,6 +139,10 @@ import { humanoidCast, humanoidFlinch, humanoidSwing } from "./heroAnim";
 import { disposeHero, setHeroGhost } from "./hero";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
+import { Guidance } from "./guidance";
+import { PointerInput } from "./pointerInput";
+import { PickupFx } from "./pickupFx";
+import { forwardGate, gateState, gateTitle, lockReason, visibleGates } from "./gates";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 
 type RoomSnap = any;
@@ -151,7 +155,6 @@ const SOFT_SNAP_PULL_RANGE = 3.1;
 const SOFT_SNAP_PORTAL_PULL_RANGE = 5.8;
 const SOFT_SNAP_USE_RANGE = 7.4;
 const STICKY_INTERACT_MS = 480;
-const EXIT_HINT_RANGE = 7;
 const EXIT_TRAVEL_RANGE = 6.2;
 const GALE_STICKY_MS = 1600;
 /** Must stay inside the server melee check (3.5) or swings toast "Out of range". */
@@ -160,6 +163,8 @@ const CHASE_RANGE = 26;
 const AUTO_PICKUP_RANGE = 4.0;
 const MAGNET_RANGE = 5.5;
 const AUTO_PICKUP_RETRY_MS = 900;
+/** Server bag cap (room.mjs handlePickup). */
+const BAG_CAP = 40;
 const PREDICT_SPEED = 8.0;
 const MOVE_ACCEL = 28;
 /** Coasting stop (no input): a planted stop, not a skid. */
@@ -182,6 +187,9 @@ const PORTAL_HOLD_MS = 680;
 const DEATH_FX_LOCK_MS = 1600;
 const GALE_HOLD_TOAST_MS = 90;
 const HIT_STOP_MS = 58;
+/** Sun / rim offsets from the follow point, turned with the camera yaw. */
+const SUN_OFF = camRel(14, 8);
+const RIM_OFF = camRel(-10, -12);
 
 type NodeRec = {
   id: string;
@@ -285,6 +293,8 @@ export class WorldApp {
   /** Last requested sky colours (a canto can load before the dome exists). */
   skyColors: [number, number, number] | null = null;
   radar: Radar | null = null;
+  /** Objective model + gates + compass/minimap/beacon (world/guidance.ts). */
+  guidance: Guidance | null = null;
   frameN = 0;
   combatUntil = 0;
   lastChaseToast = 0;
@@ -325,6 +335,24 @@ export class WorldApp {
   lastLookKey = "";
   propAnims: THREE.Object3D[] = [];
   treeFadeTick = 0;
+  /** paintChrome throttle (ms, performance.now) and last attack-button hint. */
+  lastChromeAt = 0;
+  lastFoeNear = false;
+  /** Last sealed-gate warning (dedupes tap / Use / soft-snap). */
+  lastDeny: { id: string; at: number } | null = null;
+  /** scanNearestInteract throttle + the node currently wearing the prompt. */
+  lastScanAt = 0;
+  promptRecId = "";
+  /** Canvas taps / hover / hold-to-move (pointerInput.ts). */
+  pointer: PointerInput | null = null;
+  _ndc = new THREE.Vector2();
+  /** Reused walk-in target for soft snap (identity tells us when something else took over). */
+  softSnapMove: Vec2 = { x: 0, y: 0 };
+  /** Pooled fly-to-hero loot motes + the pickups we are waiting on (id → ms). */
+  pickupFx: PickupFx | null = null;
+  pickupFlyIds = new Map<string, number>();
+  bagFullWarned = false;
+  hubPortalToastShown = false;
 
   room: RoomSnap | null = null;
   joystick: VirtualJoystick;
@@ -346,6 +374,8 @@ export class WorldApp {
   youGroup: THREE.Group | null = null;
   camTarget = new THREE.Vector3();
   camFollow = new THREE.Vector3();
+  /** Smoothed camera look-ahead along the hero's velocity (planar x, z). */
+  camLead = { x: 0, z: 0 };
   camPunch = 0;
   camShake = 0;
   camFovKick = 0;
@@ -360,7 +390,6 @@ export class WorldApp {
   lustReturnGlutNudgeShown = false;
   glutAvaGateApproachShown = false;
   glutReturnAvaNudgeShown = false;
-  nearExitToastAt = 0;
   seenLootIds = new Set<string>();
   seenInvItemIds = new Set<string>();
   autoPickupSent = new Map<string, number>();
@@ -392,6 +421,8 @@ export class WorldApp {
   portalHold: {
     target: any;
     fromKey: boolean;
+    /** Started by arriving at a tapped gate: completes on its own, steering cancels. */
+    auto: boolean;
     pointerId: number | null;
     startMs: number;
     completed: boolean;
@@ -543,7 +574,9 @@ export class WorldApp {
     this.ambient.intensity = 0.59;
     this.scene.add(this.ambient);
     this.fill = new THREE.DirectionalLight(0x88aacc, 0.55);
-    this.fill.position.set(-12, 10, -8);
+    // Light rig offsets are authored for the legacy camera side; camRel turns them with the camera yaw.
+    const fillOff = camRel(-12, -8);
+    this.fill.position.set(fillOff.x, 10, fillOff.z);
     this.scene.add(this.fill);
     this.rim.position.set(-10, 8, -12);
     this.scene.add(this.rim);
@@ -628,10 +661,12 @@ export class WorldApp {
     this.heroMotor = new HeroMotor(this);
     this.portalHoldFx = makePortalHoldFx();
     this.scene.add(this.portalHoldFx.group);
+    this.pickupFx = new PickupFx(this.scene, isCompactUi());
 
     this.ash = new AshField(isCompactUi() ? 48 : 90, 0xe8d4b0);
     this.scene.add(this.ash.points);
     this.radar = new Radar();
+    this.guidance = new Guidance(this);
 
     this.bindInput();
     // Inventory rebuilds are deferred while the bag is closed — catch up when it opens
@@ -953,7 +988,7 @@ export class WorldApp {
         this.dash();
       }
       if (e.code === "KeyE") {
-        const portal = this.nearestIsPortalTravel();
+        const portal = this.portalForUse();
         if (portal) this.beginPortalHold(portal, { fromKey: true });
         else this.interactNearest();
       }
@@ -976,6 +1011,7 @@ export class WorldApp {
       if (document.hidden) dropHeld();
     });
 
+    this.pointer = new PointerInput(this, this.renderer.domElement);
     this.renderer.domElement.addEventListener("pointerdown", (ev) => {
       if (!this.room) return;
       const t = ev.target as HTMLElement | null;
@@ -983,43 +1019,61 @@ export class WorldApp {
         return;
       }
       if (this.joystick.isVisible() && this.joystick.containsClientPoint(ev.clientX, ev.clientY)) return;
-
-      const hit = this.pickEntity(ev);
-      if (hit) {
-        if (hit.kind === "mob" || hit.kind === "boss") {
-          this.lockedId = String(hit.id);
-          this.startAttackHold(ev.pointerId);
-          return;
-        }
-        if (hit.kind === "loot") {
-          this.socket.pickup(hit.id);
-          return;
-        }
-        if (hit.kind === "poi" || hit.kind === "exit") {
-          if (hit.kind === "exit" || hit.poiKind === "portal") {
-            this.beginPortalHold(hit, { fromKey: false, pointerId: ev.pointerId });
-          } else {
-            this.doInteract(hit);
-          }
-          return;
-        }
-      }
-      if (this.joystick.isActive()) return;
-      const g = this.pickGround(ev);
-      if (g) this.setClickMove(g);
+      // Taps on loot / POIs / gates walk in; ground taps walk; foes attack
+      this.pointer?.down(ev);
     });
+    // A quick tap inside the floating-stick zone still counts as a world tap
+    this.joystick.onTap = (x, y) => {
+      if (this.room) this.pointer?.tapAt(x, y);
+    };
   }
 
-  ndcFromEvent(ev: PointerEvent): THREE.Vector2 {
+  ndcFromEvent(ev: { clientX: number; clientY: number }): THREE.Vector2 {
     const r = this.renderer.domElement.getBoundingClientRect();
-    return new THREE.Vector2(
+    return this._ndc.set(
       ((ev.clientX - r.left) / r.width) * 2 - 1,
       -((ev.clientY - r.top) / r.height) * 2 + 1
     );
   }
 
+  /**
+   * Tap/click on loot, a POI or a gate: walk there (no distance cap) and use it
+   * on arrival — gates start the travel channel by themselves. Never stops the
+   * hero without saying why.
+   */
+  walkToInteract(ent: any) {
+    if (!this.room || !ent) return;
+    const isPortal = ent.kind === "exit" || ent.poiKind === "portal";
+    const you = this.youPos();
+    const pos = ent.kind === "loot" ? this.lootRenderPos(ent) : this.entityRenderPos(ent);
+    const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+    const reach = isPortal ? EXIT_TRAVEL_RANGE * 0.92 : INTERACT_RANGE * 0.92;
+    if (isPortal && this.portalIsLocked(ent)) {
+      // Sealed: say so, and still walk up to it if asked from afar
+      this.denyLockedPortal(ent);
+      this.softSnapTargetId = null;
+      if (d > reach) this.setClickMove(this.clampToBounds(pos.x, pos.y));
+      return;
+    }
+    if (d <= reach) {
+      this.softSnapTargetId = null;
+      this.fireInteract(ent);
+      return;
+    }
+    if (this.portalHold) this.cancelPortalHold();
+    this.softSnapTargetId = String(ent.id);
+    // Walk-in budget scales with distance (a far gate is a long walk, not a 1.6 s glide)
+    this.softSnapUntil = this.animT + Math.min(24000, (d / PREDICT_SPEED) * 1600 + 1500);
+    this.softSnapMove.x = pos.x;
+    this.softSnapMove.y = pos.y;
+    this.moveTarget = this.softSnapMove;
+    this.aimX = (pos.x - you.x) / (d || 1);
+    this.aimY = (pos.y - you.y) / (d || 1);
+  }
+
   /** Click-to-move: walk locally toward dest and stream predicted steps (never the far dest). */
   setClickMove(g: Vec2) {
+    this.softSnapTargetId = null;
     const you = this.youPos();
     let dx = g.x - you.x;
     let dy = g.y - you.y;
@@ -1059,7 +1113,7 @@ export class WorldApp {
     return this.clampToBounds(out.x, out.z);
   }
 
-  pickEntity(ev: PointerEvent): any | null {
+  pickEntity(ev: { clientX: number; clientY: number }): any | null {
     if (!this.room) return null;
     this.raycaster.setFromCamera(this.ndcFromEvent(ev), this.camera);
     this.raycaster.far = Infinity;
@@ -1213,6 +1267,7 @@ export class WorldApp {
     this.remoteSmooth.tick(targets, dt);
 
     this.autoPickupScan();
+    this.pointer?.tick();
     this.tickSoftSnap();
     this.updateEmptyPackCells();
     this.scanNearestInteract();
@@ -1406,6 +1461,10 @@ export class WorldApp {
       this.prewarmPending = false;
       this.prewarmShaders();
     }
+    if (this.pickupFx && this.youGroup) {
+      const hp = this.youGroup.position;
+      this.pickupFx.tick(performance.now(), hp.x, hp.y + 1.25, hp.z);
+    }
     if (this.lockRing) {
       const lock = this.lockedId ? this.foeById(this.lockedId, 80) : null;
       this.lockRing.visible = Boolean(lock);
@@ -1416,6 +1475,10 @@ export class WorldApp {
     }
 
     setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
+    // Look-ahead along the walk so the road in front gets the screen
+    tickCamLead(this.camLead, this.velX, this.velY, dt, compact);
+    this.camTarget.x += this.camLead.x;
+    this.camTarget.z += this.camLead.z;
     const rate = compact ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
     this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
     // Crush dais: lift look + floor so the camera clears the raised measure
@@ -1463,9 +1526,9 @@ export class WorldApp {
     this.hitFlashAmt = this.hitFlashAmt > 0.004 ? this.hitFlashAmt * Math.exp(-dt * 8.5) : 0;
 
     this.sky?.position.set(this.camFollow.x, 0, this.camFollow.z);
-    this.sun.position.set(this.camFollow.x + 14, 22, this.camFollow.z + 8);
+    this.sun.position.set(this.camFollow.x + SUN_OFF.x, 22, this.camFollow.z + SUN_OFF.z);
     this.sun.target.position.copy(this.camFollow);
-    this.rim.position.set(this.camFollow.x - 10, 9, this.camFollow.z - 12);
+    this.rim.position.set(this.camFollow.x + RIM_OFF.x, 9, this.camFollow.z + RIM_OFF.z);
     this.rim.target.position.copy(this.camFollow);
 
     this.heroMotor?.setPalette(this.room?.cantoId === "inferno_07");
@@ -1510,32 +1573,8 @@ export class WorldApp {
       this.labelRenderer.render(this.scene, this.camera);
     }
     this.paintChrome();
-    if (this.radar && this.room) {
-      {
-        const yu = this.room.you;
-        if (this.animT - this.utcDayAt > 1000 || !this.utcDay) {
-          this.utcDayAt = this.animT;
-          this.utcDay = new Date().toISOString().slice(0, 10);
-        }
-        const day = this.utcDay;
-        const dailyWritOpen = Boolean(yu?.spokeToGuide) && yu?.dailyQuestDoneUtc !== day;
-        this.radar.tick({
-          you: this.renderYou,
-          aimX: this.aimX,
-          aimY: this.aimY,
-          bounds: this.room.bounds,
-          entities: this.room.entities,
-          cantoId: this.room.cantoId,
-          camera: this.camera,
-          compact: compact,
-          firstClears: Array.isArray(yu?.firstClears) ? yu.firstClears : [],
-          bellCd: Number(yu?.bellCd) || 0,
-          dailyWritOpen,
-          spokeToGuide: Boolean(yu?.spokeToGuide),
-          stashBankTip: this.avaClearStashTipShown || this.glutClearStashTipShown,
-        });
-      }
-    }
+    // Objective line + compass + minimap + beacon (self-throttled)
+    this.guidance?.tick();
   }
 
   /** Stand still: slowly face the nearest shade so idle does not look frozen. */
@@ -2159,15 +2198,7 @@ export class WorldApp {
         ward.visible = Boolean(near);
       }
       if (rec.kind === "portal") {
-        const locked = this.portalIsLocked(e);
-        const tint = this.portalOpenTint(e);
-        // Gate visual only on change (it traverses the gate and retints its materials)
-        const gateKey = locked ? -1 : tint;
-        if (rec.group.userData.gateKey !== gateKey) {
-          rec.group.userData.gateKey = gateKey;
-          setPortalGateVisual(rec.group, locked, tint);
-        }
-        rec.hpEl.classList.toggle("portal-locked", locked);
+        this.guidance?.syncGate(rec, e);
         const hubHome =
           this.room?.cantoId === "inferno_07" &&
           e?.toCanto === "inferno_01" &&
@@ -2262,11 +2293,31 @@ export class WorldApp {
     } finally {
       for (const rec of this.nodes.values()) {
         if (rec.seenAt !== stamp) {
+          if (rec.kind === "loot") this.flyPickedLoot(rec);
           this.disposeNode(rec);
           this.nodes.delete(rec.id);
         }
       }
     }
+  }
+
+  /** We asked for this drop and it vanished: motes fly from it into the hero. */
+  flyPickedLoot(rec: NodeRec) {
+    const sent = this.pickupFlyIds.get(rec.id);
+    if (sent == null) return;
+    this.pickupFlyIds.delete(rec.id);
+    if (performance.now() - sent > 4000 || !this.pickupFx) return;
+    const p = rec.group.position;
+    this.pickupFx.spawn(p.x, p.y + 0.6, p.z, String(rec.group.userData.rarity || "normal"), performance.now());
+  }
+
+  /** Remember a pickup request so its disappearance plays the fly-to-hero motes. */
+  notePickupSent(id: string) {
+    const now = performance.now();
+    if (this.pickupFlyIds.size > 24) {
+      for (const [k, t] of this.pickupFlyIds) if (now - t > 4000) this.pickupFlyIds.delete(k);
+    }
+    this.pickupFlyIds.set(id, now);
   }
 
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
@@ -2375,7 +2426,6 @@ export class WorldApp {
       group.add(ring);
     }
     if (kind === "portal") {
-      setPortalGateVisual(group, this.portalIsLocked(e), this.portalOpenTint(e));
       const hubHome =
         this.room?.cantoId === "inferno_07" &&
         e?.toCanto === "inferno_01" &&
@@ -2401,6 +2451,7 @@ export class WorldApp {
     if (kind === "loot") {
       const rarity = String(e?.item?.rarity || "normal");
       const beam = makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a);
+      group.userData.rarity = rarity;
       // Avarice: slightly stronger weighed-drop read (still no neon)
       if (this.room?.cantoId === "inferno_07") {
         const mat = beam.material as THREE.MeshBasicMaterial;
@@ -2418,7 +2469,8 @@ export class WorldApp {
         if (nearCrush) wrap.classList.add("ava-crush-pile");
       }
       group.add(beam);
-      wrap.classList.add("loot-label");
+      // Name coloured by rarity (styles: .loot-label.r-*)
+      wrap.classList.add("loot-label", `r-${rarity in RARITY_HEX ? rarity : "normal"}`);
     }
     if (
       kind === "whirl" ||
@@ -2436,6 +2488,8 @@ export class WorldApp {
     }
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
+      // Face the camera, colour by state (forward gold / return blue / locked grey)
+      this.guidance?.setupGate(group, wrap, e);
       if (this.portalIsLocked(e)) wrap.classList.add("portal-locked");
       if (group.userData.avaHubHomeGlow) wrap.classList.add("ava-hub-home");
       // Avarice weighed gate — bone ledger plate (Glut→Ava approach + Ava return)
@@ -2546,6 +2600,11 @@ export class WorldApp {
   updateLabel(rec: NodeRec, e: any, pos: Vec2) {
     const you = this.youPos();
     const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+    // Gates: name + distance up to ~30 m on every screen (guidance.ts)
+    if (rec.kind === "portal" && this.guidance) {
+      this.guidance.gateLabel(rec, e, d);
+      return;
+    }
     const nameEl = rec.nameEl;
     const hp = rec.hpBar;
     const fill = rec.hpFill;
@@ -2742,35 +2801,14 @@ export class WorldApp {
     return !(Array.isArray(clears) && clears.includes(need));
   }
 
-  portalOpenTint(e: any): number {
-    if (e?.toCanto === "inferno_07") return 0xd4a840;
-    if (e?.toCanto === "inferno_06") return 0xa8c050;
-    if (e?.toCanto === "inferno_05") return 0x66ffaa;
-    // Post-Crush: Dark Wood stash road reads hotter bone-gold (bank weighed drops)
-    if (
-      e?.toCanto === "inferno_01" &&
-      this.room?.cantoId === "inferno_07" &&
-      Array.isArray(this.room?.you?.firstClears) &&
-      this.room.you.firstClears.includes("inferno_07")
-    ) {
-      return 0xf2dea0;
-    }
-    if (this.room?.cantoId === "inferno_07") return 0xc8a040;
-    if (this.room?.cantoId === "inferno_06") return 0x88aa44;
-    if (this.room?.cantoId === "inferno_05") return 0xff8844;
-    return 0xff6633;
-  }
-
   denyLockedPortal(e: any) {
-    const need =
-      e?.requireClear === "inferno_05"
-        ? "the Judge"
-        : e?.requireClear === "inferno_06"
-          ? "Triple Maw"
-          : "the prior circle";
-    showToast(`Sealed — clear ${need} first`, "warn");
+    const now = performance.now();
+    // One seal line per gate per few seconds (taps, Use and soft-snap all land here)
+    if (this.lastDeny && this.lastDeny.id === String(e?.id) && now - this.lastDeny.at < 2500) return;
+    this.lastDeny = { id: String(e?.id), at: now };
+    const why = lockReason(e);
+    showToast(`The ${gateTitle(e)} is sealed — ${why.charAt(0).toLowerCase()}${why.slice(1)} first`, "warn");
   }
-
 
   /** Audio-free boss pressure: denser fog + CSS fringe within Maw range. */
   tickMawPressure() {
@@ -2956,45 +2994,23 @@ export class WorldApp {
       this._clearScratch.copy(this.clearTargetColor);
       this.renderer.setClearColor(this._clearScratch, 1);
     }
-    const portals = this.room.entities.filter((e: any) => e.kind === "exit" || e.poiKind === "portal");
+    this.placePortalLight();
+  }
+
+  /**
+   * The one scene-level gate light sits on the forward gate (gold once open,
+   * dim while sealed). Re-run when a gate opens.
+   */
+  placePortalLight() {
+    if (!this.room) return;
+    const cantoId = this.room.cantoId;
     const clears = this.room.you?.firstClears;
-    const lustCleared = Array.isArray(clears) && clears.includes("inferno_05");
-    const glutCleared = Array.isArray(clears) && clears.includes("inferno_06");
-    const avaCleared = Array.isArray(clears) && clears.includes("inferno_07");
-    const portal =
-      // After Hoard Crush: pull portalLight onto Dark Wood stash road
-      (ava && avaCleared && portals.find((e: any) => e.toCanto === "inferno_01")) ||
-      (glut &&
-        glutCleared &&
-        portals.find((e: any) => e.toCanto === "inferno_07" && !this.portalIsLocked(e))) ||
-      (lust && lustCleared && portals.find((e: any) => e.toCanto === "inferno_06" && !this.portalIsLocked(e))) ||
-      portals.find((e: any) => e.toCanto && e.toCanto !== "inferno_01") ||
-      portals[0];
-    if (portal) {
-      const locked = this.portalIsLocked(portal);
-      const hubHome = ava && avaCleared && portal.toCanto === "inferno_01";
-      this.portalLight.intensity = locked ? 1.2 : hubHome ? 6.2 : 4.5;
-      this.portalLight.color.set(
-        portal.toCanto === "inferno_07"
-          ? locked
-            ? 0x5a5040
-            : 0xd4a840
-          : portal.toCanto === "inferno_06"
-            ? locked
-              ? 0x5a5040
-              : 0xa8c050
-            : hubHome
-              ? 0xf2dea0
-              : lust
-                ? 0x66ffaa
-                : ava
-                  ? 0xc8a040
-                  : glut
-                    ? 0x88aa44
-                    : 0xff6633
-      );
-      setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
-    }
+    const portal = forwardGate(this.room.entities, cantoId) || visibleGates(this.room.entities)[0];
+    if (!portal) return;
+    const st = gateState(portal, cantoId, clears);
+    this.portalLight.intensity = st === "locked" ? 1.2 : st === "forward" ? 5.2 : 3.2;
+    this.portalLight.color.set(st === "locked" ? 0x5a5040 : st === "forward" ? 0xffc050 : 0x8fb4e8);
+    setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
   }
 
   setSky(top: number, horizon: number, bottom: number) {
@@ -3047,6 +3063,15 @@ export class WorldApp {
           this.camFollow.set(sx, this.standY(sx, sy), sy);
           this.cancelPortalHold();
           if (cantoChanged) this.camPunch = 1.2;
+          this.camLead.x = 0;
+          this.camLead.z = 0;
+          // Arrival title card replaces the old "Entered X." / intro toast pile-up
+          flushStaleToasts();
+          showCantoCard(
+            String(msg.room.title || ""),
+            String(msg.room.subtitleIt || msg.room.subtitle_it || "").trim(),
+            this.guidance?.arrivalGoal(msg.room.cantoId, msg.room.you) ?? ""
+          );
         } else if (this.ground && this.ground.cantoId !== msg.room.cantoId) {
           // Recover desync: title/you.cantoId moved but ground rebuild was skipped/raced.
           this.disposeAllNodes();
@@ -3064,22 +3089,8 @@ export class WorldApp {
           if (!this.remoteSmooth.get(id)) this.remoteSmooth.set(id, t);
         }
         const isHub = msg.room.role === "hub" || msg.room.cantoId === "inferno_01";
-        if (isHub && !this.hubTipShown) {
-          this.hubTipShown = true;
-          const clears0: string[] = Array.isArray(msg.room.you?.firstClears)
-            ? msg.room.you.firstClears
-            : [];
-          showToast(
-            clears0.includes("inferno_07")
-              ? "Avarice is clear — Guide, writ, stash, or hunt the circles again."
-              : clears0.includes("inferno_06")
-                ? "Gluttony is clear — Guide, writ, stash, then Avarice past the Maw."
-                : clears0.includes("inferno_05")
-                  ? "Lust is clear — Guide, writ, stash, then Gluttony past the Judge."
-                  : "No foes here — speak with the Guide, then take Toward Lust.",
-            "info"
-          );
-        }
+        // (hub arrival counsel rides the canto title card now)
+        if (isHub && !this.hubTipShown) this.hubTipShown = true;
         const clears: string[] = Array.isArray(msg.room.you?.firstClears)
           ? msg.room.you.firstClears
           : [];
@@ -3093,7 +3104,7 @@ export class WorldApp {
               if (c === "inferno_05" && !this.lustClearRevelShown) {
                 this.lustClearRevelShown = true;
                 this.camPunch = Math.max(this.camPunch, 1.45);
-                showToast("Lust falls — the Gluttony gate past the dais opens", "emit");
+                // (the server's gate line is the toast; the gate itself flares open)
                 const judge = this.room?.entities?.find(
                   (e: any) => e.kind === "boss" || /judge/i.test(String(e.name || e.id || ""))
                 );
@@ -3101,7 +3112,6 @@ export class WorldApp {
               }
               if (c === "inferno_06") {
                 this.camPunch = Math.max(this.camPunch, 1.2);
-                showToast("Triple Maw broken — the Avarice gate past the Maw opens", "emit");
                 const maw = this.room?.entities?.find(
                   (e: any) => e.kind === "boss" || /maw|cerbero/i.test(String(e.name || e.id || ""))
                 );
@@ -3116,7 +3126,6 @@ export class WorldApp {
                 document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
         this.crushEnrageShown = false;
                 window.setTimeout(() => document.body.classList.remove("ava-first-clear"), 1200);
-                showToast("misura spezzata — Hoard Crush yields; peso e contrapeso is paid", "emit");
                 const bossEnt = this.room?.entities?.find(
                   (e: any) => e.id === "hoard_crush" || e.kind === "boss"
                 );
@@ -3142,7 +3151,6 @@ export class WorldApp {
           this.stormHeartDownToastShown = false;
           this.stormHeartSeenAlive = false;
           this.poiHintsShown.clear();
-          showToast("la bufera — break the Storm Heart, then the Judge", "info");
         }
         if (msg.room.cantoId === "inferno_06" && (first || cantoChanged) && !this.glutEnterTipShown) {
           this.glutEnterTipShown = true;
@@ -3151,7 +3159,6 @@ export class WorldApp {
           this.mireHeartDownToastShown = false;
           this.mireHeartSeenAlive = false;
           this.poiHintsShown.clear();
-          showToast("piova etterna — clear the mire, then the Triple Maw", "info");
         }
         if (msg.room.cantoId === "inferno_07" && (first || cantoChanged)) {
           const epi = String(msg.room.subtitleIt || msg.room.subtitle_it || "").trim();
@@ -3187,12 +3194,6 @@ export class WorldApp {
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
-          // Gluttony-portal side: weigh the first road; hub/DEV travel keeps the classic line
-          if (prevCanto === "inferno_06") {
-            showToast("di qua dal peso — Road Weights measure the gate road", "info");
-          } else {
-            showToast("peso e contrapeso — measure the road, then break Hoard Crush", "info");
-          }
           // Entrance keep-out read — quiet bone-gold pulse under the wake stone
           const you = msg.room.you;
           if (you) this.spawnAvaEntrancePulse(you.x, you.y);
@@ -3203,8 +3204,8 @@ export class WorldApp {
           clears.includes("inferno_05") &&
           !this.lustReturnGlutNudgeShown
         ) {
+          // Title card + the gold gate's beacon carry this now
           this.lustReturnGlutNudgeShown = true;
-          showToast("The Gluttony portal waits past the Judge's dais", "info");
         }
         if (
           cantoChanged &&
@@ -3214,7 +3215,6 @@ export class WorldApp {
         ) {
           this.glutReturnAvaNudgeShown = true;
           this.glutAvaGateApproachShown = false;
-          showToast("The Avarice gate (peso e contrapeso) waits past the Maw", "info");
         }
         const lootIds = new Set<string>();
         for (const e of msg.room.entities) {
@@ -3270,9 +3270,7 @@ export class WorldApp {
           );
           document.body.classList.add("ava-loot-flash");
           window.setTimeout(() => document.body.classList.remove("ava-loot-flash"), isCache ? 380 : 220);
-          if (/^Picked up /i.test(text)) {
-            this.spawnAvaPickupMotes(this.renderYou.x, this.renderYou.y, false);
-          }
+          // (pickup motes: the shared fly-to-hero PickupFx covers every canto)
           if (isCache) {
             document.body.classList.add("ava-claim-flash");
             window.setTimeout(() => document.body.classList.remove("ava-claim-flash"), 420);
@@ -3840,13 +3838,15 @@ export class WorldApp {
   /** Soft-snap walk-in: arrive then fire the real interact. */
   tickSoftSnap() {
     if (!this.softSnapTargetId || !this.room) return;
-    if (this.animT > this.softSnapUntil) {
+    // Steering, a ground tap or a foe chase replaced our walk target: the player chose otherwise
+    if (this.moveTarget !== this.softSnapMove || this.animT > this.softSnapUntil) {
       this.softSnapTargetId = null;
       return;
     }
     const ent = this.room.entities.find((e: any) => String(e.id) === this.softSnapTargetId);
     if (!ent) {
       this.softSnapTargetId = null;
+      this.moveTarget = null;
       return;
     }
     const you = this.youPos();
@@ -3860,164 +3860,62 @@ export class WorldApp {
       this.fireInteract(ent);
       return;
     }
-    this.moveTarget = { x: pos.x, y: pos.y };
+    this.softSnapMove.x = pos.x;
+    this.softSnapMove.y = pos.y;
   }
 
   fireInteract(best: any) {
     if (best.kind === "loot") {
-      showToast(`Picking up ${best.item?.name || "loot"}`, "loot");
+      // Server confirms with "Picked up …"; the fly-to-hero mote is the local feedback
+      this.notePickupSent(String(best.id));
       this.socket.pickup(best.id);
     } else if (best.kind === "exit" || best.poiKind === "portal") {
       if (this.portalIsLocked(best)) {
         this.denyLockedPortal(best);
         return;
       }
-      const dest =
-        best.toCanto === "inferno_05"
-          ? "Lust"
-          : best.toCanto === "inferno_06"
-            ? "Gluttony"
-            : best.toCanto === "inferno_07"
-              ? "Avarice"
-              : best.toCanto === "inferno_01"
-                ? "Dark Wood"
-                : best.label || best.name || "portal";
-      showToast(`Entering ${dest}…`, "emit");
-      this.doInteract(best);
-    } else if (best.poiKind === "ah") {
-      showToast("Opening Auction House", "info");
-      this.doInteract(best);
+      // Arrived by tap / Use walk-in: channel on our own (moving cancels it)
+      this.beginPortalHold(best, { fromKey: false, auto: true });
     } else {
-      showToast(`Interact: ${best.label || best.name || "object"}`, "info");
+      // The server answers every POI with its own line (or the dialogue panel)
       this.doInteract(best);
     }
   }
 
   interactNearest() {
     if (!this.room) return;
+    // What the prompt shows is what E / Use does (the scan breaks ties toward the objective)
+    const shownId = this.nearestInteract?.id;
+    const shown = shownId ? this.room.entities.find((e: any) => String(e.id) === shownId) : null;
+    if (shown) {
+      this.walkToInteract(shown);
+      return;
+    }
     const hit = this.pickInteractable(INTERACT_RANGE);
     if (hit) {
       this.softSnapTargetId = null;
       this.fireInteract(hit.ent);
       return;
     }
-    // Soft snap: just out of reach — glide in, then interact
+    // Soft snap: just out of reach — walk in, then interact
     const soft = this.pickInteractable(SOFT_SNAP_USE_RANGE);
     if (soft) {
-      this.softSnapTargetId = String(soft.ent.id);
-      this.softSnapUntil = this.animT + 1600;
-      this.moveTarget = { x: soft.pos.x, y: soft.pos.y };
-      // Locked gate: tip immediately so approach isn't "Move closer" mystery
-      if (
-        (soft.ent.kind === "exit" || soft.ent.poiKind === "portal") &&
-        this.portalIsLocked(soft.ent)
-      ) {
-        this.denyLockedPortal(soft.ent);
-        return;
-      }
-      const label = soft.ent.label || soft.ent.name || soft.ent.item?.name || "target";
-      showToast(`Approaching ${label}…`, "info");
+      this.walkToInteract(soft.ent);
       return;
     }
     showToast("Nothing nearby — walk closer to a portal, NPC, or loot", "warn");
   }
 
+  /**
+   * Target plate + attack-button hint, ~10 Hz. The objective line is owned by
+   * the objective model (guidance.ts) so it can never disagree with the
+   * compass or the minimap.
+   */
   paintChrome() {
     if (!this.room) return;
-    const you = this.room.you || {};
-    const canto = this.room.cantoId;
-    const foes = this.room.entities.filter(
-      (e: any) => (e.kind === "mob" || e.kind === "boss") && (e.hp == null || e.hp > 0)
-    );
-    let line = "Explore the wood";
-    if (canto === "inferno_05" || canto === "inferno_06" || canto === "inferno_07") {
-      const boss = foes.find((e: any) => e.kind === "boss");
-      const shades = foes.filter((e: any) => e.kind === "mob").length;
-      const heart = this.room.entities.some(
-        (e: any) =>
-          (e.archetype === "storm_heart" ||
-            e.archetype === "mire_heart" ||
-            e.archetype === "hoard_heart") &&
-          (e.hp == null || e.hp > 0)
-      );
-      const isGlut = canto === "inferno_06";
-      const isAva = canto === "inferno_07";
-      const cerberoUp =
-        isGlut &&
-        this.room.entities.some(
-          (e: any) =>
-            /^cerbero$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
-        );
-      const counterUp =
-        isAva &&
-        this.room.entities.some(
-          (e: any) =>
-            /^counterweight$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
-        );
-      if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.7) {
-        line = isAva
-          ? "Ledger Shrine on the road will mend you"
-          : isGlut
-            ? "Mire Shrine on the road will mend you"
-            : "Wind Shrine on the road will mend you";
-      } else if (isAva && you.x < 36 && heart) {
-        line = "peso e contrapeso — weigh the road";
-      } else if (heart) {
-        line = isAva
-          ? "Break the Hoard Heart — nearby shades are warded"
-          : isGlut
-            ? "Break the Mire Heart — nearby shades are warded"
-            : "Break the Storm Heart — nearby shades are warded";
-      } else if (isGlut && !heart && cerberoUp) {
-        line = "Cerbero stirs — then the Triple Maw";
-      } else if (isAva && !heart && counterUp) {
-        line = "Tip the Counterweight — then Hoard Crush";
-      } else if (shades >= 8 && this.room.entities.some((e: any) => e.poiKind === "bell")) {
-        line = isAva
-          ? "Ring the Ledger Bell to still a pack"
-          : isGlut
-            ? "Ring the Mire Bell to still a pack"
-            : "Ring the Gale Bell to still a pack";
-      } else if (shades > 0) {
-        line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
-      } else if (boss) {
-        line = isAva ? "Slay Hoard Crush" : isGlut ? "Slay the Triple Maw" : "Slay the Judge of the Gate";
-      } else if (isAva) {
-        line = "Return to Gluttony — bank loot at the Dark Wood stash";
-      } else if (isGlut) {
-        const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_06");
-        line = cleared
-          ? "Hold E at the gold gate — Avarice awaits"
-          : "Return to Lust — bank loot at the Dark Wood stash";
-      } else {
-        const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
-        line = cleared
-          ? "Hold E at the gold gate — Gluttony awaits"
-          : "Defeat the Judge to open the Gluttony gate";
-      }
-    } else if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.85) {
-      line = "The camp pyre will mend you";
-    } else if (!you.spokeToGuide) {
-      line = "Speak with the Guide";
-    } else if (!you.visitedInferno) {
-      line = "Follow the gold arrow into Lust";
-    } else {
-      const avaOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_07");
-      const glutOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_06");
-      const lustOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
-      const day = new Date().toISOString().slice(0, 10);
-      const writOpen = you.dailyQuestDoneUtc !== day;
-      line = writOpen
-        ? "Daily writ — speak with the Guide"
-        : avaOk
-          ? "Writ claimed — hunt Lust / Gluttony / Avarice again"
-          : glutOk
-            ? "Writ claimed — hunt Lust / Gluttony / Avarice"
-            : lustOk
-              ? "Writ claimed — hunt Lust / Gluttony"
-              : "Writ claimed — hunt Lust again";
-    }
-    setQuestLine(line);
+    const now = performance.now();
+    if (now - this.lastChromeAt < 100) return;
+    this.lastChromeAt = now;
     const near = this.nearestFoe(16);
     if (near) {
       const hp = Number(near.e.hp) || 0;
@@ -4035,7 +3933,11 @@ export class WorldApp {
     } else {
       setTargetPlate(null, 0);
     }
-    document.getElementById("btn-attack")?.classList.toggle("foe-near", Boolean(this.nearestFoe(CHASE_RANGE)));
+    const foeNear = Boolean(this.nearestFoe(CHASE_RANGE));
+    if (foeNear !== this.lastFoeNear) {
+      this.lastFoeNear = foeNear;
+      document.getElementById("btn-attack")?.classList.toggle("foe-near", foeNear);
+    }
   }
 
   foeById(id: string, maxDist: number): { e: any; d: number; pos: Vec2 } | null {
@@ -4433,8 +4335,25 @@ export class WorldApp {
     return best;
   }
 
+  /**
+   * The gate E / Use should channel: the one the prompt shows. A nearer POI or
+   * loot wearing the prompt wins (E / Use act on what the prompt says); with
+   * no prompt up, any gate in hold range.
+   */
+  portalForUse(): any | null {
+    if (!this.room) return null;
+    const shownId = this.nearestInteract?.id;
+    const shown = shownId ? this.room.entities.find((e: any) => String(e.id) === shownId) : null;
+    if (!shown) return this.nearestIsPortalTravel();
+    if (shown.kind !== "exit" && !(shown.kind === "poi" && shown.poiKind === "portal")) return null;
+    const you = this.youPos();
+    const pos = this.entityRenderPos(shown);
+    // Held over from just outside reach: interactNearest walks in and channels on arrival
+    return Math.hypot(pos.x - you.x, pos.y - you.y) < EXIT_TRAVEL_RANGE ? shown : null;
+  }
+
   beginInteractHold(ev?: PointerEvent) {
-    const portal = this.nearestIsPortalTravel();
+    const portal = this.portalForUse();
     if (portal) {
       this.beginPortalHold(portal, { fromKey: false, pointer: ev });
       return;
@@ -4445,12 +4364,23 @@ export class WorldApp {
 
   endInteractHold(_ev: PointerEvent, completed: boolean) {
     const ph = this.portalHold;
-    if (!ph || ph.fromKey) {
+    if (!ph || ph.fromKey || ph.auto) {
       if (!ph) setPortalHoldUi(null);
       return;
     }
-    if (!completed || !ph.completed) this.cancelPortalHold();
-    else setPortalHoldUi(null);
+    if (!completed || !ph.completed) {
+      this.nudgeEarlyRelease(ph);
+      this.cancelPortalHold();
+    } else setPortalHoldUi(null);
+  }
+
+  /** Let go before the channel filled: say how, once in a while. */
+  nudgeEarlyRelease(ph: { target: any; startMs: number; completed: boolean }) {
+    if (ph.completed) return;
+    const u = (performance.now() - ph.startMs) / PORTAL_HOLD_MS;
+    if (u >= 0.97) return;
+    const key = isCompactUi() ? "Use" : "E";
+    showToast(`Keep holding ${key} to enter ${this.portalDestName(ph.target)}`, "info");
   }
 
   portalDestName(target: any): string {
@@ -4461,7 +4391,14 @@ export class WorldApp {
     return String(target?.label || target?.name || "portal");
   }
 
-  beginPortalHold(target: any, o: { fromKey: boolean; pointer?: PointerEvent; pointerId?: number }) {
+  /**
+   * Travel channel. fromKey: held E; pointer: held Use button; auto: started by
+   * arriving at a tapped gate — completes by itself, any steering cancels it.
+   */
+  beginPortalHold(
+    target: any,
+    o: { fromKey: boolean; pointer?: PointerEvent; pointerId?: number; auto?: boolean }
+  ) {
     if (!target) return;
     if (this.portalIsLocked(target)) {
       this.denyLockedPortal(target);
@@ -4469,6 +4406,7 @@ export class WorldApp {
       return;
     }
     if (this.portalHold) this.cancelPortalHold();
+    this.softSnapTargetId = null;
     this.moveTarget = null;
     this.velX = 0;
     this.velY = 0;
@@ -4476,21 +4414,22 @@ export class WorldApp {
     this.portalHold = {
       target,
       fromKey: o.fromKey,
+      auto: Boolean(o.auto),
       pointerId: o.pointer?.pointerId ?? o.pointerId ?? null,
       startMs: performance.now(),
       completed: false,
       onUp: null,
     };
-    setPortalHoldUi(0, this.portalDestName(target));
+    setPortalHoldUi(0, this.portalDestName(target), o.auto ? "Entering — move to stay" : undefined);
     if (this.portalHoldFx) {
       this.portalHoldFx.group.visible = true;
       setPlanar(this.portalHoldFx.group.position, you.x, you.y, this.standY(you.x, you.y, 0.05));
       tickPortalHoldFx(this.portalHoldFx, 0);
     }
-    if (!o.fromKey) {
+    if (!o.fromKey && !o.auto) {
       const onUp = (e: PointerEvent) => {
         const ph = this.portalHold;
-        if (!ph || ph.fromKey) return;
+        if (!ph || ph.fromKey || ph.auto) return;
         if (ph.pointerId != null && e.pointerId !== ph.pointerId) return;
         if (!ph.completed) this.cancelPortalHold();
       };
@@ -4516,13 +4455,14 @@ export class WorldApp {
       this.portalHoldFx.group.visible = false;
       this.portalHoldFx.light.intensity = 0;
     }
-    if (this.portalLight.intensity > 4.5) this.portalLight.intensity = 4.5;
+    if (this.portalLight.intensity > 5.2) this.portalLight.intensity = 5.2;
   }
 
   tickPortalHold() {
     const ph = this.portalHold;
     if (!ph || ph.completed) return;
     if (ph.fromKey && !this.keys.has("KeyE")) {
+      this.nudgeEarlyRelease(ph);
       this.cancelPortalHold();
       return;
     }
@@ -4549,18 +4489,18 @@ export class WorldApp {
     }
     const dest = this.portalDestName(ph.target);
     const u = Math.min(1, (performance.now() - ph.startMs) / PORTAL_HOLD_MS);
-    setPortalHoldUi(u, dest);
+    setPortalHoldUi(u, dest, ph.auto ? "Entering — move to stay" : undefined);
     if (this.portalHoldFx) {
       setPlanar(this.portalHoldFx.group.position, you.x, you.y, this.standY(you.x, you.y, 0.05));
       tickPortalHoldFx(this.portalHoldFx, u);
     }
-    this.portalLight.intensity = 4.5 + u * 7.5;
+    this.portalLight.intensity = 5.2 + u * 7.5;
     if (u < 1) return;
     ph.completed = true;
     hapticPortalComplete();
-    showToast(`Entering ${dest}…`, "emit");
     const target = ph.target;
     this.cancelPortalHold();
+    // No "Entering…" toast: the canto title card greets the arrival
     this.doInteract(target);
   }
 
@@ -4702,20 +4642,33 @@ export class WorldApp {
   }
 
   scanNearestInteract() {
+    // ~12 Hz: prompt, Use label and one-shot hints don't need every frame
+    const nowMs = performance.now();
+    if (nowMs - this.lastScanAt < 80) return;
+    this.lastScanAt = nowMs;
     this.checkStashRange();
     if (!this.room) {
       this.nearestInteract = null;
       return;
     }
+    // Wait for the first objective so a spawn tie resolves toward it (no stray pyre hint)
+    if (this.guidance && !this.guidance.objective) return;
     const you = this.youPos();
+    const objId = this.guidance?.objective?.target?.id ?? null;
     let best: any = null;
-    let bestD = INTERACT_HIGHLIGHT_RANGE;
+    let bestScore = Infinity;
+    let fromSticky = false;
     for (const e of this.room.entities) {
       if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
-      if (d < bestD) {
-        bestD = d;
+      // Highlight exactly where the action works: gates at hold range, the rest at interact range
+      const portal = e.kind === "exit" || e.poiKind === "portal";
+      if (d >= (portal ? EXIT_TRAVEL_RANGE : INTERACT_HIGHLIGHT_RANGE)) continue;
+      // Near-ties go to the current objective (hub spawn: the Guide, not the pyre)
+      const score = d - (objId && String(e.id) === objId ? 1.5 : 0);
+      if (score < bestScore) {
+        bestScore = score;
         best = e;
       }
     }
@@ -4730,7 +4683,10 @@ export class WorldApp {
       };
     } else if (this.stickyInteract && this.animT <= this.stickyInteract.until) {
       const still = this.room.entities.find((e: any) => String(e.id) === this.stickyInteract!.id);
-      if (still) best = still;
+      if (still) {
+        best = still;
+        fromSticky = true;
+      }
       else this.stickyInteract = null;
     } else {
       this.stickyInteract = null;
@@ -4738,62 +4694,61 @@ export class WorldApp {
     const interactBtn = document.getElementById("btn-interact");
     const labelEl = interactBtn?.querySelector<HTMLElement>(".action-label");
     const bestId = best ? String(best.id) : "";
-    for (const rec of this.nodes.values()) {
-      rec.hpEl.classList.toggle("is-nearest", rec.id === bestId);
-      const prompt = rec.hpEl.querySelector(".interact-prompt") as HTMLElement | null;
-      if (!prompt) continue;
-      const on = rec.id === bestId;
-      prompt.hidden = !on;
-      const stickyOn =
-        on &&
-        this.stickyInteract &&
-        this.stickyInteract.id === bestId &&
-        bestD > INTERACT_HIGHLIGHT_RANGE * 0.92;
-      prompt.classList.toggle("is-sticky", Boolean(stickyOn));
-      if (on) {
+    // Move the highlight + world prompt only when the nearest changes
+    if (bestId !== this.promptRecId) {
+      const old = this.nodes.get(this.promptRecId);
+      if (old) {
+        old.hpEl.classList.remove("is-nearest");
+        const p = old.hpEl.querySelector(".interact-prompt") as HTMLElement | null;
+        if (p) p.hidden = true;
+      }
+      this.promptRecId = bestId;
+    }
+    const cur = bestId ? this.nodes.get(bestId) : undefined;
+    if (cur && best) {
+      if (!cur.hpEl.classList.contains("is-nearest")) cur.hpEl.classList.add("is-nearest");
+      const prompt = cur.hpEl.querySelector(".interact-prompt") as HTMLElement | null;
+      if (prompt) {
+        if (prompt.hidden) prompt.hidden = false;
+        // Dimmed while held over from just outside reach
+        prompt.classList.toggle("is-sticky", fromSticky);
         const isPortal = best.kind === "exit" || best.poiKind === "portal";
+        let text: string;
+        let bellCd = 0;
         if (isPortal && this.portalIsLocked(best)) {
-          prompt.textContent =
-            best.requireClear === "inferno_05"
-              ? "Clear the Judge first"
-              : best.requireClear === "inferno_06"
-                ? "Clear Triple Maw first"
-                : "Sealed";
+          text = `${lockReason(best)} first`;
         } else if (isPortal) {
           const dest = this.portalDestName(best);
-          prompt.textContent = isCompactUi() ? `Hold Use — ${dest}` : `Hold E — ${dest}`;
-        } else if (best.poiKind === "shrine" || best.poiKind === "pyre") {
-          prompt.textContent = this.keyedVerb("Kneel");
-        } else if (best.poiKind === "cache") {
-          prompt.textContent = this.keyedVerb("Claim");
-        } else if (best.poiKind === "bell") {
-          const cd = Number(this.room?.you?.bellCd) || 0;
-          if (cd > 0.4) {
-            prompt.textContent = `Bell ${Math.ceil(cd)}s`;
-            prompt.classList.add("bell-cd");
-            prompt.style.setProperty("--bell-cd", String(Math.min(1, cd / 18)));
-          } else {
-            prompt.textContent = this.keyedVerb("Ring");
-            prompt.classList.remove("bell-cd");
-            prompt.style.removeProperty("--bell-cd");
-          }
+          text = isCompactUi() ? `Hold Use — ${dest}` : `Hold E — ${dest}`;
+        } else if (best.poiKind === "bell" && (bellCd = Number(this.room?.you?.bellCd) || 0) > 0.4) {
+          text = `Bell ${Math.ceil(bellCd)}s`;
         } else {
-          prompt.textContent = this.keyedVerb(this.interactVerb(best, rec.kind));
-          prompt.classList.remove("bell-cd");
+          text = this.keyedVerb(this.interactVerb(best, cur.kind));
         }
+        if (prompt.textContent !== text) prompt.textContent = text;
+        const cd = bellCd > 0.4;
+        if (prompt.classList.contains("bell-cd") !== cd) {
+          prompt.classList.toggle("bell-cd", cd);
+          if (!cd) prompt.style.removeProperty("--bell-cd");
+        }
+        if (cd) prompt.style.setProperty("--bell-cd", String(Math.min(1, bellCd / 18)));
       }
     }
     if (!best) {
       this.nearestInteract = null;
       this.lastInteractHintId = null;
-      interactBtn?.classList.remove("interact-ready", "interact-kneel", "interact-claim");
-      interactBtn?.classList.add("interact-idle");
-      if (labelEl && !this.portalHold) labelEl.textContent = "Interact";
+      if (interactBtn && !interactBtn.classList.contains("interact-idle")) {
+        interactBtn.classList.remove("interact-ready", "interact-kneel", "interact-claim");
+        interactBtn.classList.add("interact-idle");
+      }
+      if (labelEl && !this.portalHold && labelEl.textContent !== "Interact") labelEl.textContent = "Interact";
       return;
     }
     this.nearestInteract = { id: String(best.id), kind: best.kind, label: best.label || best.name };
-    interactBtn?.classList.add("interact-ready");
-    interactBtn?.classList.remove("interact-idle");
+    if (interactBtn && !interactBtn.classList.contains("interact-ready")) {
+      interactBtn.classList.add("interact-ready");
+      interactBtn.classList.remove("interact-idle");
+    }
     const avaKneel =
       best.poiKind === "shrine" && this.room?.cantoId === "inferno_07";
     const avaClaim =
@@ -4802,16 +4757,19 @@ export class WorldApp {
     interactBtn?.classList.toggle("interact-claim", Boolean(avaClaim));
     if (!this.portalHold && labelEl) {
       const isPortal = best.kind === "exit" || best.poiKind === "portal";
-      if (isPortal && this.portalIsLocked(best)) labelEl.textContent = "Sealed";
-      else if (isPortal) labelEl.textContent = "Hold";
-      else labelEl.textContent = this.interactVerb(best, best.kind);
+      const cap =
+        isPortal && this.portalIsLocked(best) ? "Sealed" : isPortal ? "Hold" : this.interactVerb(best, best.kind);
+      if (labelEl.textContent !== cap) labelEl.textContent = cap;
     }
+
     if (this.lastInteractHintId !== String(best.id)) {
       this.lastInteractHintId = String(best.id);
       if (best.kind === "poi") {
         const id = String(best.id);
         if (!this.poiHintsShown.has(id)) {
-          const hint = String(best.hint || "").trim();
+          // Content hints say "E to …"; on touch the key is the Use seal
+          let hint = String(best.hint || "").trim();
+          if (isCompactUi()) hint = hint.replace(/\bE to\b/g, "Use to").replace(/\bHold E\b/g, "Hold Use");
           let line = hint;
           if (!line) {
             if (best.poiKind === "cache") {
@@ -5184,6 +5142,17 @@ export class WorldApp {
     const now = Date.now();
     if (now - this.lastAutoPickupScan < 220) return;
     this.lastAutoPickupScan = now;
+    // Full bag: stop asking (the server would answer "Inventory full." every second)
+    let bag = 0;
+    for (const it of this.room.you?.inventory || []) if (it && !it.equipSlot) bag++;
+    if (bag >= BAG_CAP) {
+      if (!this.bagFullWarned) {
+        this.bagFullWarned = true;
+        showToast("Bag full — melt it in the Inventory or bank at the stash", "warn");
+      }
+      return;
+    }
+    this.bagFullWarned = false;
     const you = this.serverYou;
     for (const e of this.room.entities) {
       if (e.kind !== "loot") continue;
@@ -5192,32 +5161,22 @@ export class WorldApp {
       const last = this.autoPickupSent.get(e.id) || 0;
       if (now - last < AUTO_PICKUP_RETRY_MS) continue;
       this.autoPickupSent.set(e.id, now);
+      this.notePickupSent(String(e.id));
       this.socket.pickup(e.id);
     }
   }
 
+  /** Hub: one reminder the first time a gate is in reach (the world prompt says the rest). */
   hintExit() {
-    if (!this.room) return;
+    if (!this.room || this.hubPortalToastShown) return;
     const isHub = this.room.role === "hub" || this.room.cantoId === "inferno_01";
     if (!isHub) return;
-    let nearD = EXIT_HINT_RANGE;
-    let near = false;
-    for (const e of this.room.entities) {
-      if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
-      const pos = this.entityRenderPos(e);
-      const d = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
-      if (d < nearD) {
-        nearD = d;
-        near = true;
-      }
-    }
-    if (near) {
-      const now = Date.now();
-      if (now - this.nearExitToastAt > 8000) {
-        this.nearExitToastAt = now;
-        showToast("Portal near — hold Interact to travel", "info");
-      }
-    }
+    const portal = this.nearestIsPortalTravel();
+    if (!portal) return;
+    this.hubPortalToastShown = true;
+    // Arrived by a tap: the channel is already running on its own — "Hold E" would contradict it
+    if (this.portalHold?.auto || this.softSnapTargetId === String(portal.id)) return;
+    showToast(isCompactUi() ? "Hold Use at the gate to travel" : "Hold E at the gate to travel", "info");
   }
 
   triggerDeathRevive() {
