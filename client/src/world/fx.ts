@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { setPlanar } from "./frames";
 import type { MatKit } from "./materials";
 import { VirtualLight } from "./lightPool";
-import { isShared, sharedGeo } from "./dispose";
+import { isShared, sharedGeo, sharedMat } from "./dispose";
 
 /** Canvas-drawn sprite textures, built once and shared (no extra asset fetches). */
 let _softDot: THREE.CanvasTexture | null = null;
@@ -254,8 +254,17 @@ export type Bolt = {
   start: number; dur: number;
 };
 
-export function makeBolt(mats: MatKit): THREE.Mesh {
-  const mesh = new THREE.Mesh(sharedGeo("fx:bolt", () => new THREE.CylinderGeometry(0.05, 0.02, 1, 6)), mats.ember);
+/** `tint` recolours a cached copy of the ember material, never the kit's shared one. */
+export function makeBolt(mats: MatKit, tint?: number): THREE.Mesh {
+  const mat =
+    tint == null
+      ? mats.ember
+      : sharedMat(`fx:bolt:${tint}`, () => {
+          const m = mats.ember.clone();
+          m.color.setHex(tint);
+          return m;
+        });
+  const mesh = new THREE.Mesh(sharedGeo("fx:bolt", () => new THREE.CylinderGeometry(0.05, 0.02, 1, 6)), mat);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1));
   return mesh;
 }

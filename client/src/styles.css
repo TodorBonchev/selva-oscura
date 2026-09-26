@@ -3072,7 +3072,9 @@ body.in-avarice.ava-idle #heat-haze {
   transition: opacity 0.35s ease;
 }
 body.combo-heat #heat-haze {
-  --haze-op: 0.85;
+  /* The ×75 cue wins over every canto / compact / pressure restraint (they set
+     --haze-op with higher specificity), as the old absolute keyframes did */
+  --haze-op: 0.85 !important;
   opacity: var(--haze-op);
   animation: heat-haze-shimmer 1.8s ease-in-out infinite;
 }
@@ -3097,6 +3099,11 @@ body.gfx-low #gold-dust,
 body.gfx-low #mire-rain {
   mix-blend-mode: normal;
   filter: none;
+}
+/* The pale rain stripes all but vanished under soft-light; with plain alpha they read as
+   bright streaks over the whole screen, so the low tier keeps only the olive veil */
+body.gfx-low #mire-rain::before {
+  display: none;
 }
 
 /* Gold “just safe” rim overlay */

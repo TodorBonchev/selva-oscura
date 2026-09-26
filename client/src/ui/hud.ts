@@ -195,6 +195,33 @@ export function armHelpFade(ms = HELP_FADE_MS) {
   }, ms);
 }
 
+/**
+ * Replay the HP-plate hurt pulse. The class comes off on `animationend`, so a hit after
+ * the pulse finished starts it fresh; a hit during the pulse rewinds the running
+ * animation. (Removing and re-adding the class in one task, or across a rAF, is
+ * coalesced into no change unless something forces a style flush in between.)
+ */
+function pulseHurt(el: HTMLElement) {
+  if (!el.dataset.hurtBound) {
+    el.dataset.hurtBound = "1";
+    el.addEventListener("animationend", (e) => {
+      if (e.target === el && e.animationName === "hp-hurt") el.classList.remove("hp-hurt");
+    });
+  }
+  if (el.classList.contains("hp-hurt")) {
+    for (const a of el.getAnimations()) {
+      if ((a as CSSAnimation).animationName === "hp-hurt") {
+        a.currentTime = 0;
+        a.play();
+        return;
+      }
+    }
+    // Class stuck on without a running pulse (e.g. reduced motion): nothing to replay
+    return;
+  }
+  el.classList.add("hp-hurt");
+}
+
 export function updateStats(you: any, title: string, subtitleIt?: string | null) {
   const canto = document.getElementById("canto-title");
   const hp = document.getElementById("hp");
@@ -227,11 +254,8 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
   if (hpPlate) {
     hpPlate.setAttribute("aria-valuenow", String(cur));
     hpPlate.setAttribute("aria-valuemax", String(maxHp));
-    // Pulse the frame on damage (restart across a frame instead of forcing a reflow)
-    if (lastHpShown != null && cur < lastHpShown) {
-      hpPlate.classList.remove("hp-hurt");
-      requestAnimationFrame(() => hpPlate.classList.add("hp-hurt"));
-    }
+    // Pulse the frame on damage (restarted without forcing a reflow)
+    if (lastHpShown != null && cur < lastHpShown) pulseHurt(hpPlate);
     lastHpShown = cur;
   }
   if (ash) {

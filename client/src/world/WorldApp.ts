@@ -188,6 +188,8 @@ type NodeRec = {
   nameEl: HTMLElement;
   hpBar: HTMLElement;
   hpFill: HTMLElement;
+  /** syncEntities pass that last saw this node (frame stamp instead of a per-frame Set). */
+  seenAt: number;
 };
 
 /** Named parts tickFx/syncEntities animate — resolved once per node, not per frame. */
@@ -299,7 +301,12 @@ export class WorldApp {
   pacer = new FramePacer();
   lightPool: LightPool;
   lastFrameAt = 0;
-  fpsEma = 60;
+  /** Executed frames per wall-clock second, over ~1s windows (DEV render-info hook). */
+  fps = 0;
+  fpsFrames = 0;
+  fpsSince = 0;
+  /** syncEntities pass counter (NodeRec.seenAt). */
+  syncStamp = 0;
   /** Throttled UTC day string for the radar's daily-writ check (no Date per frame). */
   utcDay = "";
   utcDayAt = 0;
@@ -447,6 +454,9 @@ export class WorldApp {
   impacts: ImpactRing[] = [];
   hitStopUntil = 0;
   raycaster = new THREE.Raycaster();
+  /** fadeTreeOccluders scratch (reused, not reallocated every other frame). */
+  treeRayHits: THREE.Intersection[] = [];
+  treeRayHidden = new Set<THREE.Object3D>();
   groundPlane = new THREE.Plane(UP, 0);
   tmp = new THREE.Vector3();
   tmp2 = new THREE.Vector3();
@@ -855,7 +865,8 @@ export class WorldApp {
         composer: Boolean(this.composer),
         composerPR,
         tier: this.gfx.tier,
-        fps: +this.fpsEma.toFixed(1),
+        // Counted frames per second (averaging 1000/ms overstates it when intervals vary)
+        fps: +(this.fps || 1000 / this.governor.ema).toFixed(1),
         frameMsEma: +this.governor.ema.toFixed(2),
         pointLights: this.lightPool.slots.length + 1,
       };
@@ -1082,6 +1093,7 @@ export class WorldApp {
     if (document.hidden) {
       this.clock.getDelta();
       this.lastFrameAt = 0;
+      this.fpsSince = 0;
       if (this.ash?.points) this.ash.points.visible = false;
       return;
     }
@@ -1090,6 +1102,7 @@ export class WorldApp {
     if (this.ash?.points && !this.ash.points.visible) this.ash.points.visible = true;
     if (this.lastFrameAt > 0) this.noteFrameTime(now - this.lastFrameAt);
     this.lastFrameAt = now;
+    this.countFrame(now);
     let dt = this.clock.getDelta();
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
     dt = Math.min(0.05, dt);
@@ -1098,9 +1111,23 @@ export class WorldApp {
     this.draw(dt);
   };
 
+  countFrame(now: number) {
+    if (this.fpsSince <= 0) {
+      this.fpsSince = now;
+      this.fpsFrames = 0;
+      return;
+    }
+    this.fpsFrames++;
+    const span = now - this.fpsSince;
+    if (span >= 1000) {
+      this.fps = (this.fpsFrames * 1000) / span;
+      this.fpsSince = now;
+      this.fpsFrames = 0;
+    }
+  }
+
   /** Feed the resolution/tier governor with the interval between drawn frames. */
   noteFrameTime(ms: number) {
-    if (ms < 250) this.fpsEma += (1000 / Math.max(1, ms) - this.fpsEma) * 0.05;
     const ev = this.governor.sample(ms);
     if (!ev) return;
     if (ev.tier) this.setTier(ev.tier);
@@ -1551,9 +1578,12 @@ export class WorldApp {
     this.tmp2.multiplyScalar(1 / dist);
     this.raycaster.set(this.camera.position, this.tmp2);
     this.raycaster.far = dist - 0.35;
-    const hits = this.raycaster.intersectObjects(this.trees, true);
+    const hits = this.treeRayHits;
+    hits.length = 0;
+    this.raycaster.intersectObjects(this.trees, true, hits);
     this.raycaster.far = Infinity;
-    const hidden = new Set<THREE.Object3D>();
+    const hidden = this.treeRayHidden;
+    hidden.clear();
     for (const h of hits) {
       let o: THREE.Object3D | null = h.object;
       while (o && o.name !== "tree") o = o.parent;
@@ -1622,91 +1652,102 @@ export class WorldApp {
   }
 
   tickFx(dt: number) {
-    for (const b of this.bolts) {
-      placeBolt(b, this.animT);
+    // Every list is compacted in place (write index + length): no per-frame arrays
+    const t = this.animT;
+    const bolts = this.bolts;
+    let w = 0;
+    for (let i = 0; i < bolts.length; i++) {
+      const b = bolts[i];
+      placeBolt(b, t);
       b.mesh.position.y += this.standY(b.mesh.position.x, b.mesh.position.z);
+      if (t > b.start + b.dur) this.scene.remove(b.mesh);
+      else bolts[w++] = b;
     }
-    this.bolts = this.bolts.filter((b) => {
-      if (this.animT > b.start + b.dur) {
-        this.scene.remove(b.mesh);
-        return false;
-      }
-      return true;
-    });
+    bolts.length = w;
     if (this.wardMesh) {
-      this.wardMesh.visible = this.animT < this.wardUntil;
-      this.wardMesh.rotation.z = this.animT * 0.004;
+      this.wardMesh.visible = t < this.wardUntil;
+      this.wardMesh.rotation.z = t * 0.004;
       if (this.youGroup) this.wardMesh.position.copy(this.youGroup.position).setY(this.youGroup.position.y + 0.15);
     }
-    for (const b of this.bursts) {
-      const u = (this.animT - b.start) / b.dur;
-      const s = b.r * (0.3 + u * 1.4);
-      b.mesh.scale.setScalar(s);
-      const mat = b.mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = Math.max(0, 0.4 * (1 - u));
-    }
-    this.bursts = this.bursts.filter((b) => {
-      if (this.animT - b.start > b.dur) {
+    const bursts = this.bursts;
+    w = 0;
+    for (let i = 0; i < bursts.length; i++) {
+      const b = bursts[i];
+      if (t - b.start > b.dur) {
         this.scene.remove(b.mesh);
         (b.mesh.material as THREE.Material).dispose(); // per-burst material (shared sphere)
-        return false;
+        continue;
       }
-      return true;
-    });
-    this.sparks = this.sparks.filter((s) => {
-      tickSparks(s, this.animT);
-      if (this.animT - s.start > s.dur) {
-        this.scene.remove(s.points);
-        releaseSparkBurst(s);
-        return false;
-      }
-      return true;
-    });
-    this.dust = this.dust.filter((d) => {
-      const u = (this.animT - d.start) / 380;
+      const u = (t - b.start) / b.dur;
+      b.mesh.scale.setScalar(b.r * (0.3 + u * 1.4));
+      (b.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.4 * (1 - u));
+      bursts[w++] = b;
+    }
+    bursts.length = w;
+    const sparks = this.sparks;
+    w = 0;
+    for (let i = 0; i < sparks.length; i++) {
+      const sp = sparks[i];
+      tickSparks(sp, t);
+      if (t - sp.start > sp.dur) {
+        this.scene.remove(sp.points);
+        releaseSparkBurst(sp);
+      } else sparks[w++] = sp;
+    }
+    sparks.length = w;
+    const dust = this.dust;
+    w = 0;
+    for (let i = 0; i < dust.length; i++) {
+      const d = dust[i];
+      const u = (t - d.start) / 380;
       d.mesh.scale.setScalar(1 + u * 2.4);
-      const mat = d.mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = Math.max(0, 0.4 * (1 - u));
+      (d.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.4 * (1 - u));
       if (u >= 1) {
         this.scene.remove(d.mesh);
         releaseFx(d.mesh);
-        return false;
-      }
-      return true;
-    });
-    this.impacts = this.impacts.filter((r) => {
-      tickImpact(r, this.animT);
-      if (this.animT - r.start > r.dur) {
+      } else dust[w++] = d;
+    }
+    dust.length = w;
+    const impacts = this.impacts;
+    w = 0;
+    for (let i = 0; i < impacts.length; i++) {
+      const r = impacts[i];
+      tickImpact(r, t);
+      if (t - r.start > r.dur) {
         this.scene.remove(r.mesh);
         releaseFx(r.mesh);
-        return false;
-      }
-      return true;
-    });
+      } else impacts[w++] = r;
+    }
+    impacts.length = w;
     if (this.hitLight.intensity > 0.05) this.hitLight.intensity *= Math.exp(-dt * 14);
     else this.hitLight.intensity = 0;
-    this.teles = this.teles.filter((t) => {
-      const left = t.until - this.animT;
-      const mat = t.mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.25 + 0.55 * Math.abs(Math.sin(this.animT * 0.012));
-      t.mesh.scale.setScalar(t.r * (0.85 + 0.15 * Math.sin(this.animT * 0.02)));
-      if (left <= 0) {
-        this.scene.remove(t.mesh);
-        releaseFx(t.mesh);
-        return false;
-      }
-      return true;
-    });
-    this.slams = this.slams.filter((s) => {
-      tickSlamTelegraph(s, this.animT);
-      if (this.animT >= s.start + s.dur) {
-        this.resolveSlam(s);
-        this.scene.remove(s.group);
-        disposeObject3D(s.group);
-        return false;
-      }
-      return true;
-    });
+    const teles = this.teles;
+    w = 0;
+    const teleOp = 0.25 + 0.55 * Math.abs(Math.sin(t * 0.012));
+    const teleScale = 0.85 + 0.15 * Math.sin(t * 0.02);
+    for (let i = 0; i < teles.length; i++) {
+      const tl = teles[i];
+      (tl.mesh.material as THREE.MeshBasicMaterial).opacity = teleOp;
+      tl.mesh.scale.setScalar(tl.r * teleScale);
+      if (tl.until - t <= 0) {
+        this.scene.remove(tl.mesh);
+        releaseFx(tl.mesh);
+      } else teles[w++] = tl;
+    }
+    teles.length = w;
+    // resolveSlam pushes impacts/sparks (already ticked above), never slams
+    const slams = this.slams;
+    w = 0;
+    for (let i = 0; i < slams.length; i++) {
+      const sl = slams[i];
+      tickSlamTelegraph(sl, t);
+      if (t >= sl.start + sl.dur) {
+        this.resolveSlam(sl);
+        this.scene.remove(sl.group);
+        disposeObject3D(sl.group);
+      } else slams[w++] = sl;
+    }
+    slams.length = w;
 
     for (const n of this.nodes.values()) {
       const fx = n.group.userData.fx as NodeFx;
@@ -2006,7 +2047,7 @@ export class WorldApp {
 
   syncEntities() {
     if (!this.room || !this.mats) return;
-    const seen = new Set<string>();
+    const stamp = ++this.syncStamp;
     // Live ward heart (storm/mire/hoard), found once per frame instead of once per mob
     let heart: any = null;
     for (const h of this.room.entities) {
@@ -2019,13 +2060,13 @@ export class WorldApp {
     try {
     for (const e of this.room.entities) {
       const id = String(e.id);
-      seen.add(id);
       const kind = resolveKind(e);
       let rec = this.nodes.get(id);
       if (!rec || rec.kind !== kind) {
         if (rec) this.disposeNode(rec);
         rec = this.spawnNode(id, kind, e);
       }
+      rec.seenAt = stamp;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
       if (e.kind === "mob" || e.kind === "boss" || e.kind === "player") {
@@ -2163,9 +2204,9 @@ export class WorldApp {
     for (const pl of this.room.players) {
       if (pl.id === this.room.you.id) continue;
       const id = `pl:${pl.id}`;
-      seen.add(id);
       let rec = this.nodes.get(id);
       if (!rec) rec = this.spawnNode(id, "player", { kind: "player", name: pl.name });
+      rec.seenAt = stamp;
       const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
       // Remote gait from the smoothed track: tickFx strides at this speed; the
@@ -2209,10 +2250,10 @@ export class WorldApp {
       this.updateLabel(rec, { name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp }, pos);
     }
     } finally {
-      for (const [id, rec] of this.nodes) {
-        if (!seen.has(id)) {
+      for (const rec of this.nodes.values()) {
+        if (rec.seenAt !== stamp) {
           this.disposeNode(rec);
-          this.nodes.delete(id);
+          this.nodes.delete(rec.id);
         }
       }
     }
@@ -2422,6 +2463,7 @@ export class WorldApp {
       nameEl: wrap.querySelector(".wl-name") as HTMLElement,
       hpBar: wrap.querySelector(".wl-hp") as HTMLElement,
       hpFill: wrap.querySelector(".wl-hp i") as HTMLElement,
+      seenAt: this.syncStamp,
     };
     this.nodes.set(id, rec);
     return rec;
@@ -3552,7 +3594,8 @@ export class WorldApp {
     const id = String(msg.spellId || "");
     if (id === "gale_bolt") {
       const bolt: Bolt = {
-        mesh: makeBolt(this.mats!),
+        // Avarice: gold bolt (a cached tinted copy — the ember kit material is shared)
+        mesh: makeBolt(this.mats!, this.room?.cantoId === "inferno_07" ? 0xd4a840 : undefined),
         x0: Number(msg.x) || this.renderYou.x,
         y0: Number(msg.y) || this.renderYou.y,
         x1: Number(msg.tx ?? msg.x) || this.renderYou.x + this.aimX * 6,
@@ -3562,10 +3605,6 @@ export class WorldApp {
       };
       this.scene.add(bolt.mesh);
       this.bolts.push(bolt);
-      if (this.room?.cantoId === "inferno_07") {
-        const mat = bolt.mesh.material as THREE.MeshBasicMaterial;
-        if (mat && mat.color) mat.color.setHex(0xd4a840);
-      }
     } else if (id === "whirl_ward") {
       if (!this.wardMesh && this.mats) {
         this.wardMesh = makeWardRing(this.mats);

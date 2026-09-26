@@ -145,16 +145,20 @@ export type GovernorEvent = { ratio?: number; tier?: Tier };
  * frames; it returns a change request at most every ~1.2s.
  *
  * - Slow (EMA > 19ms, i.e. under ~52fps): ratio × 0.9 down to minRatio.
- * - Still slow (EMA > 21ms) for 3s at minRatio: one tier down (not when pinned).
+ * - A run of drops is judged against the frame time when it started (or last paid off):
+ *   a ≥5% gain means pixels are the limit (fill-bound) and further drops are judged from
+ *   there. Three drops in a row (≈half the pixels), or reaching the floor, without any
+ *   gain means the limit is not fill rate (a 30Hz low-power rAF cap, or CPU-bound): the
+ *   ratio goes back and drops pause (1 min, then longer), so the game is not blurred —
+ *   and its tier not lowered — for nothing. One step alone can hide behind vsync
+ *   quantisation, hence judging runs, not single drops.
+ * - Only a run that paid off and still ended at the floor ratio slow (EMA > 21ms for 3s)
+ *   steps the tier down (not when pinned). The new tier starts back at its ceiling ratio,
+ *   so the cheaper shading gets judged on its own before resolution drops again.
  * - Fast (EMA < 17.4ms) for 5s: ratio × 1.06 up to the ceiling. A raise that is followed
  *   by a drop within 6s lowers the ceiling to the dropped-to ratio, so it settles instead
  *   of oscillating.
- * - If three drops in a row (≈half the pixels), or a run that hit the lowest tier's
- *   floor, have not shortened frames by ≥5%, the limit is not fill rate (a 30Hz
- *   low-power rAF cap, or CPU-bound): the ratio goes back and drops pause (1 min, then
- *   longer), so the game is not blurred for nothing. A run that reaches the floor of a
- *   higher tier still steps the tier down (shadows/bloom also cost CPU). One step alone
- *   can hide behind vsync quantisation, hence judging runs, not single drops.
+ * It never steps a tier up, so it cannot flip-flop.
  */
 export class FrameGovernor {
   ema = FRAME_MS;
@@ -166,10 +170,12 @@ export class FrameGovernor {
   private cooldown = 2;
   private lastRaiseAt = -1e9;
   private clock = 0;
-  /** Current run of drops: frame time and ratio when it started. */
-  private descent: { ema: number; startRatio: number; steps: number } | null = null;
+  /** Current run of drops: frame time and ratio when it started or last paid off. */
+  private descent: { ema: number; startRatio: number; steps: number; paid: boolean } | null = null;
   private blockDrops = 0;
   private failedRuns = 0;
+  /** This tier's band ran out while drops were still paying off: a tier step may help. */
+  private fillBound = false;
 
   constructor(
     public flags: TierFlags,
@@ -193,14 +199,16 @@ export class FrameGovernor {
     this.ratio = Math.min(this.ratio, this.ceiling);
   }
 
+  /** New tier: back to its full ratio, so the cheaper shading is judged on its own. */
   setFlags(flags: TierFlags) {
     this.flags = flags;
     this.ceiling = this.maxFor(flags);
-    this.ratio = Math.min(Math.max(this.ratio, flags.minRatio), this.ceiling);
+    this.ratio = this.ceiling;
     this.ema = FRAME_MS;
     this.fastFor = this.slowFor = this.floorSlowFor = 0;
     this.cooldown = 2.5;
     this.descent = null;
+    this.fillBound = false;
   }
 
   /** Pause adaptation briefly (canto rebuild / shader warm-up spikes). */
@@ -224,10 +232,21 @@ export class FrameGovernor {
     const minR = Math.min(this.flags.minRatio, this.ceiling);
     const atFloor = this.ratio <= minR + 0.005;
     if (run) {
-      const canStepTier = atFloor && !this.pinned && lowerTier(this.flags.tier) != null;
-      if (this.ema < run.ema * 0.95) this.descent = null; // fill-bound: drops pay off
-      else if ((run.steps >= 3 || atFloor) && !canStepTier) {
+      if (this.ema < run.ema * 0.95) {
+        // Fill-bound: the drops paid off. Judge any further drops from here.
+        run.ema = this.ema;
+        run.startRatio = this.ratio;
+        run.steps = 0;
+        run.paid = true;
+      }
+      if (atFloor && run.paid) {
+        // Pixels are the limit and the band is used up: the tier step below is next
         this.descent = null;
+        this.fillBound = true;
+      } else if (run.steps >= 3 || atFloor) {
+        // No gain: not fill rate. Give the pixels back (to where drops last paid off)
+        this.descent = null;
+        this.fillBound = false;
         this.ratio = run.startRatio;
         this.blockDrops = 60 * 2 ** this.failedRuns++;
         this.slowFor = this.floorSlowFor = 0;
@@ -243,14 +262,14 @@ export class FrameGovernor {
       this.slowFor = 0;
       if (this.ratio > minR + 0.005) {
         if (this.clock - this.lastRaiseAt < 6) this.ceiling = Math.max(minR, this.ratio * 0.9);
-        if (!this.descent) this.descent = { ema: this.ema, startRatio: this.ratio, steps: 0 };
+        if (!this.descent) this.descent = { ema: this.ema, startRatio: this.ratio, steps: 0, paid: false };
         this.descent.steps++;
         this.ratio = Math.max(minR, this.ratio * 0.9);
         this.cooldown = 1.2;
         return { ratio: this.ratio };
       }
     }
-    if (atFloor && this.ema > 21 && this.blockDrops <= 0) this.floorSlowFor += sec;
+    if (this.fillBound && atFloor && this.ema > 21) this.floorSlowFor += sec;
     else this.floorSlowFor = Math.max(0, this.floorSlowFor - sec);
     if (!this.pinned && this.floorSlowFor > 3) {
       this.floorSlowFor = 0;
