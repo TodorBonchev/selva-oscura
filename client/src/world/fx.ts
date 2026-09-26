@@ -183,6 +183,9 @@ export function makeLightShaft(height = 11, opacity = 0.16): THREE.Sprite {
 
 export class AshField {
   points: THREE.Points;
+  /** Planar drift (u/s) added in `gale` cantos — a canto mechanic may steer it (Lust storm). */
+  windX = 2.2;
+  windZ = 0;
   private pos: Float32Array;
   private vel: Float32Array;
   private n: number;
@@ -237,9 +240,9 @@ export class AshField {
     const step = Math.max(1, stride | 0);
     for (let i = phase % step; i < this.n; i += step) {
       const o = i * 3;
-      this.pos[o] += this.vel[o] * dt + (gale ? 2.2 * dt : 0);
+      this.pos[o] += this.vel[o] * dt + (gale ? this.windX * dt : 0);
       this.pos[o + 1] += this.vel[o + 1] * dt;
-      this.pos[o + 2] += this.vel[o + 2] * dt;
+      this.pos[o + 2] += this.vel[o + 2] * dt + (gale ? this.windZ * dt : 0);
       const dx = this.pos[o] - px;
       const dz = this.pos[o + 2] - pz;
       if (this.pos[o + 1] > 8 || dx * dx + dz * dz > 26 * 26) this.respawn(i, false, px, pz);

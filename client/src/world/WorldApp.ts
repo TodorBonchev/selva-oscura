@@ -379,6 +379,8 @@ export class WorldApp {
   /** shove displacement not yet applied (forces.displacement), consumed by integrateVelocity */
   _fv: Vec2 = { x: 0, y: 0 };
   _fd: Vec2 = { x: 0, y: 0 };
+  /** Canto mechanic collide() scratch (no allocation per move substep). */
+  _mechP: Vec2 = { x: 0, y: 0 };
   /** Canvas CSS size (resize()), for screen-space overlays without a layout read. */
   viewW = 1;
   viewH = 1;
@@ -1561,6 +1563,15 @@ export class WorldApp {
         nx = p.x + (ox / d) * rad;
         ny = p.y + (oy / d) * rad;
       }
+    }
+    // Canto props that are solid on the server (Lust windbreaks) push you out the same way
+    if (this.mech.collide) {
+      const cp = this._mechP;
+      cp.x = nx;
+      cp.y = ny;
+      this.mech.collide(this, cp);
+      nx = cp.x;
+      ny = cp.y;
     }
     this.renderYou = this.clampToBounds(nx, ny);
     this.predicting = true;
@@ -4239,6 +4250,8 @@ export class WorldApp {
       x: b ? Math.max(2, Math.min(b.width - 2, this.renderYou.x + nx * step)) : this.renderYou.x + nx * step,
       y: b ? Math.max(2, Math.min(b.height - 2, this.renderYou.y + ny * step)) : this.renderYou.y + ny * step,
     };
+    // Canto mechanic: wind / obstacles move the end (server room.handleDash mirrors it)
+    this.mech.adjustDash?.(this, this.renderYou, to, nx, ny);
     this.moveTarget = null;
     if (this.heroMotor) this.heroMotor.startDash(this.renderYou, to);
     else this.renderYou = { x: to.x, y: to.y };

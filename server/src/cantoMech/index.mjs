@@ -25,6 +25,11 @@
  *   onKilled(room, e)                  a mob/boss died (loot already rolled).
  *   bossTick(room, boss, dt) → bool    return true to replace the default boss AI this tick.
  *   mobTick(room, e, dt) → bool        return true to replace the default mob AI this tick.
+ *   afterMobs(room, dt) → bool         after every mob/boss moved this tick (settle them
+ *                                      against solid props…); true = something moved.
+ *   adjustDash(room, sess, fromX, fromY, toX, toY, dirX, dirY) → {x,y} | null
+ *                                      where a dash really ends (the client mirrors it
+ *                                      in CantoMech.adjustDash).
  *
  * Helpers on the room for mechanics:
  *   room.telegraph(spec) → t           ground telegraph (telegraph.mjs; spec.onLand at

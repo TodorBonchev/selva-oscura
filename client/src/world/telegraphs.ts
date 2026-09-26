@@ -393,8 +393,17 @@ export class TelegraphRenderer {
   }
 }
 
+const CUSTOM_PAL: Record<string, TelePalette> = {};
+
+/** Wave-3 hook: a canto's own telegraph kind gets its own colours (e.g. a boss pattern). */
+export function registerTelePalette(kind: string, pal: TelePalette) {
+  CUSTOM_PAL[kind] = pal;
+}
+
 /** Colours by canto palette and attack weight (slams read hotter than a claw swipe). */
 export function telePalette(cantoId: string | undefined, kind: string): TelePalette {
+  const custom = CUSTOM_PAL[kind];
+  if (custom) return custom;
   const heavy = kind === "boss_slam" || kind === "champ_slam" || kind === "champ_cleave";
   if (cantoId === "inferno_07") {
     return heavy

@@ -17,6 +17,11 @@
  *                              out = { speedMul, accelMul, driftX, driftY } arrives at
  *                              {1, 1, 0, 0}; multiply / add (drift is planar u/s). The
  *                              server must allow the same (its adjustMove hook).
+ *   collide(app, p)            solid props: push the predicted planar position p out
+ *                              (mutate it), after the foe push-out, every move substep.
+ *   adjustDash(app, from, to, dirX, dirY)
+ *                              where your dash really ends: mutate `to` (the server's
+ *                              adjustDash hook does the same).
  * Generic forces are already wired: {type:"shove"} and {type:"status"} from
  * room.shovePlayer / room.statusPlayer land in app.forces (world/forces.ts).
  * Mob attack poses for new telegraph kinds: registerAttackPose() in world/mobAnim.ts.
@@ -39,6 +44,8 @@ export interface CantoMech {
   onSnapshot?(app: WorldApp, mech: unknown): void;
   objective?(app: WorldApp, obj: Objective): void;
   moveFeel?(app: WorldApp, out: MoveFeelOut): void;
+  collide?(app: WorldApp, p: { x: number; y: number }): void;
+  adjustDash?(app: WorldApp, from: { x: number; y: number }, to: { x: number; y: number }, dirX: number, dirY: number): void;
 }
 
 const NONE: CantoMech = Object.freeze({});

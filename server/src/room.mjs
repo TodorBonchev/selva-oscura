@@ -1269,6 +1269,15 @@ class CantoRoom {
     const fromY = s.y;
     s.x = Math.max(2, Math.min(b.width - 2, s.x + dx * step));
     s.y = Math.max(2, Math.min(b.height - 2, s.y + dy * step));
+    // Canto mechanic: where the dash really ends (wind, obstacles) — the client's
+    // CantoMech.adjustDash predicts the same
+    if (this.mech.adjustDash) {
+      const to = this.mech.adjustDash(this, s, fromX, fromY, s.x, s.y, dx, dy);
+      if (to && Number.isFinite(to.x) && Number.isFinite(to.y)) {
+        s.x = to.x;
+        s.y = to.y;
+      }
+    }
     s._lastFaceX = dx;
     s._lastFaceY = dy;
     s.iframes = Math.max(s.iframes || 0, 0.35);
@@ -2043,6 +2052,8 @@ class CantoRoom {
         moved = true;
       }
     }
+    // Canto mechanic: settle foes after they all moved (solid props, …); true = moved
+    if (this.mech.afterMobs?.(this, dt)) moved = true;
     if (moved) this.markDirty();
     this._snapAcc += dt;
     if (this.dirty && this._snapAcc >= 0.08) {
