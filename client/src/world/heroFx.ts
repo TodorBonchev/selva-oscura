@@ -5,11 +5,10 @@
  *  - DustPool: footstep / dash dust puffs from a fixed set of meshes.
  *  - DashStreak: one camera-facing band stretched along the dash path.
  *
- * Shader warmth: three.js keys every program on the scene's light counts, so an
- * effect first shown after a canto change (or a light toggling) would compile
- * mid-swing / mid-dash. One mesh per program therefore never hides — it draws
- * nothing (empty draw range / collapsed geometry at opacity 0) while idle, which
- * keeps its program built for whatever lighting is current.
+ * Shader warmth: idle effects are hidden (no draw call). Their programs still
+ * exist before first use: WorldApp.prewarmShaders compiles hidden meshes too
+ * (renderer.compile walks the whole scene) after every canto build and tier
+ * change, and the real light count never changes at runtime (lightPool.ts).
  */
 import * as THREE from "three";
 
@@ -56,6 +55,7 @@ export class BladeTrail {
         vertexColors: true,
         transparent: true,
         side: THREE.DoubleSide,
+        forceSinglePass: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         // like the old swoosh: canto haze never buries the cut
@@ -65,6 +65,7 @@ export class BladeTrail {
     this.mesh.name = "bladeTrail";
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 4;
+    this.mesh.visible = false;
   }
 
   setTint(hex: number) {
@@ -74,9 +75,11 @@ export class BladeTrail {
   clear() {
     this.count = 0;
     this.mesh.geometry.setDrawRange(0, 0);
+    this.mesh.visible = false;
   }
 
   push(tip: THREE.Vector3, base: THREE.Vector3, tMs: number) {
+    if (!this.mesh.visible) this.mesh.visible = true;
     const i = this.head;
     this.tip[i * 3] = tip.x;
     this.tip[i * 3 + 1] = tip.y;
@@ -149,12 +152,11 @@ export class DustPool {
         transparent: true,
         opacity: 0,
         side: THREE.DoubleSide,
+        forceSinglePass: true,
         depthWrite: false,
       });
       const mesh = new THREE.Mesh(geo, mat);
-      // puff 0 is the program keeper: always drawn, collapsed at opacity 0 when idle
-      mesh.visible = i === 0;
-      if (i === 0) mesh.scale.setScalar(1e-4);
+      mesh.visible = false;
       mesh.frustumCulled = false;
       this.group.add(mesh);
       this.puffs.push({ mesh, mat, start: 0, dur: 1, size: 1, alpha: 0 });
@@ -186,8 +188,7 @@ export class DustPool {
       if (u >= 1 || u < 0) {
         p.alpha = 0;
         p.mat.opacity = 0;
-        if (i === 0) p.mesh.scale.setScalar(1e-4);
-        else p.mesh.visible = false;
+        p.mesh.visible = false;
         continue;
       }
       p.mesh.scale.setScalar(p.size * (1 + u * 2.2));
@@ -213,7 +214,7 @@ export class DashStreak {
 
   constructor() {
     const geo = new THREE.BufferGeometry();
-    // collapsed (all zero) while idle: drawn, but covers no pixels
+    // hidden while idle (see the header: prewarm keeps the program built)
     this.pos = new THREE.BufferAttribute(new Float32Array(6 * 3), 3);
     this.pos.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("position", this.pos);
@@ -230,6 +231,7 @@ export class DashStreak {
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -237,6 +239,7 @@ export class DashStreak {
     this.mesh.name = "dashStreak";
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 3;
+    this.mesh.visible = false;
   }
 
   begin(from: THREE.Vector3, to: THREE.Vector3, tMs: number, durMs: number) {
@@ -244,12 +247,14 @@ export class DashStreak {
     this.to.copy(to);
     this.start = tMs;
     this.dur = durMs;
+    this.mesh.visible = true;
   }
 
   private collapse() {
     (this.pos.array as Float32Array).fill(0);
     this.pos.needsUpdate = true;
     this.mat.opacity = 0;
+    this.mesh.visible = false;
   }
 
   /** `head` is the hero's current world position (the streak ends at the body). */

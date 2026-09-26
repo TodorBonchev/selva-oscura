@@ -489,6 +489,7 @@ export function makeJudge(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.35,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -609,6 +610,7 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.48,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -623,6 +625,7 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.28,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -811,6 +814,7 @@ export function makeCoinWisp(mats: MatKit): THREE.Group {
         transparent: true,
         opacity: 0.28,
         side: THREE.DoubleSide,
+        forceSinglePass: true,
         depthWrite: false,
       })
     )
@@ -914,6 +918,7 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.35,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -926,6 +931,7 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.28,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -1017,6 +1023,7 @@ export function makeHoardCrush(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.38,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -1031,6 +1038,7 @@ export function makeHoardCrush(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.24,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -1120,6 +1128,7 @@ export function makeHoardHeart(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.22,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -1335,6 +1344,7 @@ function portalMats(mats: MatKit): Record<PortalVisualState, PortalMatSet> {
       transparent: true,
       opacity: k.groundOp,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });

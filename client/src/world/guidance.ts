@@ -51,6 +51,7 @@ export class Guidance {
         transparent: true,
         opacity: 0.55,
         side: THREE.DoubleSide,
+        forceSinglePass: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       })
@@ -211,6 +212,7 @@ export class Guidance {
           transparent: true,
           opacity: 0.9,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         })

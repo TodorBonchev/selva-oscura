@@ -211,12 +211,18 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     roughness: 0.78,
     metalness: 0.12,
   });
+  // forceSinglePass (here and on every flat / additive DoubleSide material): three.js
+  // otherwise draws a transparent DoubleSide mesh twice — back faces, then front — and
+  // flags the material for a program-key rebuild before each pass, every frame. Additive
+  // blending is order-free and a flat ring has no faces behind its own, so one pass
+  // looks the same (Lust spawn view: ~60 of ~400 draw calls were these second passes).
   const gale = new THREE.MeshBasicMaterial({
     map: galeMap,
     color: 0xff6a44,
     transparent: true,
     opacity: 0.55,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -287,6 +293,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     transparent: true,
     opacity: 0.5,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });

@@ -902,7 +902,14 @@ function buildTemplate(mats: MatKit, palette: HeroPalette, hi: boolean): THREE.G
   // selection ring + soft contact shadow (shared geometry/material across clones)
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.38, 0.44, hi ? 36 : 24),
-    new THREE.MeshBasicMaterial({ color: 0xc9a227, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
+    new THREE.MeshBasicMaterial({
+      color: 0xc9a227,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      forceSinglePass: true,
+      depthWrite: false,
+    })
   );
   ring.name = "heroRing";
   ring.rotation.x = -Math.PI / 2;

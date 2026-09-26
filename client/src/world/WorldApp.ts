@@ -307,6 +307,7 @@ export class WorldApp {
       transparent: true,
       opacity: 0.5,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -331,6 +332,8 @@ export class WorldApp {
   prewarmPending = false;
   _packCounts = new Map<string, number>();
   fxWarm: THREE.Group | null = null;
+  /** GPU counters of the last complete draw() (shadow + scene + post); DEV render-info hook. */
+  frameInfo = { calls: 0, triangles: 0, points: 0, shadowPass: false };
   invDirty = true;
   lastLookKey = "";
   propAnims: THREE.Object3D[] = [];
@@ -529,7 +532,8 @@ export class WorldApp {
     this.renderer.shadowMap.enabled = this.gfx.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
-    // draw() resets per frame so composer passes add up (see __selvaRenderInfo)
+    // draw() resets per frame so composer passes add up; the totals of each finished
+    // frame are copied to frameInfo (see __selvaRenderInfo)
     this.renderer.info.autoReset = false;
     root.appendChild(this.renderer.domElement);
     this.lightPool = new LightPool(this.scene, this.gfx.pointLights);
@@ -617,6 +621,7 @@ export class WorldApp {
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,
+        forceSinglePass: true,
         depthWrite: false,
       });
       const outer = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.62, 28), ringMat);
@@ -628,6 +633,7 @@ export class WorldApp {
           transparent: true,
           opacity: 0.9,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
         })
       );
@@ -649,6 +655,7 @@ export class WorldApp {
           transparent: true,
           opacity: 0.85,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
         })
       );
@@ -893,11 +900,14 @@ export class WorldApp {
   exposeRenderInfo() {
     (window as unknown as { __selvaRenderInfo?: () => unknown }).__selvaRenderInfo = () => {
       const info = this.renderer.info;
+      const fi = this.frameInfo;
       const composerPR = this.composer ? (this.composer as unknown as { _pixelRatio: number })._pixelRatio : null;
       return {
-        calls: info.render.calls,
-        triangles: info.render.triangles,
-        points: info.render.points,
+        // Exactly one drawn frame; shadowPass says whether it included the (every Nth frame) shadow map
+        calls: fi.calls,
+        triangles: fi.triangles,
+        points: fi.points,
+        shadowPass: fi.shadowPass,
         programs: info.programs?.length ?? 0,
         geometries: info.memory.geometries,
         textures: info.memory.textures,
@@ -1559,9 +1569,8 @@ export class WorldApp {
             ? 4
             : 3
           : 2;
-    if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
-      this.renderer.shadowMap.needsUpdate = true;
-    }
+    const shadowPass = this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0;
+    if (shadowPass) this.renderer.shadowMap.needsUpdate = true;
     if (inGlut && this.frameN % 4 === 0) this.tickMawPressure();
     if (inAva && this.frameN % (compact ? 5 : 4) === 0) this.tickCrushPressure();
     this.tickAtmosphere();
@@ -1569,6 +1578,13 @@ export class WorldApp {
     this.tickFx(dt);
     this.lightPool.update(this.camFollow, dt);
     this.renderFrame();
+    // One finished frame: readers between frames (or mid-bench) never see a partial sum
+    const fi = this.frameInfo;
+    const ri = this.renderer.info.render;
+    fi.calls = ri.calls;
+    fi.triangles = ri.triangles;
+    fi.points = ri.points;
+    fi.shadowPass = shadowPass;
     if (this.frameN % labelEvery === 0) {
       this.labelRenderer.render(this.scene, this.camera);
     }
@@ -2157,6 +2173,7 @@ export class WorldApp {
                 transparent: true,
                 opacity: 0.55,
                 side: THREE.DoubleSide,
+                forceSinglePass: true,
                 depthWrite: false,
                 blending: THREE.AdditiveBlending,
               })
@@ -4584,6 +4601,7 @@ export class WorldApp {
           opacity: 0.28,
           depthWrite: false,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
         })
       );
       mesh.rotation.x = -Math.PI / 2;

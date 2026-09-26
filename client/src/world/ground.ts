@@ -238,6 +238,7 @@ export function buildGround(
             ? 0.4
             : 0.28,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -557,6 +558,7 @@ export function buildGround(
           transparent: true,
           opacity: 0.22,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         })
@@ -686,6 +688,7 @@ export function buildGround(
           transparent: true,
           opacity: 0.24,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         })

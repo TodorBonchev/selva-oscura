@@ -332,6 +332,7 @@ function slamMat(color: number, opacity: number, additive = false): THREE.MeshBa
     transparent: true,
     opacity,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     depthWrite: false,
     blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     polygonOffset: true,
@@ -491,6 +492,7 @@ function acquireFx(key: string, geo: () => THREE.BufferGeometry, color: number, 
       new THREE.MeshBasicMaterial({
         transparent: true,
         side: THREE.DoubleSide,
+        forceSinglePass: true,
         depthWrite: false,
         blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       })
@@ -583,6 +585,7 @@ function portalHoldMat(color: number, opacity: number): THREE.MeshBasicMaterial 
     transparent: true,
     opacity,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     polygonOffset: true,
@@ -724,6 +727,7 @@ export function makeSlashTrail(): THREE.Group {
       transparent: true,
       opacity: 1,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       // depthTest off so Lust fog / canto haze never buries the cut

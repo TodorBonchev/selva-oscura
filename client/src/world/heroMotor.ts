@@ -83,7 +83,7 @@ export interface HeroHost {
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 
-/** Blade trails lent to remote pilgrims while they swing (hidden when idle: no draw). */
+/** Blade trails lent to remote pilgrims while they swing (hidden when idle: no draw — BladeTrail.clear). */
 const REMOTE_TRAILS = 2;
 type RemoteTrail = {
   trail: BladeTrail;
@@ -140,7 +140,6 @@ export class HeroMotor {
         dt: 0,
         push: (tip, base, k) => r.trail.push(tip, base, r.t - (1 - k) * r.dt),
       };
-      r.trail.mesh.visible = false;
       host.scene.add(r.trail.mesh);
       this.remote.push(r);
     }
@@ -162,7 +161,6 @@ export class HeroMotor {
     r.trail.clear();
     r.trail.intensity = kind === 2 ? 0.8 : 0.65;
     r.trail.life = kind === 2 ? 140 : 120;
-    r.trail.mesh.visible = true;
     captureBladeChain(root, r.prev);
   }
 
@@ -186,7 +184,6 @@ export class HeroMotor {
       if (r.root !== root) continue;
       r.root = null;
       r.trail.clear();
-      r.trail.mesh.visible = false;
     }
   }
 
@@ -432,7 +429,6 @@ export class HeroMotor {
       if (t > r.until) {
         r.root = null;
         r.trail.clear();
-        r.trail.mesh.visible = false;
       }
     }
 
