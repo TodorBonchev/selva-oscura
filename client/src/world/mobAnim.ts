@@ -352,7 +352,9 @@ export function mobFlinch(st: MobState, fromX: number, fromY: number, amp: numbe
   st.flF = ax * -s + ay * -c;
   st.flR = ax * c + ay * -s;
   st.flAt = nowMs;
-  st.flAmp = Math.min(2.2, amp * (st.family === "judge" || st.family === "maw" || st.family === "crush" ? 0.35 : st.family === "brute" || st.family === "champion" ? 0.6 : 1));
+  const weight =
+    st.family === "heart" ? 0.2 : st.family === "judge" || st.family === "maw" || st.family === "crush" ? 0.35 : st.family === "brute" || st.family === "champion" ? 0.6 : 1;
+  st.flAmp = Math.min(2.2, amp * weight);
 }
 
 const pose: Pose = { rx: 0, ry: 0, rz: 0, y: 0, fz: 0, sx: 1, sy: 1, sz: 1, aLx: NaN, aLz: NaN, aRx: NaN, aRz: NaN, head: 0, jaw: 0 };
