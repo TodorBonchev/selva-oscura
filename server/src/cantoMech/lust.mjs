@@ -12,13 +12,15 @@
  *    adjustDash) and foes (afterMobs).
  * 3) Paolo & Francesca ("questi, che mai da me non fia diviso"): the champion pair is
  *    tethered while both live within reach — blows are shared (and partly absorbed),
- *    the bond knits them, the gust carries them. Part them: a gust (the one you strike
- *    holds its ground), a dash through the bond (cut for 4 s), or luring. Both slain
- *    within 4 s: "Amor condusse noi ad una morte" — a bonus drop.
+ *    the bond knits them, one's cleave is echoed by the other, the gust carries them.
+ *    Part them: a gust (the one you strike holds its ground), a dash through the bond
+ *    (cut for 4 s), or luring. Both slain within 4 s: "Amor condusse noi ad una
+ *    morte" — a bonus drop.
  * 4) Minos ("cignesi con la coda tante volte / quantunque gradi vuol che giù sia
- *    messa"): coils his tail N times — a cascade of N rings, inner to outer — then
- *    speaks the sentence (a line at his target) and a judging gust throws the damned
- *    toward the edge — the more coils, the harsher the sentence. Wounded (≤50%): the
+ *    messa"): coils his tail N times — a cascade of N rings, inner to outer — and for
+ *    N ≥ 2 sweeps the sentence (a fan of N lines at his target, each soul judged once)
+ *    after which a judging gust throws the damned toward the edge — the more coils,
+ *    the harsher the sentence. Wounded (≤50%): the
  *    storm quickens and a flock of shades comes "a schiera larga e piena", once; while
  *    it lives it shields him (blows land at 20%).
  * 5) "percotendo": early in each gust the storm hurls grit along the wind at every
@@ -290,7 +292,7 @@ function slamFoe(room, L, e, x, y) {
  * cut short by the first windbreak in its path (the lee is safe). Step across the wind
  * or into a rock's lee.
  */
-const STRIKE = { at: [0.2], windup: 0.95, len: 16, width: 1.5, dmg: 7, back: 9 };
+const STRIKE = { at: [0.2], windup: 0.8, len: 16, width: 1.5, dmg: 7, back: 9 };
 
 function tickStrikes(room, L) {
   if (L.phase !== "gust" || L.judged) return;
@@ -534,19 +536,19 @@ function loverFell(room, L, e) {
 const MINOS = {
   /** first ring lands this long after the coil starts (s); each next ring later */
   firstLand: 1.15,
-  firstLandP2: 1.0,
+  firstLandP2: 0.9,
   ringGap: 0.55,
-  ringGapP2: 0.48,
+  ringGapP2: 0.42,
   /** ring k spans [inner_k, outer_k]; ring 1 is a full disc around him */
   ringW: 2.45,
   ring1: 3.6,
-  ringDmg: 9,
-  ringDmgP2: 11,
+  ringDmg: 7,
+  ringDmgP2: 9,
   sentenceLen: 13,
   sentenceW: 2.4,
-  sentenceWind: 0.85,
-  sentenceWindP2: 0.72,
-  sentenceBase: 5,
+  sentenceWind: 0.8,
+  sentenceWindP2: 0.7,
+  sentenceBase: 4,
   /** fan spacing (rad) and landing step (s) of the sweeping sentence */
   sentenceFan: 0.42,
   sentenceStep: 0.2,

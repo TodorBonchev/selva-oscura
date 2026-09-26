@@ -98,6 +98,8 @@ const _v = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _col = new THREE.Color();
 const _eu = new THREE.Euler();
+/** Shared x-ray uniforms of the rock material (updated once a frame). */
+const XRAY = { hero: { value: new THREE.Vector3(0, -99, 0) }, cam: { value: new THREE.Vector3() } };
 
 export class LustStorm {
   phase: StormPhase = "calm";
@@ -331,6 +333,44 @@ export class LustStorm {
       m.color.setHex(0xb2a294);
       m.roughness = 0.9;
       m.metalness = 0.06;
+      // A rock between the camera and the pilgrim thins to a dither around the line of
+      // sight (the low desktop camera would otherwise hide you in a rock's lee)
+      m.customProgramCacheKey = () => "lust-rock-xray";
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.uLustHero = XRAY.hero;
+        sh.uniforms.uLustCam = XRAY.cam;
+        sh.vertexShader = sh.vertexShader
+          .replace("#include <common>", "#include <common>\nvarying vec3 vLustW;")
+          .replace(
+            "#include <project_vertex>",
+            `#include <project_vertex>
+            #ifdef USE_INSTANCING
+              vLustW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+            #else
+              vLustW = (modelMatrix * vec4(transformed, 1.0)).xyz;
+            #endif`
+          );
+        sh.fragmentShader = sh.fragmentShader
+          .replace("#include <common>", "#include <common>\nvarying vec3 vLustW;\nuniform vec3 uLustHero;\nuniform vec3 uLustCam;")
+          .replace(
+            "#include <clipping_planes_fragment>",
+            `#include <clipping_planes_fragment>
+            {
+              vec3 lh = uLustHero - uLustCam;
+              float lL = length(lh);
+              vec3 ld = lh / max(lL, 1e-3);
+              vec3 lr = vLustW - uLustCam;
+              float lt = dot(lr, ld);
+              if (lt > 0.0 && lt < lL - 0.5) {
+                float ldist = length(lr - ld * lt);
+                if (ldist < 1.45) {
+                  vec2 lp = floor(gl_FragCoord.xy);
+                  if (mod(lp.x + lp.y, 2.0) < 1.0 || ldist < 0.8) discard;
+                }
+              }
+            }`
+          );
+      };
       return m;
     });
     const gA = sharedGeo("lust:boulderA", () => boulderGeo(1.3, 0.22, 0.2));
@@ -529,6 +569,11 @@ export class LustStorm {
     }
     const you = app.renderYou;
     this.sheltered = inLee(this.wb, this.wx, this.wy, you.x, you.y);
+
+    // the rock x-ray follows the pilgrim's chest and the camera
+    const yg = app.youGroup;
+    if (yg) XRAY.hero.value.set(yg.position.x, yg.position.y + 1.1, yg.position.z);
+    XRAY.cam.value.copy(app.camera.position);
 
     this.tickStreamers(dt);
     this.tickAsh();

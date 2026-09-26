@@ -139,6 +139,21 @@ export default {
     const L = st(bot);
     if (drift(bot, you, now)) bot.send({ type: "move", x: you.x, y: you.y });
     if (!target || !L.wb) return false;
+    // A player in a Minos fight stays on him: his judging gust throws you back, and the
+    // generic "boss > 12 away → nearest pack" rule would walk off and let him heal
+    const minos = bot.snap.entities.find((e) => e.id === "minos_gate");
+    if (minos && target.id !== minos.id && minos.hp < minos.maxHp) {
+      const dm = Math.hypot(minos.x - you.x, minos.y - you.y);
+      const dt = Math.hypot(target.x - you.x, target.y - you.y);
+      if (dm < 22 && dt > 14) {
+        const wp = detour(L, you, minos, 0.6) || minos;
+        const wd = Math.hypot(wp.x - you.x, wp.y - you.y) || 1e-6;
+        const k = Math.min(wd, STEP);
+        bot.moveTo(you.x + ((wp.x - you.x) / wd) * k, you.y + ((wp.y - you.y) / wd) * k);
+        await new Promise((r) => setTimeout(r, 50));
+        return true;
+      }
+    }
     const d = Math.hypot(target.x - you.x, target.y - you.y);
     // A rock between us and the foe: walk round it
     if (d > 2.4) {
