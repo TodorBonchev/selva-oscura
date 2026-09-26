@@ -815,8 +815,10 @@ function summonChorus(room, L, e) {
       hp,
       maxHp: hp,
       packId: FLOCK_PACK,
-      // (a mechanic's summons: no pack-clear or road-clear lines — room.onEntityKilled)
+      // (a mechanic's summons: no pack-clear or road-clear lines — room.onEntityKilled;
+      // quietPack is wave3/avarice's name for the same, until the merge keeps one)
       summoned: true,
+      quietPack: true,
       champion: false,
       elite: false,
       dropTable: "inferno_pack_common",

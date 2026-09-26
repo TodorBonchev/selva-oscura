@@ -3707,22 +3707,19 @@ export class WorldApp {
         this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, 0, "block", "you", now);
         return;
       }
-      const slam =
-        msg.teleKind === "boss_slam" ||
-        msg.teleKind === "champ_slam" ||
-        msg.teleKind === "champ_cleave" ||
-        msg.champTele ||
-        teleWeight(msg.teleKind) != null;
-      this.kickShake(slam ? 0.5 : 0.38, awayX, awayY);
+      const slam = msg.teleKind === "boss_slam" || msg.teleKind === "champ_slam" || msg.teleKind === "champ_cleave" || msg.champTele;
+      // (a canto mechanic's heavy kinds sting the same — registerTeleWeight)
+      const heavy = slam || teleWeight(msg.teleKind) != null;
+      this.kickShake(heavy ? 0.5 : 0.38, awayX, awayY);
       this.camPunch = Math.max(this.camPunch, 0.58);
       this.camFovKick = Math.min(this.camFovKick, -3.2);
       // (a red edge, not a white-out: the number and the flinch carry the blow)
-      this.hitFlashAmt = Math.max(this.hitFlashAmt, slam ? 0.24 : 0.14);
+      this.hitFlashAmt = Math.max(this.hitFlashAmt, heavy ? 0.24 : 0.14);
       this.hitStopUntil = now + HIT_STOP_MS + 20;
       this.heroFlinchFrom(String(msg.attackerId ?? ""));
       this.spawnHitFx(this.renderYou, 0xff6644, true);
       this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, msg.damage, "self", "you", now);
-      if (slam) flashSlamSting();
+      if (heavy) flashSlamSting();
       else hapticCombat("hurt");
       const soaked = Number(msg.soaked) || 0;
       if (soaked > 0 && msg.wardActive) flashWardSoak();
