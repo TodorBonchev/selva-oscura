@@ -71,7 +71,7 @@ const LOVER_NAMES = ["Paolo", "Francesca"];
 /** Lovers are a mini-boss pair: a little tougher than a plain champion. */
 const LOVER_HP = 175;
 /** A lover's cleave (the pair strike as one, so each blow is lighter than a champion's). */
-const LOVER_DMG = 6;
+const LOVER_DMG = 5;
 /** The partner follows a lover's cleave this much later, from its own side. */
 const LOVER_ECHO = 0.28;
 /** The bond holds within this reach; a broken bond re-forms inside BIND_RANGE. */
@@ -360,23 +360,33 @@ function slamFoe(room, L, e, x, y) {
  * "voltando e percotendo": twice in each gust the storm hurls grit at every exposed
  * pilgrim — a line from upwind through where the drift will carry them, cut short by
  * the first windbreak in its path (the lee is safe). The first volley rides the wind;
- * the second comes turned ("voltando", ±turn), so one sidestep does not answer both.
- * One line serves a knot of pilgrims it already crosses, and each soul is struck at
- * most once a volley (co-op never stacks).
+ * the second comes turned ("voltando", ±turn), wider and quicker — out in the open it
+ * takes a sharp sidestep or a dash; in a rock's lee it never comes. One line serves a
+ * knot of pilgrims it already crosses, and each soul is struck at most once a volley
+ * (co-op never stacks).
  */
-const STRIKE = { at: [0.25, 1.45], windup: 0.8, len: 16, width: 1.6, dmg: 4, back: 9, turn: 0.38 };
+const STRIKE = {
+  at: [0.25, 1.45],
+  /** per volley: windup (s) and width */
+  windup: [0.7, 0.52],
+  width: [1.6, 2.9],
+  len: 16,
+  dmg: 4,
+  back: 9,
+  turn: 0.38,
+};
 
 function tickStrikes(room, L) {
   if (L.phase !== "gust" || L.judged) return;
   while (L.strikeK < STRIKE.at.length && L.t >= STRIKE.at[L.strikeK]) {
     const k = L.strikeK++;
     // (a volley that would land after the gust has died is not thrown)
-    if (L.left < STRIKE.windup * 0.75) continue;
-    strikeVolley(room, L, k === 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * STRIKE.turn);
+    if (L.left < STRIKE.windup[k] * 0.75) continue;
+    strikeVolley(room, L, k === 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * STRIKE.turn, STRIKE.windup[k], STRIKE.width[k]);
   }
 }
 
-function strikeVolley(room, L, turn) {
+function strikeVolley(room, L, turn, windup, width) {
   const ang = L.ang + turn;
   const ux = Math.cos(ang);
   const uy = Math.sin(ang);
@@ -390,7 +400,7 @@ function strikeVolley(room, L, turn) {
     if (!(s.hp > 0) || s.iframes > 0) continue;
     if (inLee(L.wb, L.wx, L.wy, s.x, s.y)) continue;
     // lead the drift a little, and never aim dead centre
-    const lead = PLAYER_DRIFT * L.power * STRIKE.windup * 0.4;
+    const lead = PLAYER_DRIFT * L.power * windup * 0.4;
     const ax = s.x + L.wx * lead;
     const ay = s.y + L.wy * lead;
     // a line already thrown this volley crosses them: it serves the knot
@@ -418,8 +428,8 @@ function strikeVolley(room, L, turn) {
       y: oy,
       dir: ang,
       length: len,
-      width: STRIKE.width,
-      duration: STRIKE.windup * 1000,
+      width,
+      duration: windup * 1000,
       kind: "bufera_strike",
       dmg: STRIKE.dmg,
       onHit: (r, tt, sess) => {
@@ -643,23 +653,23 @@ const MINOS = {
   /** first ring lands this long after the coil starts (s); each next ring later */
   firstLand: 1.0,
   firstLandP2: 0.82,
-  ringGap: 0.46,
-  ringGapP2: 0.38,
+  ringGap: 0.4,
+  ringGapP2: 0.33,
   /** ring k spans [inner_k, outer_k]; ring 1 is a full disc around him */
   ringW: 2.45,
   ring1: 3.6,
   /** the first coil (the disc at his feet) is light; the wider coils sweep harder */
-  ringDmgInner: 4,
-  ringDmgInnerP2: 5,
-  ringDmg: 8,
-  ringDmgP2: 10,
+  ringDmgInner: 3,
+  ringDmgInnerP2: 4,
+  ringDmg: 12,
+  ringDmgP2: 14,
   sentenceLen: 13,
-  sentenceW: 2.8,
-  sentenceWind: 0.66,
+  sentenceW: 3.2,
+  sentenceWind: 0.62,
   sentenceWindP2: 0.56,
-  sentenceBase: 2,
+  sentenceBase: 0,
   /** fan spacing (rad) and landing step (s) of the sweeping sentence */
-  sentenceFan: 0.42,
+  sentenceFan: 0.5,
   sentenceStep: 0.2,
   sentencePerCoil: 2,
   /** the sentence is cast this long before the last coil lands (it lands just after) */
@@ -685,8 +695,8 @@ function recoverOf(L, ms) {
 
 function coilCount(p2) {
   const r = Math.random();
-  if (p2) return r < 0.35 ? 2 : 3;
-  return r < 0.35 ? 1 : r < 0.85 ? 2 : 3;
+  if (p2) return r < 0.25 ? 2 : 3;
+  return r < 0.25 ? 1 : r < 0.7 ? 2 : 3;
 }
 
 function startCoil(room, L, e, ms) {
