@@ -15,14 +15,18 @@
  * 2) Plutus ("Pape Satàn, pape Satàn aleppe!") — boss id hoard_crush. While a pilgrim
  *    fights him he calls coins: Fiorini rise from the two piles on his dais (and spill
  *    from each east clash) and stream to him — biting (a wisp dart) whoever stands in
- *    their way; each one he swallows swells him (damage taken −10% a stack, a wider
+ *    their way; each one he swallows swells him (damage taken −6% a stack, up to 4; a wider
  *    slam, a bigger body) and, swollen, the hoard pulses around him ("plutus_pulse",
- *    radius and frequency grow with the coin). Ringing the Ledger Bell while he is
+ *    radius and frequency grow with the coin) and its ring burns whoever stands in it
+ *    (a tick a second, combat { dot: true }). Ringing the Ledger Bell while he is
  *    swollen and near it breaks him like a sail when the mast snaps: a 4 s collapse,
- *    ×2 damage taken, the coin gone («Taci, maledetto lupo!»). At ≤50% he hurls a great
- *    weight down a lane ("plutus_roll" line telegraph; the client rolls it). Left alone
- *    he knits back at most a quarter of his life (a retreat to the shrine does not undo
- *    a long fight).
+ *    ×2 damage taken, the coin gone («Taci, maledetto lupo!») — and he falls toward
+ *    the bell ("plutus_fall" cone): step aside after ringing. At ≤50% he hurls a great
+ *    weight down a lane ("plutus_roll" line telegraph; the client rolls it). His dais
+ *    holds the east clash: the weights' last run climbs onto it, so his fight keeps
+ *    the procession's rhythm (weights through the lanes, the clash and its spill every
+ *    T). Left alone for 40 s he knits back at most a quarter of his life (a retreat to
+ *    the shrine does not undo a long fight).
  * 3) The Counterweight (mid-elite) charges down a lane ("cw_charge" line telegraph,
  *    then it rolls through) between its slams — the rollers' lesson before the ring's
  *    east clash. Its charge crushes foes in the lane too; poise breaks it.
@@ -31,13 +35,15 @@
  * 5) The Ledger Bell (onBell) stills weights near the ringer and breaks a swollen Plutus.
  *
  * Wire (server → client): telegraph kinds ava_clash / ava_spill / plutus_pulse /
- * plutus_roll / cw_charge (extra { pal: [base, hot, rim], side? }); { type: "ava_sweep",
+ * plutus_roll / plutus_fall / cw_charge (extra { pal: [base, hot, rim], side? }); { type: "ava_sweep",
  * id, x, y, dir, length, duration } the hurled weight's lane; { type: "ava_absorb", id,
- * x, y, inf } a coin swallowed; { type: "ava_collapse", id, dur } the bell broke him;
+ * x, y, inf } a coin swallowed; { type: "ava_collapse", id, dur, fall } the bell broke him;
  * { type: "ava_call", id, first } he calls the coins. snapshotExtra → { t, T, inf?, col? }.
  */
 import {
   PROC,
+  GEO,
+  arcPoint,
   weightsAt,
   untilClash,
   rollingAt,
@@ -47,8 +53,8 @@ import { brake, chase, unstick, walkTo, startAttack, bodyRadius } from "../mobAi
 export const PLUTUS_ID = "hoard_crush";
 
 /** Procession damage to pilgrims (× canto tier) and to foes (flat). */
-const ROLL_DMG = 14;
-const CLASH_DMG = 18;
+const ROLL_DMG = 24;
+const CLASH_DMG = 20;
 const MOB_ROLL_DMG = 70;
 const MOB_CLASH_DMG = 90;
 /** A weight only crushes while it rolls with some speed (not in its rest / recoil). */
@@ -63,18 +69,23 @@ const HIT_CD = 1.2;
 /** The clash spills coin: an outer ring right after the weights meet. */
 const SPILL_OUT = 2.6;
 const SPILL_MS = 450;
-const SPILL_DMG = 12;
+const SPILL_DMG = 13;
 /** Palette for procession-weight lanes (bronze-white on red-black; client telegraphs). */
 const PAL_WEIGHT = [0x1c0703, 0xd8581c, 0xfff0c8];
 
 /** Plutus. */
-const INFLATE_MAX = 5;
-const INFLATE_DR = 0.1;
+const INFLATE_MAX = 4;
+const INFLATE_DR = 0.06;
 const BELL_BREAK_MIN = 2;
 const BELL_REACH = 15;
 const COLLAPSE_SEC = 4;
 const COLLAPSE_MULT = 2;
-const CALL_EVERY = 6.5;
+/** He falls where the bell struck him from: a cone toward the bell. */
+const FALL_R = 5.5;
+const FALL_ARC = 1.45;
+const FALL_MS = 650;
+const FALL_DMG = 18;
+const CALL_EVERY = 7.5;
 const ENGAGE_R = 16;
 const FEEDER_SPEED = 3.4;
 const FEEDER_HP = 22;
@@ -90,14 +101,18 @@ const PULSE_WIND = 0.6;
 const PULSE_BASE_R = 2.3;
 const PULSE_R_PER = 0.45;
 const PULSE_DMG = 5;
-const PULSE_DMG_PER = 2;
+const PULSE_DMG_PER = 1;
 const PAL_HOARD = [0x160c02, 0xe0a020, 0xfff4c0];
-const PLUTUS_SLAM = 14;
+/** Swollen, the ring of his hoard burns whoever stands in it (a tick a second). */
+const AURA_DMG = 1.4;
+const AURA_DMG_PER = 1;
+const AURA_PAD = 0.4;
+const PLUTUS_SLAM = 10;
 const ROLL_EVERY = 7.5;
 const ROLL_LEN = 22;
 const ROLL_W = 3.0;
 const ROLL_WIND = 1.3;
-const ROLL_SWEEP_DMG = 15;
+const ROLL_SWEEP_DMG = 12;
 const MOB_SWEEP_DMG = 80;
 
 /** Counterweight charge. */
@@ -111,6 +126,7 @@ const CW_DMG = 15;
 const NO_RESPAWN = new Set(["ava_hoard_heart", CW_PACK, "ava_ledger_warden", "ava_champion_pair", "ava_plutus_coins"]);
 
 let feederSeq = 0;
+const _pt = { x: 0, y: 0, tx: 1, ty: 0 };
 
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
@@ -251,12 +267,15 @@ function tickProcession(room, dt) {
             return tt.dmg;
           },
         });
-        // east clashes spill Fiorini toward Plutus while he is in a fight
+        // east clashes shake Fiorini loose from both processions' last weights: they
+        // stream to Plutus from a dozen steps out (time to cut them down)
         if (side === 1) {
           const p = r.entities.get(PLUTUS_ID);
           if (p && p.engaged && !(p.collapseLeft > 0)) {
-            spawnFeeder(r, c.x + 0.6, c.y - 1.2);
-            spawnFeeder(r, c.x + 0.6, c.y + 1.2);
+            for (let k = 0; k < 2; k++) {
+              arcPoint(k, GEO.L - 9, _pt);
+              spawnFeeder(r, _pt.x, _pt.y);
+            }
           }
         }
       },
@@ -476,7 +495,7 @@ function plutusPulse(room, p) {
     extra: { pal: PAL_HOARD },
     onHit: (r, tt) => (p.hp > 0 && !p._dead && !(p.collapseLeft > 0) ? tt.dmg : 0),
   });
-  p.pulseCd = Math.max(2.2, 4.2 - 0.4 * inf);
+  p.pulseCd = Math.max(2.6, 4.4 - 0.4 * inf);
   return t;
 }
 
@@ -498,7 +517,7 @@ function resetPlutus(p) {
 function plutusLeash(room, p, nearestD, homeD, dt) {
   if (nearestD > 20) {
     p.idleT = (p.idleT || 0) + dt;
-    if (p.idleT > 8 && p.hp < p.maxHp && (p.idleHealed || 0) < p.maxHp * 0.25) {
+    if (p.idleT > 40 && p.hp < p.maxHp && (p.idleHealed || 0) < p.maxHp * 0.25) {
       const h = Math.min(p.maxHp - p.hp, p.maxHp * 0.04 * dt);
       p.hp += h;
       p.idleHealed = (p.idleHealed || 0) + h;
@@ -554,6 +573,22 @@ function tickPlutus(room, p, dt) {
   }
   p.engaged = nearestD < ENGAGE_R;
   if (p.rollCd > 0) p.rollCd -= dt;
+  // swollen, the ring of his hoard burns whoever stands in it (the gold ring drawn
+  // around him is exactly its edge): a tick a second, no hit-stop on the client (dot)
+  const inf = p.inflate || 0;
+  p.auraAcc = (p.auraAcc || 0) + dt;
+  if (p.auraAcc >= 1) {
+    p.auraAcc = 0;
+    if (inf >= 1) {
+      const r = PULSE_BASE_R + PULSE_R_PER * inf + AURA_PAD;
+      const dmg = tierDmg(room, AURA_DMG + AURA_DMG_PER * inf);
+      for (const s of room.sessions.values()) {
+        if (!(s.hp > 0) || s.iframes > 0) continue;
+        if (Math.hypot(s.x - p.x, s.y - p.y) > r) continue;
+        room.hitPlayer(s, p, dmg, { teleKind: "plutus_hoard", dot: true });
+      }
+    }
+  }
   // the hoard pulses while he is swollen (independent of his own blows)
   if ((p.inflate || 0) >= 1 && p.engaged) {
     p.pulseCd = (p.pulseCd ?? 3) - dt;
@@ -612,7 +647,29 @@ function ringBell(room, sess, poi) {
         p.teleId = null;
         p.windupLeft = 0;
       }
-      room.broadcast({ type: "ava_collapse", id: p.id, dur: COLLAPSE_SEC * 1000 });
+      // «…tal cadde a terra la fiera crudele»: he falls toward the bell — whoever
+      // stands where he lands is crushed (telegraphed; step aside after ringing)
+      const fdir = Math.atan2(poi.y - p.y, poi.x - p.x);
+      room.telegraph({
+        attackerId: p.id,
+        shape: "cone",
+        x: p.x,
+        y: p.y,
+        dir: fdir,
+        radius: FALL_R,
+        arc: FALL_ARC,
+        duration: FALL_MS,
+        kind: "plutus_fall",
+        dmg: tierDmg(room, FALL_DMG),
+        extra: { pal: PAL_HOARD },
+        onResolve: (r, tt, hits) => {
+          for (const s of hits) {
+            if (!(s.hp > 0) || s.iframes > 0) continue;
+            r.shovePlayer(s, Math.cos(tt.dir) * 1.4, Math.sin(tt.dir) * 1.4, 240);
+          }
+        },
+      });
+      room.broadcast({ type: "ava_collapse", id: p.id, dur: COLLAPSE_SEC * 1000, fall: FALL_MS });
       for (const s of room.sessions.values()) room.toast(s.ws, "emit", "«Taci, maledetto lupo!» — Plutus falls like a sail when the mast breaks");
     }
   }

@@ -34,8 +34,8 @@
       {
         "id": "ledger_bell",
         "kind": "bell",
-        "x": 134,
-        "y": 59,
+        "x": 128.5,
+        "y": 56,
         "label": "Ledger Bell",
         "hint": "Ring it when Plutus swells with coin — it breaks him"
       },

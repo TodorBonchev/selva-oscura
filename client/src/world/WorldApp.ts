@@ -2665,19 +2665,10 @@ export class WorldApp {
     const y = this.standY(x, z, 0.2);
     const n = isCompactUi() ? 3 : 5;
     for (let i = 0; i < n; i++) {
-      const mote = new THREE.Mesh(
-        (this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = markShared(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8)))),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xf2dea0 : 0xd4a840,
-          transparent: true,
-          opacity: 0.9,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
+      // (pooled additive motes — no material per coin)
+      const mote = acquireFxMote(0.07, 6, i % 2 ? 0xf2dea0 : 0xd4a840, 0.9);
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.4;
       const r = 0.2 + Math.random() * 0.55;
-      mote.rotation.x = Math.PI / 2;
       setPlanar(mote.position, x + Math.cos(ang) * r, z + Math.sin(ang) * r, y + 0.15);
       this.scene.add(mote);
       this.impacts.push({
@@ -3598,6 +3589,14 @@ export class WorldApp {
         this.camPunch = Math.max(this.camPunch, 0.18);
         this.kickShake(0.08, awayX, awayY);
         this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, 0, "block", "you", now);
+        return;
+      }
+      // Damage over time (a burning zone's tick): the number and a faint edge only —
+      // no hit-stop, shake or flinch every second
+      if (msg.dot) {
+        this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.06);
+        this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, msg.damage, "self", "you", now);
+        if (msg.targetHp != null && msg.targetHp <= 0) this.triggerDeathRevive();
         return;
       }
       const slam = msg.teleKind === "boss_slam" || msg.teleKind === "champ_slam" || msg.teleKind === "champ_cleave" || msg.champTele;
@@ -5150,7 +5149,7 @@ export class WorldApp {
           window.setTimeout(() => {
             showToast(
               this.room?.cantoId === "inferno_07"
-                ? "Tip: you wake at the ledger gate — use the Shrine before pressing the Crush"
+                ? "Tip: you wake at the ledger gate — use the Shrine before facing Plutus"
                 : "Tip: death returns you to the canto entrance with brief invulnerability",
               "info"
             );

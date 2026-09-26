@@ -98,7 +98,7 @@ const AVARICE_HUNT: [number, number][] = [
   [88, 55],
   [104, 52],
   [118, 51],
-  [130, 50],
+  [133, 49.5],
   [138, 48],
 ];
 
@@ -796,7 +796,10 @@ export function buildGround(
 
       // The processions' worn tracks + scarred clash rings (the weights themselves roll
       // in cantoMech/avarice.ts)
-      buildAvariceTracks(group, heightAt, mats.bronze, compact, mats.gold);
+      // (the tracks' east ends climb onto the dais: drape them over its plinth)
+      const onDais = (x: number, z: number) =>
+        Math.max(heightAt(x, z), daisTopAt(cantoId, hy, daisPos.x, daisPos.z, x, z));
+      buildAvariceTracks(group, onDais, mats.bronze, compact, mats.gold);
 
       // Restrained gold haze (Lust-soften parity — keep slash readable)
       const hazeN = compact ? 1 : 2;

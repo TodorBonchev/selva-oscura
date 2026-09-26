@@ -21,7 +21,7 @@ export const PROC = {
   /** West clash — the road where it enters the ring. */
   W: { x: 40, y: 57 },
   /** East clash — the road just before Plutus's dais. */
-  E: { x: 130, y: 50 },
+  E: { x: 133, y: 49.5 },
   /** How far each arc bulges off the W–E chord (lens half-thickness). */
   SAG: 13,
   /** Weights per arc. */

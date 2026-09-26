@@ -77,6 +77,7 @@ class AvariceView {
   private colUntil = 0;
   private colStart = 0;
   private colDur = 4000;
+  private fallMs = 600;
   private tilted = false;
   private shield: THREE.Mesh;
   private shieldMat: THREE.MeshBasicMaterial;
@@ -204,6 +205,7 @@ class AvariceView {
       }
       case "ava_collapse": {
         this.colDur = Number(msg.dur) || 4000;
+        this.fallMs = Math.max(250, Number(msg.fall) || 600);
         this.colStart = now;
         this.colUntil = now + this.colDur;
         this.inf = 0;
@@ -278,7 +280,8 @@ class AvariceView {
       let sy = sxz;
       if (collapsed) {
         const e = nowMs - this.colStart;
-        const k = Math.min(easeOut(e / 380), smooth((this.colUntil - nowMs) / 650));
+        // (he topples over the fall telegraph's fill, landing as it does)
+        const k = Math.min(easeOut(e / this.fallMs), smooth((this.colUntil - nowMs) / 650));
         sy *= 1 - 0.42 * k;
         sxz *= 1 + 0.24 * k;
         g.rotation.x = 0.2 * k;
@@ -294,7 +297,8 @@ class AvariceView {
       this.shield.visible = show;
       if (show) {
         const p = g.position;
-        const r = 2.5 + 0.42 * this.infView;
+        // (= the server's hoard-pulse radius: 2.3 + 0.45 per coin)
+        const r = 2.3 + 0.45 * this.infView;
         this.shield.position.set(p.x, app.surfaceY(p.x, p.z, 0.14), p.z);
         this.shield.scale.set(r, r, 1);
         this.shield.rotation.z = app.animT * 0.0011;
@@ -375,7 +379,10 @@ class AvariceView {
       t.label = "Plutus";
       const dBoss = Math.hypot(plutus.x - you.x, plutus.y - you.y);
       const bellReady = (Number(me.bellCd) || 0) <= 0.4;
-      if (nowMs < this.colUntil) {
+      if (nowMs < this.colStart + this.fallMs + 120) {
+        obj.text = "He falls toward the bell — step out from under him!";
+        obj.sub = "Then strike — double damage while he lies collapsed";
+      } else if (nowMs < this.colUntil) {
         obj.text = "Plutus has fallen — strike now!";
         obj.sub = "Double damage while he lies collapsed";
       } else if (this.inf >= 2 && bell && dBoss < 30) {

@@ -6,7 +6,7 @@
 
 export const PROC = {
   W: { x: 40, y: 57 },
-  E: { x: 130, y: 50 },
+  E: { x: 133, y: 49.5 },
   SAG: 13,
   N: 5,
   T: 8,

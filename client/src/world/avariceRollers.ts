@@ -164,7 +164,8 @@ export class AvariceRollers {
       const w = ws[i]!;
       this.e.set(w.spin, Math.atan2(w.tx, w.ty), 0);
       this.q.setFromEuler(this.e);
-      this.p.set(w.x, this.host.heightAt(w.x, w.y) + PROC.R * 0.97, w.y);
+      // (the last run climbs onto Plutus's dais: sit on what is drawn there)
+      this.p.set(w.x, this.host.surfaceY(w.x, w.y) + PROC.R * 0.97, w.y);
       m.compose(this.p, this.q, this.s);
       this.mesh.setMatrixAt(i, m);
     }

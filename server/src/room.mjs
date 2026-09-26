@@ -113,7 +113,7 @@ const MOB_DMG = {
   mud_wisp: 6,
   mire_warden: 12,
   mire_champion: 13,
-  weight_shade: 9,
+  weight_shade: 8,
   coin_wisp: 6,
   ledger_warden: 13,
   weight_champion: 13,
@@ -124,7 +124,7 @@ const MOB_DMG = {
 const CANTO_TIER = {
   inferno_05: { hp: 1.0, dmg: 1.0 },
   inferno_06: { hp: 1.1, dmg: 1.15 },
-  inferno_07: { hp: 1.2, dmg: 1.3 },
+  inferno_07: { hp: 1.15, dmg: 1.15 },
 };
 function tierOf(cantoId) {
   return CANTO_TIER[cantoId] || { hp: 1, dmg: 1 };
@@ -134,7 +134,7 @@ function tierOf(cantoId) {
 const BOSS_HP = {
   minos_gate: 520,
   triple_maw: 680,
-  hoard_crush: 1500,
+  hoard_crush: 1400,
 };
 
 /**
@@ -1337,10 +1337,10 @@ class CantoRoom {
               "Guide: Measure holds — east Lust for the Judge again, or back through Gluttony into Avarice. Claim the writ, bank weighed drops at the stash, then choose your road.";
           } else if (clears.includes("inferno_07")) {
             guideLine =
-              "Guide: Hoard Crush is broken — peso e contrapeso yields. Claim the daily writ, bank weighed drops at the stash, or hunt Lust / Gluttony / Avarice again.";
+              "Guide: Plutus is broken — the weights roll on without him. Claim the daily writ, bank weighed drops at the stash, or hunt Lust / Gluttony / Avarice again.";
           } else if (clears.includes("inferno_06")) {
             guideLine =
-              "Guide: Triple Maw is broken — Avarice (peso e contrapeso) waits past the Maw. Ring the Ledger Bell, tip the Counterweight, break Hoard Crush. Return for the writ, stash, and Auction House.";
+              "Guide: Triple Maw is broken — Avarice (peso e contrapeso) waits past the Maw. Cross between the weights' clashes, tip the Counterweight, break Plutus with the Ledger Bell. Return for the writ, stash, and Auction House.";
           } else if (clears.includes("inferno_05")) {
             guideLine =
               "Guide: Lust is clear — Gluttony (piova etterna) opens past the Judge's dais. Clear the mire, then the Triple Maw; after the Maw, Avarice. Return for the writ, stash, and Auction House.";
