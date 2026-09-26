@@ -713,7 +713,7 @@ function hapticLight(pattern: number | number[] = 10) {
 }
 
 /** Distinct patterns: soak (soft double), slam (heavy thud), mana deny (stutter). */
-export type HapticKind = "tap" | "soak" | "slam" | "mana" | "ready" | "portal" | "sticky";
+export type HapticKind = "tap" | "soak" | "slam" | "mana" | "ready" | "portal" | "sticky" | "kill" | "heavy" | "hurt";
 function haptic(kind: HapticKind = "tap") {
   switch (kind) {
     case "soak":
@@ -740,9 +740,26 @@ function haptic(kind: HapticKind = "tap") {
       // Soft triple micro-pulse — sticky retarget / threat cycle (distinct from interact-ready)
       hapticLight([5, 22, 5, 22, 8]);
       break;
+    case "kill":
+      // Firm tick + short tail — a foe falls to your blow
+      hapticLight([18, 30, 8]);
+      break;
+    case "heavy":
+      // One solid knock — your finisher / a heavy blow lands
+      hapticLight(22);
+      break;
+    case "hurt":
+      // Short dull buzz — a blow lands on you
+      hapticLight(14);
+      break;
     default:
       hapticLight(10);
   }
+}
+
+/** Combat haptics (phones): a kill, a heavy blow of yours, a blow on you. */
+export function hapticCombat(kind: "kill" | "heavy" | "hurt") {
+  haptic(kind);
 }
 
 /** Light haptic when Interact becomes ready (no-op if vibrate unavailable). */

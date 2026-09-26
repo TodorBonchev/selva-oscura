@@ -221,18 +221,11 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = fa
   );
   rib.position.set(0, 1.15, 0.04);
   rib.rotation.x = 0.4;
-  const armL = new THREE.Mesh(geo("shadeArm", () => new THREE.CylinderGeometry(0.02, 0.045, 0.85, 6)), wraith);
-  armL.position.set(-0.38, 1.15, -0.15);
-  armL.rotation.z = 0.55;
-  armL.rotation.x = 0.35;
-  const armR = armL.clone();
-  armR.position.x = 0.38;
-  armR.rotation.z = -0.55;
-  const clawL = new THREE.Mesh(geo("shadeClaw", () => new THREE.ConeGeometry(0.04, 0.18, 5)), mats.bone);
-  clawL.position.set(-0.62, 0.72, -0.32);
-  clawL.rotation.x = 0.9;
-  const clawR = clawL.clone();
-  clawR.position.x = 0.62;
+  // Arms hang from shoulder pivots (mobAnim raises and rakes them); claw at the hand
+  const armGeo = geo("shadeArm", () => new THREE.CylinderGeometry(0.02, 0.045, 0.85, 6));
+  const clawGeo = geo("shadeClaw", () => new THREE.ConeGeometry(0.04, 0.18, 5));
+  const armL = shadeArm(-1, armGeo, wraith, clawGeo, mats.bone);
+  const armR = shadeArm(1, armGeo, wraith, clawGeo, mats.bone);
   const ribbon = new THREE.Mesh(
     cheapPlume
       ? geo("shadeRibbonT", () => new THREE.TorusGeometry(0.48, 0.045, 6, 16))
@@ -257,8 +250,6 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = fa
     rib,
     armL,
     armR,
-    clawL,
-    clawR,
     ribbon,
     ribbon2,
     nose(mats, 1.68, -0.22)
@@ -266,6 +257,35 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = fa
   g.scale.setScalar(scale);
   shadow(g);
   return g;
+}
+
+/**
+ * A shade arm on a shoulder pivot ("armPivotL/R"): the sleeve hangs down from the
+ * pivot, the claw (optional) at its end. Rest pose: hands forward and a little out.
+ */
+function shadeArm(
+  side: -1 | 1,
+  armGeo: THREE.BufferGeometry,
+  armMat: THREE.Material,
+  clawGeo: THREE.BufferGeometry | null,
+  clawMat: THREE.Material | null,
+  shoulderX = 0.24,
+  len = 0.85
+): THREE.Group {
+  const pivot = new THREE.Group();
+  pivot.name = side < 0 ? "armPivotL" : "armPivotR";
+  pivot.position.set(shoulderX * side, 1.42, -0.04);
+  pivot.rotation.set(0.45, 0, 0.35 * side);
+  const arm = new THREE.Mesh(armGeo, armMat);
+  arm.position.y = -len / 2;
+  pivot.add(arm);
+  if (clawGeo && clawMat) {
+    const claw = new THREE.Mesh(clawGeo, clawMat);
+    claw.position.y = -len - 0.06;
+    claw.rotation.x = Math.PI;
+    pivot.add(claw);
+  }
+  return pivot;
 }
 
 export function makeWhirlShade(mats: MatKit): THREE.Group {
@@ -726,13 +746,9 @@ function makeWeightShadeBody(mats: MatKit, scale: number, goldTrim: boolean): TH
   const hang = new THREE.Mesh(geo("weightHang", () => new THREE.CylinderGeometry(0.12, 0.14, 0.28, 8)), mats.bronze);
   hang.position.set(0.42, 0.55, -0.05);
   hang.name = "weightDisc";
-  const armL = new THREE.Mesh(geo("weightArm", () => new THREE.CylinderGeometry(0.025, 0.05, 0.9, 6)), hide);
-  armL.position.set(-0.42, 1.12, -0.12);
-  armL.rotation.z = 0.62;
-  armL.rotation.x = 0.32;
-  const armR = armL.clone();
-  armR.position.x = 0.42;
-  armR.rotation.z = -0.62;
+  const armGeo = geo("weightArm", () => new THREE.CylinderGeometry(0.025, 0.05, 0.9, 6));
+  const armL = shadeArm(-1, armGeo, hide, null, null, 0.3, 0.9);
+  const armR = shadeArm(1, armGeo, hide, null, null, 0.3, 0.9);
   const ribbon = new THREE.Mesh(geo("weightRibbon", () => new THREE.TorusGeometry(0.52, 0.048, 5, 14)), mats.gold);
   ribbon.position.y = 0.95;
   ribbon.name = "ribbon";

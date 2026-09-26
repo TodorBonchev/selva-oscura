@@ -140,6 +140,8 @@ export function tickTripleMaw(root: THREE.Object3D, tMs: number) {
       mesh.material.opacity = 0.2 + Math.sin(tMs * 0.003) * 0.06;
     }
   }
+  // Rigged Maw (mobAnim.ts): heads and jaws are posed there (idle + bite windup)
+  if (root.userData.mob) return;
   for (let hi = 0; hi < cache.heads.length; hi++) {
     const o = cache.heads[hi]!;
     const phase = hi * 1.7;

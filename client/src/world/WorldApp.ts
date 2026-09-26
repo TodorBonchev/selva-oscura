@@ -46,12 +46,13 @@ import {
   pulseAbyssChroma,
   pulseRiftShear,
   pulseHorizonFold,
+  hapticCombat,
 } from "../ui/hud";
 import { flushStaleToasts, showCantoCard } from "../ui/toasts";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
 import {
-  SmoothStore,
+  InterpStore,
   MOVE_SEND_MS,
   CAM_LERP_MOBILE,
   CAM_LERP_DESKTOP,
@@ -92,13 +93,11 @@ import {
   AshField,
   makeBolt,
   makeBurst,
-  disposeObject3D,
   makeDustPuff,
   makeHitFlash,
   makeImpactRing,
   makeLootBeam,
   makePortalHoldFx,
-  makeSlamTelegraph,
   makeTelegraph,
   makeWardRing,
   placeBolt,
@@ -111,12 +110,10 @@ import {
   spawnSludgeSplash,
   tickImpact,
   tickPortalHoldFx,
-  tickSlamTelegraph,
   tickSparks,
   type Bolt,
   type ImpactRing,
   type PortalHoldFx,
-  type SlamTele,
   type SparkBurst,
 } from "./fx";
 import { tickCounterweight, tickHoardHeart, tickHumanoid, tickHoardCrush, tickLedgerWarden, tickTripleMaw, tickWhirl } from "./anim";
@@ -141,6 +138,11 @@ import { Guidance } from "./guidance";
 import { PointerInput } from "./pointerInput";
 import { PickupFx } from "./pickupFx";
 import { forwardGate, gateState, gateTitle, lockReason, visibleGates } from "./gates";
+import { CombatView, isMobKind } from "./combatView";
+import type { TelegraphLand, TelegraphMsg } from "./telegraphs";
+import { PlayerForces } from "./forces";
+import { mechFor, type CantoMech, type MoveFeelOut } from "./cantoMech";
+import { bodyRadius } from "./mobBodies";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 
 type RoomSnap = any;
@@ -327,8 +329,6 @@ export class WorldApp {
   /** Throttled UTC day string for the radar's daily-writ check (no Date per frame). */
   utcDay = "";
   utcDayAt = 0;
-  _targets = new Map<string, Vec2>();
-  _targetPool: Vec2[] = [];
   lastInvSig = "";
   prewarmPending = false;
   _packCounts = new Map<string, number>();
@@ -366,7 +366,26 @@ export class WorldApp {
   serverYou: Vec2 = { x: 0, y: 0 };
   renderYou: Vec2 = { x: 0, y: 0 };
   predicting = false;
-  remoteSmooth = new SmoothStore();
+  /** Mobs + remote pilgrims: snapshot interpolation on the server clock (smoothing.ts). */
+  interp = new InterpStore();
+  /** Telegraphs, mob poses/flinch/death, hit flashes, combat numbers (combatView.ts). */
+  combat: CombatView | null = null;
+  /** Shoves / slow / root on the local pilgrim's prediction (forces.ts). */
+  forces = new PlayerForces();
+  /** Current canto's mechanic hooks (cantoMech/). */
+  mech: CantoMech = mechFor(null);
+  /** This frame's canto move feel (mech.moveFeel fills it once per frame). */
+  moveFeel: MoveFeelOut = { speedMul: 1, accelMul: 1, driftX: 0, driftY: 0 };
+  _fv: Vec2 = { x: 0, y: 0 };
+  /** Canvas CSS size (resize()), for screen-space overlays without a layout read. */
+  viewW = 1;
+  viewH = 1;
+  /** performance.now() of the last death (no heal number for the respawn refill). */
+  lastDeathAt = -1e9;
+  /** Smooth directional camera shake: phase clock + the hit direction (planar). */
+  shakeT = 0;
+  shakeDirX = 1;
+  shakeDirY = 0;
   velX = 0;
   velY = 0;
   aimX = 1;
@@ -497,7 +516,6 @@ export class WorldApp {
   wardMesh: THREE.Mesh | null = null;
   bursts: { mesh: THREE.Mesh; start: number; dur: number; r: number }[] = [];
   teles: { mesh: THREE.Mesh; until: number; r: number }[] = [];
-  slams: SlamTele[] = [];
   sparks: SparkBurst[] = [];
   impacts: ImpactRing[] = [];
   hitStopUntil = 0;
@@ -668,6 +686,24 @@ export class WorldApp {
     }
     // Swing arcs, dash, death pose, blade trail and foot dust for your pilgrim
     this.heroMotor = new HeroMotor(this);
+    {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const app = this;
+      this.combat = new CombatView({
+        scene: this.scene,
+        camera: this.camera,
+        root: this.root,
+        interp: this.interp,
+        get renderYou() {
+          return app.renderYou;
+        },
+        nodes: this.nodes,
+        standY: (x, y, lift) => this.standY(x, y, lift),
+        cantoId: () => this.room?.cantoId,
+        disposeNode: (rec) => this.disposeNode(rec as NodeRec),
+        onTelegraphLand: (l) => this.onTelegraphLand(l),
+      });
+    }
     this.portalHoldFx = makePortalHoldFx();
     this.scene.add(this.portalHoldFx.group);
     this.pickupFx = new PickupFx(this.scene, isCompactUi());
@@ -880,7 +916,7 @@ export class WorldApp {
       const g = new THREE.Group();
       g.name = "fxWarm";
       g.visible = false;
-      g.add(makeSlamTelegraph("lust").group, makeImpactRing(0xffffff), makeDustPuff(), makeLootBeam(0xffffff));
+      g.add(makeImpactRing(0xffffff), makeDustPuff(), makeLootBeam(0xffffff));
       g.add(spawnSparks(0, 0, 0, 0xffffff, 0).points);
       g.add(makeBurst(this.mats));
       this.fxWarm = g;
@@ -951,6 +987,19 @@ export class WorldApp {
     this.combatUntil = Date.now() + 2800;
   }
 
+  /** Shake the camera along planar (dirX, dirY) — the way the blow travels. */
+  kickShake(amount: number, dirX = 0, dirY = 0) {
+    if (amount > this.camShake) {
+      this.camShake = amount;
+      this.shakeT = 0;
+    }
+    const l = Math.hypot(dirX, dirY);
+    if (l > 1e-4) {
+      this.shakeDirX = dirX / l;
+      this.shakeDirY = dirY / l;
+    }
+  }
+
   resize() {
     const vv = window.visualViewport;
     // Prefer the fixed #game-root box; fall back to visualViewport on compact
@@ -961,6 +1010,8 @@ export class WorldApp {
       w = Math.round(vv.width) || w;
       h = Math.round(vv.height) || h;
     }
+    this.viewW = w;
+    this.viewH = h;
     this.camera.fov = this.camFov();
     this.camera.far = isCompactUi() ? 170 : 240;
     this.camera.aspect = w / Math.max(1, h);
@@ -1157,7 +1208,8 @@ export class WorldApp {
   }
 
   entityRenderPos(e: { id: string; x: number; y: number }): Vec2 {
-    return this.remoteSmooth.pos(e.id, { x: e.x, y: e.y });
+    // (the entity itself is the fallback: no allocation; callers only read it)
+    return this.interp.pos(String(e.id), e);
   }
 
   clampToBounds(x: number, y: number): Vec2 {
@@ -1202,10 +1254,12 @@ export class WorldApp {
     // (the hero's combat clock runs on real frame time: no clamp, no hit-stop)
     this.frameRawDt = dt;
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
-    dt = Math.min(0.05, dt);
+    // Below 20fps the game no longer runs in slow motion: movement catches up in ≤50ms
+    // substeps (tick), bounded so one long stall can't spiral
+    dt = Math.min(0.25, dt);
     this.animT += dt * 1000;
     this.tick(dt);
-    this.draw(dt);
+    this.draw(Math.min(0.1, dt));
     this.frameRawDt = null;
   };
 
@@ -1251,44 +1305,37 @@ export class WorldApp {
     const ix = fwd.x * fx + right.x * sx;
     const iy = fwd.z * fx + right.z * sx;
     this.predicting = false;
+    // Canto mechanic: this frame's move feel (speed/accel multipliers, drift), then its tick
+    const mf = this.moveFeel;
+    mf.speedMul = 1;
+    mf.accelMul = 1;
+    mf.driftX = 0;
+    mf.driftY = 0;
+    this.mech.moveFeel?.(this, mf);
+    this.mech.tick?.(this, dt);
 
     // Hold-to-attack: swing the moment the last one ends, re-targeting live foes
     if (this.attackHeld && this.heroMotor?.canSwing()) this.attackNearest({ silent: true });
-    // Dash tween / death collapse pin the hero: no steering or move packets meanwhile
-    const pinned = this.heroMotor ? this.heroMotor.pinnedPos(this._pin) : null;
-    if (pinned) {
-      /* held by the motor */
-    } else if (ix !== 0 || iy !== 0) this.applyContinuousMove(ix, iy, dt);
-    else if (this.moveTarget) this.advanceTapMove(dt);
-    else this.integrateVelocity(dt, false);
+    for (let rem = dt; rem > 1e-6; ) {
+      const h = Math.min(0.05, rem);
+      rem -= h;
+      // Dash tween / death collapse pin the hero: no steering or move packets meanwhile
+      const pinned = this.heroMotor ? this.heroMotor.pinnedPos(this._pin) : null;
+      if (pinned) {
+        /* held by the motor */
+      } else if (ix !== 0 || iy !== 0) this.applyContinuousMove(ix, iy, h);
+      else if (this.moveTarget) this.advanceTapMove(h);
+      else this.integrateVelocity(h, false);
 
-    this.renderYou = reconcileLocal(this.renderYou, this.serverYou, dt, this.predicting, {
-      x: this.velX,
-      y: this.velY,
-    });
-    if (pinned) this.renderYou = { x: pinned.x, y: pinned.y };
+      this.renderYou = reconcileLocal(this.renderYou, this.serverYou, h, this.predicting, {
+        x: this.velX,
+        y: this.velY,
+      });
+      if (pinned) this.renderYou = { x: pinned.x, y: pinned.y };
+    }
 
-    // Reused map + target points (SmoothStore.tick reads them, never keeps them)
-    const targets = this._targets;
-    const pool = this._targetPool;
-    targets.clear();
-    let k = 0;
-    for (const e of this.room.entities) {
-      const t = pool[k] || (pool[k] = { x: 0, y: 0 });
-      k++;
-      t.x = e.x;
-      t.y = e.y;
-      targets.set(e.id, t);
-    }
-    for (const pl of this.room.players) {
-      if (pl.id === this.room.you.id) continue;
-      const t = pool[k] || (pool[k] = { x: 0, y: 0 });
-      k++;
-      t.x = pl.x;
-      t.y = pl.y;
-      targets.set(`pl:${pl.id}`, t);
-    }
-    this.remoteSmooth.tick(targets, dt);
+    // Mobs + remote pilgrims: interpolated ~one snapshot behind the server clock
+    this.interp.update(performance.now());
 
     this.autoPickupScan();
     this.pointer?.tick();
@@ -1354,6 +1401,11 @@ export class WorldApp {
     return { accel: MOVE_ACCEL * 1.12, maxSp: PREDICT_SPEED * 1.04, arrive: 0.55 };
   }
 
+  /** Speed multiplier from the canto mechanic's feel and any slow / root on you. */
+  externalSpeedMul(): number {
+    return this.moveFeel.speedMul * this.forces.speedMul(performance.now());
+  }
+
   applyContinuousMove(dx: number, dy: number, dtSec: number) {
     const len = Math.hypot(dx, dy);
     if (len > 0.001) {
@@ -1361,8 +1413,8 @@ export class WorldApp {
       const nx = dx / len;
       const ny = dy / len;
       const mag = Math.min(1, len);
-      const maxSp = feel.maxSp * Math.max(0.35, mag) * (this.heroMotor?.moveScale() ?? 1);
-      this.steerVelocity(nx, ny, feel.accel, maxSp, dtSec);
+      const maxSp = feel.maxSp * Math.max(0.35, mag) * (this.heroMotor?.moveScale() ?? 1) * this.externalSpeedMul();
+      this.steerVelocity(nx, ny, feel.accel * this.moveFeel.accelMul, maxSp, dtSec);
       if (mag > 0.2) {
         this.aimX = nx;
         this.aimY = ny;
@@ -1412,8 +1464,8 @@ export class WorldApp {
     }
     // Near target: cap speed so click doesn't overshoot relative to WASD stride
     const nearMag = d < 2.2 ? Math.max(0.4, d / 2.2) : 1;
-    const maxSp = feel.maxSp * nearMag * (this.heroMotor?.moveScale() ?? 1);
-    this.steerVelocity(dx / d, dy / d, feel.accel, maxSp, dtSec);
+    const maxSp = feel.maxSp * nearMag * (this.heroMotor?.moveScale() ?? 1) * this.externalSpeedMul();
+    this.steerVelocity(dx / d, dy / d, feel.accel * this.moveFeel.accelMul, maxSp, dtSec);
     this.aimX = dx / d;
     this.aimY = dy / d;
     this.integrateVelocity(dtSec, true);
@@ -1453,14 +1505,39 @@ export class WorldApp {
         this.velY = (this.velY / sp) * cut;
       }
     }
+    const nowMs = performance.now();
+    if (this.forces.rooted(nowMs)) {
+      this.velX = 0;
+      this.velY = 0;
+    }
     // Root step into a sword cut (small, only with room to the target)
     const step = this.heroMotor ? this.heroMotor.stepVelocity(this._step) : this._step;
-    if (this.velX === 0 && this.velY === 0 && step.x === 0 && step.y === 0) {
+    // Shoves (server "shove") and the canto's drift ride on top of the walk
+    const f = this.forces.velocity(this._fv, nowMs);
+    const ex = step.x + f.x + this.moveFeel.driftX;
+    const ey = step.y + f.y + this.moveFeel.driftY;
+    if (this.velX === 0 && this.velY === 0 && ex === 0 && ey === 0) {
       if (!driven) this.predicting = false;
       return;
     }
-    const nx = this.renderYou.x + (this.velX + step.x) * dtSec;
-    const ny = this.renderYou.y + (this.velY + step.y) * dtSec;
+    let nx = this.renderYou.x + (this.velX + ex) * dtSec;
+    let ny = this.renderYou.y + (this.velY + ey) * dtSec;
+    // Bodies: slide around foes the way the server does (room.handleMove)
+    if (this.room) {
+      const canto = this.room.cantoId;
+      for (const e of this.room.entities) {
+        if ((e.kind !== "mob" && e.kind !== "boss") || !(e.hp > 0) || (Number(e.stunLeft) || 0) > 0.05) continue;
+        const p = this.entityRenderPos(e);
+        const rad = bodyRadius(e, canto);
+        const ox = nx - p.x;
+        const oy = ny - p.y;
+        if (Math.abs(ox) >= rad || Math.abs(oy) >= rad) continue;
+        const d = Math.hypot(ox, oy);
+        if (d >= rad || d < 0.001) continue;
+        nx = p.x + (ox / d) * rad;
+        ny = p.y + (oy / d) * rad;
+      }
+    }
     this.renderYou = this.clampToBounds(nx, ny);
     this.predicting = true;
     this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
@@ -1532,8 +1609,15 @@ export class WorldApp {
     const camFloor = this.standY(this.camera.position.x, this.camera.position.z, floorLift);
     this.camera.position.y = Math.max(this.camera.position.y, camFloor);
     if (this.camShake > 0.001) {
-      this.camera.position.x += (Math.random() - 0.5) * this.camShake;
-      this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.45;
+      // Smooth shake along the hit direction (a few detuned sines, not white noise)
+      this.shakeT += dt;
+      const a = this.camShake * 0.5;
+      const t = this.shakeT;
+      const along = Math.sin(t * 47) * 0.8 + Math.sin(t * 73 + 0.7) * 0.2;
+      const side = Math.sin(t * 31 + 1.9) * 0.35;
+      this.camera.position.x += (this.shakeDirX * along - this.shakeDirY * side) * a;
+      this.camera.position.z += (this.shakeDirY * along + this.shakeDirX * side) * a;
+      this.camera.position.y += Math.sin(t * 59 + 0.4) * a * 0.35;
       this.camShake *= Math.exp(-dt * 10);
     }
     const baseFov = this.camFov();
@@ -1590,6 +1674,8 @@ export class WorldApp {
     this.tickAtmosphere();
     this.fadeTreeOccluders();
     this.tickFx(dt);
+    // Telegraphs, flashes, ash, corpses, combat numbers (after the camera is placed)
+    this.combat?.tick(performance.now(), this.viewW, this.viewH);
     this.lightPool.update(this.camFollow, dt);
     this.renderFrame();
     // One finished frame: readers between frames (or mid-bench) never see a partial sum
@@ -1731,6 +1817,8 @@ export class WorldApp {
   tickFx(dt: number) {
     // Every list is compacted in place (write index + length): no per-frame arrays
     const t = this.animT;
+    const nowMs = performance.now();
+    const combat = this.combat;
     const bolts = this.bolts;
     let w = 0;
     for (let i = 0; i < bolts.length; i++) {
@@ -1799,19 +1887,6 @@ export class WorldApp {
       } else teles[w++] = tl;
     }
     teles.length = w;
-    // resolveSlam pushes impacts/sparks (already ticked above), never slams
-    const slams = this.slams;
-    w = 0;
-    for (let i = 0; i < slams.length; i++) {
-      const sl = slams[i];
-      tickSlamTelegraph(sl, t);
-      if (t >= sl.start + sl.dur) {
-        this.resolveSlam(sl);
-        this.scene.remove(sl.group);
-        disposeObject3D(sl.group);
-      } else slams[w++] = sl;
-    }
-    slams.length = w;
 
     for (const n of this.nodes.values()) {
       const fx = n.group.userData.fx as NodeFx;
@@ -2033,16 +2108,11 @@ export class WorldApp {
           }
         }
       }
-      const pulse = Number(n.group.userData.hitPulse) || 0;
-      if (pulse > 0.04) {
-        const base = Number(n.group.userData.baseScale) || 1;
-        const avaWeight = this.room?.cantoId === "inferno_07" && n.kind !== "player";
-        n.group.userData.hitPulse = pulse * (avaWeight ? 0.88 : 0.82);
-        n.group.scale.setScalar(base * (1 + n.group.userData.hitPulse * (avaWeight ? 0.1 : 0.08)));
-      } else if (pulse > 0) {
-        n.group.userData.hitPulse = 0;
-        const base = Number(n.group.userData.baseScale) || 1;
-        n.group.scale.setScalar(base);
+      // Foes: facing, lean, bob, attack windup/strike, flinch (after their idle anim above)
+      if (combat && isMobKind(n.kind)) {
+        const mx = n.group.position.x - this.camFollow.x;
+        const mz = n.group.position.z - this.camFollow.z;
+        combat.tickMob(n, dt, nowMs, mx * mx + mz * mz < 48 * 48);
       }
       const aura = fx.judgeAura;
       if (aura && this.frameN % 2 === 0) {
@@ -2135,10 +2205,7 @@ export class WorldApp {
       rec.seenAt = stamp;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
-      if (e.kind === "mob" || e.kind === "boss" || e.kind === "player") {
-        const you = this.youPos();
-        rec.group.rotation.y = yawFromPlanar(you.x - pos.x, you.y - pos.y);
-      }
+      // (foes face their travel / attack / melee target in combatView.tickMob)
       if (e.kind === "mob" && (e.champion || e.archetype === "weight_champion")) {
         rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
       }
@@ -2266,7 +2333,7 @@ export class WorldApp {
       let rec = this.nodes.get(id);
       if (!rec) rec = this.spawnNode(id, "player", { kind: "player", name: pl.name });
       rec.seenAt = stamp;
-      const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
+      const pos = this.interp.pos(id, pl);
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
       // Remote gait from the smoothed track: tickFx strides at this speed; the
       // body turns toward where they walk and keeps that heading when they stop
@@ -2443,6 +2510,8 @@ export class WorldApp {
       ring.visible = false;
       group.add(ring);
     }
+    // Foes get a posable body (lean/bob/attack/flinch/death) before the label goes on
+    this.combat?.rig(group, kind, e);
     if (kind === "portal") {
       const hubHome =
         this.room?.cantoId === "inferno_07" &&
@@ -2562,6 +2631,13 @@ export class WorldApp {
     return rec;
   }
 
+  /** Leave the old canto's mechanic, enter the new one's (after its ground is built). */
+  switchMech(cantoId: string) {
+    this.mech.exit?.(this);
+    this.mech = mechFor(cantoId);
+    this.mech.enter?.(this);
+  }
+
   /** Immediate wipe of entity meshes/labels (canto travel). */
   disposeAllNodes() {
     for (const rec of this.nodes.values()) this.disposeNode(rec);
@@ -2581,6 +2657,8 @@ export class WorldApp {
       this.spawnAvaPackDeathCoins(x, z);
     }
     this.scene.remove(rec.group);
+    // A hit-flash shell riding on this foe goes back to its pool first
+    this.combat?.release(rec.group);
     // Pilgrims / the Guide share geometry + materials; free only the bone texture
     if (rec.kind === "player" || rec.kind === "guide") {
       disposeHero(rec.group);
@@ -3055,6 +3133,7 @@ export class WorldApp {
     switch (msg.type) {
       case "snapshot": {
         const prevCanto = this.lastCantoId;
+        const prevYou = this.lastYouSnapshot;
         this.room = msg.room;
         updateStats(msg.room.you, msg.room.title, msg.room.subtitleIt || msg.room.subtitle_it);
         this.lastYouSnapshot = msg.room.you;
@@ -3078,7 +3157,9 @@ export class WorldApp {
             }
           }
           this.renderYou = { x: sx, y: sy };
-          this.remoteSmooth.clear();
+          this.interp.clear();
+          this.combat?.clear();
+          this.forces.clear();
           this.moveTarget = null;
           this.autoPickupSent.clear();
           this.lastHitFoe = null;
@@ -3088,6 +3169,7 @@ export class WorldApp {
           // if spawn throws mid-loop (HUD/title already updated from this snapshot).
           this.disposeAllNodes();
           this.rebuildGround();
+          this.switchMech(msg.room.cantoId);
           this.prewarmPending = true;
           this.camFollow.set(sx, this.standY(sx, sy), sy);
           this.cancelPortalHold();
@@ -3104,18 +3186,31 @@ export class WorldApp {
         } else if (this.ground && this.ground.cantoId !== msg.room.cantoId) {
           // Recover desync: title/you.cantoId moved but ground rebuild was skipped/raced.
           this.disposeAllNodes();
+          this.combat?.clear();
           this.rebuildGround();
+          this.switchMech(msg.room.cantoId);
           this.prewarmPending = true;
           this.camFollow.set(sx, this.standY(sx, sy), sy);
         }
-        const targets = new Map<string, Vec2>();
-        for (const e of msg.room.entities) targets.set(e.id, { x: e.x, y: e.y });
+        // Server-clock samples for interpolation (render runs ~one snapshot behind)
+        this.interp.beginSnapshot(Number(msg.room.st), performance.now());
+        for (const e of msg.room.entities) this.interp.push(String(e.id), e.x, e.y);
         for (const pl of msg.room.players) {
           if (pl.id === msg.room.you.id) continue;
-          targets.set(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+          this.interp.push(`pl:${pl.id}`, pl.x, pl.y);
         }
-        for (const [id, t] of targets) {
-          if (!this.remoteSmooth.get(id)) this.remoteSmooth.set(id, t);
+        this.interp.endSnapshot();
+        this.mech.onSnapshot?.(this, msg.room.mech);
+        // Flask / shrine / pyre: a green number when life comes back (not the respawn refill)
+        if (
+          prevYou &&
+          !first &&
+          !cantoChanged &&
+          performance.now() - this.lastDeathAt > 3000 &&
+          Number(msg.room.you.hp) - Number(prevYou.hp) >= 4
+        ) {
+          const gy = this.standY(this.renderYou.x, this.renderYou.y);
+          this.combat?.number(this.renderYou.x, gy + 2.3, this.renderYou.y, Number(msg.room.you.hp) - Number(prevYou.hp), "heal", "you+", performance.now());
         }
         const isHub = msg.room.role === "hub" || msg.room.cantoId === "inferno_01";
         // (hub arrival counsel rides the canto title card now)
@@ -3383,92 +3478,178 @@ export class WorldApp {
       case "spell_fx":
         this.onSpellFx(msg);
         break;
-      case "champ_telegraph": {
-        // Weight champions: short bone-gold raise — distinct from shade swipe + Crush slam
-        const x = Number(msg.x) || 0;
-        const y = Number(msg.y) || 0;
-        const radius = Number(msg.radius) || 2.35;
-        const dur = Number(msg.duration) || 0.6;
-        this.spawnJudgeSlam(x, y, radius, dur);
-        this.camPunch = Math.max(this.camPunch, 0.14);
-        this.camShake = Math.max(this.camShake, 0.06);
-        if (this.room?.cantoId === "inferno_07") {
-          document.body.classList.add("champ-windup");
-          window.setTimeout(
-            () => document.body.classList.remove("champ-windup"),
-            Math.max(280, dur * 1000)
-          );
-        }
+      case "telegraph":
+        this.onTelegraph(msg as TelegraphMsg);
         break;
-      }
-      case "boss_telegraph": {
-        const x = Number(msg.x) || 0;
-        const y = Number(msg.y) || 0;
-        const radius = Number(msg.radius) || 3.2;
-        const dur = Number(msg.duration) || 1.4;
-        const phase = Number(msg.phase) || 1;
-        this.spawnJudgeSlam(x, y, radius, dur);
-        this.flashDodge(dur);
-        if (this.room?.cantoId === "inferno_07") {
-          // Audio-free Crush windup: screen fringe + punch so mute players still tip the measure
-          document.body.classList.add("crush-windup");
-          window.setTimeout(
-            () => document.body.classList.remove("crush-windup"),
-            Math.max(420, dur * 1000)
-          );
-          this.camPunch = Math.max(this.camPunch, phase >= 2 ? 0.36 : 0.26);
-          this.camShake = Math.max(this.camShake, 0.12);
-          this.camFovKick = Math.max(this.camFovKick, phase >= 2 ? 1.6 : 1.05);
-          for (const n of this.nodes.values()) {
-            if (n.kind !== "hoard_crush") continue;
-            const tele = n.group.getObjectByName("mawTelegraph") as THREE.Mesh | undefined;
-            if (tele) {
-              const mat = tele.material as THREE.MeshBasicMaterial;
-              mat.opacity = Math.max(mat.opacity, 0.55);
-              tele.scale.setScalar(1.08);
-            }
-          }
-        }
+      case "telegraph_cancel":
+        this.combat?.onTelegraphCancel(String(msg.id), performance.now());
         break;
-      }
+      // Older servers: the slam messages, drawn as circle telegraphs
+      case "champ_telegraph":
+      case "boss_telegraph":
+        this.onTelegraph({
+          id: `legacy:${msg.id}:${Date.now()}`,
+          attackerId: msg.attackerId ?? msg.id,
+          shape: "circle",
+          x: Number(msg.x) || 0,
+          y: Number(msg.y) || 0,
+          radius: Number(msg.radius) || (msg.type === "boss_telegraph" ? 3.2 : 2.35),
+          duration: (Number(msg.duration) || (msg.type === "boss_telegraph" ? 1.4 : 0.6)) * 1000,
+          kind: msg.type === "boss_telegraph" ? "boss_slam" : "champ_slam",
+        });
+        break;
+      case "shove":
+        this.forces.shove(Number(msg.dx) || 0, Number(msg.dy) || 0, Number(msg.dur) || 220, performance.now());
+        break;
+      case "status":
+        this.forces.status(Number(msg.slow) || 1, Boolean(msg.root), Number(msg.dur) || 0, performance.now());
+        break;
       case "entity_removed": {
         const rid = String(msg.id);
-        const ent = this.room?.entities?.find((e: any) => e.id === rid);
+        const list = this.room?.entities;
+        const idx = Array.isArray(list) ? list.findIndex((e: any) => String(e.id) === rid) : -1;
+        const ent = idx >= 0 ? list[idx] : null;
         if (ent && (ent.kind === "mob" || ent.kind === "boss")) {
           const heavy = ent.kind === "boss";
-          this.camShake = Math.max(this.camShake, heavy ? 0.55 : 0.24);
-          this.camPunch = Math.max(this.camPunch, heavy ? 0.85 : 0.42);
-          this.camFovKick = Math.max(this.camFovKick, heavy ? 3.6 : 2.1);
           const pos = this.entityRenderPos(ent);
+          // Your kill (you hit it last) gets the full beat; someone else's, a far echo
+          const mine = this.lastHitFoe?.id === rid;
+          const near = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) < 16;
+          const k = mine ? 1 : near ? 0.4 : 0;
+          if (k > 0) {
+            this.kickShake((heavy ? 0.55 : 0.24) * k, pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+            this.camPunch = Math.max(this.camPunch, (heavy ? 0.85 : 0.42) * k);
+            this.camFovKick = Math.max(this.camFovKick, (heavy ? 3.6 : 2.1) * k);
+          }
           this.spawnHitFx(pos, heavy ? 0xffd078 : 0xff8844, heavy);
+          // Collapse instead of vanishing: the corpse leaves the live node map now and
+          // the entity list too (the next snapshot drops it anyway), so nothing respawns it
+          const rec = this.nodes.get(rid);
+          if (rec && this.combat?.startDeath(rec, this.renderYou.x, this.renderYou.y, performance.now())) {
+            this.nodes.delete(rid);
+          }
+          list.splice(idx, 1);
         }
         break;
+      }
+      default:
+        // A canto mechanic's own messages (cantoMech/*)
+        this.mech.onMessage?.(this, msg);
+    }
+  }
+
+  /** A foe (or a canto hazard) starts a windup: ground shape + attacker pose + cues. */
+  onTelegraph(msg: TelegraphMsg) {
+    const now = performance.now();
+    this.combat?.onTelegraph(msg, now);
+    const kind = String(msg.kind || "");
+    const dur = Math.max(0.1, (Number(msg.duration) || 500) / 1000);
+    if (kind === "boss_slam") {
+      const phase = Number(this.room?.entities?.find((e: any) => String(e.id) === String(msg.attackerId))?.phase) || 1;
+      this.flashDodge(dur);
+      this.camPunch = Math.max(this.camPunch, this.room?.cantoId === "inferno_07" ? 0.22 : 0.14);
+      if (this.room?.cantoId === "inferno_07") {
+        // Audio-free Crush windup: screen fringe + punch so mute players still tip the measure
+        document.body.classList.add("crush-windup");
+        window.setTimeout(() => document.body.classList.remove("crush-windup"), Math.max(420, dur * 1000));
+        this.camPunch = Math.max(this.camPunch, phase >= 2 ? 0.36 : 0.26);
+        this.camShake = Math.max(this.camShake, 0.12);
+        this.camFovKick = Math.max(this.camFovKick, phase >= 2 ? 1.6 : 1.05);
+        for (const n of this.nodes.values()) {
+          if (n.kind !== "hoard_crush") continue;
+          const tele = n.group.getObjectByName("mawTelegraph") as THREE.Mesh | undefined;
+          if (tele) {
+            const mat = tele.material as THREE.MeshBasicMaterial;
+            mat.opacity = Math.max(mat.opacity, 0.55);
+            tele.scale.setScalar(1.08);
+          }
+        }
+      }
+    } else if (kind === "champ_slam" || kind === "champ_cleave") {
+      this.camPunch = Math.max(this.camPunch, 0.14);
+      this.camShake = Math.max(this.camShake, 0.06);
+      if (this.room?.cantoId === "inferno_07") {
+        document.body.classList.add("champ-windup");
+        window.setTimeout(() => document.body.classList.remove("champ-windup"), Math.max(280, dur * 1000));
       }
     }
   }
 
+  /** A telegraph finished filling: slams crack the ground (the hit itself is the server's). */
+  onTelegraphLand(l: TelegraphLand) {
+    const slam = l.kind === "boss_slam" || l.kind === "champ_slam" || l.kind === "champ_cleave";
+    if (!slam) return;
+    const ava = this.room?.cantoId === "inferno_07";
+    const glut = this.room?.cantoId === "inferno_06";
+    const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
+    const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
+    const boss = l.kind === "boss_slam";
+    const lift = boss ? 0.4 : 0.08;
+    const r = l.shape === "cone" ? l.r * 0.6 : l.r;
+    // Boss slams throw a shock ring past the edge; a champion's just cracks its circle
+    if (boss) {
+      const shock = acquireFxRing(0.9, 1.08, 48, shockHex, 0.95);
+      setPlanar(shock.position, l.x, l.y, this.standY(l.x, l.y, lift));
+      this.scene.add(shock);
+      this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: r * 0.96, to: r * 1.55 });
+    }
+    const core = acquireFxRing(0.72, 1.0, 48, coreHex, boss ? 0.9 : 0.55);
+    setPlanar(core.position, l.x, l.y, this.standY(l.x, l.y, lift + 0.02));
+    this.scene.add(core);
+    this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: r * 0.2, to: r * 1.05 });
+    if (this.sparks.length < 3) {
+      const burst = spawnSparks(l.x, l.y, this.standY(l.x, l.y, 1.55), coreHex, this.animT);
+      burst.dur = 640;
+      this.scene.add(burst.points);
+      this.sparks.push(burst);
+    }
+    this.noteCombat();
+    this.hitLight.color.setHex(coreHex);
+    this.hitLight.intensity = ava ? 12 : 16;
+    setPlanar(this.hitLight.position, l.x, l.y, this.standY(l.x, l.y, 1.4));
+    const d = Math.hypot(this.renderYou.x - l.x, this.renderYou.y - l.y);
+    const k = l.kind === "boss_slam" ? 1 : 0.55;
+    const near = d < l.r + 8 ? 1 : 0.35;
+    this.kickShake(0.5 * k * near, this.renderYou.x - l.x, this.renderYou.y - l.y);
+    this.camPunch = Math.max(this.camPunch, 0.78 * k * near);
+    this.camFovKick = Math.max(this.camFovKick, 3.4 * k * near);
+    // Just outside the ring: the gold "safe" rim (a hit reads from the server's blow)
+    if (l.shape === "circle" && d > l.r && d <= l.r + 1.25) flashSlamSafeRim();
+  }
+
   onCombat(msg: any) {
+    const now = performance.now();
     const tid = String(msg.targetId ?? "");
     const youId = this.room?.you?.id != null ? String(this.room.you.id) : "";
     const sockId = this.socket.playerId != null ? String(this.socket.playerId) : "";
     const hitSelf = Boolean(tid) && (tid === youId || tid === sockId);
     this.remoteHeroCombatPose(msg, tid);
+    const heroY = this.standY(this.renderYou.x, this.renderYou.y);
     if (hitSelf) {
+      const src = msg.attackerId != null ? this.room?.entities?.find((e: any) => String(e.id) === String(msg.attackerId)) : null;
+      const sp = src ? this.entityRenderPos(src) : null;
+      const awayX = sp ? this.renderYou.x - sp.x : -this.aimX;
+      const awayY = sp ? this.renderYou.y - sp.y : -this.aimY;
       // Crush/champ slam resolved while dashed/respawn-iframed — gold safe rim, not a sting
       if (msg.iframeBlocked) {
         flashSlamSafeRim();
         this.camPunch = Math.max(this.camPunch, 0.18);
-        this.camShake = Math.max(this.camShake, 0.08);
+        this.kickShake(0.08, awayX, awayY);
+        this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, 0, "block", "you", now);
         return;
       }
-      this.camShake = Math.max(this.camShake, 0.38);
+      const slam = msg.teleKind === "boss_slam" || msg.teleKind === "champ_slam" || msg.teleKind === "champ_cleave" || msg.champTele;
+      this.kickShake(slam ? 0.5 : 0.38, awayX, awayY);
       this.camPunch = Math.max(this.camPunch, 0.58);
       this.camFovKick = Math.min(this.camFovKick, -3.2);
-      this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.38);
-      this.hitStopUntil = performance.now() + HIT_STOP_MS + 20;
+      // (a red edge, not a white-out: the number and the flinch carry the blow)
+      this.hitFlashAmt = Math.max(this.hitFlashAmt, slam ? 0.24 : 0.14);
+      this.hitStopUntil = now + HIT_STOP_MS + 20;
       this.heroFlinchFrom(String(msg.attackerId ?? ""));
       this.spawnHitFx(this.renderYou, 0xff6644, true);
-      this.floatDmg(this.renderYou, msg.damage, true);
+      this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, msg.damage, "self", "you", now);
+      if (slam) flashSlamSting();
+      else hapticCombat("hurt");
       const soaked = Number(msg.soaked) || 0;
       if (soaked > 0 && msg.wardActive) flashWardSoak();
       if (msg.targetHp != null && msg.targetHp <= 0) this.triggerDeathRevive();
@@ -3493,33 +3674,31 @@ export class WorldApp {
       if (isComboRiftShearMax(streak)) pulseRiftShear(true);
       if (isComboHorizonFold(streak)) pulseHorizonFold();
     }
-    if (ent) {
-      const heavy = ent.kind === "boss";
-      const ava = this.room?.cantoId === "inferno_07";
-      const weightHit =
-        ava &&
-        (String(ent.archetype || "").startsWith("weight_") ||
-          ent.archetype === "ledger_warden" ||
-          ent.archetype === "hoard_heart" ||
-          ent.archetype === "coin_wisp");
-      this.camShake = Math.max(this.camShake, 0.2 + comboBoost + (weightHit ? 0.04 : 0));
-      this.camPunch = Math.max(
-        this.camPunch,
-        (weHit ? 0.36 : 0.22) + comboBoost + (heavy ? 0.2 : 0) + (weightHit ? 0.08 : 0)
-      );
-      this.camFovKick = Math.max(this.camFovKick, (weHit ? 2.4 : 1.2) + comboBoost * 4);
-      if (weHit) this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.16 + comboBoost);
-      // Weight packs: slightly longer iron hit-stop (Gluttony Cerbero parity feel)
-      const stopMs = HIT_STOP_MS + (weightHit && (ent.champion || heavy) ? 22 : weightHit ? 10 : 0);
-      this.hitStopUntil = performance.now() + stopMs;
-      const pos = this.entityRenderPos(ent);
-      this.floatDmg(pos, msg.damage, false);
-      const rec = this.nodes.get(String(ent.id));
-      if (rec) {
-        const base = Number(rec.group.userData.baseScale) || rec.group.scale.x || 1;
-        rec.group.userData.baseScale = base;
-        rec.group.userData.hitPulse = weightHit ? 1.25 : 1;
-        rec.group.scale.setScalar(base * (heavy ? 1.1 : weightHit ? 1.09 : 1.06));
+    if (!ent) return;
+    const heavy = ent.kind === "boss";
+    const spell = String(msg.spellId || "");
+    const pos = this.entityRenderPos(ent);
+    const rec = this.nodes.get(String(ent.id));
+    // Our own swing already sparked, flinched and hit-stopped on the blade's frame
+    // (onSwingContact): the server's message only brings the number
+    const predicted = weHit && !spell && Boolean(this.combat?.consumePrediction(tid, now));
+    const ava = this.room?.cantoId === "inferno_07";
+    const weightHit =
+      ava &&
+      (String(ent.archetype || "").startsWith("weight_") ||
+        ent.archetype === "ledger_warden" ||
+        ent.archetype === "hoard_heart" ||
+        ent.archetype === "coin_wisp");
+    if (!predicted) {
+      if (weHit) {
+        // Your blow: camera punch + hit-stop (someone else's never freezes your screen)
+        this.kickShake(0.2 + comboBoost + (weightHit ? 0.04 : 0), pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+        this.camPunch = Math.max(this.camPunch, 0.36 + comboBoost + (heavy ? 0.2 : 0) + (weightHit ? 0.08 : 0));
+        this.camFovKick = Math.max(this.camFovKick, 2.4 + comboBoost * 4);
+        this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.08 + comboBoost);
+        // Weight packs: slightly longer iron hit-stop (Gluttony Cerbero parity feel)
+        const stopMs = HIT_STOP_MS + (weightHit && (ent.champion || heavy) ? 22 : weightHit ? 10 : 0) + (msg.heavy ? 24 : 0);
+        this.hitStopUntil = now + stopMs;
       }
       const dustElite =
         ava &&
@@ -3529,9 +3708,50 @@ export class WorldApp {
           /^counterweight$/i.test(String(ent.name || "")) ||
           // Regular weights: light coin dust every other hit for measure read
           (ent.archetype === "weight_shade" && (this.frameN & 1) === 0));
-      this.spawnHitFx(pos, heavy ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, heavy || comboBoost > 0.2, dustElite);
+      this.spawnHitFx(pos, heavy ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, heavy || comboBoost > 0.2 || Boolean(msg.heavy), dustElite);
+      if (rec && this.combat) {
+        // flinch away from whoever struck (the burst / heart: from its centre)
+        const from = this.attackerPos(attacker, pos);
+        this.combat.hitMob(rec, from.x, from.y, Boolean(msg.heavy), now);
+      }
+    } else if (comboBoost > 0) {
+      this.camPunch = Math.max(this.camPunch, 0.36 + comboBoost);
+      this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.16 + comboBoost);
+    }
+    const style =
+      spell === "dash"
+        ? "dash"
+        : spell
+          ? "spell"
+          : msg.heavy
+            ? "heavy"
+            : weHit
+              ? "melee"
+              : "other";
+    const gy = this.standY(pos.x, pos.y);
+    const h = rec ? Number((rec.group.userData.mob as { height?: number } | undefined)?.height) || 2 : 2;
+    this.combat?.number(pos.x, gy + Math.min(5.6, h + 0.3), pos.y, msg.damage, weHit || style === "other" ? style : "other", tid, now);
+    if (weHit) {
+      if (msg.targetHp != null && Number(msg.targetHp) <= 0) hapticCombat("kill");
+      else if (msg.heavy && !spell) hapticCombat("heavy");
     }
   }
+
+  /** Planar position of a combat message's attacker (a pilgrim, you, or a foe). */
+  attackerPos(attackerId: string, fallback: Vec2): Vec2 {
+    if (!attackerId) return fallback;
+    const youId = this.room?.you?.id != null ? String(this.room.you.id) : "";
+    if (attackerId === youId || attackerId === String(this.socket.playerId ?? "")) return this.renderYou;
+    const pl = this.nodes.get(`pl:${attackerId}`);
+    if (pl) {
+      this._atkPos.x = pl.group.position.x;
+      this._atkPos.y = pl.group.position.z;
+      return this._atkPos;
+    }
+    const e = this.room?.entities?.find((x: any) => String(x.id) === attackerId);
+    return e ? this.entityRenderPos(e) : fallback;
+  }
+  _atkPos: Vec2 = { x: 0, y: 0 };
 
   /** Your pilgrim recoils away from whoever struck (the aim side when unknown). */
   heroFlinchFrom(attackerId: string) {
@@ -3570,63 +3790,6 @@ export class WorldApp {
       const g = hurt.group;
       if (p) humanoidFlinch(g, p.x - g.position.x, p.y - g.position.z, this.animT);
     }
-  }
-
-  spawnJudgeSlam(x: number, y: number, radius = 3.2, durationSec = 1.4) {
-    const pal =
-      this.room?.cantoId === "inferno_07"
-        ? "avarice"
-        : this.room?.cantoId === "inferno_06"
-          ? "gluttony"
-          : "lust";
-    const built = makeSlamTelegraph(pal);
-    // Sit above the Lust dais (top ~0.34) so the disc isn't buried in stone.
-    setPlanar(built.group.position, x, y, this.standY(x, y, 0.38));
-    built.group.scale.setScalar(Math.max(0.6, radius));
-    this.scene.add(built.group);
-    this.slams.push({
-      ...built,
-      x,
-      y,
-      r: radius,
-      start: this.animT,
-      dur: Math.max(0.2, durationSec) * 1000,
-    });
-    this.camPunch = Math.max(this.camPunch, pal === "avarice" ? 0.22 : 0.14);
-    if (pal === "avarice") built.group.scale.setScalar(Math.max(0.7, radius) * 1.06);
-  }
-
-  resolveSlam(s: SlamTele) {
-    const pal = s.group.userData.slamPalette as string | undefined;
-    const ava = pal === "avarice";
-    const glut = pal === "gluttony";
-    const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
-    const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
-    const sparkHex = coreHex;
-    const shock = acquireFxRing(0.9, 1.08, 48, shockHex, 0.95);
-    setPlanar(shock.position, s.x, s.y, this.standY(s.x, s.y, 0.4));
-    this.scene.add(shock);
-    this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: s.r * 0.96, to: s.r * 1.55 });
-    const core = acquireFxRing(0.72, 1.0, 48, coreHex, 0.9);
-    setPlanar(core.position, s.x, s.y, this.standY(s.x, s.y, 0.42));
-    this.scene.add(core);
-    this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: s.r * 0.2, to: s.r * 1.05 });
-    if (this.sparks.length < 3) {
-      const burst = spawnSparks(s.x, s.y, this.standY(s.x, s.y, 1.55), sparkHex, this.animT);
-      burst.dur = 640;
-      this.scene.add(burst.points);
-      this.sparks.push(burst);
-    }
-    this.noteCombat();
-    this.hitLight.color.setHex(coreHex);
-    this.hitLight.intensity = ava ? 12 : 16;
-    setPlanar(this.hitLight.position, s.x, s.y, this.standY(s.x, s.y, 1.4));
-    this.camShake = Math.max(this.camShake, 0.5);
-    this.camPunch = Math.max(this.camPunch, 0.78);
-    this.camFovKick = Math.max(this.camFovKick, 3.4);
-    const d = Math.hypot(this.renderYou.x - s.x, this.renderYou.y - s.y);
-    if (d <= s.r + 0.2) flashSlamSting();
-    else if (d <= s.r + 1.25) flashSlamSafeRim();
   }
 
   spawnHitFx(pos: Vec2, color: number, heavy = false, dustElite = false) {
@@ -3689,12 +3852,18 @@ export class WorldApp {
       this.scene.add(bolt.mesh);
       this.bolts.push(bolt);
     } else if (id === "whirl_ward") {
-      if (!this.wardMesh && this.mats) {
-        this.wardMesh = makeWardRing(this.mats);
-        this.scene.add(this.wardMesh);
+      // Only your own ward rings you (another pilgrim's cast just poses them), for the
+      // server's duration (4.5 s of armor, not 8)
+      const youId = String(this.room?.you?.id ?? this.socket.playerId ?? "");
+      if (String(msg.casterId ?? "") === youId) {
+        if (!this.wardMesh && this.mats) {
+          this.wardMesh = makeWardRing(this.mats);
+          this.scene.add(this.wardMesh);
+        }
+        const dur = Number(msg.duration) > 0 ? Number(msg.duration) : 4.5;
+        this.wardUntil = this.animT + dur * 1000;
+        noteWardBuff(dur);
       }
-      this.wardUntil = this.animT + 8000;
-      noteWardBuff(8);
     } else if (id === "infernal_burst") {
       const mesh = makeBurst(this.mats!);
       const bx = Number(msg.x) || this.renderYou.x;
@@ -3713,32 +3882,13 @@ export class WorldApp {
         dur: 520,
         r: Number(msg.radius) || BURST_RADIUS,
       });
-      this.camPunch = Math.max(this.camPunch, 0.62);
-      this.camFovKick = Math.max(this.camFovKick, 3.1);
+      // Punch only for your own burst
+      if (String(msg.casterId ?? "") === String(this.room?.you?.id ?? this.socket.playerId ?? "")) {
+        this.camPunch = Math.max(this.camPunch, 0.62);
+        this.camFovKick = Math.max(this.camFovKick, 3.1);
+      }
       this.spawnHitFx({ x: bx, y: by }, 0xff5533, true);
     }
-  }
-
-  floatDmg(pos: Vec2, amount: number, self: boolean) {
-    const el = document.createElement("div");
-    el.className = `float-dmg${self ? " self" : ""}`;
-    el.textContent = `−${Math.round(Number(amount) || 0)}`;
-    const obj = new CSS2DObject(el);
-    const gy = this.standY(pos.x, pos.y);
-    setPlanar(obj.position, pos.x, pos.y, gy + 1.8);
-    this.scene.add(obj);
-    const t0 = this.animT;
-    const tick = () => {
-      const u = (this.animT - t0) / 700;
-      obj.position.y = gy + 1.8 + u * 1.1;
-      el.style.opacity = String(Math.max(0, 1 - u));
-      if (u < 1) requestAnimationFrame(tick);
-      else {
-        this.scene.remove(obj);
-        el.remove();
-      }
-    };
-    requestAnimationFrame(tick);
   }
 
   /**
@@ -4100,7 +4250,23 @@ export class WorldApp {
     if (!live || (live.hp != null && live.hp <= 0)) return;
     const pos = this.entityRenderPos(live);
     if (Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) > ATTACK_RANGE + 0.45) return;
-    this.socket.attack(targetId);
+    // combo: 2 = the overhead finisher (the server counts the chain and hits ×1.3)
+    this.socket.attack(targetId, kind);
+    // Hit feedback on the blade's frame, not a round trip later: spark, flinch, hit-stop.
+    // The server's combat message then only adds the number (consumePrediction).
+    const now = performance.now();
+    const fin = kind === 2;
+    this.combat?.predictContact(String(targetId), now);
+    const rec = this.nodes.get(String(targetId));
+    if (rec) this.combat?.hitMob(rec, this.renderYou.x, this.renderYou.y, fin, now);
+    const ava = this.room?.cantoId === "inferno_07";
+    this.spawnHitFx(pos, live.kind === "boss" ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, fin || live.kind === "boss");
+    this.kickShake(fin ? 0.32 : 0.2, pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+    this.camPunch = Math.max(this.camPunch, fin ? 0.5 : 0.36);
+    this.camFovKick = Math.max(this.camFovKick, fin ? 3.2 : 2.4);
+    this.hitFlashAmt = Math.max(this.hitFlashAmt, fin ? 0.14 : 0.08);
+    this.hitStopUntil = now + HIT_STOP_MS + (fin ? 34 : 0);
+    if (fin) hapticCombat("heavy");
   }
 
   /** heroMotor: live render position of a foe (null once gone or dead). */
@@ -5202,6 +5368,8 @@ export class WorldApp {
   triggerDeathRevive() {
     const now = Date.now();
     if (now < this.deathFxUntil) return;
+    this.lastDeathAt = performance.now();
+    this.forces.clear();
     const ava = this.room?.cantoId === "inferno_07";
     this.deathFxUntil = now + (ava ? DEATH_FX_LOCK_MS + 400 : DEATH_FX_LOCK_MS);
     playDeathRevive();
