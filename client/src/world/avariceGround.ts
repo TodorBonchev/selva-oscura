@@ -130,8 +130,9 @@ export function buildAvariceTracks(
 ) {
   const trackMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.82,
-    metalness: 0.12,
+    // (fully rough: no grazing-angle sheen turning the dark lane into a pale band)
+    roughness: 1,
+    metalness: 0,
     emissive: 0x140a02,
     emissiveIntensity: 0.3,
     polygonOffset: true,

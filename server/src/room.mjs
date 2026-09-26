@@ -1068,7 +1068,8 @@ class CantoRoom {
     this.mech.onKilled?.(this, entity);
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
-    if (entity.packId && killer) {
+    // (quietPack: a mechanic's summoned stream — no "pack cleared" line per kill)
+    if (entity.packId && killer && !entity.quietPack) {
       let left = 0;
       for (const e of this.entities.values()) {
         if (e.packId === entity.packId && e.kind === "mob") left++;

@@ -306,7 +306,8 @@ class AvariceView {
       }
       if (this.line.obj.visible) {
         const p = g.position;
-        this.line.obj.position.set(p.x, p.y + 5.2 * sy, p.z);
+        // (above his name plate)
+        this.line.obj.position.set(p.x, p.y + 6.6 * Math.max(0.6, sy), p.z);
       }
     } else {
       this.shield.visible = false;

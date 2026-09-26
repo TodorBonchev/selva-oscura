@@ -370,6 +370,7 @@ function spawnFeeder(room, x, y) {
     archetype: "coin_wisp",
     atkCd: 0.6,
     feed: true,
+    quietPack: true,
     homeX: x,
     homeY: y,
   };
