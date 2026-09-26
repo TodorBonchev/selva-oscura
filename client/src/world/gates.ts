@@ -59,7 +59,7 @@ export function lockReason(e: any): string {
   const need = e?.requireClear;
   if (need === "inferno_05") return "Slay the Judge";
   if (need === "inferno_06") return "Slay the Triple Maw";
-  if (need === "inferno_07") return "Slay Hoard Crush";
+  if (need === "inferno_07") return "Break Plutus";
   return "Sealed";
 }
 

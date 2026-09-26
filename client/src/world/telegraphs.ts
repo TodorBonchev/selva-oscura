@@ -33,6 +33,8 @@ export type TelegraphMsg = {
   duration: number;
   kind?: string;
   dmg?: number;
+  /** Optional colours [base, hot, rim] (a hazard that should read apart from foe blows). */
+  pal?: [number, number, number];
 };
 
 /** A telegraph that just landed (host plays the shock / camera for slams). */

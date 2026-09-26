@@ -123,7 +123,8 @@ export class CombatView {
     const kind = String(m.kind || "");
     // the fill, the attacker's strike pose and a dart all land on the same (visible) beat
     const vis = visibleWindupMs(Number(m.duration) || 500, this.host.rttMs());
-    this.tele.start(m, nowMs, telePalette(this.host.cantoId(), kind), vis);
+    const pal = Array.isArray(m.pal) && m.pal.length === 3 ? { base: m.pal[0], hot: m.pal[1], rim: m.pal[2] } : telePalette(this.host.cantoId(), kind);
+    this.tele.start(m, nowMs, pal, vis);
     if (!m.attackerId) return;
     const att = String(m.attackerId);
     if (this.teleOwner.size > 64) this.teleOwner.clear();

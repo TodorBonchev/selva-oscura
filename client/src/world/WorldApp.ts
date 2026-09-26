@@ -88,7 +88,7 @@ import {
   type KindKey,
 } from "./meshes";
 import { applyEquippedLook, equipLookKey } from "./gearLook";
-import { buildGround, type GroundRig, isAvaScorchFlat } from "./ground";
+import { buildGround, type GroundRig } from "./ground";
 import {
   AshField,
   makeBolt,
@@ -470,22 +470,6 @@ export class WorldApp {
   mireHeartDownToastShown = false;
   mireHeartSeenAlive = false;
   counterweightApproachShown = false;
-  ledgerMidApproachShown = false;
-  northMeasureApproachShown = false;
-  crushApproachShown = false;
-  southSpillApproachShown = false;
-  weightChampApproachShown = false;
-  nwDriftApproachShown = false;
-  swSpillApproachShown = false;
-  seDriftApproachShown = false;
-  roadWeightsApproachShown = false;
-  goldChorusApproachShown = false;
-  crushFlankApproachShown = false;
-  strayCoinApproachShown = false;
-  northLedgerApproachShown = false;
-  southBalanceApproachShown = false;
-  coinWispsApproachShown = false;
-  ledgerWardenApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -1412,15 +1396,6 @@ export class WorldApp {
     }
   }
 
-  /** Avarice gold-road move constants — WASD + click share the same accel/cap. */
-  avaMoveFeel(): { accel: number; maxSp: number; arrive: number } {
-    if (this.room?.cantoId !== "inferno_07") {
-      return { accel: MOVE_ACCEL, maxSp: PREDICT_SPEED, arrive: TAP_ARRIVE };
-    }
-    // Slightly snappier stride on the measure; click arrive softer so it matches keyboard stop
-    return { accel: MOVE_ACCEL * 1.12, maxSp: PREDICT_SPEED * 1.04, arrive: 0.55 };
-  }
-
   /** Speed multiplier from the canto mechanic's feel and any slow / root on you. */
   externalSpeedMul(): number {
     return this.moveFeel.speedMul * this.forces.speedMul(performance.now());
@@ -1429,12 +1404,11 @@ export class WorldApp {
   applyContinuousMove(dx: number, dy: number, dtSec: number) {
     const len = Math.hypot(dx, dy);
     if (len > 0.001) {
-      const feel = this.avaMoveFeel();
       const nx = dx / len;
       const ny = dy / len;
       const mag = Math.min(1, len);
-      const maxSp = feel.maxSp * Math.max(0.35, mag) * (this.heroMotor?.moveScale() ?? 1) * this.externalSpeedMul();
-      this.steerVelocity(nx, ny, feel.accel * this.moveFeel.accelMul, maxSp, dtSec);
+      const maxSp = PREDICT_SPEED * Math.max(0.35, mag) * (this.heroMotor?.moveScale() ?? 1) * this.externalSpeedMul();
+      this.steerVelocity(nx, ny, MOVE_ACCEL * this.moveFeel.accelMul, maxSp, dtSec);
       if (mag > 0.2) {
         this.aimX = nx;
         this.aimY = ny;
@@ -1465,27 +1439,20 @@ export class WorldApp {
 
   advanceTapMove(dtSec: number) {
     if (!this.moveTarget) return;
-    const feel = this.avaMoveFeel();
     const dx = this.moveTarget.x - this.renderYou.x;
     const dy = this.moveTarget.y - this.renderYou.y;
     const d = Math.hypot(dx, dy);
-    if (d < feel.arrive) {
+    if (d < TAP_ARRIVE) {
       this.moveTarget = null;
-      // Soft settle — match WASD friction stop instead of hard zero (gold-road feel)
-      if (this.room?.cantoId === "inferno_07") {
-        this.velX *= 0.35;
-        this.velY *= 0.35;
-      } else {
-        this.velX = 0;
-        this.velY = 0;
-      }
+      this.velX = 0;
+      this.velY = 0;
       this.predicting = false;
       return;
     }
     // Near target: cap speed so click doesn't overshoot relative to WASD stride
     const nearMag = d < 2.2 ? Math.max(0.4, d / 2.2) : 1;
-    const maxSp = feel.maxSp * nearMag * (this.heroMotor?.moveScale() ?? 1) * this.externalSpeedMul();
-    this.steerVelocity(dx / d, dy / d, feel.accel * this.moveFeel.accelMul, maxSp, dtSec);
+    const maxSp = PREDICT_SPEED * nearMag * (this.heroMotor?.moveScale() ?? 1) * this.externalSpeedMul();
+    this.steerVelocity(dx / d, dy / d, MOVE_ACCEL * this.moveFeel.accelMul, maxSp, dtSec);
     this.aimX = dx / d;
     this.aimY = dy / d;
     this.integrateVelocity(dtSec, true);
@@ -1515,12 +1482,7 @@ export class WorldApp {
         this.velX = 0;
         this.velY = 0;
       } else {
-        // Avarice scorched flats: longer slide (greed slips off the measure)
-        let friction = MOVE_FRICTION;
-        if (this.room?.cantoId === "inferno_07" && isAvaScorchFlat(this.renderYou.x, this.renderYou.y)) {
-          friction = MOVE_FRICTION * 0.42;
-        }
-        const cut = Math.max(0, sp - friction * dtSec);
+        const cut = Math.max(0, sp - MOVE_FRICTION * dtSec);
         this.velX = (this.velX / sp) * cut;
         this.velY = (this.velY / sp) * cut;
       }
@@ -1694,7 +1656,6 @@ export class WorldApp {
     const shadowPass = this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0;
     if (shadowPass) this.renderer.shadowMap.needsUpdate = true;
     if (inGlut && this.frameN % 4 === 0) this.tickMawPressure();
-    if (inAva && this.frameN % (compact ? 5 : 4) === 0) this.tickCrushPressure();
     this.tickAtmosphere();
     this.fadeTreeOccluders();
     this.tickFx(dt);
@@ -2244,7 +2205,6 @@ export class WorldApp {
             window.setTimeout(() => document.body.classList.remove("crush-enrage"), 1400);
             this.camPunch = Math.max(this.camPunch, 0.95);
             this.camShake = Math.max(this.camShake, 0.55);
-            showToast("il peso cresce — Crush enrages (no sound — watch the fringe)", "warn");
           }
           document.body.classList.toggle("crush-phase2", ph >= 2);
         }
@@ -2969,30 +2929,6 @@ export class WorldApp {
     this.fogTargetDensity = near ? this.glutFogBase * 1.45 : this.glutFogBase;
   }
 
-  /** Audio-free Crush pressure: denser fog + gold haze fringe near Hoard Crush. */
-  tickCrushPressure() {
-    if (!this.room || this.room.cantoId !== "inferno_07") {
-      if (this.crushPressureOn) {
-        this.crushPressureOn = false;
-        document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
-        this.crushEnrageShown = false;
-      }
-      return;
-    }
-    const boss = this.room.entities.find(
-      (e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)
-    );
-    const near = Boolean(
-      boss && Math.hypot(boss.x - this.renderYou.x, boss.y - this.renderYou.y) < 26
-    );
-    if (near !== this.crushPressureOn) {
-      this.crushPressureOn = near;
-      document.body.classList.toggle("crush-pressure", near);
-    }
-    // Near Crush: denser gold haze; far road stays thin so measure reads
-    this.fogTargetDensity = near ? Math.max(this.avaFogBase * 1.55, 0.019) : this.avaFogBase;
-  }
-
   /** Soft fog/clear lerp on canto change — avoids hard pop. */
   tickAtmosphere() {
     const fog = this.scene.fog;
@@ -3331,22 +3267,6 @@ export class WorldApp {
         if (msg.room.cantoId === "inferno_07" && (first || cantoChanged) && !this.avaEnterTipShown) {
           this.avaEnterTipShown = true;
           this.counterweightApproachShown = false;
-          this.ledgerMidApproachShown = false;
-          this.northMeasureApproachShown = false;
-          this.crushApproachShown = false;
-          this.southSpillApproachShown = false;
-          this.weightChampApproachShown = false;
-          this.nwDriftApproachShown = false;
-          this.swSpillApproachShown = false;
-          this.seDriftApproachShown = false;
-          this.roadWeightsApproachShown = false;
-          this.goldChorusApproachShown = false;
-          this.crushFlankApproachShown = false;
-          this.strayCoinApproachShown = false;
-          this.northLedgerApproachShown = false;
-          this.southBalanceApproachShown = false;
-          this.coinWispsApproachShown = false;
-          this.ledgerWardenApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
@@ -4213,7 +4133,7 @@ export class WorldApp {
     const el = document.getElementById("dodge-callout");
     if (!el) return;
     if (this.room?.cantoId === "inferno_07") {
-      el.textContent = "peso — dash the Crush ring";
+      el.textContent = "Dash out of Plutus's slam";
       el.classList.add("avarice-dodge");
     } else {
       el.textContent = "Dash the slam";
@@ -5037,7 +4957,7 @@ export class WorldApp {
             } else if (best.poiKind === "marker") {
               line =
                 this.room?.cantoId === "inferno_07"
-                  ? "Ledger Stone — measure before the Crush"
+                  ? "Ledger Stone — read how the weights clash"
                   : best.hint || "A stone on the road";
             } else if (best.poiKind === "stash") {
               line = "Stash — bank champion drops here";
@@ -5113,8 +5033,7 @@ export class WorldApp {
         )
       ) {
         this.hoardHeartDownToastShown = true;
-        // Soft death beat — one toast + bone-gold fringe (server emit already said peso)
-        showToast("Hoard Heart broken — Counterweight stirs; Crush waits beyond", "emit");
+        // Soft death beat — bone-gold fringe (the server's emit line carries the words)
         document.body.classList.add("hoard-heart-death");
         window.setTimeout(() => document.body.classList.remove("hoard-heart-death"), 900);
         this.camPunch = Math.max(this.camPunch, 0.72);
@@ -5163,215 +5082,8 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
           this.counterweightApproachShown = true;
-          showToast("contrapeso — Counterweight mid-measure; tip it before the Crush", "warn");
+          showToast("The Counterweight charges down lanes like the weights — step aside", "warn");
           this.camPunch = Math.max(this.camPunch, 0.55);
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.ledgerMidApproachShown) {
-      const stone = this.room.entities.find((e: any) => e.id === "ledger_stone" || e.poiKind === "marker");
-      if (stone) {
-        const pos = this.entityRenderPos(stone);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
-          this.ledgerMidApproachShown = true;
-          showToast("The ledger stone marks mid-measure — Bell, then Crush", "info");
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.northMeasureApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^north measure$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.northMeasureApproachShown = true;
-          showToast("North Measure — unpaid tallies on the empty flats", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.crushApproachShown) {
-      const boss = this.room.entities.find(
-        (e: any) => e.kind === "boss" || /^hoard crush$/i.test(String(e.name || ""))
-      );
-      if (boss && (boss.hp == null || boss.hp > 0)) {
-        const pos = this.entityRenderPos(boss);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 16) {
-          this.crushApproachShown = true;
-          showToast("Hoard Crush — weight without rest; tip the measure", "warn");
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.southSpillApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^south spill$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.southSpillApproachShown = true;
-          showToast("South Spill — undervalued coin, still sharp", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.weightChampApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^weight champions$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 13) {
-          this.weightChampApproachShown = true;
-          showToast("peso — Weight Champions; heavy measures before the Crush", "warn");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.nwDriftApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^northwest drift$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.nwDriftApproachShown = true;
-          showToast("peso — Northwest Drift; scorched flats still hold weight", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.swSpillApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^southwest spill$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.swSpillApproachShown = true;
-          showToast("contrapeso — Southwest Spill; undervalued coin on empty flats", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.seDriftApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^southeast drift$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.seDriftApproachShown = true;
-          showToast("peso — Southeast Drift; unpaid weights off the Crush lane", "info");
-          break;
-        }
-      }
-    }
-
-    // Gluttony-portal side: first weights on the scorched ledger road
-    if (this.room?.cantoId === "inferno_07" && !this.roadWeightsApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^road weights$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.roadWeightsApproachShown = true;
-          showToast("Road Weights — first measure past the Gluttony gate", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.goldChorusApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^gold chorus$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.goldChorusApproachShown = true;
-          showToast("Gold Chorus — undervalued choir off the crush lane", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.crushFlankApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^crush approach$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.crushFlankApproachShown = true;
-          showToast("Crush Approach — north flank before the dais", "warn");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.strayCoinApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^stray coin$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
-          this.strayCoinApproachShown = true;
-          showToast("Stray Coin — loose change under the Bell", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.northLedgerApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^north ledger$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.northLedgerApproachShown = true;
-          showToast("North Ledger — unpaid tallies; the Bell stills them", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.southBalanceApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^south balance$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.southBalanceApproachShown = true;
-          showToast("South Balance — scale tipped wrong; pay or press through", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.coinWispsApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^coin wisps$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
-          this.coinWispsApproachShown = true;
-          showToast("Coin Wisps — scattered greed, easy to undervalue", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.ledgerWardenApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (e.archetype !== "ledger_warden" && !/^ledger warden$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
-          this.ledgerWardenApproachShown = true;
-          showToast("Ledger Warden — tablet shield before the Crush", "warn");
           break;
         }
       }
