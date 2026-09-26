@@ -13,6 +13,7 @@
  */
 import WebSocket from "ws";
 import { pointInShape, shapeExit } from "../src/telegraph.mjs";
+import { botMech } from "./selfplayMech/index.mjs";
 
 const args = process.argv.slice(2);
 const arg = (k, d) => {
@@ -25,6 +26,8 @@ const QUIET = args.includes("--quiet");
 const BASE_NAME = arg("name", `Bot${Math.random().toString(36).slice(2, 6)}`);
 /** skilled: dodges telegraphs, casts, rings bells. naive: melee + flask only (a new phone player). */
 const STYLE = arg("style", "skilled");
+/** Skilled reaction time (ms): a telegraph is only "seen" this long after it appears — a human, not an oracle. */
+const REACT_MS = Number(arg("react", "220"));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -57,6 +60,7 @@ class Bot {
     this.toasts = [];
     this.errors = [];
     this.telegraphs = [];
+    this.style = STYLE;
     this.stats = {};
     this.cur = null;
   }
@@ -77,6 +81,7 @@ class Bot {
   }
 
   onMsg(m) {
+    botMech(this.snap?.cantoId).onMsg?.(this, m);
     if (m.type === "snapshot") {
       this.snap = m.room;
       const st = this.cur && this.stats[this.cur];
@@ -163,8 +168,10 @@ class Bot {
         const near = this.foes().filter((f) => dist(f, you) < 4.5);
         if (near.length) await this.fightStep(near[0]);
       }
-      const step = Math.min(d, (MOVE_SPEED * STEP_MS) / 1000);
-      this.moveTo(you.x + ((x - you.x) / d) * step, you.y + ((y - you.y) / d) * step);
+      const wp = botMech(this.snap?.cantoId).steer?.(this, you, { x, y }) || { x, y };
+      const wd = Math.hypot(wp.x - you.x, wp.y - you.y) || 1e-6;
+      const step = Math.min(wd, (MOVE_SPEED * STEP_MS) / 1000);
+      this.moveTo(you.x + ((wp.x - you.x) / wd) * step, you.y + ((wp.y - you.y) / wd) * step);
       await sleep(STEP_MS);
     }
     return false;
@@ -201,6 +208,7 @@ class Bot {
     let soonest = Infinity;
     for (const t of live) {
       if (t.attackerId === me || !(t.dmg > 0 || t.kind === "boss_slam" || t.kind === "champ_slam")) continue;
+      if (now - t.at < REACT_MS) continue;
       const ex = shapeExit(t, you.x, you.y, 0.45);
       if (!ex) continue;
       soonest = Math.min(soonest, t.durMs - (now - t.at));
@@ -238,6 +246,7 @@ class Bot {
     const you = this.you;
     const now = Date.now();
     if (await this.dodge(you, now)) return;
+    if (await botMech(this.cur).step?.(this, you, now, target)) return;
     if (you.hp < you.maxHp * 0.45 && (!this._sipAt || now - this._sipAt > 8200)) {
       this._sipAt = now;
       this.stats[this.cur].sips++;

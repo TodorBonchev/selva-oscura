@@ -10,6 +10,9 @@
  *   onMessage(app, msg) → bool a server message WorldApp does not handle itself
  *                              (a mechanic's custom broadcast); true when consumed
  *   onSnapshot(app, mech)      every snapshot, with the server's snapshotExtra (`room.mech`)
+ *   objective(app, obj)        ~10 Hz after the shared objective model is computed —
+ *                              mutate obj.text / obj.sub / obj.target to steer the
+ *                              player toward this canto's own goal (objective.ts)
  *   moveFeel(app, out)         local movement feel, once per frame before prediction:
  *                              out = { speedMul, accelMul, driftX, driftY } arrives at
  *                              {1, 1, 0, 0}; multiply / add (drift is planar u/s). The
@@ -21,6 +24,7 @@
  * (lightPool.ts) instead of real lights, shared materials.
  */
 import type { WorldApp } from "../WorldApp";
+import type { Objective } from "../objective";
 import { lustMech } from "./lust";
 import { gluttonyMech } from "./gluttony";
 import { avariceMech } from "./avarice";
@@ -33,6 +37,7 @@ export interface CantoMech {
   tick?(app: WorldApp, dt: number): void;
   onMessage?(app: WorldApp, msg: any): boolean;
   onSnapshot?(app: WorldApp, mech: unknown): void;
+  objective?(app: WorldApp, obj: Objective): void;
   moveFeel?(app: WorldApp, out: MoveFeelOut): void;
 }
 

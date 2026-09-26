@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import type { WorldApp } from "./WorldApp";
 import { computeObjective, type Objective } from "./objective";
+import { mechFor } from "./cantoMech";
 import { cantoName, GATE_LABEL_RANGE, gateState, gateTitle, lockReason, type GateState } from "./gates";
 import { makeBeaconMaterial, setPortalGateVisual, tickPortalMaterials } from "./meshes";
 import { CAM_FACE_YAW, setPlanar } from "./frames";
@@ -82,6 +83,7 @@ export class Guidance {
     if (now - this.lastObjAt >= OBJECTIVE_EVERY_MS || !this.objective) {
       this.lastObjAt = now;
       this.objective = computeObjective(room, app.renderYou, this.today());
+      mechFor(room.cantoId).objective?.(app, this.objective);
       const t = this.objective.target;
       // The gate just opened: the arrow says so (its label is past 30 m more often than not)
       if (t && t.id === this.openedId && now < this.openedUntil) {
