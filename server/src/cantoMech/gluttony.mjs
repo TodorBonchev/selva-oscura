@@ -28,7 +28,8 @@
  *
  * Wire (server → client; the client mech consumes these):
  *   glut_rise    { k, id, x, y, dur }        buried shade k rises (sent before its entity)
- *   glut_hail    { pts: [x, y, r, …], dur }  a volley's stones (the circles are telegraphs)
+ *   glut_hail    { pts: [x, y, r, …], dur, crown? }  a volley's stones (the circles are
+ *                                            telegraphs; crown: a ring with one gap)
  *   glut_bite    { id, head, dur }           a head starts its bite windup (0 L, 1 C, 2 R)
  *   glut_silence { id, head, dur }           a clod choked that throat
  *   glut_grab    { pid, id }                 a pilgrim scooped a clod
@@ -55,7 +56,7 @@ const RISE_R = 3.8;
 /** The buried lie together: a rising shade wakes its fellows this near, a beat apart. */
 const CHAIN_R = 10.5;
 const CHAIN_BEAT = 0.3;
-const GRAB = { radius: 3.8, windupMs: 800, rootMs: 800, dmg: 12 };
+const GRAB = { radius: 3.8, windupMs: 800, rootMs: 800, dmg: 15 };
 
 /**
  * The mire closes on a pilgrim who stands still in it: after STILL_S within ANCHOR_R of
@@ -67,10 +68,10 @@ const SINK = { stillS: 1.3, anchorR: 2.2, minDepth: 0.8, radius: 1.15, windupMs:
 /** Hail volleys (seconds unless noted). */
 const HAIL = {
   first: [7, 10],
-  every: [6.5, 9],
-  bossEvery: [6, 7.5],
+  every: [6, 8],
+  bossEvery: [5.5, 7],
   windupMs: 1000,
-  dmg: 11,
+  dmg: 13,
   mobDmg: 14,
   slow: 0.6,
   slowMs: 700,
@@ -79,6 +80,12 @@ const HAIL = {
   spawnSafe: 13,
   /** lead the pilgrim's stride by this much: keep walking straight and it finds you */
   lead: 0.85,
+  /**
+   * A crown ("grandine a corona"): one stone on you and three around you, one side
+   * left open — read the ring and step out through the gap.
+   */
+  crownP: 0.35,
+  crownR: 2.9,
 };
 
 /**
@@ -90,7 +97,7 @@ const MAW_HP = 800;
  * The heads' reach covers most of the dais in front of him: backing out takes a dash;
  * a choked throat leaves its wedge of the fan safe (the way through).
  */
-const BITE = { radius: 7.8, arc: 1.3, spread: 0.8, windup: 1.0, stagger: 0.36, recover: 1.2, dmgMul: 1.1 };
+const BITE = { radius: 7.8, arc: 1.3, spread: 0.8, windup: 1.0, stagger: 0.36, recover: 1.2, dmgMul: 0.9 };
 /**
  * Phase 2 — "le bocche aperse": all three jaws open at once and snap in turn, left →
  * centre → right (every cone is on the ground from the start; the fills land in order).
@@ -99,7 +106,7 @@ const BITE_P2 = { windup: 0.8, stagger: 0.25, recover: 0.95, together: true };
 const BITE_KINDS = ["maw_bite_l", "maw_bite_c", "maw_bite_r"];
 /** Planar offset of each head's cone from the Maw's facing (L = model −x side). */
 const HEAD_OFF = [-BITE.spread, 0, BITE.spread];
-const MAW_SLAM = { shape: "circle", radius: 3.4, windup: 1.2, trigger: 3.6, recover: 1.35, kind: "boss_slam" };
+const MAW_SLAM = { shape: "circle", radius: 3.4, windup: 1.2, trigger: 3.6, recover: 1.35, kind: "boss_slam", dmgMul: 0.8 };
 const SILENCE_S = 5;
 const SILENCE_MUL = 1.5;
 /**
@@ -112,13 +119,14 @@ const FANGO_BURST = { radius: 3.0, windupMs: 550, dmg: 12, slow: 0.6, slowMs: 90
 const FEED = { every: [7, 9], per: 2, max: 4, speed: 2.4, heal: 0.04, cap: 0.5, drain: 0.18, hp: 20, spawnR: [11.5, 13] };
 
 /** Cerbero, one waking head. */
-const CERB = { hpMul: 2.2, radius: 4.4, arc: 1.25, windup: 0.95, trigger: 3.8, recover: 1.15, dmgMul: 1.6 };
+const CERB = { hpMul: 2.2, radius: 4.4, arc: 1.25, windup: 0.95, trigger: 3.8, recover: 1.15, dmgMul: 1.3 };
 
 /**
  * Clods of mire. The mire does not give up its earth freely: scooping one sets its hands
- * closing on the taker (a grab telegraph at your feet — scoop, then step or dash away).
+ * snapping shut on the taker (a quick grab telegraph at your feet — scoop with the dash
+ * ready, or pay for the fistful).
  */
-const CLOD = { range: 11, speed: 24, headDmg: 10, splatDmg: 6, mobDmg: 8, grabCdMs: 900, snatch: { radius: 2.0, windupMs: 650, rootMs: 700, dmg: 12 } };
+const CLOD = { range: 11, speed: 24, headDmg: 10, splatDmg: 6, mobDmg: 8, grabCdMs: 900, snatch: { radius: 2.4, windupMs: 550, rootMs: 700, dmg: 12 } };
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -216,6 +224,23 @@ function volley(room, s, phase2) {
   const b = room.canto.geo.bounds;
   const n = 3 + (Math.random() < 0.65 ? 1 : 0) + (phase2 ? 1 : 0);
   const pts = [];
+  if (Math.random() < HAIL.crownP) {
+    // the crown: centre on the pilgrim, three of four slots around, one left open
+    pts.push(+s.x.toFixed(2), +s.y.toFixed(2), 1.6);
+    const a0 = Math.random() * Math.PI * 2;
+    const gap = Math.floor(Math.random() * 4);
+    for (let k = 0; k < 4; k++) {
+      if (k === gap) continue;
+      const a = a0 + (k * Math.PI) / 2;
+      pts.push(
+        +clamp(s.x + Math.cos(a) * HAIL.crownR, 1.5, b.width - 1.5).toFixed(2),
+        +clamp(s.y + Math.sin(a) * HAIL.crownR, 1.5, b.height - 1.5).toFixed(2),
+        1.5
+      );
+    }
+    dropVolley(room, pts, true);
+    return;
+  }
   const vx = s._glutVx || 0;
   const vy = s._glutVy || 0;
   const place = (x, y, r) => {
@@ -238,6 +263,11 @@ function volley(room, s, phase2) {
       if (place(s.x + Math.cos(a) * d, s.y + Math.sin(a) * d, rand(HAIL.r[0], HAIL.r[1]))) break;
     }
   }
+  dropVolley(room, pts);
+}
+
+/** The volley's stones as hail telegraphs (+ the visual stones for everyone). */
+function dropVolley(room, pts, crown = false) {
   for (let i = 0; i < pts.length; i += 3) {
     room.telegraph({
       attackerId: "mech:hail",
@@ -264,7 +294,7 @@ function volley(room, s, phase2) {
       },
     });
   }
-  room.broadcast({ type: "glut_hail", pts, dur: HAIL.windupMs });
+  room.broadcast({ type: "glut_hail", pts, dur: HAIL.windupMs, crown: crown || undefined });
 }
 
 function tickSink(room, g, s, nowMs) {
@@ -788,7 +818,7 @@ export default {
       chase(room, e, near.s, dt);
       if (e.atkCd <= 0 && !(near.s.iframes > 0)) {
         if (near.d < MAW_SLAM.trigger && m.bites >= 2) {
-          if (startAttack(room, e, near.s, near.d, room.mobAttackDamage(e), MAW_SLAM)) m.bites = 0;
+          if (startAttack(room, e, near.s, near.d, Math.round(room.mobAttackDamage(e) * MAW_SLAM.dmgMul), MAW_SLAM)) m.bites = 0;
         } else if (near.d < BITE.radius - 0.4) {
           startSeq(room, e, m, near.s);
         }

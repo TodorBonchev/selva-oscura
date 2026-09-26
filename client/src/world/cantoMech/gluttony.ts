@@ -82,6 +82,8 @@ const S = {
   moundTips: 0,
   hailTipUntil: 0,
   hailTips: 0,
+  crownTipUntil: 0,
+  crownTips: 0,
   seizedUntil: 0,
   sinkUntil: 0,
   sinkTips: 0,
@@ -501,7 +503,10 @@ export const gluttonyMech: CantoMech = {
         const you = app.renderYou;
         let mine = false;
         for (let i = 0; i + 2 < pts.length; i += 3) if (Math.hypot(pts[i]! - you.x, pts[i + 1]! - you.y) < 7) mine = true;
-        if (mine && S.hailTips < 2) {
+        if (mine && msg.crown && S.crownTips < 2) {
+          S.crownTips++;
+          S.crownTipUntil = now + 1600;
+        } else if (mine && S.hailTips < 2) {
           S.hailTips++;
           S.hailTipUntil = now + 3800;
         }
@@ -807,11 +812,12 @@ export const gluttonyMech: CantoMech = {
       else if (e.kind === "poi" && e.poiKind === "clod" && Math.hypot(e.x - you.x, e.y - you.y) < 18) clod = true;
     }
     if (nowMs < S.seizedUntil) sub = "Seized by the mire — hold on";
-    else if (nowMs < S.snatchUntil) sub = "The mire snatches back — step away!";
+    else if (nowMs < S.snatchUntil) sub = "The mire snatches at the thief — dash clear!";
     else if (nowMs < S.sinkUntil && S.sinkTips <= 3) sub = "The mud closes on your feet — step out!";
     else if (S.carry) sub = "Mire in hand — attack a gaping maw to throw";
     else if (S.mawPhase >= 2 && fango) sub = "Cut down the Fango before it feeds the Maw";
     else if (nearBiter && clod) sub = S.compact ? "Grab mire (Use), throw it in a gaping maw" : "Grab mire (E), throw it in a gaping maw";
+    if (!sub && nowMs < S.crownTipUntil) sub = "A ring of hail — out through the gap!";
     if (!sub && nowMs < S.hailTipUntil) sub = "Grandine — step out of the pale circles";
     if (!sub && nowMs < S.moundTipUntil) sub = "Bubbling mound: a buried shade — pass wide";
     if (!sub && nowMs < S.mireTipUntil) sub = "The mire drags at you — keep to the stones";
