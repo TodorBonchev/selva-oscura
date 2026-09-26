@@ -98,8 +98,6 @@ import {
   makeImpactRing,
   makeLootBeam,
   makePortalHoldFx,
-  makeSlashTrail,
-  tickSlashTrail,
   makeSlamTelegraph,
   makeTelegraph,
   makeWardRing,
@@ -500,11 +498,7 @@ export class WorldApp {
   bursts: { mesh: THREE.Mesh; start: number; dur: number; r: number }[] = [];
   teles: { mesh: THREE.Mesh; until: number; r: number }[] = [];
   slams: SlamTele[] = [];
-  slash: THREE.Group | null = null;
-  slashUntil = 0;
   sparks: SparkBurst[] = [];
-  dust: { mesh: THREE.Mesh; start: number }[] = [];
-  lastDustAt = 0;
   impacts: ImpactRing[] = [];
   hitStopUntil = 0;
   raycaster = new THREE.Raycaster();
@@ -1773,19 +1767,6 @@ export class WorldApp {
       } else sparks[w++] = sp;
     }
     sparks.length = w;
-    const dust = this.dust;
-    w = 0;
-    for (let i = 0; i < dust.length; i++) {
-      const d = dust[i];
-      const u = (t - d.start) / 380;
-      d.mesh.scale.setScalar(1 + u * 2.4);
-      (d.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.4 * (1 - u));
-      if (u >= 1) {
-        this.scene.remove(d.mesh);
-        releaseFx(d.mesh);
-      } else dust[w++] = d;
-    }
-    dust.length = w;
     const impacts = this.impacts;
     w = 0;
     for (let i = 0; i < impacts.length; i++) {
@@ -4101,7 +4082,6 @@ export class WorldApp {
     this.noteCombat();
     this.attackBusyUntil = Date.now() + ATTACK_ANIM_MS;
     noteAttackCd(ATTACK_ANIM_MS / 1000);
-    this.slashUntil = this.animT + ATTACK_ANIM_MS;
     if (this.heroMotor) this.heroMotor.startSwing(targetId);
     else this.onSwingContact(targetId, 0);
   }
