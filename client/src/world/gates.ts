@@ -44,8 +44,13 @@ export function gateState(e: any, cantoId: string | undefined, clears: string[] 
   return gateIsForward(e, cantoId) ? "forward" : "return";
 }
 
-/** Short player-facing gate name: "Gluttony gate", "Dark Wood gate". */
+/**
+ * Short player-facing gate name: "Gluttony gate", "Dark Wood gate". Avarice has
+ * two roads to the Dark Wood — the stash road back at its entrance and the gate
+ * its clear opens — so the stash road keeps its own name.
+ */
 export function gateTitle(e: any): string {
+  if (e?.kind === "exit" && !e.requireClear && /stash road/i.test(String(e.label || ""))) return "Stash road";
   return `${cantoName(e?.toCanto)} gate`;
 }
 

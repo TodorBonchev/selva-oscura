@@ -49,6 +49,22 @@ function familyOf(text: string): string {
   return keyOf(t);
 }
 
+/** Only pickups count each other ("+N more"); a "Dropped:" line is not a pickup. */
+function isPickup(text: string): boolean {
+  return /^(Picked up|Picking up)\b/i.test(text.trim());
+}
+
+/**
+ * Landscape phones put the Guide dialogue in the same top band as the toast
+ * column: while it is open, toasts wait their turn instead of drawing over it.
+ */
+let dialogueOpen = false;
+function toastsHeld(): boolean {
+  if (!dialogueOpen) return false;
+  const b = document.body.classList;
+  return b.contains("hud-compact") && b.contains("hud-landscape");
+}
+
 /** Server lines that only restate what the screen already shows. */
 function isNoise(text: string): boolean {
   const t = text.trim();
@@ -68,21 +84,28 @@ export function pushToast(rawText: string, rawLevel?: string) {
   const now = performance.now();
   if (current && (current.key === t.key || current.family === t.family)) {
     // Collapse onto what is showing: refresh text, keep the stronger level
-    if (current.key !== t.key && t.family === "loot") t.count = current.count + 1;
+    if (current.key !== t.key && isPickup(t.text) && isPickup(current.text)) t.count = current.count + 1;
     const lvl = PRIORITY[t.level] >= PRIORITY[current.level] ? t.level : current.level;
     current = { ...t, level: lvl, shownAt: current.shownAt };
     render(current, false);
-    schedule(Math.max(endAt, now + Math.min(HOLD_MS[lvl], 2000)));
+    // Keep a merging stream alive only while nothing else waits: a run of
+    // pickups must not hold back a queued reward / gate line
+    if (!queue.length) schedule(Math.max(endAt, now + Math.min(HOLD_MS[lvl], 2000)));
     return;
   }
   const dup = queue.findIndex((q) => q.key === t.key || q.family === t.family);
-  if (dup >= 0) queue.splice(dup, 1);
+  if (dup >= 0) {
+    const q = queue[dup];
+    if (q.key !== t.key && isPickup(t.text) && isPickup(q.text)) t.count = q.count + 1;
+    if (PRIORITY[q.level] > PRIORITY[t.level]) t.level = q.level;
+    queue.splice(dup, 1);
+  }
   queue.push(t);
   // Stable: highest priority first, FIFO within a level
   queue.sort((a, b) => PRIORITY[b.level] - PRIORITY[a.level]);
   while (queue.length > MAX_QUEUE) queue.pop();
   if (!current) {
-    showNext();
+    if (!toastsHeld()) showNext();
     return;
   }
   // Something waits: let the current line go once it has had its minimum
@@ -110,7 +133,7 @@ function schedule(at: number) {
 
 function endCurrent() {
   endTimer = null;
-  if (queue.length) {
+  if (queue.length && !toastsHeld()) {
     showNext();
     return;
   }
@@ -244,6 +267,16 @@ export function showDialogue(speaker: string, text: string) {
   void el.offsetWidth;
   el.classList.add("dlg-in");
   dialogueShownAt = performance.now();
+  dialogueOpen = true;
+  if (toastsHeld() && current) {
+    // Step the line on screen aside; it comes back when the counsel closes
+    const { shownAt: _s, ...rest } = current;
+    queue.unshift(rest);
+    queue.sort((a, b) => PRIORITY[b.level] - PRIORITY[a.level]);
+    while (queue.length > MAX_QUEUE) queue.pop();
+    if (endTimer != null) window.clearTimeout(endTimer);
+    endCurrent();
+  }
   if (dialogueTimer != null) window.clearTimeout(dialogueTimer);
   // Reading time: ~55 ms a character, 5–14 s
   const ms = Math.max(5000, Math.min(14000, text.length * 55));
@@ -255,6 +288,11 @@ export function hideDialogue() {
   if (dialogueTimer != null) {
     window.clearTimeout(dialogueTimer);
     dialogueTimer = null;
+  }
+  if (dialogueOpen) {
+    dialogueOpen = false;
+    // Toasts that waited behind the counsel get their turn
+    if (!current && queue.length) showNext();
   }
   if (!el || el.classList.contains("hidden")) return;
   el.classList.remove("dlg-in");

@@ -743,7 +743,7 @@ export class WorldApp {
         this.dash();
       }
       if (e.code === "KeyE") {
-        const portal = this.nearestIsPortalTravel();
+        const portal = this.portalForUse();
         if (portal) this.beginPortalHold(portal, { fromKey: true });
         else this.interactNearest();
       }
@@ -4054,8 +4054,25 @@ export class WorldApp {
     return best;
   }
 
+  /**
+   * The gate E / Use should channel: the one the prompt shows. A nearer POI or
+   * loot wearing the prompt wins (E / Use act on what the prompt says); with
+   * no prompt up, any gate in hold range.
+   */
+  portalForUse(): any | null {
+    if (!this.room) return null;
+    const shownId = this.nearestInteract?.id;
+    const shown = shownId ? this.room.entities.find((e: any) => String(e.id) === shownId) : null;
+    if (!shown) return this.nearestIsPortalTravel();
+    if (shown.kind !== "exit" && !(shown.kind === "poi" && shown.poiKind === "portal")) return null;
+    const you = this.youPos();
+    const pos = this.entityRenderPos(shown);
+    // Held over from just outside reach: interactNearest walks in and channels on arrival
+    return Math.hypot(pos.x - you.x, pos.y - you.y) < EXIT_TRAVEL_RANGE ? shown : null;
+  }
+
   beginInteractHold(ev?: PointerEvent) {
-    const portal = this.nearestIsPortalTravel();
+    const portal = this.portalForUse();
     if (portal) {
       this.beginPortalHold(portal, { fromKey: false, pointer: ev });
       return;
@@ -4879,6 +4896,8 @@ export class WorldApp {
     const portal = this.nearestIsPortalTravel();
     if (!portal) return;
     this.hubPortalToastShown = true;
+    // Arrived by a tap: the channel is already running on its own — "Hold E" would contradict it
+    if (this.portalHold?.auto || this.softSnapTargetId === String(portal.id)) return;
     showToast(isCompactUi() ? "Hold Use at the gate to travel" : "Hold E at the gate to travel", "info");
   }
 

@@ -21,6 +21,8 @@ export type ObjectiveTarget = {
   label: string;
   kind: "gate" | "foe" | "poi";
   entity: any;
+  /** Gate just opened: its world label shows "Open" at any range (guidance.ts). */
+  open?: boolean;
 };
 
 export type Objective = {
@@ -174,7 +176,7 @@ export function computeObjective(room: any, you: Vec2, todayUtc: string): Object
     text = "Speak with the Guide";
     target = entTarget(guide, "Guide", "poi");
   } else if (!me.visitedInferno && fwdHub) {
-    text = "Follow the gold arrow — enter the Lust gate";
+    text = "Take the gold gate into Lust";
     target = gateTarget(fwdHub);
   } else if (writOpen && board) {
     text = "Claim today's writ at the board";

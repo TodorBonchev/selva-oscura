@@ -13,7 +13,8 @@ import { CAM_FACE_YAW, setPlanar } from "./frames";
 import { isCompactUi, setQuestLine } from "../ui/hud";
 
 const OBJECTIVE_EVERY_MS = 100;
-const OPENED_MS = 4200;
+/** How long a newly opened gate says "Open" (label sub-line + compass arrow). */
+const OPENED_MS = 8000;
 
 type NodeLike = { id: string; kind: string; group: THREE.Group; hpEl: HTMLElement };
 
@@ -24,6 +25,9 @@ export class Guidance {
   private day = "";
   private dayAt = 0;
   private hint = "";
+  /** Gate that just opened (its compass arrow reads "… · Open" until openedUntil). */
+  private openedId = "";
+  private openedUntil = 0;
   private beacon: THREE.Group;
   private beaconPillar: THREE.Mesh;
   private beaconRing: THREE.Mesh;
@@ -77,6 +81,12 @@ export class Guidance {
     if (now - this.lastObjAt >= OBJECTIVE_EVERY_MS || !this.objective) {
       this.lastObjAt = now;
       this.objective = computeObjective(room, app.renderYou, this.today());
+      const t = this.objective.target;
+      // The gate just opened: the arrow says so (its label is past 30 m more often than not)
+      if (t && t.id === this.openedId && now < this.openedUntil) {
+        t.label = `${t.label} · Open`;
+        t.open = true;
+      }
       setQuestLine(this.objective.text, this.objective.sub);
       this.hint = this.captionFor(this.objective);
     }
@@ -100,7 +110,9 @@ export class Guidance {
   /** Minimap caption: the hold prompt at a gate, else "target · distance". */
   private captionFor(o: Objective): string {
     const app = this.app;
-    const portal = app.nearestIsPortalTravel();
+    const ph = app.portalHold;
+    if (ph) return `Entering ${app.portalDestName(ph.target)}`;
+    const portal = app.portalForUse();
     if (portal && !app.portalIsLocked(portal)) {
       const dest = app.portalDestName(portal);
       return isCompactUi() ? `Hold Use — ${dest}` : `Hold E — ${dest}`;
@@ -180,8 +192,10 @@ export class Guidance {
   private gateOpened(rec: NodeLike, e: any) {
     const app = this.app;
     rec.group.userData.openedAt = app.animT;
+    this.openedId = String(e.id);
+    this.openedUntil = performance.now() + OPENED_MS;
+    // (gateLabel keeps the "gate-opened" flash on the same clock as the arrow)
     rec.hpEl.classList.add("gate-opened");
-    window.setTimeout(() => rec.hpEl.classList.remove("gate-opened"), OPENED_MS);
     const x = rec.group.position.x;
     const z = rec.group.position.z;
     const y = rec.group.position.y + 0.12;
@@ -252,7 +266,10 @@ export class Guidance {
   gateLabel(rec: NodeLike & { label: { visible: boolean } }, e: any, d: number) {
     const el = rec.hpEl;
     const nearest = this.app.nearestInteract?.id === rec.id;
-    if (d > GATE_LABEL_RANGE && !nearest) {
+    const opened = this.openedId === rec.id && performance.now() < this.openedUntil;
+    if (el.classList.contains("gate-opened") !== opened) el.classList.toggle("gate-opened", opened);
+    // The "Open" flash shows at any distance: that moment is the news
+    if (d > GATE_LABEL_RANGE && !nearest && !opened) {
       if (rec.label.visible) rec.label.visible = false;
       if (el.style.opacity !== "0") el.style.opacity = "0";
       return;
@@ -265,7 +282,7 @@ export class Guidance {
     const name = e?.toCanto ? gateTitle(e) : String(e?.label || e?.name || "Gate");
     if (nameEl && nameEl.textContent !== name) nameEl.textContent = name;
     let sub: string;
-    if (el.classList.contains("gate-opened")) sub = "Open";
+    if (opened) sub = "Open";
     else if (st === "locked") sub = `${lockReason(e)} · ${Math.round(d)}m`;
     else sub = `${Math.round(d)}m`;
     if (subEl && subEl.textContent !== sub) subEl.textContent = sub;

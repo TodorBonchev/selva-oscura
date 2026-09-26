@@ -331,6 +331,8 @@ export class Radar {
     if (a.shown !== show) {
       a.shown = show;
       a.el.style.opacity = show ? "1" : "0";
+      // Re-shown for a new target: write the rotation afresh
+      if (!show) a.ang = NaN;
     }
     if (!show) return;
     if (a.dest !== dest) {
@@ -355,7 +357,8 @@ export class Radar {
     const ra = Math.round(ang);
     if (ra !== a.ang) {
       a.ang = ra;
-      a.chev.style.setProperty("--ang", `${ra}deg`);
+      // (the chevron is a notched dart — styles.css — so every angle reads one way)
+      a.chev.style.transform = `rotate(${ra}deg)`;
     }
   }
 
@@ -381,7 +384,11 @@ export class Radar {
       const p = this.projectEdge(opts.camera, obj.x, obj.y, vw, vh, padL, padT, padR, padB);
       // On screen and close: the world label / beacon carries it
       // (gate labels show name + distance to GATE_LABEL_RANGE; past that the arrow is the label)
-      const hide = p.visible && d <= (obj.kind === "gate" ? GATE_LABEL_RANGE : 16);
+      // Only when the target sits in the open band with room above it for its
+      // label (not tucked under the top HUD); a gate that just opened shows its
+      // "Open" label at any range
+      const labelClear = p.inside && p.y > padT + 40;
+      const hide = labelClear && (obj.open || d <= (obj.kind === "gate" ? GATE_LABEL_RANGE : 16));
       this.place(oa, !hide, p.x, p.y, p.ang, "objective", obj.label, `${Math.round(d)}m`);
     } else {
       this.place(oa, false, 0, 0, 0, "", "", "");

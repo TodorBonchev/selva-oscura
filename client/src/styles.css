@@ -5548,9 +5548,28 @@ body.hud-compact #quest-track { -webkit-line-clamp: 3; line-clamp: 3; }
 }
 .compass-label,
 .compass-dist { white-space: nowrap; }
+/* The chevron is a notched dart, not a border triangle: a near-equilateral
+   triangle looks the same every 120°, so "rotate(32deg)" read as pointing left.
+   The <i> rotates (radar.ts writes its transform) and carries the glow; the
+   dart itself is the clipped ::before. */
+.compass-arrow .compass-chevron {
+  position: relative;
+  width: 16px;
+  height: 20px;
+  border: 0;
+  transform-origin: 50% 50%;
+  --chev: #c9a227;
+}
+.compass-arrow .compass-chevron::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--chev);
+  clip-path: polygon(50% 0, 100% 100%, 50% 70%, 0 100%);
+}
 .compass-arrow[data-dest="objective"] .compass-chevron {
-  border-bottom-color: #ffd46a;
-  filter: drop-shadow(0 0 6px #ffb838cc);
+  --chev: #ffd46a;
+  filter: drop-shadow(0 0 5px #ffb838cc);
 }
 .compass-arrow[data-dest="objective"] .compass-label {
   color: #ffe7a0;
@@ -5560,14 +5579,17 @@ body.hud-compact #quest-track { -webkit-line-clamp: 3; line-clamp: 3; }
 }
 .compass-arrow[data-dest="objective"] .compass-dist { color: #ffe7a0; opacity: 1; font-size: 0.6rem; }
 .compass-arrow[data-dest="foe"] .compass-chevron {
-  border-bottom-color: #d63a2a;
-  border-left-width: 6px;
-  border-right-width: 6px;
-  border-bottom-width: 10px;
+  --chev: #e0402e;
+  width: 12px;
+  height: 15px;
+  border: 0;
+  filter: drop-shadow(0 0 3px #000c);
 }
 .compass-arrow[data-dest="foe"] .compass-label { color: #ffb0a0; font-size: 0.5rem; }
 .compass-arrow[data-dest="foe"] .compass-dist { color: #e8a090; }
 @media (max-width: 640px) {
+  .compass-arrow .compass-chevron { width: 14px; height: 18px; border: 0; }
+  .compass-arrow[data-dest="foe"] .compass-chevron { width: 11px; height: 14px; }
   .compass-arrow[data-dest="objective"] .compass-label { font-size: 0.56rem; }
   .compass-arrow[data-dest="objective"] .compass-dist { font-size: 0.5rem; }
 }
@@ -5669,12 +5691,21 @@ body.in-avarice.hud-compact .world-label.portal-label { transform: none; }
 }
 .world-label.foe.is-hover .wl-name { text-decoration-color: #d63a2a99; }
 
-/* ——— Toasts: one line on phones ——— */
+/* ——— Toasts: one line on landscape phones (wide column); portrait's column is
+   ~260px, so allow a second line there rather than cutting off the action ——— */
 body.hud-compact #toast-layer #toast,
 body.hud-compact #toast-layer.toast-above-actions #toast {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+body.hud-compact:not(.hud-landscape) #toast-layer #toast,
+body.hud-compact:not(.hud-landscape) #toast-layer.toast-above-actions #toast {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 /* ——— Dialogue panel (Guide counsel) ——— */

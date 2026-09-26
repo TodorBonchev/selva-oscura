@@ -156,7 +156,7 @@ async function handleMessage(ws, meta, msg) {
         ? null
         : restored
           ? `Welcome back, ${meta.name}. Ash and inventory restored.`
-          : "Welcome, pilgrim — the gold arrow shows the way.";
+          : "Welcome, pilgrim — speak with the Guide.";
       if (greet) room.toast(ws, "info", greet);
       break;
     }
