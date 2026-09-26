@@ -837,6 +837,12 @@ class CantoRoom {
       this.toast(s.ws, "warn", "Nothing to strike.");
       return;
     }
+    // A canto mechanic may spend this swing on its own action (it has its own reach)
+    if (this.mech.onAttack?.(this, s, target, combo)) {
+      s.atkCd = PLAYER_ATK_CD;
+      s.atkReadyAt = Math.max(now, s.atkReadyAt || 0) + PLAYER_ATK_CD * 1000;
+      return;
+    }
     if (dist(s, target) > ATTACK_RANGE) {
       // Quiet OOR: longer gap + info (not warn) so measure spam stays bone-soft
       if (!s._oorToastAt || now - s._oorToastAt > 2400) {
@@ -1142,7 +1148,7 @@ class CantoRoom {
     this.mech.onKilled?.(this, entity);
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
-    if (entity.packId && killer) {
+    if (entity.packId && killer && !entity.summoned) {
       let left = 0;
       for (const e of this.entities.values()) {
         if (e.packId === entity.packId && e.kind === "mob") left++;
@@ -1166,11 +1172,12 @@ class CantoRoom {
         this.schedulePackRespawn(entity.packId, entity.x, entity.y);
       }
     }
-    if (killer && entity.kind === "mob") {
+    if (killer && entity.kind === "mob" && !entity.summoned) {
       let mobs = 0;
       let bossUp = false;
       for (const e of this.entities.values()) {
-        if (e.kind === "mob" && e.hp > 0) mobs++;
+        // (a mechanic's summoned adds — entity.summoned — are not "the road")
+        if (e.kind === "mob" && e.hp > 0 && !e.summoned) mobs++;
         if (e.kind === "boss" && e.hp > 0) bossUp = true;
       }
       if (mobs === 0 && bossUp) {
@@ -1263,7 +1270,8 @@ class CantoRoom {
     const len = Math.hypot(dx, dy) || 1;
     dx /= len;
     dy /= len;
-    const step = 5.5;
+    // (a canto's ground may shorten it — the client asks its mech the same)
+    const step = 5.5 * (this.mech.dashScale?.(this, s) ?? 1);
     const b = this.canto.geo.bounds;
     const fromX = s.x;
     const fromY = s.y;
@@ -1380,6 +1388,11 @@ class CantoRoom {
     if (dist(s, e) > maxDist) {
       this.toast(s.ws, "warn", "Move closer.");
       return;
+    }
+    // A canto mechanic's own POIs (it answers, toasts and marks dirty itself)
+    if (e.kind === "poi" && this.mech.onInteract?.(this, s, e)) {
+      this.pushSnapshot(playerId);
+      return null;
     }
 
     if (e.kind === "exit") {

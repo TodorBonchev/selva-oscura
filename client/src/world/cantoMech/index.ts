@@ -17,12 +17,21 @@
  *                              out = { speedMul, accelMul, driftX, driftY } arrives at
  *                              {1, 1, 0, 0}; multiply / add (drift is planar u/s). The
  *                              server must allow the same (its adjustMove hook).
+ *   dashScale(app) → number    dash distance multiplier from where you stand (the
+ *                              server's dashScale must agree).
+ *   onAttackPress(app) → bool  an attack press (button, F, a tap or hold on a foe)
+ *                              before targeting; true = the mechanic spent it (throws…).
+ *   nodeMesh(app, e, kind) → Group | null
+ *                              the mesh for an entity this canto owns (its own POI
+ *                              kinds); null = the default builder.
+ * Telegraph colours for a mechanic's own kinds: registerTelePalette() in telegraphs.ts.
  * Generic forces are already wired: {type:"shove"} and {type:"status"} from
  * room.shovePlayer / room.statusPlayer land in app.forces (world/forces.ts).
  * Mob attack poses for new telegraph kinds: registerAttackPose() in world/mobAnim.ts.
  * Perf rules hold here too: no per-frame allocation, pooled FX, VirtualLight markers
  * (lightPool.ts) instead of real lights, shared materials.
  */
+import type * as THREE from "three";
 import type { WorldApp } from "../WorldApp";
 import type { Objective } from "../objective";
 import { lustMech } from "./lust";
@@ -39,6 +48,9 @@ export interface CantoMech {
   onSnapshot?(app: WorldApp, mech: unknown): void;
   objective?(app: WorldApp, obj: Objective): void;
   moveFeel?(app: WorldApp, out: MoveFeelOut): void;
+  dashScale?(app: WorldApp): number;
+  onAttackPress?(app: WorldApp): boolean;
+  nodeMesh?(app: WorldApp, e: any, kind: string): THREE.Group | null;
 }
 
 const NONE: CantoMech = Object.freeze({});

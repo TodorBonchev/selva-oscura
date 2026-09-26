@@ -25,6 +25,16 @@
  *   onKilled(room, e)                  a mob/boss died (loot already rolled).
  *   bossTick(room, boss, dt) → bool    return true to replace the default boss AI this tick.
  *   mobTick(room, e, dt) → bool        return true to replace the default mob AI this tick.
+ *   onInteract(room, sess, poi) → bool a POI in reach was used (E); return true when the
+ *                                      mechanic owns it (it toasts / marks dirty itself).
+ *   onAttack(room, sess, target, combo) → bool
+ *                                      a swing at a foe, before the melee range check;
+ *                                      return true to spend it on the mechanic's own
+ *                                      action (the room still applies the swing cooldown).
+ *   dashScale(room, sess) → number     dash distance multiplier where the dash starts
+ *                                      (the client mech's dashScale must agree).
+ * Entities a mechanic summons may set `summoned: true`: pack-clear and road-clear lines
+ * don't count them.
  *
  * Helpers on the room for mechanics:
  *   room.telegraph(spec) → t           ground telegraph (telegraph.mjs; spec.onLand at

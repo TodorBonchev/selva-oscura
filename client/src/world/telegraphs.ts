@@ -52,7 +52,8 @@ export type TelePalette = { base: number; hot: number; rim: number };
 const SHAPE_ID: Record<string, number> = { circle: 0, ring: 1, cone: 2, line: 3 };
 /** After the fill reaches the edge: a short flash, then the slot frees. */
 const LAND_MS = 170;
-const POOL = 14;
+/** Slots (a canto hazard volley + a boss pattern + a pack's swipes can overlap). */
+const POOL = 20;
 /** Drape grid: cells per side (13×13 heights sampled once per telegraph start). */
 const GRID = 12;
 /** Height above the drawn surface. */
@@ -393,8 +394,18 @@ export class TelegraphRenderer {
   }
 }
 
+/** Palettes a canto mechanic registered for its own telegraph kinds. */
+const KIND_PALETTE: Record<string, TelePalette> = {};
+
+/** A canto mechanic colours its own telegraph kinds (hail, bites, grabs…). */
+export function registerTelePalette(kind: string, pal: TelePalette) {
+  KIND_PALETTE[kind] = pal;
+}
+
 /** Colours by canto palette and attack weight (slams read hotter than a claw swipe). */
 export function telePalette(cantoId: string | undefined, kind: string): TelePalette {
+  const own = KIND_PALETTE[kind];
+  if (own) return own;
   const heavy = kind === "boss_slam" || kind === "champ_slam" || kind === "champ_cleave";
   if (cantoId === "inferno_07") {
     return heavy

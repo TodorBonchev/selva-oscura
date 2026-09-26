@@ -2904,17 +2904,10 @@ body.in-gluttony.maw-pressure.hud-compact #heat-haze {
   );
   will-change: transform;
 }
+/* Gluttony's rain falls in the world now (gluttonyRain.ts: a streak volume around the
+   camera); the full-screen overlay would only add a compositor layer on phones */
 body.in-gluttony #mire-rain {
-  opacity: 0.52;
-}
-body.in-gluttony #mire-rain::before {
-  animation: mire-rain-fall 2.45s linear infinite;
-}
-body.in-gluttony.hud-compact #mire-rain {
-  opacity: 0.34;
-}
-body.in-gluttony.hud-compact #mire-rain::before {
-  animation: none; /* static veil on compact — saves mobile composite cost */
+  display: none;
 }
 body.tab-hidden #mire-rain::before,
 body:not(.in-gluttony) #mire-rain::before {

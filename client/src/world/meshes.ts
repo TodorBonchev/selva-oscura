@@ -382,57 +382,100 @@ export function makeMireWarden(mats: MatKit): THREE.Group {
   return g;
 }
 
-/** Cerbero — broader three-headed silhouette foreshadowing the Triple Maw. */
+/**
+ * Cerbero — the mid-lane hound. Three skulls like the Maw it foreshadows, but only the
+ * centre one is awake: its neck ("cerbNeck"), jaw ("cerbGape"), eyes ("cerbEye") and the
+ * mire plug a clod leaves ("cerbPlug") are posed by the Gluttony mechanic (bite windup,
+ * choke). The side heads hang asleep, eyes shut.
+ */
 export function makeCerbero(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "champion";
-  const hide = std(null, 0x4a3a28, { roughness: 0.8, metalness: 0.1, emissive: 0x2a3010, emissiveIntensity: 0.35 });
-  const body = new THREE.Mesh(new THREE.LatheGeometry([
-    new THREE.Vector2(0.18, 0),
-    new THREE.Vector2(0.82, 0.28),
-    new THREE.Vector2(0.92, 0.95),
-    new THREE.Vector2(0.55, 1.75),
-    new THREE.Vector2(0.3, 2.15),
-  ], 14), hide);
+  const hide = sharedMat("cerbHide", () =>
+    std(null, 0x4a3a28, { roughness: 0.8, metalness: 0.1, emissive: 0x2a3010, emissiveIntensity: 0.35 })
+  );
+  const body = new THREE.Mesh(
+    geo("cerbBody", () =>
+      new THREE.LatheGeometry(
+        [
+          new THREE.Vector2(0.18, 0),
+          new THREE.Vector2(0.82, 0.28),
+          new THREE.Vector2(0.92, 0.95),
+          new THREE.Vector2(0.55, 1.75),
+          new THREE.Vector2(0.3, 2.15),
+        ],
+        14
+      )
+    ),
+    hide
+  );
   // Stub legs for a grounded quadruped read at distance
-  const legGeo = new THREE.CylinderGeometry(0.12, 0.16, 0.7, 6);
+  const legGeo = geo("cerbLeg", () => new THREE.CylinderGeometry(0.12, 0.16, 0.7, 6));
   for (const [lx, lz] of [[-0.38, 0.28], [0.38, 0.28], [-0.32, -0.35], [0.32, -0.35]] as [number, number][]) {
     const leg = new THREE.Mesh(legGeo, hide);
     leg.position.set(lx, 0.35, lz);
     g.add(leg);
   }
-  const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), hide);
+  const shoulder = new THREE.Mesh(geo("cerbShoulder", () => new THREE.SphereGeometry(0.55, 10, 8)), hide);
   shoulder.position.set(0, 1.85, 0.05);
   shoulder.scale.set(1.55, 0.55, 1.05);
-  const mkHead = (ox: number, oy: number, oz: number, yaw: number, s: number) => {
+  const skullGeo = geo("cerbSkull", () => new THREE.SphereGeometry(0.24, 10, 8));
+  const jawGeo = geo("cerbJaw", () => new THREE.ConeGeometry(0.15, 0.34, 6));
+  const eyeGeo = geo("cerbEye", () => new THREE.SphereGeometry(0.035, 6, 6));
+  const earGeo = geo("cerbEar", () => new THREE.ConeGeometry(0.05, 0.22, 5));
+  const mkHead = (ox: number, oy: number, oz: number, yaw: number, s: number, awake: boolean) => {
     const h = new THREE.Group();
     h.position.set(ox, oy, oz);
     h.rotation.y = yaw;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.24 * s, 10, 8), mats.bone);
-    skull.scale.set(1, 0.9, 1.2);
-    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.15 * s, 0.34 * s, 6), mats.bronze);
-    jaw.position.set(0, -0.15 * s, -0.2 * s);
+    const neck = new THREE.Group();
+    if (awake) neck.name = "cerbNeck";
+    else neck.rotation.x = 0.55; // hangs asleep
+    h.add(neck);
+    const skull = new THREE.Mesh(skullGeo, mats.bone);
+    skull.scale.set(s, 0.9 * s, 1.2 * s);
+    const gape = new THREE.Group();
+    gape.position.set(0, -0.08 * s, -0.08 * s);
+    if (awake) gape.name = "cerbGape";
+    const jaw = new THREE.Mesh(jawGeo, mats.bronze);
+    jaw.scale.setScalar(s);
+    jaw.position.set(0, -0.07 * s, -0.12 * s);
     jaw.rotation.x = 1.8;
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.035 * s, 6, 6), mats.ember);
+    gape.add(jaw);
+    const eyeMat = awake ? mats.ember : mats.moss;
+    const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeL.scale.setScalar(s);
     eyeL.position.set(-0.07 * s, 0.05 * s, -0.22 * s);
-    eyeL.name = "ember";
     const eyeR = eyeL.clone();
     eyeR.position.x = 0.07 * s;
-    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.05 * s, 0.22 * s, 5), mats.bronze);
+    if (awake) {
+      eyeL.name = "cerbEye";
+      eyeR.name = "cerbEye";
+    }
+    const ear = new THREE.Mesh(earGeo, mats.bronze);
+    ear.scale.setScalar(s);
     ear.position.set(0, 0.22 * s, 0.02 * s);
     ear.rotation.x = -0.4;
-    h.add(skull, jaw, eyeL, eyeR, ear);
+    neck.add(skull, gape, eyeL, eyeR, ear);
+    if (awake) {
+      const plug = new THREE.Mesh(geo("mirePlug", () => new THREE.IcosahedronGeometry(0.16, 0)), mats.moss);
+      plug.name = "cerbPlug";
+      plug.position.set(0, -0.1 * s, -0.3 * s);
+      plug.scale.setScalar(s);
+      plug.visible = false;
+      neck.add(plug);
+    }
     return h;
   };
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.06, 6, 18), mats.gold);
+  const sash = new THREE.Mesh(geo("cerbSash", () => new THREE.TorusGeometry(0.62, 0.06, 6, 18)), mats.gold);
   sash.position.y = 1.45;
   sash.rotation.x = Math.PI / 2;
-  const sludge = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.05, 5, 16), mats.mire);
+  const sludge = new THREE.Mesh(geo("cerbSludge", () => new THREE.TorusGeometry(0.78, 0.05, 5, 16)), mats.mire);
   sludge.position.y = 0.95;
   sludge.name = "ribbon";
   // Cheap drip cones (static) for sludge read without particle cost
+  const dripGeo = geo("cerbDrip", () => new THREE.ConeGeometry(0.06, 0.28, 5));
   for (const [dx, dy] of [[-0.35, 0.55], [0.4, 0.42], [0.05, 0.7]] as [number, number][]) {
-    const drip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.28, 5), mats.moss);
+    const drip = new THREE.Mesh(dripGeo, mats.moss);
     drip.position.set(dx, dy, 0.45);
     drip.rotation.x = Math.PI;
     g.add(drip);
@@ -441,9 +484,9 @@ export function makeCerbero(mats: MatKit): THREE.Group {
     discShadow(mats, 0.95),
     body,
     shoulder,
-    mkHead(0, 2.55, -0.15, 0, 1.2),
-    mkHead(-0.62, 2.32, 0.1, 0.55, 0.98),
-    mkHead(0.62, 2.32, 0.1, -0.55, 0.98),
+    mkHead(0, 2.55, -0.15, 0, 1.35, true),
+    mkHead(-0.62, 2.28, 0.1, 0.55, 0.95, false),
+    mkHead(0.62, 2.28, 0.1, -0.55, 0.95, false),
     sash,
     sludge,
     nose(mats, 2.7, -0.38)
@@ -543,7 +586,14 @@ export function makeJudge(mats: MatKit): THREE.Group {
 }
 
 
-/** Triple Maw — three-headed cerberine mass; telegraph ring + sludge tori (no TorusKnot). */
+/**
+ * Triple Maw — Cerberus, "il gran vermo". Three heads on thick stalks; each head is a
+ * "mawHead" (mobAnim bobs it idly) holding a neck pivot "mawNeck0/1/2" (0 = the model's
+ * left, −x) that the Gluttony mechanic rears and snaps through that head's own bite, a
+ * jaw pivot "mawGape0/1/2", eyes "mawEye0/1/2" (dimmed while the throat is choked) and
+ * the plug of mire a clod leaves ("mawPlug0/1/2"). No ground ring: the bites draw their
+ * own cone telegraphs.
+ */
 export function makeTripleMaw(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "triple_maw";
@@ -579,42 +629,64 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
   stalkR.rotation.z = -0.55;
   stalkR.rotation.x = 0.15;
 
-  const makeHead = (ox: number, oy: number, oz: number, yaw: number, s = 1) => {
+  const skullGeo = new THREE.SphereGeometry(0.42, 10, 8);
+  const jawGeo = new THREE.ConeGeometry(0.32, 0.62, 6);
+  const fangGeo = new THREE.ConeGeometry(0.055, 0.26, 5);
+  const eyeGeo = new THREE.SphereGeometry(0.07, 8, 8);
+  const hornGeo = new THREE.ConeGeometry(0.08, 0.62, 6);
+  const plugGeo = new THREE.IcosahedronGeometry(0.28, 0);
+  const makeHead = (i: number, ox: number, oy: number, oz: number, yaw: number, s = 1) => {
     const head = new THREE.Group();
     head.name = "mawHead";
     head.position.set(ox, oy, oz);
     head.rotation.y = yaw;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.42 * s, 10, 8), mats.bone);
-    skull.scale.set(1.1, 0.95, 1.25);
-    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.32 * s, 0.62 * s, 6), mats.bronze);
-    jaw.name = "mawJaw";
-    jaw.position.set(0, -0.32 * s, -0.36 * s);
+    const neck = new THREE.Group();
+    neck.name = `mawNeck${i}`;
+    head.add(neck);
+    const skull = new THREE.Mesh(skullGeo, mats.bone);
+    skull.scale.set(1.1 * s, 0.95 * s, 1.25 * s);
+    const gape = new THREE.Group();
+    gape.name = `mawGape${i}`;
+    gape.position.set(0, -0.2 * s, -0.08 * s);
+    const jaw = new THREE.Mesh(jawGeo, mats.bronze);
+    jaw.scale.setScalar(s);
+    jaw.position.set(0, -0.12 * s, -0.28 * s);
     jaw.rotation.x = 1.85;
-    const fangL = new THREE.Mesh(new THREE.ConeGeometry(0.055 * s, 0.26 * s, 5), mats.bone);
+    gape.add(jaw);
+    const fangL = new THREE.Mesh(fangGeo, mats.bone);
+    fangL.scale.setScalar(s);
     fangL.position.set(-0.14 * s, -0.2 * s, -0.55 * s);
     fangL.rotation.x = 0.9;
     const fangR = fangL.clone();
     fangR.position.x = 0.14 * s;
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.07 * s, 8, 8), mats.ember);
+    const eyeL = new THREE.Mesh(eyeGeo, mats.ember);
+    eyeL.scale.setScalar(s);
     eyeL.position.set(-0.15 * s, 0.1 * s, -0.38 * s);
-    eyeL.name = "ember";
+    eyeL.name = `mawEye${i}`;
     const eyeR = eyeL.clone();
     eyeR.position.x = 0.15 * s;
-    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.08 * s, 0.62 * s, 6), mats.gold);
+    const horn = new THREE.Mesh(hornGeo, mats.gold);
+    horn.scale.setScalar(s);
     horn.position.set(0, 0.48 * s, -0.05 * s);
     horn.rotation.x = -0.45;
-    head.add(skull, jaw, fangL, fangR, eyeL, eyeR, horn);
+    const plug = new THREE.Mesh(plugGeo, mats.moss);
+    plug.name = `mawPlug${i}`;
+    plug.position.set(0, -0.22 * s, -0.5 * s);
+    plug.scale.setScalar(s);
+    plug.visible = false;
+    neck.add(skull, gape, fangL, fangR, eyeL, eyeR, horn, plug);
     return head;
   };
 
-  const headC = makeHead(0, 4.15, -0.22, 0, 1.12);
-  const headL = makeHead(-1.15, 3.75, 0.18, 0.58, 1);
-  const headR = makeHead(1.15, 3.75, 0.18, -0.58, 1);
+  // i: 0 = the model's left (−x), 1 = centre, 2 = right — the server's head order
+  const headL = makeHead(0, -1.15, 3.75, 0.18, 0.58, 1);
+  const headC = makeHead(1, 0, 4.15, -0.22, 0, 1.12);
+  const headR = makeHead(2, 1.15, 3.75, 0.18, -0.58, 1);
 
   const sash = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.09, 5, 16), mats.gold);
   sash.position.y = 2.35;
   sash.rotation.x = Math.PI / 2;
-  // Cheap sludge rings (readable telegraph, no TorusKnot)
+  // Cheap sludge rings (no TorusKnot)
   const sludge = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.08, 5, 14), mats.mire);
   sludge.position.y = 1.55;
   sludge.rotation.x = Math.PI / 2.4;
@@ -638,20 +710,6 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
   aura.rotation.x = -Math.PI / 2;
   aura.position.y = 0.1;
   aura.name = "judgeAura";
-  const telegraph = new THREE.Mesh(
-    new THREE.RingGeometry(3.1, 3.35, 22),
-    new THREE.MeshBasicMaterial({
-      color: 0xa8b040,
-      transparent: true,
-      opacity: 0.28,
-      side: THREE.DoubleSide,
-      forceSinglePass: true,
-      depthWrite: false,
-    })
-  );
-  telegraph.rotation.x = -Math.PI / 2;
-  telegraph.position.y = 0.06;
-  telegraph.name = "mawTelegraph";
   const glow = new VirtualLight(0xaabb44, 5.2, 20, 1.5, 1.2);
   glow.position.set(0, 3.4, 0.5);
 
@@ -669,11 +727,85 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
     sludge,
     sludge2,
     aura,
-    telegraph,
     glow,
     nose(mats, 4.35, -0.6)
   );
   shadow(g);
+  return g;
+}
+
+/**
+ * Mire Heart — a bloated heart of filth half sunk in the mud, bound in bone ribs, a
+ * dull ember at its crown. Built for Gluttony's mechanic (its tint pass keeps the bone,
+ * gold and ember; the sack "heartSack" is pulsed by the mechanic).
+ */
+export function makeMireHeart(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "mire_heart";
+  const hide = sharedMat("mireHeartHide", () =>
+    std(null, 0x4a3a22, { roughness: 0.62, metalness: 0.12, emissive: 0x3a4214, emissiveIntensity: 0.45 })
+  );
+  const sack = new THREE.Mesh(geo("heartSack", () => new THREE.SphereGeometry(0.62, 14, 12)), hide);
+  sack.name = "heartSack";
+  sack.position.y = 0.72;
+  sack.scale.set(1.15, 1.25, 1.05);
+  const lobe = new THREE.Mesh(geo("heartLobe", () => new THREE.SphereGeometry(0.38, 10, 8)), hide);
+  lobe.position.set(0.32, 1.28, 0.08);
+  const lobe2 = new THREE.Mesh(geo("heartLobe", () => new THREE.SphereGeometry(0.38, 10, 8)), hide);
+  lobe2.position.set(-0.3, 1.22, -0.05);
+  lobe2.scale.setScalar(0.85);
+  const ribGeo = geo("heartRib", () => new THREE.TorusGeometry(0.78, 0.045, 5, 18, Math.PI * 1.15));
+  for (let i = 0; i < 4; i++) {
+    const rib = new THREE.Mesh(ribGeo, mats.bone);
+    rib.position.y = 0.75;
+    rib.rotation.set(0, (i / 4) * Math.PI, Math.PI * 0.43);
+    g.add(rib);
+  }
+  const vein = new THREE.Mesh(geo("heartVein", () => new THREE.TorusGeometry(0.95, 0.06, 5, 20)), mats.mire);
+  vein.position.y = 0.55;
+  vein.rotation.x = Math.PI / 2.3;
+  vein.name = "ribbon";
+  const core = new THREE.Mesh(geo("heartCore", () => new THREE.SphereGeometry(0.16, 8, 8)), mats.ember);
+  core.position.set(0, 1.62, 0);
+  core.name = "ember";
+  const pool = new THREE.Mesh(geo("heartPool", () => new THREE.CircleGeometry(1.5, 18)), mats.moss);
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = 0.04;
+  pool.receiveShadow = true;
+  g.add(pool, sack, lobe, lobe2, vein, core, nose(mats, 1.2, -0.7));
+  shadow(g);
+  pool.castShadow = false;
+  return g;
+}
+
+/**
+ * A clod heap by the Maw's dais ("prese la terra, e con piene le pugna") — a mound of
+ * wet earth with fist-sized lumps on top and a pale ring that says "take one".
+ */
+export function makeClodMound(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "clod_mound";
+  const heap = new THREE.Mesh(
+    geo("clodHeap", () => {
+      const parts = [
+        xform(new THREE.IcosahedronGeometry(0.7, 1), 0, 0.12, 0, 0, 0.3, 0, 1.25, 0.42, 1.05),
+        xform(new THREE.IcosahedronGeometry(0.2, 0), 0.22, 0.42, 0.1, 0.4, 0, 0.2),
+        xform(new THREE.IcosahedronGeometry(0.18, 0), -0.25, 0.4, -0.08, 0.1, 0.5, 0),
+        xform(new THREE.IcosahedronGeometry(0.16, 0), 0.02, 0.5, -0.25, 0.7, 0.2, 0.3),
+      ];
+      const merged = mergeGeometries(parts, false)!;
+      merged.computeVertexNormals();
+      return merged;
+    }),
+    mats.moss
+  );
+  heap.castShadow = false;
+  heap.receiveShadow = true;
+  const ring = new THREE.Mesh(geo("clodRing", () => new THREE.TorusGeometry(1.05, 0.045, 5, 20)), mats.mire);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.08;
+  ring.name = "ribbon";
+  g.add(heap, ring);
   return g;
 }
 
