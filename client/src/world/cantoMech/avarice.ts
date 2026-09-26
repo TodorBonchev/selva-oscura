@@ -50,8 +50,8 @@ const PAL_SPILL = { base: 0x140a02, hot: 0xc89020, rim: 0xffe8a0 };
 const PAL_HOARD = { base: 0x160c02, hot: 0xe0a020, rim: 0xfff4c0 };
 /** His hoard in the tip of the ring (server PILES). */
 const PILES = [
-  { x: 120.5, y: 47.5 },
-  { x: 120.5, y: 52.5 },
+  { x: 120.5, y: 48.2 },
+  { x: 120.5, y: 53.2 },
 ];
 
 const smooth = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));

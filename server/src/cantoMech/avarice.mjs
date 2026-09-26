@@ -67,7 +67,7 @@ import { dodgeGrace } from "../telegraph.mjs";
 export const PLUTUS_ID = "hoard_crush";
 
 /** Procession damage to pilgrims (× canto tier) and to foes (flat). */
-const ROLL_DMG = 28;
+const ROLL_DMG = 36;
 const CLASH_DMG = 20;
 const MOB_ROLL_DMG = 70;
 const MOB_CLASH_DMG = 90;
@@ -104,10 +104,10 @@ const FALL_R = 5.5;
 const FALL_ARC = 1.45;
 const FALL_MS = 650;
 const FALL_DMG = 18;
-const CALL_EVERY = 7.5;
+const CALL_EVERY = 6.5;
 const ENGAGE_R = 16;
-const FEEDER_SPEED = 3.4;
-const FEEDER_HP = 22;
+const FEEDER_SPEED = 4.4;
+const FEEDER_HP = 30;
 /** A Fiorino darts at a pilgrim this close to its flight. */
 const FEEDER_BITE = 3.4;
 /**
@@ -116,8 +116,8 @@ const FEEDER_BITE = 3.4;
  * clash — cut them down between the weights, or let the clash grind them.
  */
 const PILES = [
-  { x: 120.5, y: 47.5 },
-  { x: 120.5, y: 52.5 },
+  { x: 120.5, y: 48.2 },
+  { x: 120.5, y: 53.2 },
 ];
 /** Swollen with coin, the hoard pulses around him (radius grows with every coin). */
 const PULSE_WIND = 0.6;
@@ -484,7 +484,10 @@ function tickFeeder(room, e, dt) {
       return true;
     }
   }
-  walkTo(room, e, p.x, p.y, FEEDER_SPEED, dt);
+  // In the ring's tip it runs down the middle and out through the east clash (between
+  // the two processions' last runs — never along a lane), then on to him
+  const viaE = p.x > PROC.E.x && e.x < PROC.E.x - 1.5;
+  walkTo(room, e, viaE ? PROC.E.x : p.x, viaE ? PROC.E.y : p.y, FEEDER_SPEED, dt);
   if (Math.hypot(p.x - e.x, p.y - e.y) < 2.1) {
     if (!(p.collapseLeft > 0)) p.inflate = Math.min(INFLATE_MAX, (p.inflate || 0) + 1);
     removeFeeder(room, e, { type: "ava_absorb", id: e.id, x: +e.x.toFixed(2), y: +e.y.toFixed(2), inf: p.inflate || 0 });

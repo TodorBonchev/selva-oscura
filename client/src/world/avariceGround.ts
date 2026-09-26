@@ -107,8 +107,8 @@ function trackAndRings(heightAt: (x: number, z: number) => number, compact: bool
 
 /** Plutus's hoard: two coin piles in the tip of the ring, flanking the Ledger Bell (the Fiorini rise from them; server PILES). */
 const PILES: [number, number][] = [
-  [120.5, 47.5],
-  [120.5, 52.5],
+  [120.5, 48.2],
+  [120.5, 53.2],
 ];
 
 function pileGeometry(heightAt: (x: number, z: number) => number): THREE.BufferGeometry {
