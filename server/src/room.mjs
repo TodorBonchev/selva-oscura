@@ -780,7 +780,9 @@ class CantoRoom {
    * A player's blow lands on a mob or boss: canto onDamage hook, HP, boss credit,
    * reactions (knockback impulse, light stagger on atkCd, poise that breaks a champion
    * windup; a heavy blow breaks a fodder windup), the combat broadcast and the kill.
-   * extra: { spellId, heavy, from: {x,y} (knockback source), kbMul }. Returns the damage.
+   * extra: { spellId, heavy, from: {x,y} (knockback source), kbMul, source (a hazard's
+   * id: the blow is the world's — combat attackerId + from on the wire — while
+   * playerId keeps the kill credit) }. Returns the damage.
    */
   damageMob(v, hit, playerId, extra = {}) {
     if (!v || v._dead) return 0;
@@ -812,15 +814,18 @@ class CantoRoom {
         }
       }
     }
+    const env = extra.source && extra.from;
     this.broadcast({
       type: "combat",
-      attackerId: playerId,
+      attackerId: extra.source || playerId,
       targetId: v.id,
       damage: hit,
       targetHp: v.hp,
       spellId: extra.spellId,
       heavy: extra.heavy || undefined,
       kb: kb > 0 ? +kb.toFixed(2) : undefined,
+      fx: env ? +extra.from.x.toFixed(1) : undefined,
+      fy: env ? +extra.from.y.toFixed(1) : undefined,
     });
     if (v.hp <= 0) this.onEntityKilled(playerId, v);
     return hit;
@@ -835,6 +840,12 @@ class CantoRoom {
     if (!target) return;
     if (target.kind !== "mob" && target.kind !== "boss") {
       this.toast(s.ws, "warn", "Nothing to strike.");
+      return;
+    }
+    // A canto mechanic may spend this swing on its own action (it has its own reach)
+    if (this.mech.onAttack?.(this, s, target, combo)) {
+      s.atkCd = PLAYER_ATK_CD;
+      s.atkReadyAt = Math.max(now, s.atkReadyAt || 0) + PLAYER_ATK_CD * 1000;
       return;
     }
     if (dist(s, target) > ATTACK_RANGE) {
@@ -1264,7 +1275,8 @@ class CantoRoom {
     const len = Math.hypot(dx, dy) || 1;
     dx /= len;
     dy /= len;
-    const step = 5.5;
+    // (a canto's ground may shorten it — the client asks its mech the same)
+    const step = 5.5 * (this.mech.dashScale?.(this, s) ?? 1);
     const b = this.canto.geo.bounds;
     const fromX = s.x;
     const fromY = s.y;
@@ -1390,6 +1402,11 @@ class CantoRoom {
     if (dist(s, e) > maxDist) {
       this.toast(s.ws, "warn", "Move closer.");
       return;
+    }
+    // A canto mechanic's own POIs (it answers, toasts and marks dirty itself)
+    if (e.kind === "poi" && this.mech.onInteract?.(this, s, e)) {
+      this.pushSnapshot(playerId);
+      return null;
     }
 
     if (e.kind === "exit") {

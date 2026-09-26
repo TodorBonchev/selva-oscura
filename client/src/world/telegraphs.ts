@@ -54,7 +54,8 @@ export type TelePalette = { base: number; hot: number; rim: number };
 const SHAPE_ID: Record<string, number> = { circle: 0, ring: 1, cone: 2, line: 3 };
 /** After the fill reaches the edge: a short flash, then the slot frees. */
 const LAND_MS = 170;
-const POOL = 14;
+/** Slots (a canto hazard volley + a boss pattern + a pack's swipes can overlap). */
+const POOL = 20;
 /** Drape grid: cells per side (13×13 heights sampled once per telegraph start). */
 const GRID = 12;
 /** Height above the drawn surface. */

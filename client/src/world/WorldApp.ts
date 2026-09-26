@@ -2449,7 +2449,11 @@ export class WorldApp {
       arch.startsWith("weight_") || arch === "coin_wisp" || arch === "ledger_warden" || arch === "hoard_heart";
     const nm = String(e.name || "");
     let group: THREE.Group;
-    if (arch === "hoard_heart") {
+    // A canto mechanic builds the entities it owns (its own POI kinds)
+    const own = this.mech.nodeMesh?.(this, e, kind) ?? null;
+    if (own) {
+      group = own;
+    } else if (arch === "hoard_heart") {
       group = makeHoardHeart(this.mats!);
       group.userData.isHoardHeart = true;
     } else if (isHeartArch) {
@@ -4261,7 +4265,8 @@ export class WorldApp {
     const len = Math.hypot(this.aimX, this.aimY) || 1;
     const nx = this.aimX / len;
     const ny = this.aimY / len;
-    const step = 5.5;
+    // (a canto's ground may shorten it — the server's dashScale hook agrees)
+    const step = 5.5 * (this.mech.dashScale?.(this) ?? 1);
     // Same clamp as the server (room.handleDash): it teleports, we tween there
     const b = this.room?.bounds;
     const to = {
@@ -4280,6 +4285,8 @@ export class WorldApp {
 
   attackNearest(opts?: { silent?: boolean }) {
     if (!this.room) return;
+    // A canto mechanic may spend the press on its own action (Gluttony: a thrown clod)
+    if (this.mech.onAttackPress?.(this)) return;
     if (this.lockedId) {
       const live = this.room.entities.find((e: any) => String(e.id) === this.lockedId);
       if (!live || (live.hp != null && live.hp <= 0)) this.lockedId = null;
