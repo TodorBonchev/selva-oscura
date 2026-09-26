@@ -97,6 +97,12 @@ class Bot {
     } else if (m.type === "telegraph") {
       this.telegraphs.push({ ...m, durMs: Number(m.duration) || 500, at: Date.now() });
       if (this.cur && this.stats[this.cur] && m.dmg > 0) this.stats[this.cur].teles++;
+    } else if (m.type === "shove") {
+      // a slam threw us: our predicted position moves with it (like the client's forces)
+      if (this.me) {
+        this.me.x += Number(m.dx) || 0;
+        this.me.y += Number(m.dy) || 0;
+      }
     } else if (m.type === "telegraph_cancel") {
       this.telegraphs = this.telegraphs.filter((t) => t.id !== m.id);
     } else if (m.type === "boss_telegraph" || m.type === "champ_telegraph") {

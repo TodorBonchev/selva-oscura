@@ -241,11 +241,19 @@ export class Telegraphs {
         if (t.onHit) dmg = t.onHit(room, t, s);
         if (dmg == null || dmg <= 0) continue;
         hits.push(s);
-        room.hitPlayer(s, attacker || { id: t.attackerId }, dmg, {
+        const taken = room.hitPlayer(s, attacker || { id: t.attackerId }, dmg, {
           teleKind: t.kind,
           teleId: t.id,
           champTele: t.kind === "champ_slam" || undefined,
         });
+        // Slams throw you off your feet a little (not on the respawn that a kill causes)
+        const shove = t.kind === "boss_slam" ? 0.9 : t.kind === "champ_slam" ? 0.45 : 0;
+        if (taken > 0 && shove > 0 && !(s.iframes > 0)) {
+          const dx = s.x - t.x;
+          const dy = s.y - t.y;
+          const l = Math.hypot(dx, dy) || 1;
+          room.shovePlayer(s, (dx / l) * shove, (dy / l) * shove, 200);
+        }
       }
     }
     if (t.onResolve) t.onResolve(room, t, hits);

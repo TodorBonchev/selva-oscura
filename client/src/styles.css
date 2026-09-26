@@ -4301,7 +4301,7 @@ body.in-avarice .world-label.is-nearest:not(.foe) .wl-name {
 .dmg-heavy { color: #ffae3c; font-size: 30px; letter-spacing: 0.02em; text-shadow: 0 1px 0 #000, 0 0 10px #a03000cc, 0 0 2px #000; }
 .dmg-spell { color: #c0b0ff; font-size: 22px; text-shadow: 0 1px 0 #000, 0 0 9px #4020a0cc, 0 0 2px #000; }
 .dmg-dash { color: #8fe8ff; text-shadow: 0 1px 0 #000, 0 0 8px #0070a0cc, 0 0 2px #000; }
-.dmg-self { color: #ff5a48; font-size: 23px; text-shadow: 0 1px 0 #000, 0 0 9px #600000, 0 0 2px #000; }
+.dmg-self { color: #ff8070; font-size: 23px; -webkit-text-stroke: 1.2px #1a0000; text-shadow: 0 1px 0 #000, 0 0 8px #000, 0 0 2px #000; }
 .dmg-heal { color: #8ff08a; font-size: 21px; text-shadow: 0 1px 0 #000, 0 0 8px #106010cc, 0 0 2px #000; }
 .dmg-other { color: #cfc4ae; font-size: 15px; font-weight: 600; }
 .dmg-block { color: #9fe8ff; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
