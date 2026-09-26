@@ -891,7 +891,12 @@ export class WorldApp {
     // Composer tiers draw the scene into renderTarget1: compile for that program key
     if (this.composer) r.setRenderTarget(this.composer.renderTarget1);
     try {
-      r.compileAsync(this.scene, this.camera).catch(() => {});
+      // compile(), not compileAsync(): both start every program build now (the driver
+      // links in parallel; the first draw only waits if one is still linking), but
+      // compileAsync then polls each material's program from a timer — and throws an
+      // uncaught TypeError if a transient effect (impact ring, gate burst, loot beam)
+      // is disposed before its program reports ready, e.g. a tier step mid-fight.
+      r.compile(this.scene, this.camera);
     } catch {
       /* compile errors surface on the real draw too */
     }
