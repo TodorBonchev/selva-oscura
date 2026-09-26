@@ -833,10 +833,8 @@ function summonChorus(room, L, e) {
       hp,
       maxHp: hp,
       // (a mechanic's summons: no pack — so no pack-clear line — and `summoned`, so no
-      // road-clear line (room.onEntityKilled); quietPack is wave3/avarice's name for
-      // the same, until the merge keeps one)
+      // road-clear line (room.onEntityKilled))
       summoned: true,
-      quietPack: true,
       champion: false,
       elite: false,
       dropTable: "inferno_pack_common",
