@@ -44,6 +44,8 @@ export type TelegraphLand = {
   y: number;
   /** reach: radius (circle/ring/cone) or length (line) */
   r: number;
+  /** facing (rad, planar): where a cone / line points */
+  dir: number;
   attackerId: string;
 };
 
@@ -146,6 +148,7 @@ type Slot = {
   x: number;
   y: number;
   reach: number;
+  dir: number;
   start: number;
   dur: number;
   landed: boolean;
@@ -230,11 +233,12 @@ export class TelegraphRenderer {
         x: 0,
         y: 0,
         reach: 1,
+        dir: 0,
         start: 0,
         dur: 1,
         landed: false,
       });
-      this.landed.push({ id: "", kind: "", shape: "", x: 0, y: 0, r: 0, attackerId: "" });
+      this.landed.push({ id: "", kind: "", shape: "", x: 0, y: 0, r: 0, dir: 0, attackerId: "" });
     }
   }
 
@@ -312,6 +316,7 @@ export class TelegraphRenderer {
     slot.x = x;
     slot.y = y;
     slot.reach = reach;
+    slot.dir = dir;
     slot.start = nowMs;
     slot.dur = Math.max(60, Number(durMs) || Number(m.duration) || 500);
     slot.landed = false;
@@ -363,6 +368,7 @@ export class TelegraphRenderer {
           l.x = s.x;
           l.y = s.y;
           l.r = s.reach;
+          l.dir = s.dir;
           l.attackerId = s.attackerId;
         }
       }
@@ -393,8 +399,18 @@ export class TelegraphRenderer {
   }
 }
 
+/** Palettes a canto mechanic registered for its own telegraph kinds. */
+const KIND_PALETTE: Record<string, TelePalette> = {};
+
+/** A canto mechanic colours its own telegraph kinds (hail, bites, grabs…). */
+export function registerTelePalette(kind: string, pal: TelePalette) {
+  KIND_PALETTE[kind] = pal;
+}
+
 /** Colours by canto palette and attack weight (slams read hotter than a claw swipe). */
 export function telePalette(cantoId: string | undefined, kind: string): TelePalette {
+  const own = KIND_PALETTE[kind];
+  if (own) return own;
   const heavy = kind === "boss_slam" || kind === "champ_slam" || kind === "champ_cleave";
   if (cantoId === "inferno_07") {
     return heavy
@@ -410,4 +426,22 @@ export function telePalette(cantoId: string | undefined, kind: string): TelePale
   return heavy
     ? { base: 0x1c0402, hot: 0xff3a0c, rim: 0xffc070 }
     : { base: 0x1a0402, hot: 0xe8300e, rim: 0xffa060 };
+}
+
+/**
+ * How hard a canto mechanic's own telegraph kind lands (registerTeleWeight): "boss"
+ * lands like a boss slam (shock ring, hit light, full camera kick, the heavy hurt
+ * sting), "champ" like a champion's (lighter). Unregistered kinds land quietly. The
+ * dodge callout stays the mechanic's (WorldApp.flashDodge).
+ */
+export type TeleWeight = "boss" | "champ";
+
+const KIND_WEIGHT: Record<string, TeleWeight> = {};
+
+export function registerTeleWeight(kind: string, weight: TeleWeight) {
+  KIND_WEIGHT[kind] = weight;
+}
+
+export function teleWeight(kind: string | undefined | null): TeleWeight | undefined {
+  return kind ? KIND_WEIGHT[kind] : undefined;
 }

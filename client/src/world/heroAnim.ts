@@ -1129,6 +1129,9 @@ export type HumanoidOpts = {
   /** world planar velocity (x, z); derived from root motion when omitted (remotes) */
   vx?: number;
   vz?: number;
+  /** wind on the cloth (world planar, ~0..1.4 at a full gust): the cape streams with it */
+  windX?: number;
+  windZ?: number;
 };
 
 export function tickHumanoid(root: THREE.Object3D, opts: HumanoidOpts) {
@@ -1449,8 +1452,17 @@ export function tickHumanoid(root: THREE.Object3D, opts: HumanoidOpts) {
   const hipsY = solveFeet(root, s, out, gaitOn, legsFree, jumped, tMs, breath * 0.006 * idle, dt);
 
   s.prev.set(out);
+  // wind on the cloth, in the body frame (forward / right)
+  const wX = opts.windX ?? 0;
+  const wZ = opts.windZ ?? 0;
+  _windF = wX * fx + wZ * fz;
+  _windL = wX * rx + wZ * rz;
   applyPose(s, out, hipsY, mw, run, vF, vL, aF, dt, t, ph);
 }
+
+/** Cloth wind for the pose being applied (body frame; set just before applyPose). */
+let _windF = 0;
+let _windL = 0;
 
 /** Write the channel pose to the bones (hips height from the foot solver) and drive the cloth. */
 function applyPose(
@@ -1494,11 +1506,17 @@ function applyPose(
     const bodyPitch = o[H_PITCH]! + o[T_X]!;
     // Cape: trails with forward speed, swings forward on a stop (spring overshoot),
     // sways against sideways motion; the chain below lags for a whip.
-    const liftT = clamp(-(0.05 + 0.07 * Math.max(0, vF) + 0.025 * Math.abs(vL)), -1.05, 0.1) - bodyPitch * 0.75;
+    // (a headwind lifts the cape back, a tailwind throws it forward, a crosswind aside)
+    const windMag = Math.min(1.5, Math.hypot(_windF, _windL));
+    const liftT =
+      clamp(-(0.05 + 0.07 * Math.max(0, vF) + 0.025 * Math.abs(vL)) + _windF * 0.55, -1.05, 0.26) - bodyPitch * 0.75;
     stepSpring(s.capeX, liftT, 10, 0.42, dt);
-    stepSpring(s.capeZ, clamp(-vL * 0.045, -0.45, 0.45), 9, 0.4, dt);
+    stepSpring(s.capeZ, clamp(-vL * 0.045 + _windL * 0.4, -0.55, 0.55), 9, 0.4, dt);
     stepSpring(s.capeY, clamp(-s.yawRate * 0.03, -0.3, 0.3), 9, 0.5, dt);
-    const flutter = Math.sin(ph * 2 + 0.8) * 0.07 * mw * (0.4 + run) + Math.sin(t * 1.35) * 0.02 * idle;
+    const flutter =
+      Math.sin(ph * 2 + 0.8) * 0.07 * mw * (0.4 + run) +
+      Math.sin(t * 1.35) * 0.02 * idle +
+      Math.sin(t * 13.7) * 0.07 * windMag;
     stepSpring(s.capeMid, s.capeX.x * 0.35 + flutter, 8, 0.35, dt);
     stepSpring(s.capeHem, s.capeX.x * 0.3 + flutter * 1.3, 6.5, 0.3, dt);
     s.capeX.x = clamp(s.capeX.x, -1.35, 0.28);

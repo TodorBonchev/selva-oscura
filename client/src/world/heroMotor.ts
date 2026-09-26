@@ -127,6 +127,14 @@ export class HeroMotor {
     this.trail.push(tip, base, this.sampleT - (1 - k) * this.sampleDt);
 
   private remote: RemoteTrail[] = [];
+  /**
+   * External carry (planar u/s — a canto gust): the legs step with it. Cloth wind
+   * (planar, ~0..1.4): the cape streams with it. A canto mechanic sets both per frame.
+   */
+  extVelX = 0;
+  extVelY = 0;
+  clothWindX = 0;
+  clothWindY = 0;
 
   constructor(private host: HeroHost) {
     host.scene.add(this.trail.mesh, this.dust.group, this.streak.mesh);
@@ -393,8 +401,8 @@ export class HeroMotor {
     }
     const uv = this.uVis;
 
-    const vx = this.dashing() ? 0 : h.velX;
-    const vz = this.dashing() ? 0 : h.velY;
+    const vx = this.dashing() ? 0 : h.velX + this.extVelX;
+    const vz = this.dashing() ? 0 : h.velY + this.extVelY;
     tickHumanoid(g, {
       moving: Math.hypot(vx, vz) > 0.4,
       tMs: t,
@@ -404,6 +412,8 @@ export class HeroMotor {
       swingU: uv,
       vx,
       vz,
+      windX: this.clothWindX,
+      windZ: this.clothWindY,
     });
 
     // blade trail: sub-frame arc samples from the strike through the follow-through

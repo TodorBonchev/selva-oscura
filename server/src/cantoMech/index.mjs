@@ -16,6 +16,11 @@
  *                                      (wind drift, mud slow budget…). `from` is the
  *                                      server position, `to` the requested one, dt the
  *                                      seconds since the last move packet.
+ *   adjustDash(room, sess, fromX, fromY, toX, toY, dirX, dirY) → {x,y} | null
+ *                                      where a dash really ends (the client mirrors it
+ *                                      in CantoMech.adjustDash).
+ *   afterMobs(room, dt) → bool         after every mob/boss moved this tick (settle them
+ *                                      against solid props…); true = something moved.
  *   onDamage(room, target, amount, source) → amount
  *                                      every hit. target is a session (target.playerId
  *                                      set) when a player is hit, an entity otherwise;

@@ -406,11 +406,12 @@ export function buildGround(
           { x: 138, z: 48, r: 9 },
         ]
       : [
-          { x: 32, z: 56, r: 5 },
-          { x: 48, z: 40, r: 7 },
-          { x: 72, z: 70, r: 7 },
-          { x: 100, z: 50, r: 8 },
-          { x: 122, z: 58, r: 6 },
+          // Lust: pack arenas between the windbreak rock islands (canto JSON)
+          { x: 34, z: 56, r: 5 },
+          { x: 48, z: 40, r: 6 },
+          { x: 72, z: 70, r: 6 },
+          { x: 100, z: 46, r: 7 },
+          { x: 122, z: 58, r: 5 },
           { x: 140, z: 60, r: 9 },
         ];
     const colors = new Float32Array(pos.count * 3);
@@ -469,7 +470,9 @@ export function buildGround(
     geo.computeVertexNormals();
 
     const compactDecor = isCompactUi();
-    const obCap = compactDecor ? (isWeightLane ? 4 : 5) : isWeightLane ? 6 : 8;
+    // (Lust: the windbreak rock islands — built by its canto mechanic — replace the obelisks)
+    const isLust = cantoId === "inferno_05";
+    const obCap = isLust ? 0 : compactDecor ? (isWeightLane ? 4 : 5) : isWeightLane ? 6 : 8;
     let placed = 0;
     for (let i = 0; i < 70 && placed < obCap; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
@@ -520,19 +523,21 @@ export function buildGround(
       const b = hunt[i + 1];
       const mx = (a[0] + b[0]) * 0.5;
       const mz = (a[1] + b[1]) * 0.5;
-      const rib = makeGaleRibbon(mats, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.55);
-      rib.position.set(mx, heightAt(mx, mz) + 1.8, mz);
-      rib.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
-      const mat = rib.material as THREE.MeshBasicMaterial;
-      mat.side = THREE.DoubleSide;
-      /* Lust path ribbons: match weight-lane restraint so slash reads through gale */
-      mat.opacity = isWeightLane ? 0.32 : 0.34;
-      if (isGlut && mat.color) mat.color.set(0x6a5a30);
-      if (isAva && mat.color) mat.color.set(0x8a7040);
-      group.add(rib);
+      // (Lust: its storm's wind streamers follow the real wind instead of the road)
+      if (!isLust) {
+        const rib = makeGaleRibbon(mats, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.55);
+        rib.position.set(mx, heightAt(mx, mz) + 1.8, mz);
+        rib.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
+        const mat = rib.material as THREE.MeshBasicMaterial;
+        mat.side = THREE.DoubleSide;
+        mat.opacity = 0.32;
+        if (isGlut && mat.color) mat.color.set(0x6a5a30);
+        if (isAva && mat.color) mat.color.set(0x8a7040);
+        group.add(rib);
+      }
       const crack = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.62, 0.05, 0.22), mats.ember);
       crack.position.set(mx, heightAt(mx, mz) + 0.05, mz);
-      crack.rotation.y = rib.rotation.y;
+      crack.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
       crack.castShadow = false;
       crack.receiveShadow = false;
       group.add(crack);

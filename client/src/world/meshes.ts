@@ -499,6 +499,8 @@ export function makeJudge(mats: MatKit): THREE.Group {
     new THREE.Vector3(-0.55, 1.2, 0.85),
   ]);
   const tail = new THREE.Mesh(new THREE.TubeGeometry(curve, 56, 0.2, 10, false), mats.bronze);
+  // (Lust mechanic: the tail coils while Minos passes judgement)
+  tail.name = "judgeTail";
   const sash = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.07, 8, 28), mats.gold);
   sash.position.y = 2.85;
   sash.rotation.x = Math.PI / 2;

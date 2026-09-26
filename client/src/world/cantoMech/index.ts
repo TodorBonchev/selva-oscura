@@ -10,6 +10,11 @@
  *   onMessage(app, msg) → bool a server message WorldApp does not handle itself
  *                              (a mechanic's custom broadcast); true when consumed
  *   onSnapshot(app, mech)      every snapshot, with the server's snapshotExtra (`room.mech`)
+ *   collide(app, p)            solid props: push the predicted planar position p out
+ *                              (mutate it), after the foe push-out, every move substep.
+ *   adjustDash(app, from, to, dirX, dirY)
+ *                              where your dash really ends: mutate `to` (the server's
+ *                              adjustDash hook does the same).
  *   objective(app, obj)        ~10 Hz after the shared objective model is computed —
  *                              mutate obj.text / obj.sub / obj.target to steer the
  *                              player toward this canto's own goal (objective.ts)
@@ -20,6 +25,7 @@
  * Generic forces are already wired: {type:"shove"} and {type:"status"} from
  * room.shovePlayer / room.statusPlayer land in app.forces (world/forces.ts).
  * Mob attack poses for new telegraph kinds: registerAttackPose() in world/mobAnim.ts.
+ * A mechanic's heavy telegraph kinds land like slams: registerTeleWeight() in telegraphs.ts.
  * Perf rules hold here too: no per-frame allocation, pooled FX, VirtualLight markers
  * (lightPool.ts) instead of real lights, shared materials.
  */
@@ -37,6 +43,8 @@ export interface CantoMech {
   tick?(app: WorldApp, dt: number): void;
   onMessage?(app: WorldApp, msg: any): boolean;
   onSnapshot?(app: WorldApp, mech: unknown): void;
+  collide?(app: WorldApp, p: { x: number; y: number }): void;
+  adjustDash?(app: WorldApp, from: { x: number; y: number }, to: { x: number; y: number }, dirX: number, dirY: number): void;
   objective?(app: WorldApp, obj: Objective): void;
   moveFeel?(app: WorldApp, out: MoveFeelOut): void;
 }

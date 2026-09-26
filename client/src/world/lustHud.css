@@ -1,0 +1,143 @@
+/* Lust storm HUD (world/lustHud.ts) — only exists while you are in Lust (body.in-lust). */
+
+/* Wind arrow over the minimap during the warning and the gust */
+body.in-lust #lust-wind {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease-out;
+}
+body.in-lust #lust-wind.on {
+  opacity: 1;
+}
+body.in-lust #lust-wind .lw-rot {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+/* a pale storm arrow across the map, tail upwind, head downwind */
+body.in-lust #lust-wind .lw-arrow {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 50%;
+  height: 16%;
+  margin-top: -8%;
+  background:
+    linear-gradient(90deg, #e8ecf400 0%, #e8ecf4c0 55%, #ffffff 100%) left center / 78% 36% no-repeat;
+  filter: drop-shadow(0 0 3px #000) drop-shadow(0 0 6px #9fb8e0aa);
+}
+body.in-lust #lust-wind .lw-arrow::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 26%;
+  height: 100%;
+  background: #f4f6fb;
+  clip-path: polygon(0 0, 100% 50%, 0 100%, 22% 50%);
+}
+body.in-lust #lust-wind.warn .lw-arrow {
+  animation: lust-wind-pulse 0.4s ease-in-out infinite alternate;
+}
+@keyframes lust-wind-pulse {
+  from {
+    opacity: 0.55;
+    transform: translateX(-6%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(6%);
+  }
+}
+/* (to the map's left, clear of its caption below and the screen edge above) */
+body.in-lust #lust-wind .lw-label {
+  position: absolute;
+  right: calc(100% + 0.3rem);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #eef2fa;
+  text-shadow: 0 1px 2px #000, 0 0 8px #000;
+  background: #10141dcc;
+  border: 1px solid #8fa4c888;
+  border-radius: 2px;
+  padding: 0.1rem 0.35rem;
+}
+body.in-lust #lust-wind.warn .lw-label {
+  color: #fff;
+  border-color: #dfe8ffcc;
+  box-shadow: 0 0 10px #9fb8e088;
+}
+body.in-lust.hud-landscape #lust-wind .lw-label {
+  font-size: 0.5rem;
+  padding: 0.06rem 0.25rem;
+}
+
+/* Composited streak layer over the world during the gust (transform / opacity only) */
+body.in-lust #lust-streaks {
+  position: fixed;
+  inset: -18%;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s linear;
+  will-change: opacity, transform;
+}
+body.in-lust #lust-streaks > i {
+  position: absolute;
+  inset: 0;
+  background-image: var(--lust-streak-tile);
+  background-size: 420px 180px;
+  will-change: transform;
+  animation: lust-streak 1.4s linear infinite;
+  animation-play-state: paused;
+}
+body.in-lust #lust-streaks.warn {
+  opacity: 0.22;
+}
+body.in-lust #lust-streaks.gust {
+  opacity: 0.5;
+}
+body.in-lust #lust-streaks.warn > i,
+body.in-lust #lust-streaks.gust > i {
+  animation-play-state: running;
+}
+body.in-lust #lust-streaks.gust > i {
+  animation-duration: 0.42s;
+}
+@keyframes lust-streak {
+  from {
+    transform: translate3d(-420px, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Minos's dodge callouts (cantoMech/lust.ts): his colours — violet coils, gold
+   sentence — and tighter tracking so the longer lines fit a landscape phone */
+body.in-lust #dodge-callout.lust-judge {
+  letter-spacing: 0.08em;
+  color: #ffd6ee;
+  background: #22061ae8;
+  border-color: #d04c9a;
+  text-shadow: 0 1px 0 #000, 0 0 10px #b0247a88;
+}
+body.in-lust #dodge-callout.lust-judge.sentence {
+  color: #fff2c8;
+  background: #1e1406e8;
+  border-color: #ffbe40;
+  text-shadow: 0 1px 0 #000, 0 0 10px #ffbe4088;
+}
+body.in-lust.hud-compact #dodge-callout.lust-judge {
+  font-size: 1.05rem;
+  padding: 0.35rem 0.8rem;
+}

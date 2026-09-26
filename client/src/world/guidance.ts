@@ -297,8 +297,8 @@ export class Guidance {
     const clears: string[] = Array.isArray(you?.firstClears) ? you.firstClears : [];
     if (cantoId === "inferno_05") {
       return clears.includes("inferno_05")
-        ? "The Gluttony gate stands open past the Judge's dais"
-        : "Break the Storm Heart, then the Judge of the Gate";
+        ? "The Gluttony gate stands open past Minos's dais"
+        : "Break the Storm Heart, then Minos at the gate";
     }
     if (cantoId === "inferno_06") {
       return clears.includes("inferno_06")
