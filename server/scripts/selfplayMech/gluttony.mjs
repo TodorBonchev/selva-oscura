@@ -40,9 +40,26 @@ function debugNote(bot, s, m) {
     const foes = m.room.entities.filter((e) => (e.kind === "mob" || e.kind === "boss") && e.hp > 0);
     console.log(`[trace ${bot.name}] t=${Math.round((Date.now() - d.t0) / 1000)} you=${y.x.toFixed(0)},${y.y.toFixed(0)} hp=${y.hp} maw=${maw ? maw.hp : "-"} foes=${foes.length} mire=${s.mire ? s.mire.mulAt(y.x, y.y).toFixed(2) : "?"}`);
   }
+  if (process.env.GLUT_FIGHT && m.type === "telegraph" && /^maw_bite|^boss_slam/.test(m.kind || "")) {
+    const maw = bot.snap?.entities?.find((e) => e.id === "triple_maw");
+    const you = bot.you;
+    if (maw && you) {
+      const a = Math.atan2(you.y - maw.y, you.x - maw.x) - (m.dir || 0);
+      const off = Math.atan2(Math.sin(a), Math.cos(a));
+      console.log(`[fight ${bot.name}] ${m.kind} r=${m.radius} dur=${m.duration} ph=${maw.phase || 1} hp=${maw.hp} d=${Math.hypot(you.x - maw.x, you.y - maw.y).toFixed(1)} off=${off.toFixed(2)}`);
+    }
+  }
+  if (process.env.GLUT_FIGHT && m.type === "combat" && m.targetIsPlayer && m.targetId === bot.snap?.you?.id) {
+    console.log(`[fight ${bot.name}]   HIT ${m.teleKind || "?"} ${m.damage}${m.iframeBlocked ? " (iframes)" : ""}`);
+  }
   if (m.type === "combat" && m.targetIsPlayer && m.targetId === bot.snap?.you?.id && m.damage > 0) {
     const k = m.teleKind || "untelegraphed";
     d.by[k] = (d.by[k] || 0) + m.damage;
+    // hail: in a fight (swung in the last 1.2 s) or on the road
+    if (k === "hail") {
+      const w = bot._atkAt && Date.now() - bot._atkAt < 1200 ? "hail@fight" : "hail@road";
+      d.n[w] = (d.n[w] || 0) + 1;
+    }
   } else if (m.type && m.type.startsWith("glut_")) {
     d.n[m.type] = (d.n[m.type] || 0) + 1;
   } else if (m.type === "toast" && /slain/i.test(m.text || "")) {

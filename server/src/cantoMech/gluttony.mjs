@@ -16,19 +16,25 @@
  *     bot never counts them; the Maw's fall stills the rest.
  *  3. Grandine grossa — hail volleys: every ~7 s each pilgrim gets 3–5 small circle
  *     telegraphs (one leads their stride), 1 s of warning, a light blow + short slow.
- *     Hail hits foes too: drag a pack under it. The storm answers the jaws: when a foe
- *     winds up on a pilgrim whose volley is due soon, it falls now (the time it skipped
- *     is added to the next wait — as many stones, only worse timed).
+ *     Hail hits foes too: drag a pack under it. The storm hunts the traveller: its clock
+ *     runs faster for a pilgrim on the road and slower in a close fight (the foes' blows
+ *     are enough to read). And it answers the jaws: when the Maw or Cerbero opens on a
+ *     pilgrim whose volley is due soon, it falls now (the skipped wait carries over — as
+ *     many stones, only worse timed). A pilgrim the mire holds is never pelted.
  *  4. Triple Maw (Cerberus): three heads bite left → centre → right as staggered cone
  *     telegraphs; hugging him earns a gorge slam. Clods: clod POIs by the dais (and
  *     Cerbero's step) are grabbed with E (onInteract) and thrown by the next attack
  *     (onAttack): into a head during its open-mouth windup it chokes that throat for
  *     SILENCE_S (its bite is cancelled / skipped) and the Maw takes ×SILENCE_MUL while
- *     any throat is choked. Phase 2 (≤50%): "Fango" wisps crawl out of the mire to feed
- *     him (heal) unless cut down. Plain damage always kills him.
+ *     any throat is choked. The clod finds the jaw coming for the thrower (the open head
+ *     whose cone covers them), else the one about to snap. A throw is a heave: the
+ *     thrower's feet are planted for CLOD.heaveMs (a dash still breaks it). A throw is
+ *     an attack packet with combo THROW_COMBO (3; melee swings are 0–2), so a blade
+ *     swing in flight never spends the fistful.
+ *     Phase 2 (≤50%), "le bocche aperse": all three jaws open at once with a longer
+ *     reach, and "Fango" wisps crawl out of the mire to feed him (heal) unless cut down
+ *     (at most FEED.spawns per phase). Plain damage always kills him.
  *     Cerbero (mid elite) wakes one head — a single bite cone — and teaches the clod.
- *     A throw is an attack packet with combo THROW_COMBO (3; melee swings are 0–2), so a
- *     blade swing in flight never spends the fistful.
  *
  * Wire (server → client; the client mech consumes these):
  *   glut_rise    { k, id, x, y, dur }        buried shade k rises (sent before its entity)
@@ -52,8 +58,13 @@ import { makeMire } from "./gluttonyMire.mjs";
 const MIRE_DRAGGED = new Set(["mire_champion", "mire_warden"]);
 /** Walking speed the client predicts at (room PLAYER_WALK_SPEED). */
 const WALK = 8;
-/** Move budget: burst cap (world units) and refill slack over the predicted wade. */
-const BUCKET_CAP = 1.2;
+/**
+ * Move budget in the mire: each move packet may cover its own interval at the wade's
+ * pace (× slack), plus at most BUCKET_CAP of saved-up slack. A late packet after a lag
+ * spike carries its long interval with it, so it still passes; a stream of full-speed
+ * steps (a client that ignores the mud) gets a stride's burst, then the wade.
+ */
+const BUCKET_CAP = 0.35;
 const BUCKET_SLACK = 1.15;
 
 /** Buried shades: wake radius and the rising grab. */
@@ -76,8 +87,8 @@ const HAIL = {
   every: [6, 8],
   bossEvery: [5.5, 7],
   windupMs: 1000,
-  dmg: 13,
-  mobDmg: 14,
+  dmg: 15,
+  mobDmg: 15,
   slow: 0.6,
   slowMs: 700,
   r: [1.55, 1.95],
@@ -96,8 +107,13 @@ const HAIL = {
    * waits, and stones already falling spare them — every stone must be dodgeable.
    */
   heldGraceMs: 500,
-  /** a volley due within this many seconds falls with a foe's windup on (or by) the pilgrim */
-  syncS: 3.5,
+  /** a volley due within this many seconds falls with a biter's jaws opening on the pilgrim */
+  syncS: 2.5,
+  /** the clock's pace: a pilgrim on the road (on the move, no foe close) / at close
+   * quarters with a foe (whose own blows are enough to read) */
+  roadRate: 1.4,
+  engagedRate: 0.65,
+  engagedR: 6,
 };
 
 /**
@@ -109,16 +125,18 @@ const MAW_HP = 800;
  * The heads' reach covers most of the dais in front of him: backing out takes a dash;
  * a choked throat leaves its wedge of the fan safe (the way through).
  */
-const BITE = { radius: 7.8, arc: 1.3, spread: 0.8, windup: 1.0, stagger: 0.36, recover: 1.2, dmgMul: 0.9 };
+const BITE = { radius: 7.8, arc: 1.3, spread: 0.8, windup: 1.0, stagger: 0.36, recover: 1.2, dmgMul: 0.7 };
 /**
  * Phase 2 — "le bocche aperse": all three jaws open at once and snap in turn, left →
- * centre → right (every cone is on the ground from the start; the fills land in order).
+ * centre → right (every cone is on the ground from the start; the fills land in order),
+ * the necks stretched further: the fan reaches past where a pilgrim could wait out the
+ * first phase's bites. Behind him, a choked throat's wedge, or a well-timed dash.
  */
-const BITE_P2 = { windup: 0.8, stagger: 0.25, recover: 0.95, together: true };
+const BITE_P2 = { windup: 0.8, stagger: 0.25, recover: 0.8, together: true, radius: 9.4, dmgMul: 0.8 };
 const BITE_KINDS = ["maw_bite_l", "maw_bite_c", "maw_bite_r"];
 /** Planar offset of each head's cone from the Maw's facing (L = model −x side). */
 const HEAD_OFF = [-BITE.spread, 0, BITE.spread];
-const MAW_SLAM = { shape: "circle", radius: 3.4, windup: 1.2, trigger: 3.6, recover: 1.35, kind: "boss_slam", dmgMul: 0.8 };
+const MAW_SLAM = { shape: "circle", radius: 3.4, windup: 1.2, trigger: 3.6, recover: 1.35, kind: "boss_slam", dmgMul: 0.7 };
 const SILENCE_S = 5;
 const SILENCE_MUL = 1.5;
 /**
@@ -132,7 +150,7 @@ const FANGO_BURST = { radius: 3.0, windupMs: 550, dmg: 12, slow: 0.6, slowMs: 90
 const FEED = { every: [7, 9], per: 2, max: 4, spawns: 8, speed: 2.4, heal: 0.04, cap: 0.5, drain: 0.18, hp: 20, spawnR: [11.5, 13] };
 
 /** Cerbero, one waking head. */
-const CERB = { hpMul: 2.2, radius: 4.4, arc: 1.25, windup: 0.95, trigger: 3.8, recover: 1.15, dmgMul: 1.3 };
+const CERB = { hpMul: 2.2, radius: 4.4, arc: 1.25, windup: 0.95, trigger: 3.8, recover: 1.15, dmgMul: 1.0 };
 
 /**
  * Clods of mire. The mire does not give up its earth freely: scooping one sets its hands
@@ -148,6 +166,8 @@ const CLOD = {
   mobDmg: 8,
   grabCdMs: 900,
   snatch: { radius: 1.6, windupMs: 1000, rootMs: 600, dmg: 12, biterR: 10, slow: 0.55, slowMs: 800 },
+  /** the heave: a throw plants the thrower's feet this long (ms) — throw, then move */
+  heaveMs: 300,
 };
 /** The attack packet's combo value that throws (melee swings are 0–2). */
 const THROW_COMBO = 3;
@@ -186,15 +206,24 @@ function heldRecently(s, now) {
   return now < (s._glutHeldUntil || 0) + HAIL.heldGraceMs;
 }
 
-/** A foe's windup (not the mire's own) that began this moment, on or by the pilgrim. */
+/** A biter's jaws (the Maw's heads, Cerbero's) opening this moment on or by the pilgrim. */
 function freshThreatOn(room, s) {
   const live = room.tele && room.tele.live;
   if (!live) return false;
   for (let i = 0; i < live.length; i++) {
     const t = live[i];
-    if (!t.attackerId || String(t.attackerId).startsWith("mech") || !(t.dmg > 0)) continue;
+    if (t.kind !== "cerbero_bite" && !BITE_KINDS.includes(t.kind)) continue;
     if (t.durMs / 1000 - t.left > 0.2) continue;
-    if (pointInShape(t, s.x, s.y, 1.5)) return true;
+    if (pointInShape(t, s.x, s.y, 1.0)) return true;
+  }
+  return false;
+}
+
+/** A live foe (mob or boss) within r of (x, y). */
+function foeNear(room, x, y, r) {
+  for (const e of room.entities.values()) {
+    if ((e.kind !== "mob" && e.kind !== "boss") || !(e.hp > 0)) continue;
+    if (Math.abs(e.x - x) < r && Math.abs(e.y - y) < r && Math.hypot(e.x - x, e.y - y) <= r) return true;
   }
   return false;
 }
@@ -408,9 +437,14 @@ function tickHail(room, s, dt, maw) {
   s._glutPy = s.y;
   if (!(s.hp > 0)) return;
   if (s._glutHailT == null) s._glutHailT = rand(HAIL.first[0], HAIL.first[1]);
-  s._glutHailT -= dt;
-  // the storm answers the jaws: a foe winding up on you pulls a due volley in (the skipped
-  // wait carries over to the next one)
+  // the storm hunts the traveller: on the road its clock runs fast, at close quarters
+  // with a foe it gives the fight room
+  let rate = 1;
+  if (foeNear(room, s.x, s.y, HAIL.engagedR)) rate = HAIL.engagedRate;
+  else if (Math.hypot(s._glutVx || 0, s._glutVy || 0) > 2) rate = HAIL.roadRate;
+  s._glutHailT -= dt * rate;
+  // the storm answers the jaws: the Maw's or Cerbero's opening on you pulls a due volley
+  // in (the skipped wait carries over to the next one)
   if (s._glutHailT > 0 && s._glutHailT <= HAIL.syncS && freshThreatOn(room, s)) {
     s._glutHailCarry = (s._glutHailCarry || 0) + s._glutHailT;
     s._glutHailT = 0;
@@ -463,11 +497,11 @@ function startHead(room, e, m, i) {
     x: e.x,
     y: e.y,
     dir: q.dir + HEAD_OFF[i],
-    radius: BITE.radius,
+    radius: q.radius,
     arc: BITE.arc,
     duration: windup * 1000,
     kind: BITE_KINDS[i],
-    dmg: Math.round(room.mobAttackDamage(e) * BITE.dmgMul),
+    dmg: Math.round(room.mobAttackDamage(e) * q.dmgMul),
     extra: { head: i },
     onLand: (_r, tt) => {
       if (h.teleId === tt.id) h.teleId = null;
@@ -488,6 +522,8 @@ function startSeq(room, e, m, target) {
     stagger: p2 ? BITE_P2.stagger : BITE.stagger,
     recover: p2 ? BITE_P2.recover : BITE.recover,
     together: p2 && BITE_P2.together,
+    radius: p2 ? BITE_P2.radius : BITE.radius,
+    dmgMul: p2 ? BITE_P2.dmgMul : BITE.dmgMul,
   };
   e.hd = dir;
   e.sp = 0;
@@ -627,13 +663,18 @@ function landClod(room, sess, target) {
   const pid = sess.playerId;
   if (target.id === "triple_maw") {
     const m = mawState(target);
-    // the throat gaping soonest to close takes it
+    // the jaw coming for the thrower takes it (the open head whose cone covers them) —
+    // else the throat gaping soonest to close
     let best = -1;
     let bestLeft = Infinity;
+    let covers = false;
     for (let i = 0; i < 3; i++) {
       const h = m.heads[i];
       const t = h.teleId ? room.tele.get(h.teleId) : null;
-      if (t && t.left < bestLeft) {
+      if (!t) continue;
+      const c = pointInShape(t, sess.x, sess.y, 0.3);
+      if ((c && !covers) || (c === covers && t.left < bestLeft)) {
+        covers = c;
         bestLeft = t.left;
         best = i;
       }
@@ -811,7 +852,8 @@ export default {
       sess._glutBucket = BUCKET_CAP;
       return to;
     }
-    const b = Math.min(BUCKET_CAP, (sess._glutBucket ?? BUCKET_CAP) + WALK * m * dt * BUCKET_SLACK);
+    const refill = WALK * m * dt * BUCKET_SLACK;
+    const b = Math.min(BUCKET_CAP + refill, (sess._glutBucket ?? BUCKET_CAP) + refill);
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const d = Math.hypot(dx, dy);
@@ -921,7 +963,7 @@ export default {
       if (e.atkCd <= 0 && !(near.s.iframes > 0)) {
         if (near.d < MAW_SLAM.trigger && m.bites >= 2) {
           if (startAttack(room, e, near.s, near.d, Math.round(room.mobAttackDamage(e) * MAW_SLAM.dmgMul), MAW_SLAM)) m.bites = 0;
-        } else if (near.d < BITE.radius - 0.4) {
+        } else if (near.d < (e.phase === 2 ? BITE_P2.radius : BITE.radius) - 0.4) {
           startSeq(room, e, m, near.s);
         }
         room.markDirty();
@@ -1010,6 +1052,10 @@ export default {
     // out of a throw's reach: an ordinary swing (or "Too far"), the clod stays in hand
     if (d > CLOD.range) return false;
     sess._glutClod = false;
+    // the heave: feet planted a beat (a longer hold already on them stands)
+    const now = Date.now();
+    const st = sess.status;
+    if (!(st && st.root && st.until > now + CLOD.heaveMs)) room.statusPlayer(sess, { root: true, durMs: CLOD.heaveMs });
     const dur = clamp(d / CLOD.speed, 0.18, 0.5);
     const from = { x: sess.x, y: sess.y };
     room.broadcast({

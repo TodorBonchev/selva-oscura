@@ -37,6 +37,8 @@ const THROW_REACH = 10.5;
 const THROW_COMBO = 3;
 /** Server PLAYER_ATK_CD (ms): a throw rides the blade's cooldown like any attack packet. */
 const ATK_CD_MS = 420;
+/** Server CLOD.heaveMs: a throw plants your feet this long (predicted here). */
+const HEAVE_MS = 300;
 /** A queued throw that couldn't go in this long (ms) is let go (the moment passed). */
 const THROW_QUEUE_MS = 900;
 /** Clod heaps drawn (content has six). */
@@ -67,6 +69,8 @@ const S = {
   mounds: null as BuriedMounds | null,
   clods: null as Clods | null,
   heaps: null as ClodHeaps | null,
+  /** a hidden Fango: its body's program is built with the arrival prewarm, not in phase 2 */
+  fangoWarm: null as THREE.Group | null,
   heapsSet: false,
   heapX: new Float32Array(HEAP_CAP),
   heapY: new Float32Array(HEAP_CAP),
@@ -97,6 +101,8 @@ const S = {
   wasMire: false,
   stepAcc: 0,
   wasRooted: false,
+  /** our own heave's root (performance ms): not the mire seizing you */
+  heaveUntil: 0,
   // hints (objective sub line)
   mireTipUntil: 0,
   mireTips: 0,
@@ -112,6 +118,9 @@ const S = {
   snatchUntil: 0,
   snatchTips: 0,
   sinkShort: false,
+  /** phase 2's first fans: say how to live through them */
+  fanTipUntil: 0,
+  fanTips: 0,
   sinkX: 0,
   sinkY: 0,
   sinkBubbleAt: 0,
@@ -354,12 +363,14 @@ function clodLand(x: number, y: number, z: number) {
 
 /**
  * When (Date.now ms) the server takes our next attack packet: PLAYER_ATK_CD after the
- * last one — a swing's left at its blade contact (heroMotor), a throw when thrown.
+ * last one (a swing's leaves at its blade contact, a throw when thrown). A swing whose
+ * contact is still to come waits for it (its packet would land inside the throw's
+ * cooldown and be dropped).
  */
 function bladeReadyAt(app: WorldApp): number {
-  const start = app.attackBusyUntil - SWING_MS;
-  const swing = app.heroMotor ? start + SWING_CONTACT_MS : start;
-  return Math.max(swing, S.throwSentAt) + ATK_CD_MS;
+  const u = app.heroMotor ? app.heroMotor.swingU() : -1;
+  if (u >= 0 && u < SWING_CONTACT_MS / SWING_MS) return Infinity;
+  return Math.max(app.socket.lastAttackAt || 0, S.throwSentAt) + ATK_CD_MS;
 }
 
 /** The foe a throw goes to: the one you locked, else a biter, else the nearest in reach. */
@@ -407,6 +418,11 @@ function fireQueuedThrow(app: WorldApp) {
   app.moveTarget = null;
   app.socket.attack(String(target.id), THROW_COMBO);
   app.heroMotor?.cast("gale_bolt", 180);
+  // the heave: feet planted as the server will plant them (its status confirms it)
+  const pnow = performance.now();
+  const half = (app.socket.rttMs || 0) * 0.5;
+  if (!app.forces.rooted(pnow)) app.forces.status(1, true, HEAVE_MS + half, pnow);
+  S.heaveUntil = pnow + HEAVE_MS + (app.socket.rttMs || 0) + 250;
   S.throwSentAt = Date.now();
   S.throwAt = performance.now();
   // (the fist empties now; the snapshot gives it back if the server never took the throw)
@@ -460,6 +476,10 @@ export const gluttonyMech: CantoMech = {
       app.scene.add(S.clods.group);
       S.heaps = new ClodHeaps(mats, HEAP_CAP);
       app.scene.add(S.heaps.group);
+      // (compile() walks hidden objects; its geometry + material are shared, kept on exit)
+      S.fangoWarm = makeFango(mats);
+      S.fangoWarm.visible = false;
+      app.scene.add(S.fangoWarm);
       // wet, sheened mud (the ground material is Gluttony's own)
       S.groundRough = mats.groundGlut.roughness;
       S.groundMetal = mats.groundGlut.metalness;
@@ -471,6 +491,7 @@ export const gluttonyMech: CantoMech = {
     S.carry = false;
     S.throwQueued = false;
     S.heapsSet = false;
+    S.fanTipUntil = 0;
     S.rising.clear();
     S.heads.clear();
     S.cerbId = "";
@@ -498,6 +519,8 @@ export const gluttonyMech: CantoMech = {
     S.clods?.dispose();
     S.heaps?.dispose();
     S.heaps = null;
+    S.fangoWarm?.removeFromParent();
+    S.fangoWarm = null;
     S.throwQueued = false;
     S.rain = null;
     S.ripples = null;
@@ -616,6 +639,15 @@ export const gluttonyMech: CantoMech = {
         a.start = now;
         a.dur = visibleWindupMs(Number(msg.dur) || 1000, app.socket.rttMs);
         if (!isMaw) S.cerbId = id;
+        // le bocche aperse: the first few fans (all three jaws at once) get a word
+        if (isMaw && head === 0 && S.mawPhase >= 2 && S.fanTips < 3) {
+          const m = entityById(app, id);
+          const you = app.renderYou;
+          if (m && Math.hypot(m.x - you.x, m.y - you.y) < 12) {
+            S.fanTips++;
+            S.fanTipUntil = now + 2200;
+          }
+        }
         // the head's cone telegraph turned the body toward it: face the Maw's heading
         if (isMaw) {
           const st = app.nodes.get(id)?.group.userData.mob as MobState | undefined;
@@ -838,7 +870,7 @@ export const gluttonyMech: CantoMech = {
     }
     // seized by the mire (a buried shade's grab landed on you)
     const rooted = app.forces.rooted(nowMs);
-    if (rooted && !S.wasRooted) {
+    if (rooted && !S.wasRooted && nowMs > S.heaveUntil) {
       ripple(you.x, you.y, 1.2, 0.8, 1);
       ripple(you.x, you.y, 2.0, 0.9, 0.8, 0, 0.12);
       S.seizedUntil = nowMs + 900;
@@ -914,6 +946,7 @@ export const gluttonyMech: CantoMech = {
     if (nowMs < S.seizedUntil) sub = "Seized by the mire — hold on";
     else if (nowMs < S.snatchUntil) sub = "The mire snatches at the thief — step clear!";
     else if (nowMs < S.sinkUntil) sub = S.sinkShort ? "Sinking — step out!" : "The mud closes on your feet — step out!";
+    else if (nowMs < S.fanTipUntil && !S.carry) sub = "All three jaws — choke one with mire, or dash its snap";
     else if (S.carry) sub = "Mire in hand — attack a gaping maw to throw";
     else if (S.mawPhase >= 2 && fango) sub = "Cut down the Fango before it feeds the Maw";
     else if (nearBiter && clod) sub = S.compact ? "Grab mire (Use), throw it in a gaping maw" : "Grab mire (E), throw it in a gaping maw";

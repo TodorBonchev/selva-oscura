@@ -272,7 +272,7 @@
       "id": "glut_sunk_cache",
       "name": "Sepolti",
       "archetype": "mire_shade",
-      "count": 3,
+      "count": 4,
       "elite": false,
       "champion": false,
       "drop_table": "inferno_pack_common",
@@ -281,8 +281,8 @@
         "y": 76
       },
       "buried": true,
-      "spots": [[52, 72.5], [60, 79], [52.5, 80]],
-      "notes": "Buried around the Filth Cache"
+      "spots": [[53.95, 73.95], [58.05, 73.95], [58.05, 78.05], [53.95, 78.05]],
+      "notes": "Four buried hard against the Filth Cache: whoever comes for it wakes them, and two grabs cover the chest from any side"
     },
     {
       "id": "glut_sunk_road",

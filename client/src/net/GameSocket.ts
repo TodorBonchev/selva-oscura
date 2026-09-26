@@ -116,8 +116,11 @@ export class GameSocket {
   move(x: number, y: number) {
     this.send({ type: "move", x, y });
   }
+  /** Date.now() of the last attack packet (the server's swing cooldown runs from it). */
+  lastAttackAt = 0;
   /** combo: this swing's place in the 3-hit chain (2 = the overhead finisher). */
   attack(targetId: string, combo = 0) {
+    this.lastAttackAt = Date.now();
     this.send({ type: "attack", targetId, combo });
   }
   cast(spellId: string, aim?: { x?: number; y?: number }) {
