@@ -11,7 +11,8 @@ import * as THREE from "three";
 import type { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import type { InterpStore, Vec2 } from "../render/smoothing";
 import { AshBurstPool, HitFlashPool } from "./combatFx";
-import { TelegraphRenderer, telePalette, type TelegraphLand, type TelegraphMsg } from "./telegraphs";
+import { TelegraphRenderer, telePalette, visibleWindupMs, type TelegraphLand, type TelegraphMsg } from "./telegraphs";
+import { DartPaths } from "./dartPaths";
 import {
   mobAttack,
   mobAttackCancel,
@@ -42,7 +43,13 @@ export interface CombatHost {
   renderYou: Vec2;
   nodes: Map<string, CombatNode>;
   standY(x: number, y: number, lift?: number): number;
+  /** Top of what is drawn at a planar point (floor triangles / boss dais). */
+  surfaceY(x: number, y: number): number;
   cantoId(): string | undefined;
+  /** Map bounds (dart ends clamp to them like the server's). */
+  bounds(): { width: number; height: number } | null;
+  /** Measured round trip to the server (ms; 0 = unknown). */
+  rttMs(): number;
   /** Free a node's GPU resources + label (after its death collapse). */
   disposeNode(rec: CombatNode): void;
   /** A telegraph finished filling (the blow lands): slam shock / sting cues. */
@@ -51,6 +58,14 @@ export interface CombatHost {
 
 /** A predicted blade contact of ours waiting for the server's combat message. */
 type Predicted = { id: string; at: number };
+
+/**
+ * How the server's combat message for one of our melee blows relates to the swing we
+ * already played: the predicted primary target (number only), another foe the same
+ * swing cleaved (its own spark + flinch, but no second hit-stop / shake / haptic), or
+ * unrelated (full feedback).
+ */
+export type SwingMatch = "primary" | "cleave" | "none";
 
 const PREDICT_WINDOW_MS = 600;
 const MOB_KINDS = new Set<KindKey>(["whirl", "champion", "judge", "triple_maw", "hoard_crush"]);
@@ -79,11 +94,14 @@ export class CombatView {
   readonly flashes = new HitFlashPool();
   readonly ash = new AshBurstPool();
   readonly numbers: DamageNumbers;
+  readonly darts = new DartPaths();
   private dying: CombatNode[] = [];
   private predicted: Predicted[] = [];
+  /** performance.now() of our last predicted blade contact */
+  private lastSwingAt = -1e9;
 
   constructor(private host: CombatHost) {
-    this.tele = new TelegraphRenderer((x, y, lift) => host.standY(x, y, lift));
+    this.tele = new TelegraphRenderer((x, y) => host.surfaceY(x, y));
     host.scene.add(this.tele.group, this.flashes.group, this.ash.group);
     this.numbers = new DamageNumbers(host.root);
   }
@@ -103,13 +121,34 @@ export class CombatView {
 
   onTelegraph(m: TelegraphMsg, nowMs: number) {
     const kind = String(m.kind || "");
-    this.tele.start(m, nowMs, telePalette(this.host.cantoId(), kind));
+    // the fill, the attacker's strike pose and a dart all land on the same (visible) beat
+    const vis = visibleWindupMs(Number(m.duration) || 500, this.host.rttMs());
+    this.tele.start(m, nowMs, telePalette(this.host.cantoId(), kind), vis);
     if (!m.attackerId) return;
     const att = String(m.attackerId);
     if (this.teleOwner.size > 64) this.teleOwner.clear();
     this.teleOwner.set(att, String(m.id));
     const st = this.host.nodes.get(att)?.group.userData.mob as MobState | undefined;
-    if (st) mobAttack(st, kind, Number(m.dir) || 0, Number(m.duration) || 500, nowMs);
+    if (st) mobAttack(st, kind, Number(m.dir) || 0, vis, nowMs);
+    if (kind === "wisp_dart" && m.shape === "line") {
+      this.darts.start(
+        att,
+        String(m.id),
+        Number(m.x) || 0,
+        Number(m.y) || 0,
+        Number(m.dir) || 0,
+        Number(m.length) || 3,
+        vis,
+        nowMs,
+        this.host.bounds(),
+        this.host.interp.delay
+      );
+    }
+  }
+
+  /** Per frame right after interp.update(): darting wisps follow their telegraph. */
+  applyMotion(nowMs: number) {
+    this.darts.apply(this.host.interp, nowMs);
   }
 
   /** The server broke a windup (poise / finisher / bell / death): fade it, reel the owner. */
@@ -122,6 +161,7 @@ export class CombatView {
       break;
     }
     this.tele.cancel(id, nowMs);
+    this.darts.cancel(id, nowMs);
   }
 
   /** attacker id → its live telegraph id */
@@ -140,6 +180,7 @@ export class CombatView {
   /** Our blade met the target on this frame (before the server confirms). */
   predictContact(targetId: string, nowMs: number) {
     const now = nowMs;
+    this.lastSwingAt = now;
     let w = 0;
     for (const p of this.predicted) if (now - p.at < PREDICT_WINDOW_MS) this.predicted[w++] = p;
     this.predicted.length = w;
@@ -150,15 +191,19 @@ export class CombatView {
     }
   }
 
-  /** The server's number for a blow we already showed: true once (then forgotten). */
-  consumePrediction(targetId: string, nowMs: number): boolean {
+  /**
+   * The server's combat message for one of our melee blows: the predicted target
+   * (consumed once), a foe the same swing cleaved (any within the window of our last
+   * contact), or neither.
+   */
+  matchSwing(targetId: string, nowMs: number): SwingMatch {
     for (let i = 0; i < this.predicted.length; i++) {
       const p = this.predicted[i]!;
       if (p.id !== targetId || nowMs - p.at > PREDICT_WINDOW_MS) continue;
       this.predicted.splice(i, 1);
-      return true;
+      return "primary";
     }
-    return false;
+    return nowMs - this.lastSwingAt <= PREDICT_WINDOW_MS ? "cleave" : "none";
   }
 
   number(x: number, y: number, z: number, amount: number, style: DmgStyle, key: string, nowMs: number) {
@@ -236,6 +281,8 @@ export class CombatView {
     }
     this.dying.length = 0;
     this.predicted.length = 0;
+    this.lastSwingAt = -1e9;
+    this.darts.clear();
     this.teleOwner.clear();
     this.numbers.clear();
   }

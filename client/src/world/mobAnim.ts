@@ -63,6 +63,8 @@ export type MobState = {
   deathStyle: "unravel" | "pop" | "topple" | "crumble";
   deathF: number;
   deathR: number;
+  /** body yaw when the collapse began (the unravel spin is measured from it) */
+  deathYaw0: number;
 };
 
 /** Pose deltas an attack writes each frame (composed with locomotion + flinch). */
@@ -317,6 +319,7 @@ export function rigMob(root: THREE.Group, family: MobFamily): MobState {
     deathStyle: "unravel",
     deathF: 0,
     deathR: 0,
+    deathYaw0: 0,
   };
   root.userData.mob = st;
   return st;
@@ -482,8 +485,14 @@ export function mobDeath(st: MobState, awayX: number, awayY: number, nowMs: numb
   const ay = awayY / l;
   st.deathF = ax * -s + ay * -c;
   st.deathR = ax * c + ay * -s;
+  st.deathYaw0 = st.body.rotation.y;
   return st.deathDur;
 }
+
+/** Unravel: total spin (rad) over the collapse, gathering speed as it comes apart. */
+const UNRAVEL_SPIN = 10;
+/** ∫₀ᵘ ease — the closed form of the smoothstep's integral (so the spin is per time, not per frame) */
+const easeInt = (u: number) => u * u * u - (u * u * u * u) / 2;
 
 /** Advance a dying mob; returns true once the collapse is over (dispose it). */
 export function tickMobDeath(root: THREE.Object3D, st: MobState, nowMs: number): boolean {
@@ -500,7 +509,8 @@ export function tickMobDeath(root: THREE.Object3D, st: MobState, nowMs: number):
     case "unravel": {
       // the wraith spins apart and sinks into the ground; its ribbons fly loose
       const e = ease(u);
-      b.rotation.y += 0.25 + e * 0.35;
+      // angular speed ∝ 0.25 + 0.35·ease(u), integrated in closed form
+      b.rotation.y = st.deathYaw0 + (UNRAVEL_SPIN * (0.25 * u + 0.35 * easeInt(u))) / 0.425;
       b.rotation.x = -0.2 * e;
       b.position.y = -1.4 * e * e;
       b.scale.set(1 + 0.35 * e, Math.max(0.05, 1 - 0.8 * e), 1 + 0.35 * e);
@@ -513,18 +523,23 @@ export function tickMobDeath(root: THREE.Object3D, st: MobState, nowMs: number):
     }
     case "crumble": {
       const e = ease(u);
-      b.position.y = -1.6 * e;
-      b.scale.set(1 + 0.15 * e, Math.max(0.05, 1 - 0.6 * e), 1 + 0.15 * e);
+      b.position.y = -Math.max(1.6, st.height * 0.7) * e;
+      const fade = u > 0.8 ? Math.max(0.001, 1 - ease((u - 0.8) / 0.2)) : 1;
+      b.scale.set((1 + 0.15 * e) * fade, Math.max(0.05, 1 - 0.6 * e) * fade, (1 + 0.15 * e) * fade);
       b.rotation.z = Math.sin(u * 40) * 0.03 * (1 - u);
       break;
     }
     default: {
-      // topple away from the killer, then settle into the ground
+      // topple away from the killer, then settle into the ground (sink by its size —
+      // a boss lies taller than a champion) and shrink away, so nothing pops at dispose
       const fall = easeOut(Math.min(1, u / 0.7));
       const ang = fall * 1.45;
       b.rotation.set(-st.deathF * ang, 0, -st.deathR * ang);
       const bounce = u > 0.55 && u < 0.75 ? Math.sin(((u - 0.55) / 0.2) * Math.PI) * 0.06 : 0;
-      b.position.set(0, bounce - Math.max(0, (u - 0.7) / 0.3) * 0.7, 0);
+      const sink = Math.max(0.7, st.height * 0.55);
+      b.position.set(0, bounce - ease(Math.max(0, (u - 0.66) / 0.34)) * sink, 0);
+      const fade = u > 0.76 ? Math.max(0.001, 1 - ease((u - 0.76) / 0.24)) : 1;
+      b.scale.set(fade, fade, fade);
     }
   }
   if (st.shadow) st.shadow.scale.setScalar(Math.max(0.01, 1 - u));

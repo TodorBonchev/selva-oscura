@@ -20,6 +20,12 @@ export class GameSocket {
   private reconnectTimer: number | null = null;
   /** True after the first successful open — used to toast drops / reconnects only. */
   private everConnected = false;
+  /**
+   * Smoothed round trip (ms; 0 until measured). Reported back with each ping so the
+   * server can give telegraph dodges that much grace (server telegraph.mjs).
+   */
+  rttMs = 0;
+  private pingTimer: number | null = null;
 
   constructor(httpBase: string, name: string) {
     this.url = toWsUrl(httpBase);
@@ -36,6 +42,7 @@ export class GameSocket {
       const wasConnected = this.everConnected;
       this.everConnected = true;
       this.send({ type: "hello", name: this.name, protocol: 1 });
+      this.startPings();
       if (wasConnected) {
         for (const h of this.handlers) h({ type: "net", state: "reconnected" });
       }
@@ -49,9 +56,11 @@ export class GameSocket {
       }
       if (msg.type === "welcome") this.playerId = msg.playerId;
       if (msg.type === "snapshot") this.lastSnapshot = msg;
+      if (msg.type === "pong") this.notePong(msg);
       for (const h of this.handlers) h(msg);
     };
     ws.onclose = () => {
+      this.stopPings();
       if (this.everConnected) {
         for (const h of this.handlers) h({ type: "net", state: "disconnected" });
       }
@@ -60,6 +69,29 @@ export class GameSocket {
     ws.onerror = () => {
       // close will fire
     };
+  }
+
+  /** Ping every 2 s (and right away) to keep a round-trip estimate. */
+  private startPings() {
+    this.stopPings();
+    const ping = () => this.send({ type: "ping", c: performance.now(), rtt: this.rttMs > 0 ? Math.round(this.rttMs) : undefined });
+    ping();
+    this.pingTimer = window.setInterval(ping, 2000);
+  }
+
+  private stopPings() {
+    if (this.pingTimer != null) window.clearInterval(this.pingTimer);
+    this.pingTimer = null;
+  }
+
+  private notePong(msg: { c?: number }) {
+    const c = Number(msg.c);
+    if (!Number.isFinite(c)) return;
+    const sample = performance.now() - c;
+    if (!(sample >= 0) || sample > 5000) return;
+    // quick to believe a faster link, slow to believe one spike
+    if (this.rttMs <= 0) this.rttMs = sample;
+    else this.rttMs += (sample - this.rttMs) * (sample < this.rttMs ? 0.5 : 0.2);
   }
 
   private scheduleReconnect() {

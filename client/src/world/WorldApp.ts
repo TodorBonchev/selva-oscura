@@ -376,7 +376,9 @@ export class WorldApp {
   mech: CantoMech = mechFor(null);
   /** This frame's canto move feel (mech.moveFeel fills it once per frame). */
   moveFeel: MoveFeelOut = { speedMul: 1, accelMul: 1, driftX: 0, driftY: 0 };
+  /** shove displacement not yet applied (forces.displacement), consumed by integrateVelocity */
   _fv: Vec2 = { x: 0, y: 0 };
+  _fd: Vec2 = { x: 0, y: 0 };
   /** Canvas CSS size (resize()), for screen-space overlays without a layout read. */
   viewW = 1;
   viewH = 1;
@@ -699,7 +701,10 @@ export class WorldApp {
         },
         nodes: this.nodes,
         standY: (x, y, lift) => this.standY(x, y, lift),
+        surfaceY: (x, y) => this.surfaceY(x, y),
         cantoId: () => this.room?.cantoId,
+        bounds: () => this.room?.bounds ?? null,
+        rttMs: () => this.socket.rttMs,
         disposeNode: (rec) => this.disposeNode(rec as NodeRec),
         onTelegraphLand: (l) => this.onTelegraphLand(l),
       });
@@ -1226,6 +1231,11 @@ export class WorldApp {
     return (this.ground?.heightAt(x, y) ?? 0) + lift;
   }
 
+  /** Top of what is drawn at (x, y) — floor triangles or the boss dais (ground decals). */
+  surfaceY(x: number, y: number, lift = 0): number {
+    return (this.ground?.surfaceAt(x, y) ?? 0) + lift;
+  }
+
   sendMoveThrottled(x: number, y: number) {
     const now = Date.now();
     if (now - this.lastMoveSend < MOVE_SEND_MS) return;
@@ -1316,13 +1326,20 @@ export class WorldApp {
 
     // Hold-to-attack: swing the moment the last one ends, re-targeting live foes
     if (this.attackHeld && this.heroMotor?.canSwing()) this.attackNearest({ silent: true });
+    // Shoves: this frame's share of the displacement on wall-clock time (hit-stop can't
+    // shorten it); the next integrateVelocity substep applies it
+    const shove = this.forces.displacement(this._fd, performance.now());
+    this._fv.x += shove.x;
+    this._fv.y += shove.y;
     for (let rem = dt; rem > 1e-6; ) {
       const h = Math.min(0.05, rem);
       rem -= h;
       // Dash tween / death collapse pin the hero: no steering or move packets meanwhile
       const pinned = this.heroMotor ? this.heroMotor.pinnedPos(this._pin) : null;
       if (pinned) {
-        /* held by the motor */
+        // held by the motor (a dash outruns any shove)
+        this._fv.x = 0;
+        this._fv.y = 0;
       } else if (ix !== 0 || iy !== 0) this.applyContinuousMove(ix, iy, h);
       else if (this.moveTarget) this.advanceTapMove(h);
       else this.integrateVelocity(h, false);
@@ -1335,7 +1352,10 @@ export class WorldApp {
     }
 
     // Mobs + remote pilgrims: interpolated ~one snapshot behind the server clock
-    this.interp.update(performance.now());
+    const interpNow = performance.now();
+    this.interp.update(interpNow);
+    // (darting wisps follow their telegraph instead of the delayed samples)
+    this.combat?.applyMotion(interpNow);
 
     this.autoPickupScan();
     this.pointer?.tick();
@@ -1512,16 +1532,20 @@ export class WorldApp {
     }
     // Root step into a sword cut (small, only with room to the target)
     const step = this.heroMotor ? this.heroMotor.stepVelocity(this._step) : this._step;
-    // Shoves (server "shove") and the canto's drift ride on top of the walk
-    const f = this.forces.velocity(this._fv, nowMs);
-    const ex = step.x + f.x + this.moveFeel.driftX;
-    const ey = step.y + f.y + this.moveFeel.driftY;
-    if (this.velX === 0 && this.velY === 0 && ex === 0 && ey === 0) {
+    // The canto's drift rides on top of the walk; a shove's displacement (taken in tick)
+    // lands once, on the frame's first substep
+    const ex = step.x + this.moveFeel.driftX;
+    const ey = step.y + this.moveFeel.driftY;
+    const shX = this._fv.x;
+    const shY = this._fv.y;
+    this._fv.x = 0;
+    this._fv.y = 0;
+    if (this.velX === 0 && this.velY === 0 && ex === 0 && ey === 0 && shX === 0 && shY === 0) {
       if (!driven) this.predicting = false;
       return;
     }
-    let nx = this.renderYou.x + (this.velX + ex) * dtSec;
-    let ny = this.renderYou.y + (this.velY + ey) * dtSec;
+    let nx = this.renderYou.x + (this.velX + ex) * dtSec + shX;
+    let ny = this.renderYou.y + (this.velY + ey) * dtSec + shY;
     // Bodies: slide around foes the way the server does (room.handleMove)
     if (this.room) {
       const canto = this.room.cantoId;
@@ -2645,17 +2669,23 @@ export class WorldApp {
   }
 
 
-  disposeNode(rec: NodeRec) {
-    // Avarice pack death: brief coin burst, hard-capped so dense packs don't spam lights
+  /** Avarice pack death: brief coin burst, hard-capped so dense packs don't spam lights. */
+  avaPackDeathCoins(rec: NodeRec) {
+    const ud = rec.group.userData;
+    if (ud.coinsDone) return;
+    ud.coinsDone = true;
     if (
       this.room?.cantoId === "inferno_07" &&
       (rec.kind === "whirl" || rec.kind === "champion") &&
       this.avaDeathBurstActive < (isCompactUi() ? 1 : 2)
     ) {
-      const x = rec.group.position.x;
-      const z = rec.group.position.z;
-      this.spawnAvaPackDeathCoins(x, z);
+      this.spawnAvaPackDeathCoins(rec.group.position.x, rec.group.position.z);
     }
+  }
+
+  disposeNode(rec: NodeRec) {
+    // (a foe pruned without a death collapse still bursts here; a corpse already did)
+    this.avaPackDeathCoins(rec);
     this.scene.remove(rec.group);
     // A hit-flash shell riding on this foe goes back to its pool first
     this.combat?.release(rec.group);
@@ -3160,6 +3190,8 @@ export class WorldApp {
           this.interp.clear();
           this.combat?.clear();
           this.forces.clear();
+          this._fv.x = 0;
+          this._fv.y = 0;
           this.moveTarget = null;
           this.autoPickupSent.clear();
           this.lastHitFoe = null;
@@ -3475,6 +3507,9 @@ export class WorldApp {
       case "combat":
         this.onCombat(msg);
         break;
+      case "pong":
+        // (GameSocket keeps the round-trip estimate)
+        break;
       case "spell_fx":
         this.onSpellFx(msg);
         break;
@@ -3523,10 +3558,16 @@ export class WorldApp {
           }
           this.spawnHitFx(pos, heavy ? 0xffd078 : 0xff8844, heavy);
           // Collapse instead of vanishing: the corpse leaves the live node map now and
-          // the entity list too (the next snapshot drops it anyway), so nothing respawns it
+          // the entity list too (the next snapshot drops it anyway), so nothing respawns it.
+          // It falls away from whoever landed the killing blow.
           const rec = this.nodes.get(rid);
-          if (rec && this.combat?.startDeath(rec, this.renderYou.x, this.renderYou.y, performance.now())) {
+          const killer = this.lastAttackerOf.get(rid);
+          this.lastAttackerOf.delete(rid);
+          const from = killer ? this.attackerPos(killer, this.renderYou) : this.renderYou;
+          if (rec && this.combat?.startDeath(rec, from.x, from.y, performance.now())) {
             this.nodes.delete(rid);
+            // Avarice coin burst on the killing blow, not when the corpse is disposed
+            this.avaPackDeathCoins(rec);
           }
           list.splice(idx, 1);
         }
@@ -3584,21 +3625,22 @@ export class WorldApp {
     const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
     const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
     const boss = l.kind === "boss_slam";
-    const lift = boss ? 0.4 : 0.08;
+    // (on the drawn surface: a boss slam lands on its dais, not inside it)
+    const lift = 0.09;
     const r = l.shape === "cone" ? l.r * 0.6 : l.r;
     // Boss slams throw a shock ring past the edge; a champion's just cracks its circle
     if (boss) {
       const shock = acquireFxRing(0.9, 1.08, 48, shockHex, 0.95);
-      setPlanar(shock.position, l.x, l.y, this.standY(l.x, l.y, lift));
+      setPlanar(shock.position, l.x, l.y, this.surfaceY(l.x, l.y, lift));
       this.scene.add(shock);
       this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: r * 0.96, to: r * 1.55 });
     }
     const core = acquireFxRing(0.72, 1.0, 48, coreHex, boss ? 0.9 : 0.55);
-    setPlanar(core.position, l.x, l.y, this.standY(l.x, l.y, lift + 0.02));
+    setPlanar(core.position, l.x, l.y, this.surfaceY(l.x, l.y, lift + 0.02));
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: r * 0.2, to: r * 1.05 });
     if (this.sparks.length < 3) {
-      const burst = spawnSparks(l.x, l.y, this.standY(l.x, l.y, 1.55), coreHex, this.animT);
+      const burst = spawnSparks(l.x, l.y, this.surfaceY(l.x, l.y, 1.55), coreHex, this.animT);
       burst.dur = 640;
       this.scene.add(burst.points);
       this.sparks.push(burst);
@@ -3661,6 +3703,11 @@ export class WorldApp {
     if (ent && msg.targetHp != null && Number.isFinite(Number(msg.targetHp))) ent.hp = Number(msg.targetHp);
     const attacker = String(msg.attackerId ?? "");
     const weHit = Boolean(attacker) && (attacker === youId || attacker === sockId);
+    if (ent && attacker) {
+      // whoever struck last topples it (entity_removed follows the killing blow)
+      if (this.lastAttackerOf.size > 96) this.lastAttackerOf.clear();
+      this.lastAttackerOf.set(tid, attacker);
+    }
     let comboBoost = 0;
     if (weHit && ent && (ent.kind === "mob" || ent.kind === "boss")) {
       this.lastHitFoe = { id: String(ent.id), until: this.animT + GALE_STICKY_MS };
@@ -3680,8 +3727,11 @@ export class WorldApp {
     const pos = this.entityRenderPos(ent);
     const rec = this.nodes.get(String(ent.id));
     // Our own swing already sparked, flinched and hit-stopped on the blade's frame
-    // (onSwingContact): the server's message only brings the number
-    const predicted = weHit && !spell && Boolean(this.combat?.consumePrediction(tid, now));
+    // (onSwingContact): the server's message only brings the number. Other foes the
+    // same swing cleaved get their own spark + flinch, but no second freeze / shake.
+    const match = weHit && !spell ? (this.combat?.matchSwing(tid, now) ?? "none") : "none";
+    const predicted = match === "primary";
+    const cleaved = match === "cleave";
     const ava = this.room?.cantoId === "inferno_07";
     const weightHit =
       ava &&
@@ -3690,7 +3740,7 @@ export class WorldApp {
         ent.archetype === "hoard_heart" ||
         ent.archetype === "coin_wisp");
     if (!predicted) {
-      if (weHit) {
+      if (weHit && !cleaved) {
         // Your blow: camera punch + hit-stop (someone else's never freezes your screen)
         this.kickShake(0.2 + comboBoost + (weightHit ? 0.04 : 0), pos.x - this.renderYou.x, pos.y - this.renderYou.y);
         this.camPunch = Math.max(this.camPunch, 0.36 + comboBoost + (heavy ? 0.2 : 0) + (weightHit ? 0.08 : 0));
@@ -3714,7 +3764,8 @@ export class WorldApp {
         const from = this.attackerPos(attacker, pos);
         this.combat.hitMob(rec, from.x, from.y, Boolean(msg.heavy), now);
       }
-    } else if (comboBoost > 0) {
+    }
+    if ((predicted || cleaved) && comboBoost > 0) {
       this.camPunch = Math.max(this.camPunch, 0.36 + comboBoost);
       this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.16 + comboBoost);
     }
@@ -3733,9 +3784,13 @@ export class WorldApp {
     this.combat?.number(pos.x, gy + Math.min(5.6, h + 0.3), pos.y, msg.damage, weHit || style === "other" ? style : "other", tid, now);
     if (weHit) {
       if (msg.targetHp != null && Number(msg.targetHp) <= 0) hapticCombat("kill");
-      else if (msg.heavy && !spell) hapticCombat("heavy");
+      // (a finisher already buzzed on the blade's frame)
+      else if (msg.heavy && !spell && match === "none") hapticCombat("heavy");
     }
   }
+
+  /** Foe id → the last attacker whose blow landed on it (the killer, on removal). */
+  lastAttackerOf = new Map<string, string>();
 
   /** Planar position of a combat message's attacker (a pilgrim, you, or a foe). */
   attackerPos(attackerId: string, fallback: Vec2): Vec2 {
@@ -5370,6 +5425,8 @@ export class WorldApp {
     if (now < this.deathFxUntil) return;
     this.lastDeathAt = performance.now();
     this.forces.clear();
+    this._fv.x = 0;
+    this._fv.y = 0;
     const ava = this.room?.cantoId === "inferno_07";
     this.deathFxUntil = now + (ava ? DEATH_FX_LOCK_MS + 400 : DEATH_FX_LOCK_MS);
     playDeathRevive();

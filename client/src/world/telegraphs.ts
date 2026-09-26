@@ -4,11 +4,15 @@
  * bright rim from the first frame and a flash when the blow lands.
  *
  * One shader draws every shape (signed distance per shape, fwidth-antialiased), on a
- * unit quad stretched over the shape's bounds. A fixed pool of slots is built up front —
- * each slot has its own material (per-instance colour/progress uniforms) but they all
- * share one program, so starting a telegraph never compiles or allocates. Timing is on
- * performance.now() (not the world's animT, which slows during hit-stop), so the ring
- * fills in step with the server's windup.
+ * small grid stretched over the shape's bounds and draped over what is drawn beneath it
+ * (floor triangles and the boss dais — ground.surfaceAt), so no part of a shape hides
+ * inside the dais or a rise in the dirt. A fixed pool of slots is built up front — each
+ * slot has its own material (per-instance colour/progress uniforms) and drape heights,
+ * but they all share one program, so starting a telegraph never compiles; the drape is
+ * sampled once per start, nothing per frame. Timing is on performance.now() (not the
+ * world's animT, which slows during hit-stop), so the fill runs in step with the
+ * server's windup; on a link slower than the server's dodge grace the fill ends early
+ * by the excess (visibleWindupMs), so "out by the time it fills" is always safe.
  */
 import * as THREE from "three";
 import { markShared } from "./dispose";
@@ -49,15 +53,34 @@ const SHAPE_ID: Record<string, number> = { circle: 0, ring: 1, cone: 2, line: 3 
 /** After the fill reaches the edge: a short flash, then the slot frees. */
 const LAND_MS = 170;
 const POOL = 14;
+/** Drape grid: cells per side (13×13 heights sampled once per telegraph start). */
+const GRID = 12;
+/** Height above the drawn surface. */
+const LIFT = 0.07;
+
+/** Server telegraph.mjs GRACE_CAP_MS + the move-packet beat its grace adds. */
+const SERVER_GRACE_CAP_MS = 220;
+const MOVE_PACKET_MS = 30;
+
+/**
+ * How long to draw a windup of `durationMs` on a link with round trip `rttMs`. The
+ * server waits up to its grace cap for a dodge sent as the fill ends; past that the
+ * fill finishes early by the excess (never below 60% of the windup).
+ */
+export function visibleWindupMs(durationMs: number, rttMs: number): number {
+  const excess = Math.max(0, (Number(rttMs) || 0) + MOVE_PACKET_MS - SERVER_GRACE_CAP_MS);
+  return Math.max(durationMs * 0.6, durationMs - excess);
+}
 
 const VERT = /* glsl */ `
   uniform vec4 uExt;
+  attribute float aH;
   varying vec2 vP;
   void main() {
     vec2 k = position.xz * 0.5 + 0.5;
     vec2 p = vec2(mix(uExt.x, uExt.y, k.x), mix(uExt.z, uExt.w, k.y));
     vP = p;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(p.x, 0.0, p.y, 1.0);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p.x, aH, p.y, 1.0);
   }
 `;
 
@@ -113,6 +136,8 @@ const FRAG = /* glsl */ `
 type Slot = {
   mesh: THREE.Mesh;
   mat: THREE.ShaderMaterial;
+  /** drape heights (world Y per grid vertex) */
+  h: THREE.BufferAttribute;
   active: boolean;
   id: string;
   kind: string;
@@ -126,10 +151,23 @@ type Slot = {
   landed: boolean;
 };
 
-let quadGeo: THREE.BufferGeometry | null = null;
-function unitQuad(): THREE.BufferGeometry {
-  if (!quadGeo) quadGeo = markShared(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2));
-  return quadGeo;
+/** Grid vertex positions in [0,1]² (shared by every slot's drape sampling). */
+let gridK: Float32Array | null = null;
+/** A slot's grid: the unit plane (xz in [-1,1]) plus its own height attribute. */
+function slotGeo(): { geo: THREE.BufferGeometry; h: THREE.BufferAttribute } {
+  const geo = new THREE.PlaneGeometry(2, 2, GRID, GRID).rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  if (!gridK) {
+    gridK = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      gridK[i * 2] = pos.getX(i) * 0.5 + 0.5;
+      gridK[i * 2 + 1] = pos.getZ(i) * 0.5 + 0.5;
+    }
+  }
+  const h = new THREE.BufferAttribute(new Float32Array(pos.count), 1);
+  h.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute("aH", h);
+  return { geo: markShared(geo), h };
 }
 
 function makeMat(): THREE.ShaderMaterial {
@@ -168,11 +206,13 @@ export class TelegraphRenderer {
   private landed: TelegraphLand[] = [];
   private landedN = 0;
 
-  constructor(private standY: (x: number, y: number, lift?: number) => number) {
+  /** surfaceY: top of what is drawn at a planar point (floor triangles / boss dais). */
+  constructor(private surfaceY: (x: number, y: number) => number) {
     this.group.name = "telegraphs";
     for (let i = 0; i < POOL; i++) {
       const mat = makeMat();
-      const mesh = new THREE.Mesh(unitQuad(), mat);
+      const { geo, h } = slotGeo();
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.name = "telegraph";
       mesh.visible = false;
       mesh.frustumCulled = false;
@@ -181,6 +221,7 @@ export class TelegraphRenderer {
       this.slots.push({
         mesh,
         mat,
+        h,
         active: false,
         id: "",
         kind: "",
@@ -202,8 +243,11 @@ export class TelegraphRenderer {
     return this.slots[0]!.mesh;
   }
 
-  /** Start drawing a telegraph (reuses the oldest slot when all are busy). */
-  start(m: TelegraphMsg, nowMs: number, pal: TelePalette): void {
+  /**
+   * Start drawing a telegraph (reuses the oldest slot when all are busy). durMs: how
+   * long the fill runs here (visibleWindupMs of the message's duration).
+   */
+  start(m: TelegraphMsg, nowMs: number, pal: TelePalette, durMs: number): void {
     let slot = this.slots.find((s) => !s.active);
     if (!slot) slot = this.slots.reduce((a, b) => (a.start < b.start ? a : b));
     const shape = SHAPE_ID[m.shape] != null ? m.shape : "circle";
@@ -245,9 +289,19 @@ export class TelegraphRenderer {
     const x = Number(m.x) || 0;
     const y = Number(m.y) || 0;
     const kind = String(m.kind || "");
-    // Boss slams sit on the raised dais; everything else just above the dirt
-    const lift = kind === "boss_slam" ? 0.4 : 0.1;
-    slot.mesh.position.set(x, this.standY(x, y, lift), y);
+    // Drape: each grid vertex a few cm over the floor / dais under it (bosses' slams
+    // lie on the dais, a cone crossing its edge climbs it)
+    const c = Math.cos(dir);
+    const sn = Math.sin(dir);
+    const k = gridK!;
+    const hs = slot.h.array as Float32Array;
+    for (let i = 0; i < hs.length; i++) {
+      const lx = ext.x + (ext.y - ext.x) * k[i * 2]!;
+      const lz = ext.z + (ext.w - ext.z) * k[i * 2 + 1]!;
+      hs[i] = this.surfaceY(x + c * lx - sn * lz, y + sn * lx + c * lz) + LIFT;
+    }
+    slot.h.needsUpdate = true;
+    slot.mesh.position.set(x, 0, y);
     slot.mesh.rotation.set(0, -dir, 0);
     slot.mesh.visible = true;
     slot.active = true;
@@ -259,7 +313,7 @@ export class TelegraphRenderer {
     slot.y = y;
     slot.reach = reach;
     slot.start = nowMs;
-    slot.dur = Math.max(60, Number(m.duration) || 500);
+    slot.dur = Math.max(60, Number(durMs) || Number(m.duration) || 500);
     slot.landed = false;
   }
 

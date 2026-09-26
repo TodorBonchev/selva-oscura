@@ -22,6 +22,12 @@ export type GroundRig = {
   floor: THREE.Mesh;
   cantoId: string;
   heightAt: (x: number, z: number) => number;
+  /**
+   * Top of what is actually drawn at (x, z): the floor mesh as rendered (its coarse
+   * triangles, not the analytic heightAt) or the boss dais plinth/step. Ground decals
+   * that must never sink into either (telegraphs, slam rings) sit on this.
+   */
+  surfaceAt: (x: number, z: number) => number;
 };
 
 function hash(i: number, j: number) {
@@ -107,6 +113,26 @@ function bossDaisFor(cantoId: string): { x: number; z: number } {
   if (cantoId === "inferno_07") return { x: 138, z: 48 };
   if (cantoId === "inferno_06") return { x: 138, z: 48 };
   return { x: 140, z: 60 };
+}
+
+/**
+ * Height of the boss dais top at (x, z) (−Infinity off it), matching the cylinders
+ * buildGround stacks there: Gluttony/Avarice a 7.6→8.6 plinth (top +0.53) with a
+ * 5.4→5.8 step (top +0.72); Lust a 6.5→7.2 slab (top +0.34). The thin rings and lips
+ * on top are left out: they sit over decals like paint.
+ */
+function daisTopAt(cantoId: string, base: number, cx: number, cz: number, x: number, z: number): number {
+  const r = Math.hypot(x - cx, z - cz);
+  if (cantoId === "inferno_06" || cantoId === "inferno_07") {
+    if (r <= 5.4) return base + 0.72;
+    if (r <= 5.67) return base + 0.72 - (r - 5.4) * 0.7;
+    if (r <= 7.6) return base + 0.53;
+    if (r <= 8.6) return base + 0.53 - (r - 7.6) * 0.62;
+    return -Infinity;
+  }
+  if (r <= 6.5) return base + 0.34;
+  if (r <= 7.2) return base + 0.34 - ((r - 6.5) / 0.7) * 0.4;
+  return -Infinity;
 }
 
 /** Same displacement the floor mesh uses, so feet and props sit on the dirt. */
@@ -880,7 +906,34 @@ export function buildGround(
   }
 
   freezeStaticProps(group);
-  return { group, floor, cantoId, heightAt };
+  // The floor as drawn: PlaneGeometry cells (x from −12 by (w+24)/segs, z likewise; vertex
+  // ix + (segs+1)·iz), each split along its (x0,z1)–(x1,z0) diagonal — read straight from
+  // the displaced vertex heights, so a decal a few cm up never sinks and a lookup is cheap
+  const cw = (w + 24) / segs;
+  const ch = (h + 24) / segs;
+  const vy = pos.array as Float32Array;
+  const row = segs + 1;
+  const floorAt = (x: number, z: number): number => {
+    const fx = (x + 12) / cw;
+    const fz = (z + 12) / ch;
+    const ix = Math.max(0, Math.min(segs - 1, Math.floor(fx)));
+    const iz = Math.max(0, Math.min(segs - 1, Math.floor(fz)));
+    const u = Math.max(0, Math.min(1, fx - ix));
+    const v = Math.max(0, Math.min(1, fz - iz));
+    const ia = ix + row * iz;
+    const ha = vy[ia * 3 + 1]!;
+    const hb = vy[(ia + row) * 3 + 1]!;
+    const hc = vy[(ia + row + 1) * 3 + 1]!;
+    const hd = vy[(ia + 1) * 3 + 1]!;
+    return u + v <= 1 ? ha + (hd - ha) * u + (hb - ha) * v : hc + (hb - hc) * (1 - u) + (hd - hc) * (1 - v);
+  };
+  const dais = isHub ? null : bossDaisFor(cantoId);
+  const daisBase = dais ? heightAt(dais.x, dais.z) : 0;
+  const surfaceAt = (x: number, z: number): number => {
+    const f = floorAt(x, z);
+    return dais ? Math.max(f, daisTopAt(cantoId, daisBase, dais.x, dais.z, x, z)) : f;
+  };
+  return { group, floor, cantoId, heightAt, surfaceAt };
 }
 
 /** Ground nodes WorldApp animates by name (tickFx prop animator / tree sway). */

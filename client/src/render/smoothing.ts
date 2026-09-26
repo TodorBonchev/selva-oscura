@@ -247,6 +247,20 @@ export class InterpStore {
     return this.tracks.get(id)?.pos ?? fallback;
   }
 
+  /**
+   * Replace an entity's render position/velocity for this frame (call after update();
+   * the next update() recomputes it from the samples). False when it has no track.
+   */
+  override(id: string, x: number, y: number, vx: number, vy: number): boolean {
+    const t = this.tracks.get(id);
+    if (!t || t.n === 0) return false;
+    t.pos.x = x;
+    t.pos.y = y;
+    t.vx = vx;
+    t.vy = vy;
+    return true;
+  }
+
   /** Render velocity (units/s) into `out` (0,0 when unknown). */
   vel(id: string, out: Vec2): Vec2 {
     const t = this.tracks.get(id);
