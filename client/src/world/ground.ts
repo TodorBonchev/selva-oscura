@@ -951,7 +951,10 @@ function buildCauseway(
   const pts = CAUSEWAY_PTS;
   const half = CAUSEWAY_HALF;
   const pads = CAUSEWAY_PADS;
-  const dais = pads[pads.length - 1]!;
+  // (the road runs up to the Maw's plinth; stones by its lip sit on its slope)
+  const dais = bossDaisFor("inferno_06");
+  const daisBase = heightAt(dais.x, dais.z);
+  const surf = (x: number, z: number) => Math.max(heightAt(x, z), daisTopAt("inferno_06", daisBase, dais.x, dais.z, x, z));
   const step = compact ? 1.5 : 1.22;
   let minX = Infinity;
   let maxX = -Infinity;
@@ -975,8 +978,8 @@ function buildCauseway(
     for (let x = minX + (row & 1 ? step * 0.5 : 0); x <= maxX; x += step) {
       const jx = x + (hash((x * 7) | 0, (z * 7) | 0) - 0.5) * step * 0.28;
       const jz = z + (hash((x * 5) | 0, (z * 9) | 0) - 0.5) * step * 0.28;
-      // the Maw's plinth covers its own landing
-      if (Math.hypot(jx - dais[0], jz - dais[1]) < 8.3) continue;
+      // the Maw's plinth is its own stone
+      if (Math.hypot(jx - dais.x, jz - dais.z) < 8.3) continue;
       if (mireDepth(jx, jz, pts, half, pads) > -0.35) continue;
       // an old stone sunk out of the road here and there
       if (hash((jx * 3) | 0, (jz * 3) | 0) < 0.06) continue;
@@ -1002,7 +1005,7 @@ function buildCauseway(
     e.set((r - 0.5) * 0.06, r * Math.PI * 2, (hash((x * 17) | 0, (z * 3) | 0) - 0.5) * 0.06);
     q.setFromEuler(e);
     // mostly bedded in the mud: the tops stand a few cm proud (feet, decals sit on them)
-    p.set(x, heightAt(x, z) - 0.105 + r * 0.03, z);
+    p.set(x, surf(x, z) - 0.105 + r * 0.03, z);
     sc.set(0.9 + r * 0.3, 1, 0.85 + hash((z * 5) | 0, (x * 3) | 0) * 0.35);
     m.compose(p, q, sc);
     slabs.setMatrixAt(i, m);
@@ -1060,7 +1063,7 @@ function buildCauseway(
     const r = hash((x * 13) | 0, (z * 7) | 0);
     e.set((r - 0.5) * 0.18, curbs[i * 3 + 2]! + (r - 0.5) * 0.25, (hash((z * 3) | 0, (x * 5) | 0) - 0.5) * 0.2);
     q.setFromEuler(e);
-    p.set(x, heightAt(x, z) + 0.02 + r * 0.06, z);
+    p.set(x, surf(x, z) + 0.02 + r * 0.06, z);
     sc.set(0.85 + r * 0.4, 0.8 + r * 0.45, 1);
     m.compose(p, q, sc);
     curbMesh.setMatrixAt(i, m);

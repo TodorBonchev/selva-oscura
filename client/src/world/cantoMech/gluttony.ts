@@ -85,6 +85,8 @@ const S = {
   seizedUntil: 0,
   sinkUntil: 0,
   sinkTips: 0,
+  snatchUntil: 0,
+  snatchTips: 0,
   sinkX: 0,
   sinkY: 0,
   sinkBubbleAt: 0,
@@ -102,6 +104,7 @@ let APP: WorldApp | null = null;
 let registered = false;
 /** Per MobState: the attack start whose facing we already corrected. */
 const fixedAt = new WeakMap<MobState, number>();
+const fixedKind = new WeakMap<MobState, string>();
 
 function strikeK(r: number): number {
   return r <= 0 ? 0 : r < 0.32 ? easeOut(r / 0.32) : 1 - ease((r - 0.32) / 0.68);
@@ -109,8 +112,10 @@ function strikeK(r: number): number {
 
 /** A Maw bite telegraph points along its head's cone: the body faces the Maw's heading. */
 function fixMawFacing(st: MobState, head: number) {
-  if (fixedAt.get(st) === st.atkStart) return;
+  // (phase 2 opens all three jaws in one tick: the start alone can repeat)
+  if (fixedAt.get(st) === st.atkStart && fixedKind.get(st) === st.atkKind) return;
   fixedAt.set(st, st.atkStart);
+  fixedKind.set(st, st.atkKind);
   st.atkDir -= HEAD_OFF[head]!;
 }
 
@@ -121,6 +126,7 @@ function registerOnce() {
   registerTelePalette("hail", { base: 0x0a1622, hot: 0x7fa6c8, rim: 0xeef6ff });
   registerTelePalette("mire_grab", { base: 0x120e04, hot: 0x8a7428, rim: 0xf0d890 });
   registerTelePalette("mire_sink", { base: 0x0e0a02, hot: 0x6a5418, rim: 0xd8b060 });
+  registerTelePalette("fango_burst", { base: 0x0c1004, hot: 0x6a8a18, rim: 0xd8f070 });
   const bite = { base: 0x1c0604, hot: 0xc8401c, rim: 0xffd0a0 };
   for (const k of BITE_KIND) registerTelePalette(k, bite);
   registerTelePalette("cerbero_bite", bite);
@@ -536,6 +542,10 @@ export const gluttonyMech: CantoMech = {
       case "glut_grab": {
         if (String(msg.pid) === String(app.room?.you?.id ?? app.socket.playerId ?? "")) {
           S.carry = true;
+          if (S.snatchTips < 2) {
+            S.snatchTips++;
+            S.snatchUntil = now + 1400;
+          }
           const e = entityById(app, String(msg.id));
           if (e) ripple(e.x, e.y, 1.3, 0.6, 0.9);
         }
@@ -579,7 +589,7 @@ export const gluttonyMech: CantoMech = {
         const rec = app.nodes.get(String(msg.boss));
         if (rec) {
           const p = rec.group.position;
-          app.combat?.number(p.x, p.y + 5.2, p.z, Number(msg.heal) || 0, "heal", String(msg.boss), now);
+          if (Number(msg.heal) > 0) app.combat?.number(p.x, p.y + 5.2, p.z, Number(msg.heal), "heal", String(msg.boss), now);
           ripple(p.x, p.z, 2.4, 0.8, 0.9);
         }
         return true;
@@ -797,6 +807,7 @@ export const gluttonyMech: CantoMech = {
       else if (e.kind === "poi" && e.poiKind === "clod" && Math.hypot(e.x - you.x, e.y - you.y) < 18) clod = true;
     }
     if (nowMs < S.seizedUntil) sub = "Seized by the mire — hold on";
+    else if (nowMs < S.snatchUntil) sub = "The mire snatches back — step away!";
     else if (nowMs < S.sinkUntil && S.sinkTips <= 3) sub = "The mud closes on your feet — step out!";
     else if (S.carry) sub = "Mire in hand — attack a gaping maw to throw";
     else if (S.mawPhase >= 2 && fango) sub = "Cut down the Fango before it feeds the Maw";

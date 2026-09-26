@@ -35,6 +35,8 @@
  *   glut_clod    { pid, x, y, tid, tx, ty, dur }   a thrown clod in the air (lands after dur ms)
  *   glut_feed    { id, boss, heal }          a Fango reached the Maw
  *   glut_sink    { x, y, dur }               (to that pilgrim) the mud closes on your feet
+ * Telegraph kinds: hail, mire_grab (a rising shade's grab, a clod heap's snatch),
+ * mire_sink, fango_burst, maw_bite_l/c/r, cerbero_bite (+ the core boss_slam).
  * Snapshot mech: { bv, bb, c, cw?, bm?, hs?, cs? } — see snapshotExtra.
  */
 import { brake, chase, interruptAttack, pushMob, startAttack, walkTo } from "../mobAi.mjs";
@@ -49,49 +51,74 @@ const BUCKET_CAP = 1.2;
 const BUCKET_SLACK = 1.15;
 
 /** Buried shades: wake radius and the rising grab. */
-const RISE_R = 3.4;
-const GRAB = { radius: 3.4, windupMs: 800, rootMs: 800 };
+const RISE_R = 3.8;
+/** The buried lie together: a rising shade wakes its fellows this near, a beat apart. */
+const CHAIN_R = 10.5;
+const CHAIN_BEAT = 0.3;
+const GRAB = { radius: 3.8, windupMs: 800, rootMs: 800, dmg: 12 };
 
 /**
  * The mire closes on a pilgrim who stands still in it: after STILL_S within ANCHOR_R of
  * one spot in deep mud, a small circle telegraph at their feet (kind mire_sink) — still
  * inside when it closes, they're held fast. Step out (or fight from the stones).
  */
-const SINK = { stillS: 1.7, anchorR: 1.3, minDepth: 0.8, radius: 1.15, windupMs: 1000, rootMs: 1000, dmg: 4, cdS: 3 };
+const SINK = { stillS: 1.3, anchorR: 2.2, minDepth: 0.8, radius: 1.15, windupMs: 1000, rootMs: 1000, dmg: 7, cdS: 4.5 };
 
 /** Hail volleys (seconds unless noted). */
 const HAIL = {
-  first: [10, 14],
-  every: [8, 11],
-  bossEvery: [6.5, 8.5],
+  first: [7, 10],
+  every: [6.5, 9],
+  bossEvery: [6, 7.5],
   windupMs: 1000,
-  dmg: 9,
+  dmg: 11,
   mobDmg: 14,
   slow: 0.6,
   slowMs: 700,
-  r: [1.45, 1.85],
+  r: [1.55, 1.95],
   /** no hail on the entrance landing (a wakened pilgrim is never pelted there) */
   spawnSafe: 13,
   /** lead the pilgrim's stride by this much: keep walking straight and it finds you */
-  lead: 0.45,
+  lead: 0.85,
 };
 
-/** Triple Maw. */
-const BITE = { radius: 6.8, arc: 1.3, spread: 0.8, windup: 1.0, stagger: 0.36, recover: 1.2 };
-const BITE_P2 = { windup: 0.8, stagger: 0.27, recover: 0.95 };
+/**
+ * Triple Maw. His hide is thick (the room's 680 → MAW_HP); the choked throats are the
+ * way in (×SILENCE_MUL), though plain blows always get there in the end.
+ */
+const MAW_HP = 800;
+/**
+ * The heads' reach covers most of the dais in front of him: backing out takes a dash;
+ * a choked throat leaves its wedge of the fan safe (the way through).
+ */
+const BITE = { radius: 7.8, arc: 1.3, spread: 0.8, windup: 1.0, stagger: 0.36, recover: 1.2, dmgMul: 1.1 };
+/**
+ * Phase 2 — "le bocche aperse": all three jaws open at once and snap in turn, left →
+ * centre → right (every cone is on the ground from the start; the fills land in order).
+ */
+const BITE_P2 = { windup: 0.8, stagger: 0.25, recover: 0.95, together: true };
 const BITE_KINDS = ["maw_bite_l", "maw_bite_c", "maw_bite_r"];
 /** Planar offset of each head's cone from the Maw's facing (L = model −x side). */
 const HEAD_OFF = [-BITE.spread, 0, BITE.spread];
 const MAW_SLAM = { shape: "circle", radius: 3.4, windup: 1.2, trigger: 3.6, recover: 1.35, kind: "boss_slam" };
 const SILENCE_S = 5;
 const SILENCE_MUL = 1.5;
-const FEED = { every: [6.5, 8.5], per: 2, max: 4, speed: 2.6, heal: 0.05, hp: 20, spawnR: [11.5, 13] };
+/**
+ * Fango: phase 2 feeders. A feed heals `heal` of his life but never past `cap` (his open
+ * wounds stay open), and once `drain` of his life has been fed the mire has no more to
+ * give — so plain blows always finish him, fed or not.
+ */
+/** A Fango cut down bursts in a spray of filth a beat later (step out of it). */
+const FANGO_BURST = { radius: 3.0, windupMs: 550, dmg: 12, slow: 0.6, slowMs: 900 };
+const FEED = { every: [7, 9], per: 2, max: 4, speed: 2.4, heal: 0.04, cap: 0.5, drain: 0.18, hp: 20, spawnR: [11.5, 13] };
 
 /** Cerbero, one waking head. */
-const CERB = { hpMul: 2.2, radius: 4.4, arc: 1.25, windup: 0.95, trigger: 3.8, recover: 1.15 };
+const CERB = { hpMul: 2.2, radius: 4.4, arc: 1.25, windup: 0.95, trigger: 3.8, recover: 1.15, dmgMul: 1.6 };
 
-/** Clods of mire. */
-const CLOD = { range: 11, speed: 24, headDmg: 10, splatDmg: 6, mobDmg: 8, grabCdMs: 900 };
+/**
+ * Clods of mire. The mire does not give up its earth freely: scooping one sets its hands
+ * closing on the taker (a grab telegraph at your feet — scoop, then step or dash away).
+ */
+const CLOD = { range: 11, speed: 24, headDmg: 10, splatDmg: 6, mobDmg: 8, grabCdMs: 900, snatch: { radius: 2.0, windupMs: 650, rootMs: 700, dmg: 12 } };
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -123,30 +150,33 @@ function rise(room, g, b, who) {
   b.up = true;
   g.bmask &= ~(1 << b.k);
   const e = b.e;
-  e.x = b.x;
-  e.y = b.y;
-  e.homeX = b.x;
-  e.homeY = b.y;
+  const rx = b.x;
+  const ry = b.y;
+  e.x = rx;
+  e.y = ry;
+  e.homeX = rx;
+  e.homeY = ry;
   e.sp = 0;
   e.kvx = 0;
   e.kvy = 0;
-  e.hd = Math.atan2(who.y - b.y, who.x - b.x);
+  e.hd = Math.atan2(who.y - ry, who.x - rx);
   // The client readies the rising body before its entity arrives, then the snapshot
   // builds the node, then the grab telegraph poses it (no frame of a standing shade)
-  room.broadcast({ type: "glut_rise", k: b.k, id: e.id, x: b.x, y: b.y, dur: GRAB.windupMs });
+  room.broadcast({ type: "glut_rise", k: b.k, id: e.id, x: +rx.toFixed(2), y: +ry.toFixed(2), dur: GRAB.windupMs });
   room.entities.set(e.id, e);
   room.pushAllSnapshots();
   const t = room.telegraph({
     attackerId: e.id,
     shape: "circle",
-    x: b.x,
-    y: b.y,
+    x: rx,
+    y: ry,
     // (a circle ignores dir; the shade's rise pose faces along it)
     dir: e.hd,
     radius: GRAB.radius,
     duration: GRAB.windupMs,
     kind: "mire_grab",
-    dmg: room.mobAttackDamage(e),
+    // the mire's cold hands (tier-scaled like the shade's own blows)
+    dmg: Math.round(GRAB.dmg * (room.mobAttackDamage(e) / 8)),
     onLand: (_r, tt) => {
       if (e.teleId === tt.id) {
         e.teleId = null;
@@ -197,9 +227,11 @@ function volley(room, s, phase2) {
     pts.push(+x.toFixed(2), +y.toFixed(2), +r.toFixed(2));
     return true;
   };
-  // one stone finds your stride; the rest fence you in
+  // one stone finds your stride, one the spot you stand on (either way: move, and
+  // not in a straight line); the rest fence you in
   place(s.x + vx * HAIL.lead, s.y + vy * HAIL.lead, rand(HAIL.r[0], HAIL.r[1]));
-  for (let i = 1; i < n; i++) {
+  if (Math.hypot(vx, vy) * HAIL.lead > 1.6) place(s.x, s.y, rand(HAIL.r[0], HAIL.r[1]));
+  for (let i = pts.length / 3; i < n; i++) {
     for (let tries = 0; tries < 10; tries++) {
       const a = Math.random() * Math.PI * 2;
       const d = rand(2.3, 5.2);
@@ -300,6 +332,11 @@ function tickHail(room, s, dt, maw) {
 
 function mawState(e) {
   if (!e._maw) {
+    // a fresh Maw (spawn or respawn): his own measure of life
+    if (e.hp >= e.maxHp && e.maxHp < MAW_HP) {
+      e.maxHp = MAW_HP;
+      e.hp = MAW_HP;
+    }
     e._maw = {
       heads: [0, 1, 2].map(() => ({ silence: 0, teleId: null })),
       seq: null,
@@ -313,6 +350,8 @@ function mawState(e) {
 
 function startHead(room, e, m, i) {
   const q = m.seq;
+  // (phase 2: every jaw opens now, each snapping a stagger after the last)
+  const windup = q.together ? q.windup + i * q.stagger : q.windup;
   const h = m.heads[i];
   // a choked throat can't bite
   if (h.silence > 0) return;
@@ -324,16 +363,16 @@ function startHead(room, e, m, i) {
     dir: q.dir + HEAD_OFF[i],
     radius: BITE.radius,
     arc: BITE.arc,
-    duration: q.windup * 1000,
+    duration: windup * 1000,
     kind: BITE_KINDS[i],
-    dmg: room.mobAttackDamage(e),
+    dmg: Math.round(room.mobAttackDamage(e) * BITE.dmgMul),
     extra: { head: i },
     onLand: (_r, tt) => {
       if (h.teleId === tt.id) h.teleId = null;
     },
   });
   h.teleId = t.id;
-  room.broadcast({ type: "glut_bite", id: e.id, head: i, dur: Math.round(q.windup * 1000) });
+  room.broadcast({ type: "glut_bite", id: e.id, head: i, dur: Math.round(windup * 1000) });
 }
 
 function startSeq(room, e, m, target) {
@@ -346,6 +385,7 @@ function startSeq(room, e, m, target) {
     windup: p2 ? BITE_P2.windup : BITE.windup,
     stagger: p2 ? BITE_P2.stagger : BITE.stagger,
     recover: p2 ? BITE_P2.recover : BITE.recover,
+    together: p2 && BITE_P2.together,
   };
   e.hd = dir;
   e.sp = 0;
@@ -355,7 +395,7 @@ function startSeq(room, e, m, target) {
 function stepSeq(room, e, m, dt) {
   const q = m.seq;
   q.t += dt;
-  while (q.next < 3 && q.t >= q.next * q.stagger) startHead(room, e, m, q.next++);
+  while (q.next < 3 && (q.together || q.t >= q.next * q.stagger)) startHead(room, e, m, q.next++);
   e.windupLeft = Math.max(0, 2 * q.stagger + q.windup - q.t);
   if (q.t >= 2 * q.stagger + q.windup + 0.05) {
     m.seq = null;
@@ -377,9 +417,10 @@ function endSeq(room, m) {
 function enterPhase2(room, e, m) {
   e.phase = 2;
   e.phase2Toast = true;
-  m.feedT = 1.5;
+  m.feedT = 0.8;
+  m.fed = 0;
   for (const s of room.sessions.values()) {
-    room.toast(s.ws, "warn", "«le bocche aperse» — the Maw gapes for the mire: cut down the Fango before it feeds");
+    room.toast(s.ws, "warn", "«le bocche aperse» — stop the Fango feeding him");
   }
 }
 
@@ -412,7 +453,7 @@ function spawnFeeder(room, g, maw) {
 
 function tickFeeders(room, g, e, m, dt) {
   m.feedT -= dt;
-  if (m.feedT > 0) return;
+  if (m.feedT > 0 || (m.fed || 0) >= e.maxHp * FEED.drain) return;
   m.feedT = rand(FEED.every[0], FEED.every[1]);
   let alive = 0;
   for (const x of room.entities.values()) if (x._feeder) alive++;
@@ -428,8 +469,11 @@ function tickFeeders(room, g, e, m, dt) {
 function feed(room, maw, f) {
   room.entities.delete(f.id);
   room.broadcast({ type: "entity_removed", id: f.id });
-  const heal = Math.round(maw.maxHp * FEED.heal);
-  maw.hp = Math.min(maw.maxHp, maw.hp + heal);
+  const before = maw.hp;
+  maw.hp = Math.max(maw.hp, Math.min(maw.maxHp * FEED.cap, maw.hp + maw.maxHp * FEED.heal));
+  const heal = Math.round(maw.hp - before);
+  const m = mawState(maw);
+  m.fed = (m.fed || 0) + heal;
   room.broadcast({ type: "glut_feed", id: f.id, boss: maw.id, heal });
   room.markDirty();
 }
@@ -448,7 +492,8 @@ function startCerbBite(room, e, target) {
     arc: CERB.arc,
     duration: CERB.windup * 1000,
     kind: "cerbero_bite",
-    dmg: room.mobAttackDamage(e),
+    // a hound's jaws, not a champion's fist
+    dmg: Math.round(room.mobAttackDamage(e) * CERB.dmgMul),
     extra: { head: 0 },
     onLand: (_r, tt) => {
       if (e.teleId !== tt.id) return;
@@ -500,14 +545,14 @@ function landClod(room, sess, target) {
       room.damageMob(target, CLOD.headDmg, pid, { spellId: "clod" });
       if (!sess._glutChokeTip) {
         sess._glutChokeTip = true;
-        room.toast(sess.ws, "emit", "«la gittò dentro a le bramose canne» — a throat chokes on mire; the Maw is open to blows");
+        room.toast(sess.ws, "emit", "«la gittò dentro a le bramose canne» — the Maw chokes");
       }
       return "head";
     }
     room.damageMob(target, CLOD.splatDmg, pid, { spellId: "clod" });
     if ((sess._glutSplatTips || 0) < 2) {
       sess._glutSplatTips = (sess._glutSplatTips || 0) + 1;
-      room.toast(sess.ws, "info", "The mire splats on its hide — throw while a maw gapes");
+      room.toast(sess.ws, "info", "Too soon — throw while a maw gapes");
     }
     return "splat";
   }
@@ -520,14 +565,14 @@ function landClod(room, sess, target) {
       room.damageMob(target, CLOD.headDmg, pid, { spellId: "clod" });
       if (!sess._glutCerbTip) {
         sess._glutCerbTip = true;
-        room.toast(sess.ws, "emit", "Cerbero chokes on the mire — strike while it gags; the Maw's three throats take the same");
+        room.toast(sess.ws, "emit", "Cerbero chokes on the mire — strike now");
       }
       return "head";
     }
     room.damageMob(target, CLOD.splatDmg, pid, { spellId: "clod" });
     if ((sess._glutSplatTips || 0) < 2) {
       sess._glutSplatTips = (sess._glutSplatTips || 0) + 1;
-      room.toast(sess.ws, "info", "The mire splats on its hide — throw while its jaws gape");
+      room.toast(sess.ws, "info", "Too soon — throw while its jaws gape");
     }
     return "splat";
   }
@@ -568,6 +613,8 @@ export default {
         g.bmask |= 1 << k;
       });
     }
+    const maw = room.entities.get("triple_maw");
+    if (maw) mawState(maw);
     for (const e of room.entities.values()) {
       if (e.packId !== "glut_cerbero") continue;
       e.maxHp = Math.round(e.maxHp * CERB.hpMul);
@@ -609,12 +656,21 @@ export default {
         e._gy = e.y;
       }
     }
-    // Sepolti wake under a passing pilgrim
+    // Sepolti wake under a passing pilgrim — and those buried near it wake with it
     for (const b of g.buried) {
       if (b.up) continue;
       for (const s of room.sessions.values()) {
         if (!(s.hp > 0) || Math.hypot(s.x - b.x, s.y - b.y) > RISE_R) continue;
         rise(room, g, b, s);
+        let beat = 0;
+        for (const o of g.buried) {
+          if (o.up || o.chained || Math.hypot(o.x - b.x, o.y - b.y) > CHAIN_R) continue;
+          o.chained = true;
+          beat += CHAIN_BEAT;
+          room.schedule(beat, () => {
+            if (!o.up && room._glut === g) rise(room, g, o, s);
+          });
+        }
         break;
       }
     }
@@ -682,6 +738,24 @@ export default {
   onKilled(room, e) {
     const g = room._glut;
     if (!g) return;
+    if (e._feeder) {
+      const fb = FANGO_BURST;
+      room.telegraph({
+        attackerId: "mech:fango",
+        shape: "circle",
+        x: e.x,
+        y: e.y,
+        radius: fb.radius,
+        duration: fb.windupMs,
+        kind: "fango_burst",
+        dmg: Math.round(fb.dmg * 1.15),
+        onHit: (r, t, s) => {
+          if (!(s.iframes > 0)) r.statusPlayer(s, { slow: fb.slow, durMs: fb.slowMs });
+          return t.dmg;
+        },
+      });
+      return;
+    }
     if (e.id === "triple_maw") {
       if (e._maw) endSeq(room, e._maw);
       stillTheMire(room, g);
@@ -713,7 +787,7 @@ export default {
     if (near.d < 14) {
       chase(room, e, near.s, dt);
       if (e.atkCd <= 0 && !(near.s.iframes > 0)) {
-        if (near.d < MAW_SLAM.trigger && m.bites >= 1) {
+        if (near.d < MAW_SLAM.trigger && m.bites >= 2) {
           if (startAttack(room, e, near.s, near.d, room.mobAttackDamage(e), MAW_SLAM)) m.bites = 0;
         } else if (near.d < BITE.radius - 0.4) {
           startSeq(room, e, m, near.s);
@@ -769,9 +843,24 @@ export default {
     sess._glutGrabAt = now;
     sess._glutClod = true;
     room.broadcast({ type: "glut_grab", pid: sess.playerId, id: e.id });
+    const sn = CLOD.snatch;
+    room.telegraph({
+      attackerId: "mech:heap",
+      shape: "circle",
+      x: sess.x,
+      y: sess.y,
+      radius: sn.radius,
+      duration: sn.windupMs,
+      kind: "mire_grab",
+      dmg: Math.round(sn.dmg * 1.15),
+      onHit: (r, t, s) => {
+        if (!(s.iframes > 0)) r.statusPlayer(s, { root: true, durMs: sn.rootMs });
+        return t.dmg;
+      },
+    });
     if (!sess._glutClodTip) {
       sess._glutClodTip = true;
-      room.toast(sess.ws, "info", "«con piene le pugna» — strike when a maw gapes to throw the mire into it");
+      room.toast(sess.ws, "info", "«con piene le pugna» — throw it into a gaping maw");
     }
     room.markDirty();
     return true;

@@ -31,6 +31,7 @@ export const CAUSEWAY_PTS: MirePts = [
   [150, 52],
 ];
 export const CAUSEWAY_HALF = 2.5;
+/** Firm landings: the entrance, Cerbero's step, the Maw's plinth. */
 export const CAUSEWAY_PADS: MirePad[] = [
   [15, 53, 8],
   [125, 48, 4],

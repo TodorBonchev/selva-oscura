@@ -112,7 +112,7 @@
       }
     ],
     "causeway": {
-      "notes": "The old stone causeway through the mire (Canto VI: 'pute la terra che questo riceve'). Off it pilgrims wade at mire_mul speed and dash dash_mul as far; non-native foes (champions, wardens) are slowed too. Pads are firm landings (entrance, Cerbero's step, the Maw's dais). Mirrored in client/src/world/gluttonyMire.ts; the server sends its copy to the client on join.",
+      "notes": "The old stone causeway through the mire (Canto VI: 'pute la terra che questo riceve'). Off it pilgrims wade at mire_mul speed and dash dash_mul as far; non-native foes (champions, wardens) are slowed too. Pads are firm landings (the entrance, Cerbero's step, the Maw's plinth). Mirrored in client/src/world/gluttonyMire.ts; the server sends its copy to the client on arrival.",
       "width": 5,
       "mire_mul": 0.6,
       "dash_mul": 0.6,
@@ -346,6 +346,54 @@
       "buried": true,
       "spots": [[104, 49.5], [116.5, 52.5]],
       "notes": "Buried under the stones' south lip before Cerbero"
+    },
+    {
+      "id": "glut_sunk_mid",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 96,
+        "y": 64
+      },
+      "buried": true,
+      "spots": [[93, 66], [100.5, 61.5]],
+      "notes": "Buried between the Mire Bell and the strays"
+    },
+    {
+      "id": "glut_sunk_south",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 73,
+        "y": 89
+      },
+      "buried": true,
+      "spots": [[66.5, 86.5], [80, 92]],
+      "notes": "Buried around the Mire Heart's southern mud"
+    },
+    {
+      "id": "glut_sunk_west",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 30,
+        "y": 78
+      },
+      "buried": true,
+      "spots": [[35, 74.5], [25, 84]],
+      "notes": "Buried under the Filth Wisps' slough"
     }
   ],
   "bosses": [

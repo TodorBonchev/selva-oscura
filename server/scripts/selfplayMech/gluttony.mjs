@@ -31,6 +31,13 @@ function debugNote(bot, s, m) {
     d.t0 = Date.now();
     return;
   }
+  if (process.env.GLUT_TRACE && m.type === "snapshot" && Date.now() - (d.traceAt || 0) > 5000) {
+    d.traceAt = Date.now();
+    const y = m.room.you;
+    const maw = m.room.entities.find((e) => e.id === "triple_maw");
+    const foes = m.room.entities.filter((e) => (e.kind === "mob" || e.kind === "boss") && e.hp > 0);
+    console.log(`[trace ${bot.name}] t=${Math.round((Date.now() - d.t0) / 1000)} you=${y.x.toFixed(0)},${y.y.toFixed(0)} hp=${y.hp} maw=${maw ? maw.hp : "-"} foes=${foes.length} mire=${s.mire ? s.mire.mulAt(y.x, y.y).toFixed(2) : "?"}`);
+  }
   if (m.type === "combat" && m.targetIsPlayer && m.targetId === bot.snap?.you?.id && m.damage > 0) {
     const k = m.teleKind || "untelegraphed";
     d.by[k] = (d.by[k] || 0) + m.damage;
@@ -94,6 +101,8 @@ export default {
       if (!x) return;
       s.bb = Number(x.bb) || 0;
       s.carry = Boolean(x.c);
+      // a throat already choked (the Maw's or Cerbero's): no need for another fistful yet
+      s.choked = (Array.isArray(x.hs) && x.hs.some((v) => v > 1)) || Number(x.cs) > 1;
     }
   },
 
@@ -144,6 +153,32 @@ export default {
         biter = e;
       }
     }
+    // Fango crawling to the Maw: cut it down first
+    let fango = null;
+    let fd = Infinity;
+    for (const e of ents) {
+      if (e.name !== "Fango" || !(e.hp > 0)) continue;
+      const d = Math.hypot(e.x - you.x, e.y - you.y);
+      if (d < fd) {
+        fd = d;
+        fango = e;
+      }
+    }
+    // (with a fistful of mire in hand, only one about to reach his jaws is worth it)
+    const maw = ents.find((e) => e.id === "triple_maw");
+    const nearJaws = fango && maw && Math.hypot(fango.x - maw.x, fango.y - maw.y) < 8;
+    if (fango && fd < 11 && target?.id !== fango.id && (!s.carry || nearJaws)) {
+      if (fd > 2.8) {
+        const k = Math.min(fd - 2.4, STEP * (s.mire ? s.mire.mulAt(you.x, you.y) : 1)) / fd;
+        bot.moveTo(you.x + (fango.x - you.x) * k, you.y + (fango.y - you.y) * k);
+      } else if (!bot._atkAt || now - bot._atkAt > 450) {
+        bot._combo = bot._atkAt && now - bot._atkAt < 800 ? ((bot._combo || 0) + 1) % 3 : 0;
+        bot._atkAt = now;
+        bot.send({ type: "attack", targetId: fango.id, combo: bot._combo });
+      }
+      await sleep(50);
+      return true;
+    }
     // Carrying: throw into a gaping maw (a bite windup we can see); until one gapes,
     // hold the fistful instead of wasting it on the next swing (a few seconds at most)
     if (s.carry && biter && biterD <= CLOD_REACH && now - s.throwAt > 600) {
@@ -159,7 +194,7 @@ export default {
         return true;
       }
       if (!s.holdSince) s.holdSince = now;
-      if (now - s.holdSince < 5000) {
+      if (now - s.holdSince < 3000) {
         // keep just outside its jaws while waiting for them to open
         const want = biter.id === "triple_maw" ? 7.2 : 5.2;
         if (Math.abs(biterD - want) > 0.8) {
@@ -173,31 +208,8 @@ export default {
     } else if (!s.carry) {
       s.holdSince = 0;
     }
-    // Fango crawling to the Maw: cut it down first
-    let fango = null;
-    let fd = Infinity;
-    for (const e of ents) {
-      if (e.name !== "Fango" || !(e.hp > 0)) continue;
-      const d = Math.hypot(e.x - you.x, e.y - you.y);
-      if (d < fd) {
-        fd = d;
-        fango = e;
-      }
-    }
-    if (fango && fd < 11 && target?.id !== fango.id) {
-      if (fd > 2.8) {
-        const k = Math.min(fd - 2.4, STEP * (s.mire ? s.mire.mulAt(you.x, you.y) : 1)) / fd;
-        bot.moveTo(you.x + (fango.x - you.x) * k, you.y + (fango.y - you.y) * k);
-      } else if (!bot._atkAt || now - bot._atkAt > 450) {
-        bot._combo = bot._atkAt && now - bot._atkAt < 800 ? ((bot._combo || 0) + 1) % 3 : 0;
-        bot._atkAt = now;
-        bot.send({ type: "attack", targetId: fango.id, combo: bot._combo });
-      }
-      await sleep(50);
-      return true;
-    }
     // Empty-handed by a biter: scoop a clod when one lies close
-    if (!s.carry && biter && biterD < 12 && now - s.grabAt > 1500 && you.hp > you.maxHp * 0.35) {
+    if (!s.carry && !s.choked && biter && biterD < 12 && now - s.grabAt > 1500 && you.hp > you.maxHp * 0.35) {
       let clod = null;
       let cd = Infinity;
       for (const e of ents) {
