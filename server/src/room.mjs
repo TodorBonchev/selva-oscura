@@ -717,7 +717,9 @@ class CantoRoom {
         this.onEntityKilled(playerId, v);
       }
     }
-    if (!anyDead) this.pushAllSnapshots();
+    // The combat broadcasts carry targetHp; the next tick's snapshot (<=80ms) syncs the
+    // rest instead of an extra ~8KB snapshot to every player on every swing
+    if (!anyDead) this.markDirty();
   }
 
   handleCast(playerId, spellId, aimX, aimY) {
@@ -853,7 +855,7 @@ class CantoRoom {
       if (target.hp <= 0) {
         this.onEntityKilled(playerId, target);
       } else {
-        this.pushAllSnapshots();
+        this.markDirty(); // combat msg carries targetHp; tick snapshot follows
       }
     } else {
       this.broadcast({
@@ -925,12 +927,8 @@ class CantoRoom {
     for (const h of hit) {
       if (h.hp <= 0) this.onEntityKilled(playerId, h.ent);
     }
-    if (!hit.some((h) => h.hp <= 0)) {
-      this.pushAllSnapshots();
-    } else {
-      // onEntityKilled already pushed; ensure mana bar updates
-      this.pushAllSnapshots();
-    }
+    // Combat msgs carry targetHp (kills already pushed); mana rides the next tick snapshot
+    this.markDirty();
   }
 
   onEntityKilled(killerId, entity) {
