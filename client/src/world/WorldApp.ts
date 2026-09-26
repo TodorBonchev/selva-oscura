@@ -2481,6 +2481,17 @@ export class WorldApp {
       kind === "triple_maw" || kind === "hoard_crush" ? 5.9 : kind === "judge" ? 5.6 : 2.05;
     label.position.set(0, kind === "portal" ? 4.1 : kind === "loot" ? 1.35 : bossY, 0);
     if (kind === "loot") {
+      // Drops of one kill land on top of each other: stack their names, don't overprint
+      const lx = Number(e?.x) || 0;
+      const ly = Number(e?.y) || 0;
+      let under = 0;
+      for (const r of this.nodes.values()) {
+        const at = r.kind === "loot" ? (r.group.userData.lootAt as [number, number] | undefined) : undefined;
+        if (at && Math.abs(at[0] - lx) < 1.6 && Math.abs(at[1] - ly) < 1.6) under++;
+      }
+      group.userData.lootAt = [lx, ly];
+      // (screen-space step: the phone camera's steep pitch squashes a world-height offset)
+      if (under > 0) wrap.style.marginTop = `${-1.3 * Math.min(under, 4)}em`;
       const rarity = String(e?.item?.rarity || "normal");
       const beam = makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a);
       group.userData.rarity = rarity;
