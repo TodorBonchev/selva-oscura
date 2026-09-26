@@ -81,8 +81,10 @@ export class PointerInput {
       if (hit.kind === "mob" || hit.kind === "boss") {
         app.softSnapTargetId = null;
         app.lockedId = String(hit.id);
-        // Held mouse / finger on a foe keeps swinging until that pointer lifts
-        app.startAttackHold(pointerId);
+        // Held mouse / finger on a foe keeps swinging until that pointer lifts; a tap
+        // reported after its release (the stick zone's onTap) is one swing, not a hold
+        if (pointerId != null) app.startAttackHold(pointerId);
+        else app.attackNearest();
         return false;
       }
       if (hit.kind === "loot" || hit.kind === "poi" || hit.kind === "exit") {

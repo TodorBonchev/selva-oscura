@@ -191,6 +191,9 @@ const HIT_STOP_MS = 58;
 const SUN_OFF = camRel(14, 8);
 const RIM_OFF = camRel(-10, -12);
 
+/** Hold-to-attack source: the F key, the #btn-attack button, or a canvas pointer id. */
+type AttackHoldSource = "key" | "button" | number;
+
 type NodeRec = {
   id: string;
   kind: KindKey;
@@ -400,7 +403,12 @@ export class WorldApp {
   attackBusyUntil = 0;
   /** Hold-to-attack (button, F key, mouse held on a foe): swing whenever ready. */
   attackHeld = false;
-  attackHoldRelease: ((e: PointerEvent) => void) | null = null;
+  /**
+   * Who is holding attack: "key" (F), "button" (#btn-attack) or a canvas pointer id
+   * (mouse / finger held on a foe). One source lifting never ends another's hold —
+   * a thumb on the button while a second finger taps a foe keeps swinging.
+   */
+  attackHolds = new Set<AttackHoldSource>();
   heroMotor: HeroMotor | null = null;
   /** Real (unclamped, un-hit-stopped) step of the current frame; null outside loop(). */
   frameRawDt: number | null = null;
@@ -700,8 +708,8 @@ export class WorldApp {
       },
       interactNearest: () => this.interactNearest(),
       attackNearest: () => this.attackNearest(),
-      onAttackHoldStart: () => this.startAttackHold(),
-      onAttackHoldEnd: () => this.stopAttackHold(),
+      onAttackHoldStart: () => this.startAttackHold("button"),
+      onAttackHoldEnd: () => this.stopAttackHold("button"),
       equipSelected: () => {
         const id = getSelectedItemId();
         if (!id) {
@@ -992,7 +1000,7 @@ export class WorldApp {
         this.cancelPortalHold();
       }
       if (e.code === "KeyQ") this.sip();
-      if (e.code === "KeyF") this.startAttackHold();
+      if (e.code === "KeyF") this.startAttackHold("key");
       if (e.code === "Space") {
         e.preventDefault();
         this.dash();
@@ -1008,7 +1016,7 @@ export class WorldApp {
       if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
         this.releaseSpellHold(true);
       }
-      if (e.code === "KeyF") this.stopAttackHold();
+      if (e.code === "KeyF") this.stopAttackHold("key");
     });
     // Focus lost with F / WASD / a mouse button down never sees the keyup: drop
     // the held keys and the attack hold, or the hero would fight (and chase) alone
@@ -1020,6 +1028,13 @@ export class WorldApp {
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) dropHeld();
     });
+    // A mouse / finger held on a foe (pointerInput.tapAt) lets go of attack when it lifts
+    const liftAttack = (e: PointerEvent) => {
+      if (this.attackHolds.has(e.pointerId)) this.stopAttackHold(e.pointerId);
+    };
+    // (capture: a HUD element that stops the event's propagation can't strand the hold)
+    window.addEventListener("pointerup", liftAttack, true);
+    window.addEventListener("pointercancel", liftAttack, true);
 
     this.pointer = new PointerInput(this, this.renderer.domElement);
     this.renderer.domElement.addEventListener("pointerdown", (ev) => {
@@ -4101,31 +4116,22 @@ export class WorldApp {
 
   /**
    * Hold to attack: tick() swings whenever the last swing ends (re-targeting
-   * the live nearest / locked foe, chasing when out of reach). With a pointer id
-   * (mouse held on a foe) the hold ends on that pointer's release.
+   * the live nearest / locked foe, chasing when out of reach) while any source
+   * holds. A pointer id (mouse / finger held on a foe) is released by that
+   * pointer's pointerup (bindInput).
    */
-  startAttackHold(pointerId?: number) {
-    this.stopAttackHold();
+  startAttackHold(source: AttackHoldSource) {
+    this.attackHolds.add(source);
     this.attackHeld = true;
     // a click on a foe still says "Closing on …" when it has to walk in
-    this.attackNearest({ silent: pointerId == null });
-    if (pointerId != null) {
-      const release = (e: PointerEvent) => {
-        if (e.pointerId === pointerId) this.stopAttackHold();
-      };
-      this.attackHoldRelease = release;
-      window.addEventListener("pointerup", release);
-      window.addEventListener("pointercancel", release);
-    }
+    this.attackNearest({ silent: typeof source !== "number" });
   }
 
-  stopAttackHold() {
-    this.attackHeld = false;
-    if (this.attackHoldRelease) {
-      window.removeEventListener("pointerup", this.attackHoldRelease);
-      window.removeEventListener("pointercancel", this.attackHoldRelease);
-      this.attackHoldRelease = null;
-    }
+  /** Let go of one hold source, or of all of them (focus lost, death). */
+  stopAttackHold(source?: AttackHoldSource) {
+    if (source === undefined) this.attackHolds.clear();
+    else this.attackHolds.delete(source);
+    this.attackHeld = this.attackHolds.size > 0;
   }
 
   castSpell(spellId: SpellId, opts?: { aimX?: number; aimY?: number; preferNearest?: boolean }) {
