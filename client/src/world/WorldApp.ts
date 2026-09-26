@@ -139,7 +139,7 @@ import { PointerInput } from "./pointerInput";
 import { PickupFx } from "./pickupFx";
 import { forwardGate, gateState, gateTitle, lockReason, visibleGates } from "./gates";
 import { CombatView, isMobKind } from "./combatView";
-import type { TelegraphLand, TelegraphMsg } from "./telegraphs";
+import { teleWeight, type TelegraphLand, type TelegraphMsg } from "./telegraphs";
 import { PlayerForces } from "./forces";
 import { mechFor, type CantoMech, type MoveFeelOut } from "./cantoMech";
 import { bodyRadius } from "./mobBodies";
@@ -3624,34 +3624,49 @@ export class WorldApp {
         document.body.classList.add("champ-windup");
         window.setTimeout(() => document.body.classList.remove("champ-windup"), Math.max(280, dur * 1000));
       }
+    } else {
+      // A canto mechanic's heavy kind (registerTeleWeight): the windup punch (its dodge
+      // callout is the mechanic's own)
+      const weight = teleWeight(kind);
+      if (weight) {
+        this.camPunch = Math.max(this.camPunch, weight === "boss" ? 0.16 : 0.1);
+        this.camShake = Math.max(this.camShake, weight === "boss" ? 0.08 : 0.05);
+      }
     }
   }
 
   /** A telegraph finished filling: slams crack the ground (the hit itself is the server's). */
   onTelegraphLand(l: TelegraphLand) {
-    const slam = l.kind === "boss_slam" || l.kind === "champ_slam" || l.kind === "champ_cleave";
+    // (a canto mechanic's own heavy kinds land the same way — registerTeleWeight)
+    const weight = teleWeight(l.kind);
+    const slam = l.kind === "boss_slam" || l.kind === "champ_slam" || l.kind === "champ_cleave" || weight != null;
     if (!slam) return;
     const ava = this.room?.cantoId === "inferno_07";
     const glut = this.room?.cantoId === "inferno_06";
     const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
     const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
-    const boss = l.kind === "boss_slam";
+    const boss = l.kind === "boss_slam" || weight === "boss";
     // (on the drawn surface: a boss slam lands on its dais, not inside it)
     const lift = 0.09;
-    const r = l.shape === "cone" ? l.r * 0.6 : l.r;
+    // a line lands along its length: the shock rides its far half
+    const line = l.shape === "line";
+    const lx = line ? l.x + Math.cos(l.dir) * l.r * 0.62 : l.x;
+    const ly = line ? l.y + Math.sin(l.dir) * l.r * 0.62 : l.y;
+    const r = l.shape === "cone" ? l.r * 0.6 : line ? Math.min(2.6, l.r * 0.3) : l.r;
     // Boss slams throw a shock ring past the edge; a champion's just cracks its circle
     if (boss) {
       const shock = acquireFxRing(0.9, 1.08, 48, shockHex, 0.95);
-      setPlanar(shock.position, l.x, l.y, this.surfaceY(l.x, l.y, lift));
+      setPlanar(shock.position, lx, ly, this.surfaceY(lx, ly, lift));
       this.scene.add(shock);
       this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: r * 0.96, to: r * 1.55 });
     }
     const core = acquireFxRing(0.72, 1.0, 48, coreHex, boss ? 0.9 : 0.55);
-    setPlanar(core.position, l.x, l.y, this.surfaceY(l.x, l.y, lift + 0.02));
+    setPlanar(core.position, lx, ly, this.surfaceY(lx, ly, lift + 0.02));
     this.scene.add(core);
     this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: r * 0.2, to: r * 1.05 });
-    if (this.sparks.length < 3) {
-      const burst = spawnSparks(l.x, l.y, this.surfaceY(l.x, l.y, 1.55), coreHex, this.animT);
+    // (a mechanic's lighter kinds — lines landing in a fan — crack without sparks)
+    if (this.sparks.length < 3 && weight !== "champ") {
+      const burst = spawnSparks(lx, ly, this.surfaceY(lx, ly, 1.55), coreHex, this.animT);
       burst.dur = 640;
       this.scene.add(burst.points);
       this.sparks.push(burst);
@@ -3659,15 +3674,16 @@ export class WorldApp {
     this.noteCombat();
     this.hitLight.color.setHex(coreHex);
     this.hitLight.intensity = ava ? 12 : 16;
-    setPlanar(this.hitLight.position, l.x, l.y, this.standY(l.x, l.y, 1.4));
-    const d = Math.hypot(this.renderYou.x - l.x, this.renderYou.y - l.y);
-    const k = l.kind === "boss_slam" ? 1 : 0.55;
+    setPlanar(this.hitLight.position, lx, ly, this.standY(lx, ly, 1.4));
+    const d = Math.hypot(this.renderYou.x - lx, this.renderYou.y - ly);
+    const k = boss ? 1 : 0.55;
     const near = d < l.r + 8 ? 1 : 0.35;
-    this.kickShake(0.5 * k * near, this.renderYou.x - l.x, this.renderYou.y - l.y);
+    this.kickShake(0.5 * k * near, this.renderYou.x - lx, this.renderYou.y - ly);
     this.camPunch = Math.max(this.camPunch, 0.78 * k * near);
     this.camFovKick = Math.max(this.camFovKick, 3.4 * k * near);
     // Just outside the ring: the gold "safe" rim (a hit reads from the server's blow)
-    if (l.shape === "circle" && d > l.r && d <= l.r + 1.25) flashSlamSafeRim();
+    // (not for a mechanic's kinds: a cascade's next ring may still be coming)
+    if (l.shape === "circle" && !weight && d > l.r && d <= l.r + 1.25) flashSlamSafeRim();
   }
 
   onCombat(msg: any) {
@@ -3691,7 +3707,12 @@ export class WorldApp {
         this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, 0, "block", "you", now);
         return;
       }
-      const slam = msg.teleKind === "boss_slam" || msg.teleKind === "champ_slam" || msg.teleKind === "champ_cleave" || msg.champTele;
+      const slam =
+        msg.teleKind === "boss_slam" ||
+        msg.teleKind === "champ_slam" ||
+        msg.teleKind === "champ_cleave" ||
+        msg.champTele ||
+        teleWeight(msg.teleKind) != null;
       this.kickShake(slam ? 0.5 : 0.38, awayX, awayY);
       this.camPunch = Math.max(this.camPunch, 0.58);
       this.camFovKick = Math.min(this.camFovKick, -3.2);
@@ -5086,7 +5107,7 @@ export class WorldApp {
         )
       ) {
         this.stormHeartDownToastShown = true;
-        showToast("Storm Heart broken — the Judge waits at the gate", "emit");
+        showToast("Storm Heart broken — Minos waits at the gate", "emit");
       }
     }
 

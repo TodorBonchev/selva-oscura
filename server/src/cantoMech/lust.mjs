@@ -17,30 +17,40 @@
  *    (cut for 4 s), or luring. Both slain within 4 s: "Amor condusse noi ad una
  *    morte" — a bonus drop.
  * 4) Minos ("cignesi con la coda tante volte / quantunque gradi vuol che giù sia
- *    messa"): coils his tail N times — a cascade of N rings, inner to outer — and for
- *    N ≥ 2 sweeps the sentence (a fan of N lines at his target, each soul judged once)
- *    after which a judging gust throws the damned toward the edge — the more coils,
- *    the harsher the sentence. Wounded (≤50%): the
- *    storm quickens and a flock of shades comes "a schiera larga e piena", once; while
- *    it lives it shields him (blows land at 20%).
- * 5) "percotendo": early in each gust the storm hurls grit along the wind at every
- *    exposed pilgrim (a line telegraph, cut short by the first rock) — shelter or step
- *    across the wind.
+ *    messa"): coils his tail N times — a cascade of N rings, inner to outer (the disc
+ *    at his feet light, the wider coils harder) — and for N ≥ 2 casts the sentence
+ *    while the last coil still spreads (a fan of N lines at his target, each soul
+ *    judged once: step in behind the ring *and* off the gold), after which a judging
+ *    gust throws the damned toward the edge — the more coils, the harsher the
+ *    sentence. The judging gust interrupts the storm's own cycle, which resumes where
+ *    it stood once it passes. Wounded (≤50%): the storm quickens and a flock of shades
+ *    comes "a schiera larga e piena", once per fight (a reset Minos scatters it and
+ *    may call it again). The flock circles him on the whirl and strikes whoever comes
+ *    in reach; while it lives it shields him (blows land at 20%) and he judges more
+ *    slowly — run it down, or after 16 s the bufera bears it off again. The flock is
+ *    `summoned` (no pack / road-clear lines).
+ * 5) "voltando e percotendo": twice in each gust the storm hurls grit at every exposed
+ *    pilgrim — first along the wind, then turned — a line telegraph cut short by the
+ *    first rock, one per knot of pilgrims, each soul struck once a volley. The lee is
+ *    safe from both; out in the open, step across the grit each time.
  *
  * Wire (see also client/src/world/cantoMech/lust.ts):
- *   snapshot.mech = { phase: "calm"|"warn"|"gust", left (ms), dirX, dirY, strength,
+ *   snapshot.mech = { phase: "calm"|"warn"|"gust", left (ms), el (ms into the phase),
+ *                     dirX, dirY, strength,
  *                     judged?: 1, wb?: [x, y, r, …] (first snapshots + every 64th),
  *                     lov?: [idA, idB, state 0 apart | 1 bound | 2 cut],
  *                     mw?: 1 (Minos shielded by his flock) }
- *   { type: "lust_storm", phase, left, dirX, dirY, judged? }   phase changes
+ *   { type: "lust_storm", phase, left, el, dirX, dirY, judged? }   phase changes
  *   { type: "lust_slam", id, x, y, dmg }                       a foe dashed on rock/edge
  *   { type: "lust_tether", state: "bind"|"snap"|"cut", a, b, x?, y? }
  *   { type: "lust_coil", id, n, ms: [landing ms of each ring] }  Minos coils
+ *   { type: "lust_sentence", id, n, ms }                      the sentence (last line lands)
  *   telegraph kinds "minos_coil" (circle, then rings), "minos_sentence" (line) and
  *   "bufera_strike" (line from upwind, attacker "mech:bufera", cut short at a rock)
  */
 import { rollDrops } from "../loot.mjs";
-import { bodyRadius, brake, chase, startAttack } from "../mobAi.mjs";
+import { pointInShape } from "../telegraph.mjs";
+import { bodyRadius, brake, chase, startAttack, walkTo } from "../mobAi.mjs";
 import {
   DASH_DOWNWIND,
   LOVER_DRIFT,
@@ -59,9 +69,9 @@ import {
 const LOVERS_PACK = "lust_champion_pair";
 const LOVER_NAMES = ["Paolo", "Francesca"];
 /** Lovers are a mini-boss pair: a little tougher than a plain champion. */
-const LOVER_HP = 165;
+const LOVER_HP = 175;
 /** A lover's cleave (the pair strike as one, so each blow is lighter than a champion's). */
-const LOVER_DMG = 8;
+const LOVER_DMG = 6;
 /** The partner follows a lover's cleave this much later, from its own side. */
 const LOVER_ECHO = 0.28;
 /** The bond holds within this reach; a broken bond re-forms inside BIND_RANGE. */
@@ -77,10 +87,21 @@ const HELD_MS = 1100;
 
 const MINOS_ID = "minos_gate";
 /** Minos is a two-phase fight (the room's BOSS_HP default is a single slam boss's). */
-const MINOS_HP = 950;
+const MINOS_HP = 1750;
 /** While the borne flock lives, blows on Minos land at this share. */
 const FLOCK_WARD = 0.2;
 const FLOCK_PACK = "lust_minos_flock";
+const FLOCK_N = 3;
+const FLOCK_HP = 50;
+/** The borne flock circles its Judge ("di qua, di là, di giù, di sù li mena"). */
+const FLOCK_R = 5.6;
+const FLOCK_SPIN = 0.5;
+const FLOCK_WALK = 5.2;
+const FLOCK_STRIKE_CD = 2.8;
+/** Not scattered by then, the bufera bears the flock off again (the shield is a window). */
+const FLOCK_LIFE_MS = 16000;
+/** While his flock shields him, Minos judges more slowly (the whirl is the threat). */
+const FLOCK_CALM = 1.5;
 /** Carried foes only while a pilgrim is this near (idle packs huddle out of the wind). */
 const CARRY_NEAR = 20;
 /** Foes are never carried into the entrance hollow. */
@@ -112,6 +133,7 @@ function stormWire(L) {
   return {
     phase: L.phase,
     left: Math.max(0, Math.round(L.left * 1000)),
+    el: Math.max(0, Math.round(L.t * 1000)),
     dirX: +L.wx.toFixed(3),
     dirY: +L.wy.toFixed(3),
     strength: +L.str.toFixed(2),
@@ -156,7 +178,7 @@ function enterPhase(room, L, phase, dur) {
   L.dur = dur;
   L.t = 0;
   if (phase === "gust") {
-    L.gustId++;
+    L.gustId = ++L.gustSeq;
     L.strikeK = 0;
   }
   if (phase !== "gust") L.judged = false;
@@ -176,6 +198,8 @@ function tickStorm(room, L, dt) {
     } else if (L.phase === "warn") {
       L.power = 1;
       enterPhase(room, L, "gust", rand(STORM.gustMin, STORM.gustMax));
+    } else if (L.judged && L.saved) {
+      resumeCycle(room, L);
     } else {
       const fury = minosFury(room, L);
       enterPhase(
@@ -189,12 +213,50 @@ function tickStorm(room, L, dt) {
   L.str = L.phase === "gust" ? gustEnvelope(L.t, L.left, L.power) : 0;
 }
 
-/** Minos's judging gust: the storm blows now, along `ang`, harder and shorter. */
+/**
+ * Minos's judging gust: the storm blows now, along `ang`, harder and shorter. It
+ * interrupts the storm's own cycle (calm / warning / gust), which is saved and resumes
+ * where it stood once the judging gust passes — so the wounded Judge's quickened storm
+ * still comes between his sentences.
+ */
 function judgeGust(room, L, ang, dur, power) {
+  if (!L.judged) {
+    const sv = L.saved;
+    sv.phase = L.phase;
+    sv.left = L.left;
+    sv.dur = L.dur;
+    sv.t = L.t;
+    sv.ang = L.ang;
+    sv.power = L.power;
+    sv.strikeK = L.strikeK;
+    sv.gustId = L.gustId;
+  }
   setWind(L, ang);
   L.power = power;
   L.judged = true;
   enterPhase(room, L, "gust", dur);
+}
+
+/** The judging gust passed: the storm's own cycle picks up where it was. */
+function resumeCycle(room, L) {
+  const sv = L.saved;
+  L.judged = false;
+  L.phase = sv.phase;
+  L.left = Math.max(0.05, sv.left);
+  L.dur = sv.dur;
+  L.t = sv.t;
+  setWind(L, sv.ang);
+  L.power = sv.power;
+  L.strikeK = sv.strikeK;
+  L.gustId = sv.gustId;
+  L.str = L.phase === "gust" ? gustEnvelope(L.t, L.left, L.power) : 0;
+  broadcastStorm(room, L);
+  room.markDirty();
+}
+
+/** The storm's own cycle (saved while a judging gust blows). */
+function cycleOf(L) {
+  return L.judged && L.saved ? L.saved : L;
 }
 
 // ——— pilgrims ————————————————————————————————————————————————————————————
@@ -287,48 +349,80 @@ function slamFoe(room, L, e, x, y) {
 }
 
 /**
- * "voltando e percotendo": early in each gust the storm hurls grit along the wind at
- * every exposed pilgrim — a line from upwind through where the drift will carry them,
- * cut short by the first windbreak in its path (the lee is safe). Step across the wind
- * or into a rock's lee.
+ * "voltando e percotendo": twice in each gust the storm hurls grit at every exposed
+ * pilgrim — a line from upwind through where the drift will carry them, cut short by
+ * the first windbreak in its path (the lee is safe). The first volley rides the wind;
+ * the second comes turned ("voltando", ±turn), so one sidestep does not answer both.
+ * One line serves a knot of pilgrims it already crosses, and each soul is struck at
+ * most once a volley (co-op never stacks).
  */
-const STRIKE = { at: [0.2], windup: 0.8, len: 16, width: 1.5, dmg: 7, back: 9 };
+const STRIKE = { at: [0.25, 1.45], windup: 0.8, len: 16, width: 1.6, dmg: 4, back: 9, turn: 0.38 };
 
 function tickStrikes(room, L) {
   if (L.phase !== "gust" || L.judged) return;
   while (L.strikeK < STRIKE.at.length && L.t >= STRIKE.at[L.strikeK]) {
-    L.strikeK++;
-    const px = -L.wy;
-    const py = L.wx;
-    for (const s of room.sessions.values()) {
-      if (!(s.hp > 0) || s.iframes > 0) continue;
-      if (inLee(L.wb, L.wx, L.wy, s.x, s.y)) continue;
-      // lead the drift a little, and never aim dead centre
-      const lead = PLAYER_DRIFT * L.power * STRIKE.windup * 0.4;
-      const off = (Math.random() - 0.5) * 0.9;
-      const tx = s.x + L.wx * lead + px * off;
-      const ty = s.y + L.wy * lead + py * off;
-      const ox = tx - L.wx * STRIKE.back;
-      const oy = ty - L.wy * STRIKE.back;
-      const t = sweepRocks(L.wb, ox, oy, ox + L.wx * STRIKE.len, oy + L.wy * STRIKE.len, 0.2);
-      const len = STRIKE.len * t;
-      // a rock upwind already shields them
-      if (len < STRIKE.back - 0.4) continue;
-      room.telegraph({
-        attackerId: "mech:bufera",
-        shape: "line",
-        x: ox,
-        y: oy,
-        dir: L.ang,
-        length: len,
-        width: STRIKE.width,
-        duration: STRIKE.windup * 1000,
-        kind: "bufera_strike",
-        dmg: STRIKE.dmg,
-        onHit: (r, tt, sess) => (inLee(L.wb, L.wx, L.wy, sess.x, sess.y) ? 0 : tt.dmg),
-      });
-    }
+    const k = L.strikeK++;
+    // (a volley that would land after the gust has died is not thrown)
+    if (L.left < STRIKE.windup * 0.75) continue;
+    strikeVolley(room, L, k === 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * STRIKE.turn);
   }
+}
+
+function strikeVolley(room, L, turn) {
+  const ang = L.ang + turn;
+  const ux = Math.cos(ang);
+  const uy = Math.sin(ang);
+  const px = -uy;
+  const py = ux;
+  const lines = L._strikeLines;
+  lines.length = 0;
+  // each soul once per volley, however many lines cross it
+  const struck = new Set();
+  for (const s of room.sessions.values()) {
+    if (!(s.hp > 0) || s.iframes > 0) continue;
+    if (inLee(L.wb, L.wx, L.wy, s.x, s.y)) continue;
+    // lead the drift a little, and never aim dead centre
+    const lead = PLAYER_DRIFT * L.power * STRIKE.windup * 0.4;
+    const ax = s.x + L.wx * lead;
+    const ay = s.y + L.wy * lead;
+    // a line already thrown this volley crosses them: it serves the knot
+    let covered = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (pointInShape(lines[i], ax, ay, -0.2)) {
+        covered = true;
+        break;
+      }
+    }
+    if (covered) continue;
+    const off = (Math.random() - 0.5) * 0.9;
+    const tx = ax + px * off;
+    const ty = ay + py * off;
+    const ox = tx - ux * STRIKE.back;
+    const oy = ty - uy * STRIKE.back;
+    const t = sweepRocks(L.wb, ox, oy, ox + ux * STRIKE.len, oy + uy * STRIKE.len, 0.2);
+    const len = STRIKE.len * t;
+    // a rock upwind already shields them
+    if (len < STRIKE.back - 0.4) continue;
+    const tele = room.telegraph({
+      attackerId: "mech:bufera",
+      shape: "line",
+      x: ox,
+      y: oy,
+      dir: ang,
+      length: len,
+      width: STRIKE.width,
+      duration: STRIKE.windup * 1000,
+      kind: "bufera_strike",
+      dmg: STRIKE.dmg,
+      onHit: (r, tt, sess) => {
+        if (struck.has(sess.playerId) || inLee(L.wb, L.wx, L.wy, sess.x, sess.y)) return 0;
+        struck.add(sess.playerId);
+        return tt.dmg;
+      },
+    });
+    lines.push(tele);
+  }
+  lines.length = 0;
 }
 
 /** Carry shades, wisps and the lovers downwind; slam them on rock and edge. */
@@ -342,6 +436,8 @@ function carryFoes(room, L, dt) {
     if (e.kind !== "mob" || !(e.hp > 0) || e._dead) continue;
     const lover = isLover(L, e);
     if (!lover && !CARRIED.has(e.archetype)) continue;
+    // (the borne flock rides its own whirl round the Judge)
+    if (e.packId === FLOCK_PACK) continue;
     if (e.dart) continue;
     if (lover && (e._lustHeldUntil || 0) > now) continue;
     if (nearestSession(room, e.x, e.y).d > CARRY_NEAR) continue;
@@ -384,15 +480,17 @@ function setupLovers(room, L) {
     L.lovers = null;
     return;
   }
-  // "quei due che 'nsieme vanno": they wait side by side, not across the pack ring
+  // "quei due che 'nsieme vanno": they wait side by side, not across the pack ring —
+  // shoulder to shoulder across the road (as the camera looks east), so their plates
+  // stand apart on screen
   const anchor = (room.canto.packs || []).find((p) => p.id === LOVERS_PACK)?.anchor;
   for (let i = 0; i < 2; i++) {
     pair[i].name = LOVER_NAMES[i];
     pair[i].hp = LOVER_HP;
     pair[i].maxHp = LOVER_HP;
     if (anchor) {
-      pair[i].x = anchor.x + (i === 0 ? -1.1 : 1.1);
-      pair[i].y = anchor.y + (i === 0 ? 0.3 : -0.3);
+      pair[i].x = anchor.x + (i === 0 ? -0.4 : 0.4);
+      pair[i].y = anchor.y + (i === 0 ? -1.7 : 1.7);
     }
   }
   L.lovers = { a: pair[0].id, b: pair[1].id, bound: true, cutUntil: 0, fell: {}, healAcc: 0 };
@@ -535,28 +633,34 @@ function loverFell(room, L, e) {
 
 const MINOS = {
   /** first ring lands this long after the coil starts (s); each next ring later */
-  firstLand: 1.15,
-  firstLandP2: 0.9,
-  ringGap: 0.55,
-  ringGapP2: 0.42,
+  firstLand: 1.0,
+  firstLandP2: 0.82,
+  ringGap: 0.46,
+  ringGapP2: 0.38,
   /** ring k spans [inner_k, outer_k]; ring 1 is a full disc around him */
   ringW: 2.45,
   ring1: 3.6,
-  ringDmg: 7,
-  ringDmgP2: 9,
+  /** the first coil (the disc at his feet) is light; the wider coils sweep harder */
+  ringDmgInner: 4,
+  ringDmgInnerP2: 5,
+  ringDmg: 8,
+  ringDmgP2: 10,
   sentenceLen: 13,
-  sentenceW: 2.4,
-  sentenceWind: 0.8,
-  sentenceWindP2: 0.7,
-  sentenceBase: 4,
+  sentenceW: 2.8,
+  sentenceWind: 0.66,
+  sentenceWindP2: 0.56,
+  sentenceBase: 2,
   /** fan spacing (rad) and landing step (s) of the sweeping sentence */
   sentenceFan: 0.42,
   sentenceStep: 0.2,
-  sentencePerCoil: 3,
+  sentencePerCoil: 2,
+  /** the sentence is cast this long before the last coil lands (it lands just after) */
+  sentenceLead: 0.45,
+  sentenceLeadP2: 0.5,
   judgeGust: 1.2,
   judgePower: 1.25,
-  recover: 2.0,
-  recoverP2: 1.5,
+  recover: 2.7,
+  recoverP2: 2.1,
   aggro: 14,
   engage: 9.5,
 };
@@ -566,10 +670,15 @@ function minosState(e) {
   return e._minos;
 }
 
+/** His breath between judgements (slower while the flock whirls round him). */
+function recoverOf(L, ms) {
+  return (ms.p2 ? MINOS.recoverP2 : MINOS.recover) * (L.flock > 0 ? FLOCK_CALM : 1);
+}
+
 function coilCount(p2) {
   const r = Math.random();
   if (p2) return r < 0.35 ? 2 : 3;
-  return r < 0.45 ? 1 : r < 0.9 ? 2 : 3;
+  return r < 0.35 ? 1 : r < 0.85 ? 2 : 3;
 }
 
 function startCoil(room, L, e, ms) {
@@ -578,7 +687,8 @@ function startCoil(room, L, e, ms) {
   ms.n = n;
   const first = p2 ? MINOS.firstLandP2 : MINOS.firstLand;
   const gap = p2 ? MINOS.ringGapP2 : MINOS.ringGap;
-  const dmg = p2 ? MINOS.ringDmgP2 : MINOS.ringDmg;
+  const dmgOuter = p2 ? MINOS.ringDmgP2 : MINOS.ringDmg;
+  const dmgInner = p2 ? MINOS.ringDmgInnerP2 : MINOS.ringDmgInner;
   const lands = [];
   for (let k = 0; k < n; k++) {
     const land = first + k * gap;
@@ -592,16 +702,19 @@ function startCoil(room, L, e, ms) {
       radius: outer,
       duration: land * 1000,
       kind: "minos_coil",
-      dmg,
+      dmg: k === 0 ? dmgInner : dmgOuter,
       extra: { coil: k + 1, of: n },
-      onHit: (r, t, s) => {
-        // the coil flings you outward a little
-        const dx = s.x - t.x;
-        const dy = s.y - t.y;
-        const l = Math.hypot(dx, dy) || 1;
-        r.shovePlayer(s, (dx / l) * 0.7, (dy / l) * 0.7, 200);
-        return t.dmg;
-      },
+      onHit:
+        k === n - 1
+          ? (r, t, s) => {
+              // the last coil flings you outward (never into a ring still to come)
+              const dx = s.x - t.x;
+              const dy = s.y - t.y;
+              const l = Math.hypot(dx, dy) || 1;
+              r.shovePlayer(s, (dx / l) * 0.7, (dy / l) * 0.7, 200);
+              return t.dmg;
+            }
+          : null,
     };
     if (k > 0) spec.inner = outer - MINOS.ringW;
     room.telegraph(spec);
@@ -610,6 +723,10 @@ function startCoil(room, L, e, ms) {
   ms.st = "coil";
   ms.t = 0;
   ms.until = first + (n - 1) * gap + 0.22;
+  // For N ≥ 2 the sentence comes while the last coil still spreads: step in behind the
+  // ring *and* off the gold lines (his flank or his back)
+  ms.sentAt =
+    n >= 2 ? Math.max(first + 0.1, first + (n - 1) * gap - (p2 ? MINOS.sentenceLeadP2 : MINOS.sentenceLead)) : Infinity;
   e.windupLeft = ms.until;
   e.windupMax = ms.until;
 }
@@ -660,6 +777,7 @@ function startSentence(room, L, e, ms, target) {
       },
     });
   }
+  room.broadcast({ type: "lust_sentence", id: e.id, n, ms: Math.round((wind + (n - 1) * MINOS.sentenceStep) * 1000) });
   ms.st = "sentence";
   ms.t = 0;
   ms.until = wind + (n - 1) * MINOS.sentenceStep + 0.15;
@@ -670,9 +788,10 @@ function startSentence(room, L, e, ms, target) {
 
 /** "a schiera larga e piena": the flock of borne shades, once, when Minos is wounded. */
 function summonChorus(room, L, e) {
-  const n = 5;
-  // they come riding the wind: from upwind of the dais
-  const base = L.ang + Math.PI;
+  const n = FLOCK_N;
+  // they come riding the wind: from upwind of the dais (the storm's own wind, not a
+  // judging gust's)
+  const base = cycleOf(L).ang + Math.PI;
   for (let i = 0; i < n; i++) {
     const a = base + (i - (n - 1) / 2) * 0.45;
     const p = L._p;
@@ -684,7 +803,7 @@ function summonChorus(room, L, e) {
     pushOutOfRocks(L.wb, p, 0.9);
     L.chorusSeq = (L.chorusSeq || 0) + 1;
     const id = `mob_lustflock_${L.chorusSeq}`;
-    const hp = 45;
+    const hp = FLOCK_HP;
     room.entities.set(id, {
       id,
       kind: "mob",
@@ -696,19 +815,87 @@ function summonChorus(room, L, e) {
       hp,
       maxHp: hp,
       packId: FLOCK_PACK,
+      // (a mechanic's summons: no pack-clear or road-clear lines — room.onEntityKilled)
+      summoned: true,
       champion: false,
       elite: false,
       dropTable: "inferno_pack_common",
       archetype: "whirl_shade",
       atkCd: 0.9 + i * 0.2,
+      // where on the whirl it rides (it walks in from upwind to join it)
+      _orbit: Math.atan2(p.y - e.y, p.x - e.x),
+      _orbitPh: i * 1.3,
     });
   }
+  L.flockSpin = Math.random() < 0.5 ? 1 : -1;
+  L.flockUntil = Date.now() + FLOCK_LIFE_MS;
   for (const s of room.sessions.values()) {
     if (Math.hypot(s.x - e.x, s.y - e.y) < 40) {
       room.toast(s.ws, "warn", "«a schiera larga e piena» — a flock of shades shields Minos: scatter it");
     }
   }
   room.pushAllSnapshots();
+}
+
+/**
+ * A borne shade circles its Judge on the whirl (a slow ring, swelling in and out) and
+ * strikes whoever comes in reach — scattering the flock means running it down through
+ * his coils, not waiting for it on his doorstep.
+ */
+function flockTick(room, L, e, dt) {
+  const m = room.entities.get(MINOS_ID);
+  if (!m || !(m.hp > 0) || m._dead) return false;
+  if (e.teleId || (e.staggerLeft || 0) > 0) {
+    brake(e, dt);
+    return true;
+  }
+  let near = null;
+  let nd = Infinity;
+  for (const s of room.sessions.values()) {
+    if (!(s.hp > 0)) continue;
+    const d = Math.hypot(s.x - e.x, s.y - e.y);
+    if (d < nd) {
+      nd = d;
+      near = s;
+    }
+  }
+  // (one swipe per pass: the whirl carries it on before it can strike again)
+  if (e._flockCd > 0) e._flockCd -= dt;
+  if (near && e.atkCd <= 0 && !(e._flockCd > 0) && !(near.iframes > 0) && startAttack(room, e, near, nd, room.mobAttackDamage(e))) {
+    e._flockCd = FLOCK_STRIKE_CD;
+    room.markDirty();
+    return true;
+  }
+  e._orbit = (e._orbit ?? Math.atan2(e.y - m.y, e.x - m.x)) + FLOCK_SPIN * (L.flockSpin || 1) * dt;
+  const r = FLOCK_R + Math.sin(e._orbit * 2 + (e._orbitPh || 0)) * 0.9;
+  walkTo(room, e, m.x + Math.cos(e._orbit) * r, m.y + Math.sin(e._orbit) * r, FLOCK_WALK, dt);
+  return true;
+}
+
+/** The flock is borne away (Minos reset or slain): no loot, no kill lines. */
+function dismissFlock(room, L) {
+  let n = 0;
+  for (const f of room.entities.values()) {
+    if (f.packId !== FLOCK_PACK || f._dead) continue;
+    f._dead = true;
+    if (f.teleId) room.cancelTelegraph(f.teleId);
+    room.entities.delete(f.id);
+    room.broadcast({ type: "entity_removed", id: f.id });
+    n++;
+  }
+  if (n) {
+    L.flock = 0;
+    room.markDirty();
+  }
+  return n;
+}
+
+/** A reset Judge (leash walk, idle heal) replays the whole fight: flock and all. */
+function resetMinosFight(room, L, e, ms) {
+  dismissFlock(room, L);
+  ms.chorus = false;
+  ms.p2 = false;
+  e.phase = undefined;
 }
 
 function minosTick(room, L, e, dt) {
@@ -740,7 +927,7 @@ function minosTick(room, L, e, dt) {
   if (room.tickBossLeash(e, nearestD, homeD, dt)) {
     ms.st = "chase";
     ms.next = 1;
-    ms.p2 = false;
+    if (ms.p2 || ms.chorus) resetMinosFight(room, L, e, ms);
     return true;
   }
   if (!ms.p2 && e.hp <= e.maxHp * 0.5) {
@@ -753,32 +940,35 @@ function minosTick(room, L, e, dt) {
       if (ms.st === "chase") {
         ms.next = Math.max(ms.next, 2.2);
       }
-      if (L.phase === "calm") {
+      const cyc = cycleOf(L);
+      if (cyc.phase === "calm") {
         // (the flock waits upwind: this gust keeps the wind that brings it)
-        L.left = Math.min(L.left, 0.3);
+        cyc.left = Math.min(cyc.left, 0.3);
         L.keepWind = true;
       }
     }
   } else if (ms.p2 && e.hp > e.maxHp * 0.5) {
-    // reset by the leash (full health again)
-    ms.p2 = false;
-    e.phase = undefined;
+    // knit whole again (left alone): the fight replays from the start
+    resetMinosFight(room, L, e, ms);
   }
   ms.t += dt;
   if (ms.next > 0) ms.next -= dt;
   switch (ms.st) {
     case "coil":
       brake(e, dt);
-      if (ms.t >= ms.until) {
-        e.windupLeft = 0;
+      if (ms.t >= ms.sentAt) {
         // sentence the nearest pilgrim (the one who stood closest to judgement); a
         // single coil needs no sentence
-        const tgt = (ms.n || 1) >= 2 && nearestD < MINOS.sentenceLen + 2 ? nearest : null;
-        if (tgt) startSentence(room, L, e, ms, tgt);
-        else {
-          ms.st = "chase";
-          ms.next = MINOS.recover;
+        ms.sentAt = Infinity;
+        if (nearestD < MINOS.sentenceLen + 2) {
+          startSentence(room, L, e, ms, nearest);
+          return true;
         }
+      }
+      if (ms.t >= ms.until) {
+        e.windupLeft = 0;
+        ms.st = "chase";
+        ms.next = recoverOf(L, ms);
       }
       return true;
     case "sentence":
@@ -786,7 +976,7 @@ function minosTick(room, L, e, dt) {
       if (ms.t >= ms.until) {
         e.windupLeft = 0;
         ms.st = "chase";
-        ms.next = ms.p2 ? MINOS.recoverP2 : MINOS.recover;
+        ms.next = recoverOf(L, ms);
       }
       return true;
     default:
@@ -831,6 +1021,9 @@ export default {
       lovers: null,
       flock: 0,
       strikeK: 0,
+      gustSeq: 0,
+      saved: { phase: "calm", left: 0, dur: 0, t: 0, ang: 0, power: 1, strikeK: 0, gustId: 0 },
+      _strikeLines: [],
       _p: { x: 0, y: 0 },
     };
     setWind(L, (Math.random() < 0.5 ? 0 : Math.PI) + rand(-0.4, 0.4));
@@ -859,6 +1052,16 @@ export default {
     if (flock !== L.flock) {
       L.flock = flock;
       room.markDirty();
+    }
+    // "di qua, di là, di giù, di sù li mena": what the whirl brought, it bears off again
+    if (flock > 0 && Date.now() > (L.flockUntil || 0)) {
+      const m = room.entities.get(MINOS_ID);
+      dismissFlock(room, L);
+      if (m) {
+        for (const s of room.sessions.values()) {
+          if (Math.hypot(s.x - m.x, s.y - m.y) < 40) room.toast(s.ws, "info", "The bufera bears the flock away — Minos stands bare");
+        }
+      }
     }
     driftIdlePlayers(room, L, dt);
     carryFoes(room, L, dt);
@@ -986,6 +1189,8 @@ export default {
     const L = state(room);
     if (!L) return;
     if (isLover(L, e)) loverFell(room, L, e);
+    // the Judge falls and the storm bears his flock away with him
+    if (e.id === MINOS_ID) dismissFlock(room, L);
     // loot never lands inside a rock
     const p = L._p;
     for (const o of room.entities.values()) {
@@ -998,6 +1203,12 @@ export default {
         o.y = p.y;
       }
     }
+  },
+
+  mobTick(room, e, dt) {
+    const L = state(room);
+    if (!L || e.packId !== FLOCK_PACK) return false;
+    return flockTick(room, L, e, dt);
   },
 
   bossTick(room, boss, dt) {

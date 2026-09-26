@@ -121,3 +121,23 @@ body.in-lust #lust-streaks.gust > i {
     transform: translate3d(0, 0, 0);
   }
 }
+
+/* Minos's dodge callouts (cantoMech/lust.ts): his colours — violet coils, gold
+   sentence — and tighter tracking so the longer lines fit a landscape phone */
+body.in-lust #dodge-callout.lust-judge {
+  letter-spacing: 0.08em;
+  color: #ffd6ee;
+  background: #22061ae8;
+  border-color: #d04c9a;
+  text-shadow: 0 1px 0 #000, 0 0 10px #b0247a88;
+}
+body.in-lust #dodge-callout.lust-judge.sentence {
+  color: #fff2c8;
+  background: #1e1406e8;
+  border-color: #ffbe40;
+  text-shadow: 0 1px 0 #000, 0 0 10px #ffbe4088;
+}
+body.in-lust.hud-compact #dodge-callout.lust-judge {
+  font-size: 1.05rem;
+  padding: 0.35rem 0.8rem;
+}

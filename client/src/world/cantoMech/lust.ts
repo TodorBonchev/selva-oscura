@@ -20,7 +20,7 @@ import {
   walkMul,
 } from "../lustGeo";
 import { registerAttackPose, type Pose } from "../mobAnim";
-import { registerTelePalette } from "../telegraphs";
+import { registerTelePalette, registerTeleWeight } from "../telegraphs";
 import { showToast } from "../../ui/hud";
 
 let storm: LustStorm | null = null;
@@ -56,9 +56,50 @@ registerTelePalette("minos_coil", { base: 0x1c0418, hot: 0xb0247a, rim: 0xff8ad0
 registerTelePalette("minos_sentence", { base: 0x1e1406, hot: 0xffbe40, rim: 0xfff4c8 });
 // the storm's own strikes: cold ash-blue, unlike any foe's blow
 registerTelePalette("bufera_strike", { base: 0x080c14, hot: 0x6f8fc0, rim: 0xe6eeff });
+// His blows land like a boss's slam (shock, hit light, camera); the sentence's lines a
+// little lighter (up to three land 0.2 s apart)
+registerTeleWeight("minos_coil", "boss");
+registerTeleWeight("minos_sentence", "champ");
+
+/**
+ * Minos's dodge callouts on the shared #dodge-callout (the generic "Dash the slam" is
+ * keyed on boss_slam): shown for the whole cascade / fan, in his colours
+ * (lustHud.css). One timer: the sentence, cast while the last coil still spreads,
+ * takes over the coils' callout instead of being hidden by its timer.
+ */
+let calloutTimer = 0;
+
+function judgeCallout(text: string, sec: number, sentence: boolean) {
+  const el = document.getElementById("dodge-callout");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove("avarice-dodge", "hidden");
+  el.classList.add("lust-judge");
+  el.classList.toggle("sentence", sentence);
+  window.clearTimeout(calloutTimer);
+  calloutTimer = window.setTimeout(() => el.classList.add("hidden"), Math.max(400, sec * 1000));
+}
+
+function clearJudgeCallout() {
+  window.clearTimeout(calloutTimer);
+  const el = document.getElementById("dodge-callout");
+  if (el?.classList.contains("lust-judge")) el.classList.add("hidden");
+  el?.classList.remove("lust-judge", "sentence");
+}
 
 function alive(e: any): boolean {
   return e && (e.hp == null || e.hp > 0);
+}
+
+/** Only a pilgrim in the Judge's reach gets his callouts. */
+function nearJudge(app: WorldApp, id: unknown): boolean {
+  const ents: any[] = app.room?.entities || [];
+  const you = app.renderYou;
+  for (const e of ents) {
+    if (String(e.id) !== String(id)) continue;
+    return Math.hypot(e.x - you.x, e.y - you.y) < 16;
+  }
+  return false;
 }
 
 function passed(e: any, you: { x: number; y: number }): boolean {
@@ -75,6 +116,7 @@ export const lustMech: CantoMech = {
   exit() {
     storm?.dispose();
     storm = null;
+    clearJudgeCallout();
   },
 
   tick(_app: WorldApp, dt: number) {
@@ -120,8 +162,17 @@ export const lustMech: CantoMech = {
         }
         return true;
       }
-      case "lust_coil":
-        storm.startCoil(String(msg.id), Number(msg.n) || 1, Array.isArray(msg.ms) ? msg.ms : []);
+      case "lust_coil": {
+        const n = Math.max(1, Math.min(3, Number(msg.n) || 1));
+        const ms: number[] = Array.isArray(msg.ms) ? msg.ms : [];
+        storm.startCoil(String(msg.id), n, ms);
+        // "cignesi con la coda tante volte": out of each ring, back in behind it
+        const last = Number(ms[ms.length - 1]) || 1200;
+        if (nearJudge(app, msg.id)) judgeCallout(n > 1 ? `Coils ×${n} — out, then in` : "Out of the coil", last / 1000, false);
+        return true;
+      }
+      case "lust_sentence":
+        if (nearJudge(app, msg.id)) judgeCallout("Step off the sentence", (Number(msg.ms) || 800) / 1000, true);
         return true;
       default:
         return false;

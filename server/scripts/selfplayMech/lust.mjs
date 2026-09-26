@@ -5,21 +5,28 @@
  * of every windbreak's lee, its predicted position drifts downwind (the client's
  * moveFeel drift), and it walks around the rock islands instead of into them (the
  * straight-line walker would grind against a windbreak forever). Skilled bots also
- * cut the lovers' bond with a dash when one stands in reach.
+ * cut the lovers' bond with a dash when one stands in reach, and take a rock's lee
+ * when one is a few steps off as the storm warns (holding there through the gust,
+ * striking whatever comes in reach) — except in the Minos fight, where he follows you
+ * to any rock and a skilled player stays on him. Naive bots never look for shelter.
  */
 import { PLAYER_DRIFT, gustEnvelope, inLee, segBlocked, segsCross } from "../../src/cantoMech/lustGeo.mjs";
 
 const STEP = (8 * 50) / 1000;
 
 function st(bot) {
-  if (!bot._lust) bot._lust = { phase: "calm", startAt: 0, endAt: 0, wx: 1, wy: 0, power: 1, wb: null, lov: null, lastAt: 0 };
+  if (!bot._lust) bot._lust = { phase: "calm", judged: false, startAt: 0, endAt: 0, wx: 1, wy: 0, power: 1, wb: null, lov: null, lastAt: 0 };
   return bot._lust;
 }
 
 function take(L, m, now) {
-  if (m.phase && m.phase !== L.phase) {
+  const judged = Boolean(m.judged);
+  // (a judging gust hands back to the storm's own cycle mid-phase: `el` is how far in)
+  if (m.phase && (m.phase !== L.phase || judged !== L.judged)) {
     L.phase = m.phase;
-    L.startAt = now;
+    L.judged = judged;
+    const el = Number(m.el);
+    L.startAt = Number.isFinite(el) && el > 0 ? now - el : now;
   }
   const left = Number(m.left);
   if (Number.isFinite(left)) L.endAt = now + left;
@@ -27,7 +34,7 @@ function take(L, m, now) {
     L.wx = Number(m.dirX);
     L.wy = Number(m.dirY);
   }
-  L.power = m.judged ? 1.35 : 1;
+  L.power = judged ? 1.35 : 1;
   if (Array.isArray(m.wb) && m.wb.length >= 3) {
     const wb = [];
     for (let i = 0; i + 2 < m.wb.length; i += 3) wb.push({ x: m.wb[i], y: m.wb[i + 1], r: m.wb[i + 2] });
@@ -86,6 +93,24 @@ function detour(L, you, goal, pad) {
   return { x: w.x + (ox / ol) * R, y: w.y + (oy / ol) * R };
 }
 
+/** The fat of a rock's lee for the current wind within `reach` of you (or null). */
+function leeSpot(L, you, reach) {
+  if (!L.wb) return null;
+  let best = null;
+  let bestD = reach;
+  for (const w of L.wb) {
+    const along = w.r + 1.25;
+    const x = w.x + L.wx * along;
+    const y = w.y + L.wy * along;
+    const d = Math.hypot(x - you.x, y - you.y);
+    if (d < bestD) {
+      bestD = d;
+      best = { x, y };
+    }
+  }
+  return best;
+}
+
 /** LUST_BOT_DEBUG=1: tally the damage the bot takes in Lust by source (tuning aid). */
 const DEBUG = Boolean(process.env.LUST_BOT_DEBUG);
 
@@ -102,7 +127,17 @@ function tally(bot, m) {
   const L = st(bot);
   const src = String(m.attackerId || "");
   const e = bot.snap.entities.find((x) => x.id === src);
-  const who = e ? (e.kind === "boss" ? "minos" : e.packId === "lust_champion_pair" ? "lovers" : e.archetype || e.kind) : src.startsWith("mech") ? src : "?";
+  const who = e
+    ? e.kind === "boss"
+      ? "minos"
+      : e.packId === "lust_champion_pair"
+        ? "lovers"
+        : e.packId === "lust_minos_flock"
+          ? "flock"
+          : e.archetype || e.kind
+    : src.startsWith("mech")
+      ? src
+      : "?";
   const k = `${who}:${m.teleKind || "-"}`;
   L.dmg = L.dmg || {};
   L.dmg[k] = (L.dmg[k] || 0) + m.damage;
@@ -114,7 +149,7 @@ export default {
     if (DEBUG && bot._lust) tally(bot, m);
     if (m.type === "snapshot") {
       if (m.room?.cantoId !== "inferno_05") {
-        if (DEBUG && bot._lust?.dmg) console.log(`[lust dmg ${bot.style}]`, JSON.stringify(bot._lust.dmg));
+        if (DEBUG && bot._lust?.dmg) console.log(`[lust dmg ${bot.style}]`, JSON.stringify(bot._lust.dmg), `sheltered ${((bot._lust.leeTicks || 0) * 0.05).toFixed(1)}s`);
         if (DEBUG && bot._lust?.kills) console.log(`[lust kills ${bot.style}]`, bot._lust.kills.join(" "));
         bot._lust = null;
         return;
@@ -155,6 +190,29 @@ export default {
       }
     }
     const d = Math.hypot(target.x - you.x, target.y - you.y);
+    // Skilled: the storm warns — take a rock's lee a few steps off and hold it through
+    // the gust (the grit and the drift pass over), striking whatever comes in reach
+    const storm = L.phase === "warn" || (L.phase === "gust" && !L.judged && strength(L, now) > 0.1);
+    // (not in the Minos fight: he follows you to any rock — a skilled player stays on him)
+    const judging = minos && minos.hp < minos.maxHp && Math.hypot(minos.x - you.x, minos.y - you.y) < 16;
+    if (bot.style === "skilled" && storm && !judging) {
+      if (!inLee(L.wb, L.wx, L.wy, you.x, you.y)) {
+        const spot = leeSpot(L, you, 4.5);
+        if (spot) {
+          const wp = detour(L, you, spot, 0.6) || spot;
+          const wd = Math.hypot(wp.x - you.x, wp.y - you.y) || 1e-6;
+          const k = Math.min(wd, STEP);
+          bot.moveTo(you.x + ((wp.x - you.x) / wd) * k, you.y + ((wp.y - you.y) / wd) * k);
+          await new Promise((r) => setTimeout(r, 50));
+          return true;
+        }
+      } else if (d > 2.8) {
+        // sheltered: let them come
+        L.leeTicks = (L.leeTicks || 0) + 1;
+        await new Promise((r) => setTimeout(r, 50));
+        return true;
+      }
+    }
     // A rock between us and the foe: walk round it
     if (d > 2.4) {
       const wp = detour(L, you, target, 0.6);

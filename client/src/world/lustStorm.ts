@@ -146,7 +146,9 @@ export class LustStorm {
   private readonly slife: Float32Array;
   private readonly tether: THREE.Mesh;
   private readonly halo: THREE.Mesh;
-  readonly coils: THREE.Mesh[] = [];
+  /** Minos's tail coils: one InstancedMesh (one draw), instances packed from 0 */
+  private readonly coilMesh: THREE.InstancedMesh;
+  private coilCount = 0;
   private coilStart = -1;
   private coilN = 0;
   private readonly coilMs = new Float32Array(COILS);
@@ -253,11 +255,9 @@ export class LustStorm {
     this.tether = new THREE.Mesh(tGeo, tMat);
     this.tether.name = "lustTether";
     this.tether.visible = false;
-    this.tether.frustumCulled = false;
     this.halo = new THREE.Mesh(tGeo, hMat);
     this.halo.name = "lustTetherHalo";
     this.halo.visible = false;
-    this.halo.frustumCulled = false;
     this.group.add(this.tether, this.halo);
 
     // Minos's tail coils (reparented onto the Judge while he coils)
@@ -273,15 +273,35 @@ export class LustStorm {
       if (mats.bronze.map) m.map = mats.bronze.map;
       return m;
     });
-    for (let i = 0; i < COILS; i++) {
-      const c = new THREE.Mesh(cGeo, cMat);
-      c.name = "lustCoil";
-      c.visible = false;
-      c.castShadow = false;
-      c.rotation.x = Math.PI / 2;
-      this.coils.push(c);
-      this.group.add(c);
-    }
+    // (in the scene from arrival, hidden: the canto prewarm compiles its instanced
+    // program before the first coil)
+    const coilMesh = new THREE.InstancedMesh(cGeo, cMat, COILS);
+    coilMesh.name = "lustCoil";
+    coilMesh.visible = false;
+    coilMesh.castShadow = false;
+    coilMesh.frustumCulled = false;
+    coilMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    coilMesh.count = 0;
+    this.coilMesh = coilMesh;
+    this.group.add(coilMesh);
+  }
+
+  /** Coil k of this frame (local to the Judge's body); rotation as Euler XYZ. */
+  private putCoil(y: number, rx: number, rz: number, sxz: number, sy: number) {
+    const i = this.coilCount++;
+    _q.setFromEuler(_eu.set(rx, 0, rz));
+    _p.set(0, y, 0);
+    _s.set(sxz, sxz, sy);
+    _m4.compose(_p, _q, _s);
+    this.coilMesh.setMatrixAt(i, _m4);
+  }
+
+  /** Close this frame's coils: draw only the ones put. */
+  private endCoils() {
+    const m = this.coilMesh;
+    m.count = this.coilCount;
+    m.visible = this.coilCount > 0;
+    if (this.coilCount > 0) m.instanceMatrix.needsUpdate = true;
   }
 
   // ——— server state ————————————————————————————————————————————————————————
@@ -291,9 +311,13 @@ export class LustStorm {
     const now = performance.now();
     const phase = (m.phase === "warn" || m.phase === "gust" ? m.phase : "calm") as StormPhase;
     const left = Math.max(0, Number(m.left) || 0);
-    if (phase !== this.phase) {
+    const el = Number(m.el);
+    const judged = Boolean(m.judged);
+    // (a judging gust hands back to the storm's own cycle mid-phase: `el` says how far
+    // into it the server is)
+    if (phase !== this.phase || judged !== this.judged) {
       this.phase = phase;
-      this.t0 = now;
+      this.t0 = Number.isFinite(el) && el > 0 ? now - el : now;
       this.t1 = now + left;
     } else if (Math.abs(now + left - this.t1) > 160) {
       this.t1 = now + left;
@@ -306,7 +330,7 @@ export class LustStorm {
       this.wy = dy / l;
       this.windVer++;
     }
-    this.judged = Boolean(m.judged);
+    this.judged = judged;
     this.power = this.judged ? 1.35 : 1;
   }
 
@@ -507,22 +531,26 @@ export class LustStorm {
   private tickWardCoils(now: number) {
     // (re-find the Judge now and then: he may have fallen and risen as a new node)
     if (this.minosWard && (this.frame % 30 === 0 || !this.coilJudge)) this.attachCoils("minos_gate");
+    this.coilCount = 0;
     if (!this.minosWard || !this.coilJudge) {
       if (this.wardShown) {
-        for (const c of this.coils) c.visible = false;
+        this.endCoils();
         this.wardShown = false;
       }
       return;
     }
     this.wardShown = true;
     for (let k = 0; k < COILS; k++) {
-      const c = this.coils[k]!;
       const fit = (k === 0 ? 1.36 : k === 1 ? 1.3 : 1.06) * 1.25;
-      c.visible = true;
-      c.position.set(0, 0.85 + k * 0.85 + Math.sin(now * 0.002 + k * 2) * 0.12, 0);
-      c.scale.set(fit, fit, 1);
-      c.rotation.set(Math.PI / 2 + Math.sin(now * 0.0015 + k) * 0.25, 0, now * 0.0012 * (k % 2 ? -1 : 1));
+      this.putCoil(
+        0.85 + k * 0.85 + Math.sin(now * 0.002 + k * 2) * 0.12,
+        Math.PI / 2 + Math.sin(now * 0.0015 + k) * 0.25,
+        now * 0.0012 * (k % 2 ? -1 : 1),
+        fit,
+        1
+      );
     }
+    this.endCoils();
   }
 
   // ——— per frame ———————————————————————————————————————————————————————————
@@ -659,6 +687,14 @@ export class LustStorm {
     const lov = this.lov;
     const nodes = this.app.nodes;
     let show = false;
+    if (lov) {
+      // Francesca's plate rides a line above Paolo's (they fight shoulder to shoulder)
+      const f = nodes.get(lov[1]);
+      if (f && !f.group.userData.lustPlate) {
+        f.group.userData.lustPlate = true;
+        f.hpEl.style.marginTop = "-1.35em";
+      }
+    }
     if (lov && lov[2] === 1) {
       const a = nodes.get(lov[0]);
       const b = nodes.get(lov[1]);
@@ -692,7 +728,7 @@ export class LustStorm {
     if (!rec) return false;
     const body = (rec.group.userData.mob as { body?: THREE.Object3D } | undefined)?.body ?? rec.group;
     if (this.coilJudge !== body) {
-      for (const c of this.coils) body.add(c);
+      body.add(this.coilMesh);
       this.coilJudge = body;
       this.tail = rec.group.getObjectByName("judgeTail") ?? null;
       this.tailBase = this.tail ? this.tail.rotation.y : 0;
@@ -708,23 +744,24 @@ export class LustStorm {
     }
     const e = now - this.coilStart;
     let any = false;
+    this.coilCount = 0;
     for (let k = 0; k < COILS; k++) {
-      const c = this.coils[k]!;
       const land = this.coilMs[k]!;
-      if (k >= n || e >= land || !this.coilJudge) {
-        c.visible = false;
-        continue;
-      }
+      if (k >= n || e >= land || !this.coilJudge) continue;
       any = true;
       const u = Math.max(0, Math.min(1, e / land));
       // each coil drops onto the robe and cinches tight as its ring fills
       const fit = k === 0 ? 1.36 : k === 1 ? 1.3 : 1.06;
       const s = fit * (1 + 0.75 * (1 - u) * (1 - u));
-      c.visible = true;
-      c.position.set(0, 0.85 + k * 0.85 + (1 - u) * 0.9, 0);
-      c.scale.set(s, s, 1 + 0.6 * u);
-      c.rotation.set(Math.PI / 2 + Math.sin(now * 0.004 + k) * 0.12 * (1 - u), 0, now * 0.003 * (k % 2 ? -1 : 1));
+      this.putCoil(
+        0.85 + k * 0.85 + (1 - u) * 0.9,
+        Math.PI / 2 + Math.sin(now * 0.004 + k) * 0.12 * (1 - u),
+        now * 0.003 * (k % 2 ? -1 : 1),
+        s,
+        1 + 0.6 * u
+      );
     }
+    this.endCoils();
     if (this.tail) {
       if (any) this.tailSpin += dt * 5.5;
       else this.tailSpin *= Math.exp(-dt * 6);
@@ -818,7 +855,8 @@ export class LustStorm {
   dispose() {
     const app = this.app;
     app.scene.remove(this.group);
-    for (const c of this.coils) c.parent?.remove(c);
+    this.coilMesh.parent?.remove(this.coilMesh);
+    this.coilMesh.dispose();
     if (this.tail) this.tail.rotation.y = this.tailBase;
     disposeNode3D(this.group);
     this.hud?.dispose();

@@ -1142,7 +1142,7 @@ class CantoRoom {
     this.mech.onKilled?.(this, entity);
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
-    if (entity.packId && killer) {
+    if (entity.packId && killer && !entity.summoned) {
       let left = 0;
       for (const e of this.entities.values()) {
         if (e.packId === entity.packId && e.kind === "mob") left++;
@@ -1166,11 +1166,12 @@ class CantoRoom {
         this.schedulePackRespawn(entity.packId, entity.x, entity.y);
       }
     }
-    if (killer && entity.kind === "mob") {
+    if (killer && entity.kind === "mob" && !entity.summoned) {
       let mobs = 0;
       let bossUp = false;
       for (const e of this.entities.values()) {
-        if (e.kind === "mob" && e.hp > 0) mobs++;
+        // (a mechanic's summoned adds — entity.summoned — are not "the road")
+        if (e.kind === "mob" && e.hp > 0 && !e.summoned) mobs++;
         if (e.kind === "boss" && e.hp > 0) bossUp = true;
       }
       if (mobs === 0 && bossUp) {
@@ -1395,7 +1396,7 @@ class CantoRoom {
       if (e.requireClear && !hasCleared(playerId, e.requireClear)) {
         const tip =
           e.requireClear === "inferno_05"
-            ? "Clear the Judge first — then the Gluttony gate opens."
+            ? "Clear Minos first — then the Gluttony gate opens."
             : e.requireClear === "inferno_06"
               ? "Clear Triple Maw first — then Avarice opens."
               : `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
@@ -1415,11 +1416,11 @@ class CantoRoom {
         {
           const clears = ledger.firstClears instanceof Set ? [...ledger.firstClears] : [];
           let guideLine =
-            "Guide: Take the gold gate into Lust. Break the Storm Heart, then the Judge — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso — weight and counterweight). Return for the writ, stash, and Auction House.";
+            "Guide: Take the gold gate into Lust. Break the Storm Heart, then Minos — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso — weight and counterweight). Return for the writ, stash, and Auction House.";
           if (clears.includes("inferno_07") && clears.includes("inferno_05")) {
             // Both Lust + Ava clear: distinguish east Lust rematch vs weighed road again
             guideLine =
-              "Guide: Measure holds — east Lust for the Judge again, or back through Gluttony into Avarice. Claim the writ, bank weighed drops at the stash, then choose your road.";
+              "Guide: Measure holds — east Lust for Minos again, or back through Gluttony into Avarice. Claim the writ, bank weighed drops at the stash, then choose your road.";
           } else if (clears.includes("inferno_07")) {
             guideLine =
               "Guide: Hoard Crush is broken — peso e contrapeso yields. Claim the daily writ, bank weighed drops at the stash, or hunt Lust / Gluttony / Avarice again.";
@@ -1428,7 +1429,7 @@ class CantoRoom {
               "Guide: Triple Maw is broken — Avarice (peso e contrapeso) waits past the Maw. Ring the Ledger Bell, tip the Counterweight, break Hoard Crush. Return for the writ, stash, and Auction House.";
           } else if (clears.includes("inferno_05")) {
             guideLine =
-              "Guide: Lust is clear — Gluttony (piova etterna) opens past the Judge's dais. Clear the mire, then the Triple Maw; after the Maw, Avarice. Return for the writ, stash, and Auction House.";
+              "Guide: Lust is clear — Gluttony (piova etterna) opens past Minos's dais. Clear the mire, then the Triple Maw; after the Maw, Avarice. Return for the writ, stash, and Auction House.";
           }
           this.toast(s.ws, "info", guideLine);
         }
@@ -1464,7 +1465,7 @@ class CantoRoom {
         if (e.requireClear && !hasCleared(playerId, e.requireClear)) {
           const tip =
             e.requireClear === "inferno_05"
-              ? "Clear the Judge first — then the Gluttony gate opens."
+              ? "Clear Minos first — then the Gluttony gate opens."
               : e.requireClear === "inferno_06"
                 ? "Clear Triple Maw first — then Avarice opens."
                 : `The way to ${cantoTitle(dest)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
@@ -2175,7 +2176,7 @@ export class World {
         if (!hasCleared(playerId, need)) {
           const tip =
             need === "inferno_05"
-              ? "Clear the Judge first — then the Gluttony gate opens."
+              ? "Clear Minos first — then the Gluttony gate opens."
               : need === "inferno_06"
                 ? "Clear Triple Maw first — then Avarice opens."
                 : `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`;
@@ -2194,7 +2195,7 @@ export class World {
         : hasCleared(playerId, "inferno_06")
           ? "Dark Wood rest — bank loot, then Avarice past the Maw (or Lust again)."
           : hasCleared(playerId, "inferno_05")
-            ? "Dark Wood rest — bank loot, then Gluttony past the Judge."
+            ? "Dark Wood rest — bank loot, then Gluttony past Minos."
             : "No foes in the Dark Wood — the gold gate leads to Lust.";
       room.toast(ws, "info", hubLine);
     } else if (room.cantoId === "inferno_06") {
@@ -2202,7 +2203,7 @@ export class World {
         room.toast(ws, "info", "The Avarice gate past the Maw stands open.");
       }
     } else if (room.cantoId === "inferno_05" && hasCleared(playerId, "inferno_05")) {
-      room.toast(ws, "info", "The Gluttony gate past the Judge's dais stands open.");
+      room.toast(ws, "info", "The Gluttony gate past Minos's dais stands open.");
     }
     return { ok: true, room };
   }
