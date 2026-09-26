@@ -5985,3 +5985,61 @@ body.in-avarice.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(
 }
 #btn-fullscreen svg { width: 58%; height: 58%; }
 body.has-modal #btn-fullscreen { visibility: hidden; }
+
+/* ——— Avarice: the processions' cries and Plutus's lines (cantoMech/avarice.ts) ——— */
+body.in-avarice .ava-shout,
+body.in-avarice .ava-plutus-line {
+  font-family: var(--serif);
+  font-style: italic;
+  white-space: nowrap;
+  pointer-events: none;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 6px #000, 0 2px 3px #000, 0 0 14px #3a1c04;
+  display: inline-block;
+  opacity: 0;
+}
+body.in-avarice .ava-shout {
+  font-size: 17px;
+  font-weight: 700;
+}
+body.in-avarice .ava-shout-n { color: #ffe39a; }
+body.in-avarice .ava-shout-s { color: #ffb070; }
+/* (two identical animations: switching the name restarts it without a forced layout) */
+body.in-avarice .ava-shout.ava-shout-go { animation: ava-shout 1.7s ease-out forwards; }
+body.in-avarice .ava-shout.ava-shout-go2 { animation: ava-shout2 1.7s ease-out forwards; }
+body.in-avarice .ava-plutus-line {
+  font-size: 19px;
+  font-weight: 700;
+  color: #ffd98a;
+}
+body.in-avarice .ava-plutus-line.ava-line-go { animation: ava-line 3.2s ease-out forwards; }
+body.in-avarice .ava-plutus-line.ava-line-go2 { animation: ava-line2 3.2s ease-out forwards; }
+/* hangs under his feet (clear of his plate and the gate label above him) */
+body.in-avarice .ava-plutus-wrap { padding-top: 22px; }
+body.in-avarice.hud-compact .ava-plutus-wrap { padding-top: 14px; }
+body.in-avarice.hud-compact .ava-shout { font-size: 13px; }
+body.in-avarice.hud-compact .ava-plutus-line { font-size: 14px; }
+@keyframes ava-shout {
+  0% { opacity: 0; transform: translateY(8px) scale(0.86); }
+  12% { opacity: 1; transform: translateY(0) scale(1.06); }
+  70% { opacity: 1; transform: translateY(-10px) scale(1); }
+  100% { opacity: 0; transform: translateY(-22px) scale(0.98); }
+}
+@keyframes ava-shout2 {
+  0% { opacity: 0; transform: translateY(8px) scale(0.86); }
+  12% { opacity: 1; transform: translateY(0) scale(1.06); }
+  70% { opacity: 1; transform: translateY(-10px) scale(1); }
+  100% { opacity: 0; transform: translateY(-22px) scale(0.98); }
+}
+@keyframes ava-line {
+  0% { opacity: 0; transform: translateY(6px); }
+  10% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-14px); }
+}
+@keyframes ava-line2 {
+  0% { opacity: 0; transform: translateY(6px); }
+  10% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-14px); }
+}

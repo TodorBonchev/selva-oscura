@@ -4,6 +4,8 @@
  */
 import * as THREE from "three";
 import type { MatKit } from "./materials";
+import { distToArcs } from "./avariceProcession";
+import { buildAvariceTracks } from "./avariceGround";
 import {
   makeBrazier,
   makeFallenLog,
@@ -84,12 +86,17 @@ const LUST_HUNT: [number, number][] = [
 const GLUTTONY_HUNT: [number, number][] = CAUSEWAY_PTS;
 const AVARICE_HUNT: [number, number][] = [
   [18, 52],
-  [28, 50],
-  [38, 56],
-  [54, 68],
-  [70, 48],
-  [86, 58],
-  [110, 52],
+  // Avarice road: into the ring of the processions through the west clash, past the Hoard
+  // Heart, across the wasters' lane mid-span to the Counterweight, then beside their last
+  // run and through the east clash onto Plutus's dais
+  [29, 52],
+  [40, 57],
+  [62, 59],
+  [82, 61],
+  [93, 70],
+  [108, 72],
+  [122, 62],
+  [133, 51],
   [138, 48],
 ];
 
@@ -97,11 +104,6 @@ export function huntPathFor(cantoId: string): [number, number][] {
   if (cantoId === "inferno_07") return AVARICE_HUNT;
   if (cantoId === "inferno_06") return GLUTTONY_HUNT;
   return LUST_HUNT;
-}
-
-/** Avarice scorched flats = off the gold measure lane (between weight packs). */
-export function isAvaScorchFlat(x: number, z: number): boolean {
-  return distToPoly(x, z, huntPathFor("inferno_07")) > 3.8;
 }
 
 
@@ -165,6 +167,11 @@ export function terrainHeight(
   } else if (isAva) {
     // Hard scorched flats between weight lanes
     n *= 0.7;
+  }
+  // Avarice: the processions' tracks are beaten flat (the weights roll level)
+  if (isAva) {
+    const dt = distToArcs(wx, wz);
+    if (dt < 3.2) n *= dt < 1.9 ? 0.06 : 0.06 + ((dt - 1.9) / 1.3) * 0.94;
   }
   return n;
 }
@@ -391,10 +398,10 @@ export function buildGround(
             { x: 24, z: 96, r: 4 },
             { x: 148, z: 92, r: 4 },
             { x: 30, z: 52, r: 5 },
-            { x: 70, z: 48, r: 5 },
-            { x: 86, z: 58, r: 6 },
-            { x: 100, z: 26, r: 5 },
-            { x: 112, z: 82, r: 5 },
+            { x: 81, z: 58, r: 5 },
+            { x: 100, z: 76, r: 5 },
+            { x: 100, z: 34, r: 5 },
+            { x: 117, z: 69, r: 4 },
             { x: 138, z: 48, r: 9 },
           ]
         : [{ x: 138, z: 48, r: 9 }]
@@ -716,13 +723,13 @@ export function buildGround(
 
       // Scorched coin discs along hunt (InstancedMesh)
       const coinMat = new THREE.MeshStandardMaterial({
-        color: 0x9a7840,
-        roughness: 0.38,
-        metalness: 0.58,
-        emissive: 0x4a3810,
-        emissiveIntensity: 0.32,
+        color: 0x6a5028,
+        roughness: 0.6,
+        metalness: 0.4,
+        emissive: 0x2a1c08,
+        emissiveIntensity: 0.25,
         transparent: true,
-        opacity: 0.88,
+        opacity: 0.7,
       });
       const coinGeo = new THREE.CircleGeometry(1, compact ? 8 : 10);
       const coinN = compact ? Math.min(3, hunt.length) : hunt.length + 3;
@@ -735,11 +742,13 @@ export function buildGround(
       const _q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
       const _s = new THREE.Vector3();
       for (let i = 0; i < coinN; i++) {
+        // (never on a clash point: the clash telegraph must read clean there)
+        const onClash = i < hunt.length && distToArcs(hunt[i]![0], hunt[i]![1]) < 3;
         const [px, pz] =
-          i < hunt.length
-            ? hunt[i]
+          i < hunt.length && !onClash
+            ? hunt[i]!
             : ([20 + hash(i, 90) * (w - 40), 20 + hash(i, 91) * (h - 40)] as [number, number]);
-        const sc = 1.1 + hash(i, 92) * 1.0;
+        const sc = 0.7 + hash(i, 92) * 0.6;
         _p.set(px + (hash(i, 93) - 0.5) * 2.4, heightAt(px, pz) + 0.05, pz + (hash(i, 94) - 0.5) * 2.4);
         _s.set(sc, sc, sc);
         _m.compose(_p, _q, _s);
@@ -776,28 +785,12 @@ export function buildGround(
       cracks.instanceMatrix.needsUpdate = true;
       group.add(cracks);
 
-      // Rolling weight props (short cylinders)
-      const weightCap = compact ? 4 : 10;
-      const weightGeo = new THREE.CylinderGeometry(0.55, 0.62, 0.35, compact ? 8 : 10);
-      const weightsMesh = new THREE.InstancedMesh(weightGeo, mats.bronze, weightCap);
-      weightsMesh.castShadow = false;
-      weightsMesh.receiveShadow = true;
-      weightsMesh.frustumCulled = true;
-      let weights = 0;
-      for (let i = 0; i < 100 && weights < weightCap; i++) {
-        const x = 10 + hash(i, 61) * (w - 20);
-        const z = 10 + hash(i, 62) * (h - 20);
-        if (blocked(x, z, 2.2) || distToPoly(x, z, hunt) < 3.8) continue;
-        if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.2)) continue;
-        _p.set(x, heightAt(x, z) + 0.18, z);
-        _q.setFromEuler(new THREE.Euler(0, hash(i, 65) * Math.PI * 2, Math.PI / 2));
-        _s.set(1.1 + hash(i, 63) * 0.4, 1, 1.1 + hash(i, 66) * 0.35);
-        _m.compose(_p, _q, _s);
-        weightsMesh.setMatrixAt(weights++, _m);
-      }
-      weightsMesh.count = weights;
-      weightsMesh.instanceMatrix.needsUpdate = true;
-      group.add(weightsMesh);
+      // The processions' worn tracks + scarred clash rings (the weights themselves roll
+      // in cantoMech/avarice.ts)
+      // (the tracks' east ends climb onto the dais: drape them over its plinth)
+      const onDais = (x: number, z: number) =>
+        Math.max(heightAt(x, z), daisTopAt(cantoId, hy, daisPos.x, daisPos.z, x, z));
+      buildAvariceTracks(group, onDais, compact, mats.gold);
 
       // Restrained gold haze (Lust-soften parity — keep slash readable)
       const hazeN = compact ? 1 : 2;
@@ -815,23 +808,29 @@ export function buildGround(
         group.add(ribbon);
       }
 
-      // Mid-path ledger slabs + Gluttony-gate approach plates (content beat; cheap boxes)
+      // Road ledger slabs + gate approach plates (two instanced meshes: slab + gold trim)
       const slabPts: [number, number][] = compact
-        ? [[18, 52], [28, 50], [70, 48], [86, 58]]
-        : [[14, 50], [22, 52], [28, 50], [44, 58], [70, 48], [86, 58], [100, 56], [112, 82], [124, 40]];
+        ? [[18, 52], [29, 52], [72, 60], [100, 71]]
+        : [[14, 50], [22, 52], [29, 52], [50, 58], [70, 60], [96, 70.5], [104, 71.5], [115, 67], [127, 57]];
+      const slabs = new THREE.InstancedMesh(new THREE.BoxGeometry(1.1, 0.08, 0.7), mats.bone, slabPts.length);
+      const trims = new THREE.InstancedMesh(new THREE.BoxGeometry(1.15, 0.03, 0.08), mats.gold, slabPts.length);
+      slabs.castShadow = false;
+      slabs.receiveShadow = true;
+      trims.castShadow = false;
       for (let i = 0; i < slabPts.length; i++) {
         const [sx, sz] = slabPts[i]!;
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 0.7), mats.bone);
-        slab.position.set(sx, heightAt(sx, sz) + 0.06, sz);
-        slab.rotation.y = hash(i, 77) * Math.PI;
-        slab.castShadow = false;
-        slab.receiveShadow = true;
-        const trim = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.03, 0.08), mats.gold);
-        trim.position.set(sx, heightAt(sx, sz) + 0.12, sz);
-        trim.rotation.y = slab.rotation.y;
-        trim.castShadow = false;
-        group.add(slab, trim);
+        _q.setFromEuler(new THREE.Euler(0, hash(i, 77) * Math.PI, 0));
+        _s.set(1, 1, 1);
+        _p.set(sx, heightAt(sx, sz) + 0.06, sz);
+        _m.compose(_p, _q, _s);
+        slabs.setMatrixAt(i, _m);
+        _p.y = heightAt(sx, sz) + 0.12;
+        _m.compose(_p, _q, _s);
+        trims.setMatrixAt(i, _m);
       }
+      slabs.instanceMatrix.needsUpdate = true;
+      trims.instanceMatrix.needsUpdate = true;
+      group.add(slabs, trims);
 
       // South / north edge props — unpaid tallies on the empty ledger rims (cheap instances)
       const edgeCap = compact ? 4 : 8;

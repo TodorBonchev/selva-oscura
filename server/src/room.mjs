@@ -113,7 +113,7 @@ const MOB_DMG = {
   mud_wisp: 6,
   mire_warden: 12,
   mire_champion: 13,
-  weight_shade: 9,
+  weight_shade: 7,
   coin_wisp: 6,
   ledger_warden: 13,
   weight_champion: 13,
@@ -124,7 +124,7 @@ const MOB_DMG = {
 const CANTO_TIER = {
   inferno_05: { hp: 1.0, dmg: 1.0 },
   inferno_06: { hp: 1.1, dmg: 1.15 },
-  inferno_07: { hp: 1.2, dmg: 1.3 },
+  inferno_07: { hp: 1.15, dmg: 1.15 },
 };
 function tierOf(cantoId) {
   return CANTO_TIER[cantoId] || { hp: 1, dmg: 1 };
@@ -134,7 +134,7 @@ function tierOf(cantoId) {
 const BOSS_HP = {
   minos_gate: 520,
   triple_maw: 680,
-  hoard_crush: 860,
+  hoard_crush: 1400,
 };
 
 /**
@@ -311,10 +311,6 @@ class CantoRoom {
     this.sessions = new Map(); // playerId -> { ws, x, y, hp, maxHp, mana, maxMana, atkCd, spellCd }
     this.dirty = false;
     this._snapAcc = 0;
-    /** Pending fodder pack respawns: { packId, atSec, x, y } */
-    this.packRespawns = [];
-    this._packRespawnStagger = 0;
-    this._packRespawnClock = 0;
     /** Ground telegraphs (windup attacks, boss slams, mechanic hazards). */
     this.tele = new Telegraphs(this);
     /** Delayed effects (gale bolt arrival…): { left, fn } */
@@ -327,9 +323,6 @@ class CantoRoom {
   spawnWorld() {
     this.entities.clear();
     this.bossRespawns = [];
-    this.packRespawns = [];
-    this._packRespawnStagger = 0;
-    this._packRespawnClock = 0;
     const g = this.canto.geo;
 
     for (const poi of g.pois || []) {
@@ -512,73 +505,6 @@ class CantoRoom {
       });
     }
   }
-
-  /**
-   * Fair Avarice fodder pack refill. Hearts / Counterweight / Warden / champion pair
-   * stay down until the room empties (spawnWorld). Nearby players delay the pop.
-   */
-  schedulePackRespawn(packId, x, y) {
-    if (this.cantoId !== "inferno_07" || !packId) return;
-    const noRespawn = new Set([
-      "ava_hoard_heart",
-      "ava_counterweight",
-      "ava_ledger_warden",
-      "ava_champion_pair",
-    ]);
-    if (noRespawn.has(packId)) return;
-    if (this.packRespawns.some((r) => r.packId === packId)) return;
-    const pack = (this.canto.packs || []).find((p) => p.id === packId);
-    if (!pack) return;
-    const count = Number(pack.count) || 1;
-    this._packRespawnStagger = (this._packRespawnStagger || 0) + 1;
-    const delay = 48 + count * 6 + this._packRespawnStagger * 4.5 + Math.random() * 10;
-    this.packRespawns.push({
-      packId,
-      atSec: this._packRespawnClock + delay,
-      x,
-      y,
-    });
-  }
-
-  tickPackRespawns(dt) {
-    if (!this.packRespawns.length) return;
-    this._packRespawnClock += dt;
-    const keep = [];
-    for (const r of this.packRespawns) {
-      if (this._packRespawnClock < r.atSec) {
-        keep.push(r);
-        continue;
-      }
-      let near = false;
-      for (const s of this.sessions.values()) {
-        if (Math.hypot(s.x - r.x, s.y - r.y) < 14) {
-          near = true;
-          break;
-        }
-      }
-      if (near) {
-        r.atSec = this._packRespawnClock + 8 + Math.random() * 6;
-        keep.push(r);
-        continue;
-      }
-      let alive = 0;
-      for (const e of this.entities.values()) {
-        if (e.packId === r.packId && e.kind === "mob" && (e.hp == null || e.hp > 0)) alive++;
-      }
-      if (alive > 0) continue;
-      const pack = (this.canto.packs || []).find((p) => p.id === r.packId);
-      if (!pack) continue;
-      this.spawnPackMembers(pack);
-      this.markDirty();
-      for (const s of this.sessions.values()) {
-        if (Math.hypot(s.x - r.x, s.y - r.y) < 36) {
-          this.toast(s.ws, "info", "contrapeso — weights return to the measure");
-        }
-      }
-    }
-    this.packRespawns = keep;
-  }
-
 
   leave(playerId) {
     this.sessions.delete(playerId);
@@ -1142,7 +1068,7 @@ class CantoRoom {
         killer.ws,
         "emit",
         entity.archetype === "hoard_heart"
-          ? "peso — Hoard Heart bursts; the measure tips, Counterweight stirs."
+          ? "The Hoard Heart bursts — the Counterweight stirs; Plutus waits past the east clash."
           : entity.archetype === "mire_heart"
             ? "The Mire Heart bursts — Cerbero stirs."
             : "The Storm Heart shatters."
@@ -1153,7 +1079,7 @@ class CantoRoom {
     this.mech.onKilled?.(this, entity);
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
-    if (entity.packId && killer) {
+    if (entity.packId && killer && !entity.summoned) {
       let left = 0;
       for (const e of this.entities.values()) {
         if (e.packId === entity.packId && e.kind === "mob") left++;
@@ -1173,8 +1099,6 @@ class CantoRoom {
                 : "The gust breaks. Press on.";
           this.toast(killer.ws, "info", line);
         }
-        // Fair fodder refill on Avarice (hearts / CW / warden stay down)
-        this.schedulePackRespawn(entity.packId, entity.x, entity.y);
       }
     }
     if (killer && entity.kind === "mob" && !entity.summoned) {
@@ -1249,7 +1173,7 @@ class CantoRoom {
               : this.cantoId === "inferno_06"
                 ? "Triple Maw broken — the Avarice gate past the Maw opens."
                 : this.cantoId === "inferno_07"
-                  ? "misura spezzata — Hoard Crush yields; the Dark Wood road opens past the dais."
+                  ? "Plutus is broken — the Dark Wood road opens past the dais."
                   : null;
           if (gateLine) this.toast(sess.ws, "emit", gateLine);
         } else if (r2.reason === "already_cleared" && pid === killerId) {
@@ -1440,10 +1364,10 @@ class CantoRoom {
               "Guide: Measure holds — east Lust for Minos again, or back through Gluttony into Avarice. Claim the writ, bank weighed drops at the stash, then choose your road.";
           } else if (clears.includes("inferno_07")) {
             guideLine =
-              "Guide: Hoard Crush is broken — peso e contrapeso yields. Claim the daily writ, bank weighed drops at the stash, or hunt Lust / Gluttony / Avarice again.";
+              "Guide: Plutus is broken — the weights roll on without him. Claim the daily writ, bank weighed drops at the stash, or hunt Lust / Gluttony / Avarice again.";
           } else if (clears.includes("inferno_06")) {
             guideLine =
-              "Guide: Triple Maw is broken — Avarice (peso e contrapeso) waits past the Maw. Ring the Ledger Bell, tip the Counterweight, break Hoard Crush. Return for the writ, stash, and Auction House.";
+              "Guide: Triple Maw is broken — Avarice (peso e contrapeso) waits past the Maw. Cross between the weights' clashes, tip the Counterweight, break Plutus with the Ledger Bell. Return for the writ, stash, and Auction House.";
           } else if (clears.includes("inferno_05")) {
             guideLine =
               "Guide: Lust is clear — Gluttony (piova etterna) opens past Minos's dais. Clear the mire, then the Triple Maw; after the Maw, Avarice. Return for the writ, stash, and Auction House.";
@@ -1491,13 +1415,7 @@ class CantoRoom {
         }
         return { travel: dest };
       } else if (e.poiKind === "marker") {
-        this.toast(
-          s.ws,
-          "info",
-          this.cantoId === "inferno_07"
-            ? "peso e contrapeso — ring the Bell before the Crush."
-            : e.hint || e.label || "A marker on the road."
-        );
+        this.toast(s.ws, "info", e.hint || e.label || "A marker on the road.");
         return;
       } else if (e.poiKind === "cache") {
         if (s.lootedCache) {
@@ -1552,10 +1470,8 @@ class CantoRoom {
         }
         s.bellCd = 18;
         let stilled = 0;
-        // Avarice: slightly wider still so Ledger Bell catches strays under the post
-        const stillR = this.cantoId === "inferno_07" ? 13.5 : 10;
-        // Avarice still lasts longer so the measure reads before rollers resume
-        const stillDur = this.cantoId === "inferno_07" ? 3.4 : 2.4;
+        const stillR = 10;
+        const stillDur = 2.4;
         for (const mob of this.entities.values()) {
           if (mob.kind !== "mob") continue;
           // Hearts are ward pillars, not weights — skip still (keep Crush lane readable)
@@ -1565,23 +1481,17 @@ class CantoRoom {
           stilled++;
         }
         const bellLine = stilled
-          ? this.cantoId === "inferno_07"
-            ? `peso — Ledger Bell stills ${stilled} · ${stillDur.toFixed(1).replace(/\.0$/, "")}s measure`
-            : this.cantoId === "inferno_06"
-              ? `Mire Bell stills ${stilled}`
-              : `The bell stills ${stilled}`
-          : this.cantoId === "inferno_07"
-            ? "peso — the Ledger Bell tolls; no weight answers."
-            : this.cantoId === "inferno_06"
-              ? "The Mire Bell tolls — nothing answers."
-              : "The bell rings, and nothing answers.";
+          ? this.cantoId === "inferno_06"
+            ? `Mire Bell stills ${stilled}`
+            : `The bell stills ${stilled}`
+          : this.cantoId === "inferno_06"
+            ? "The Mire Bell tolls — nothing answers."
+            : "The bell rings, and nothing answers.";
         this.toast(s.ws, "emit", bellLine);
         // Combat canto dailies: first successful still can claim DailyQuest (shared UTC cap; quiet if ineligible)
+        // (Avarice's Ledger Bell is its canto mechanic's: cantoMech/avarice.mjs onBell)
         if (this.cantoId === "inferno_06" && stilled > 0) {
           this.tryDaily(playerId, "glut_daily_mire", { quiet: true });
-        }
-        if (this.cantoId === "inferno_07" && stilled > 0) {
-          this.tryDaily(playerId, "ava_daily_ledger", { quiet: true });
         }
       } else if (e.poiKind === "pyre" || e.poiKind === "shrine") {
         s.hp = s.maxHp;
@@ -1726,6 +1636,11 @@ class CantoRoom {
     return this.tele.start(spec);
   }
 
+  /** This canto's damage tier (a mechanic scales its own blows by it). */
+  tierDmg() {
+    return tierOf(this.cantoId).dmg;
+  }
+
   cancelTelegraph(id, reason = "") {
     return this.tele.cancel(id, reason);
   }
@@ -1825,22 +1740,6 @@ class CantoRoom {
   }
 
   /**
-   * Default boss slam, by phase. Avarice Hoard Crush phase 2 (≤50%): a faster, wider,
-   * heavier measure; the others keep the classic 1.4 s slam.
-   */
-  bossSlamPhase(e) {
-    const crushP2 = this.cantoId === "inferno_07" && e.id === "hoard_crush" && e.hp <= e.maxHp * 0.5;
-    if (crushP2 && !e.phase2Toast) {
-      e.phase2Toast = true;
-      e.phase = 2;
-      for (const s of this.sessions.values()) {
-        this.toast(s.ws, "warn", "il peso cresce — Crush doubles the measure");
-      }
-    }
-    return crushP2 ? { windup: 1.0, radius: 3.9 } : null;
-  }
-
-  /**
    * Boss leash: dragged BOSS_LEASH off its dais it walks home ignoring everyone and
    * resets (full HP, phase 1, credit cleared); left alone for BOSS_IDLE_HEAL_AFTER s
    * it knits its wounds. Returns true while it is walking home.
@@ -1885,15 +1784,12 @@ class CantoRoom {
       e.kind === "boss"
         ? MOB_DMG[arch] || MOB_DMG.boss
         : MOB_DMG[arch] || (isChampionClass(e) ? MOB_DMG.gale_champion : MOB_DMG.whirl_shade);
-    // Crush phase 2: slightly heavier coin-iron blow
-    if (e.kind === "boss" && e.phase === 2 && e.id === "hoard_crush") dmg = Math.floor(dmg * 1.2);
     return Math.round(dmg * tierOf(this.cantoId).dmg);
   }
 
   tick(dt) {
     if (this.sessions.size === 0) return;
     this._tickAt = Date.now();
-    this.tickPackRespawns(dt);
     this.tickBossRespawns(dt);
     let manaDirty = false;
     for (const s of this.sessions.values()) {
@@ -2062,8 +1958,7 @@ class CantoRoom {
         if (unstick(e, nearestD > 3.2, dt)) moved = true;
         if (e.atkCd <= 0 && !(nearest.iframes > 0)) {
           let over = null;
-          if (e.kind === "boss") over = this.bossSlamPhase(e);
-          else if (ava && isChampionClass(e) && !ATTACKS_WARDEN.has(e.archetype)) over = AVA_CHAMP_WIND;
+          if (ava && isChampionClass(e) && !ATTACKS_WARDEN.has(e.archetype)) over = AVA_CHAMP_WIND;
           if (startAttack(this, e, nearest, nearestD, this.mobAttackDamage(e), over)) this.markDirty();
         }
       } else if (brake(e, dt)) {

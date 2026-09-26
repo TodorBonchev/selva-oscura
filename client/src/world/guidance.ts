@@ -308,7 +308,7 @@ export class Guidance {
     if (cantoId === "inferno_07") {
       return clears.includes("inferno_07")
         ? "The Dark Wood road stands open past the dais"
-        : "Measure the road, then break Hoard Crush";
+        : "Cross between the weights' clashes, then break Plutus";
     }
     if (cantoId === "inferno_01") {
       if (!you?.spokeToGuide) return "Speak with the Guide, then take the gold gate to Lust";
