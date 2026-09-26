@@ -1280,8 +1280,6 @@ type PortalMatSet = {
 
 let portalMatCache: { gale: THREE.Material; sets: Record<PortalVisualState, PortalMatSet> } | null = null;
 let beaconGradTex: THREE.DataTexture | null = null;
-let beaconGeo: THREE.CylinderGeometry | null = null;
-let groundRingGeo: THREE.RingGeometry | null = null;
 
 /** Vertical luminance ramp (bright foot → clear top) for additive light pillars. */
 export function beaconGradient(): THREE.DataTexture {
@@ -1341,7 +1339,8 @@ function portalMats(mats: MatKit): Record<PortalVisualState, PortalMatSet> {
       depthWrite: false,
     });
     ground.userData.baseOpacity = k.groundOp;
-    return { disc, ring, beacon, ground };
+    // Every gate of a state wears these: a despawned gate (canto travel) must not free them
+    return { disc: markShared(disc), ring: markShared(ring), beacon: markShared(beacon), ground: markShared(ground) };
   };
   const sets = { forward: make("forward"), return: make("return"), locked: make("locked") };
   portalMatCache = { gale: mats.gale, sets };
@@ -1410,14 +1409,18 @@ export function makePortal(mats: MatKit): THREE.Group {
   );
   sparks.name = "portalSparks";
   // Light pillar + ground ring read from across the canto (geometry shared, no extra lights)
-  beaconGeo ??= new THREE.CylinderGeometry(0.62, 1.05, 18, 18, 1, true);
-  const beacon = new THREE.Mesh(beaconGeo, pm.locked.beacon);
+  const beacon = new THREE.Mesh(
+    geo("gateBeacon", () => new THREE.CylinderGeometry(0.62, 1.05, 18, 18, 1, true)),
+    pm.locked.beacon
+  );
   beacon.name = "gateBeacon";
   beacon.position.y = 9;
   beacon.renderOrder = 2;
   beacon.visible = false;
-  groundRingGeo ??= new THREE.RingGeometry(1.75, 2.35, 44);
-  const ground = new THREE.Mesh(groundRingGeo, pm.locked.ground);
+  const ground = new THREE.Mesh(
+    geo("gateGround", () => new THREE.RingGeometry(1.75, 2.35, 44)),
+    pm.locked.ground
+  );
   ground.name = "gateGround";
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = 0.07;

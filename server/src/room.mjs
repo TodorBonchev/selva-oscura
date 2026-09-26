@@ -406,6 +406,8 @@ class CantoRoom {
       cantoId: this.cantoId,
     };
     this.sessions.set(playerId, sess);
+    // Everyone already here sees the newcomer on the next tick, not on their first move
+    this.markDirty();
     if (this.cantoId !== "inferno_01") {
       ledger.visitedInferno = true;
       void persistPlayerFlags(playerId).catch((err) =>
@@ -522,6 +524,8 @@ class CantoRoom {
 
   leave(playerId) {
     this.sessions.delete(playerId);
+    // Others drop the leaver's pilgrim on the next tick (an idle room pushes nothing otherwise)
+    this.markDirty();
     // Respawn combat content when instance empties (Slice 1 single shard)
     if (this.sessions.size === 0 && this.canto.role === "combat") {
       this.spawnWorld();

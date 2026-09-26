@@ -31,6 +31,7 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import type { MatKit } from "./materials";
 import type { EquipSlot } from "../items/icons";
 import { tagGearSlot } from "./gearLook";
+import { markShared } from "./dispose";
 import { isCompactUi } from "../ui/hud";
 
 export type HeroPalette = "pilgrim" | "guide";
@@ -282,8 +283,9 @@ function heroMaterials() {
     m.name = sheetFam ? "heroSheet" : "heroSolid";
     m.onBeforeCompile = heroShader(sheetFam);
     m.customProgramCacheKey = () => (sheetFam ? "hero-sheet" : "hero-solid");
-    m.userData.shared = true;
-    return m;
+    // Registered (not a userData flag): disposeNode3D on a remote pilgrim / the Guide
+    // must never free the materials every hero — yours included — draws with
+    return markShared(m);
   };
   _mats = { solid: make(false), sheet: make(true) };
   return _mats;
@@ -384,7 +386,7 @@ class Rig {
       const merged = b.geos.length === 1 ? b.geos[0]! : mergeGeometries(b.geos, false);
       if (!merged) continue;
       if (b.geos.length > 1) for (const g of b.geos) g.dispose();
-      merged.userData.shared = true;
+      markShared(merged);
       merged.computeBoundingSphere();
       const mesh = new THREE.SkinnedMesh(merged, b.sheet ? mats.sheet : mats.solid);
       mesh.name = `hero:${b.sheet ? "sheet" : "solid"}:${b.slot ?? "body"}`;
@@ -906,11 +908,11 @@ function buildTemplate(mats: MatKit, palette: HeroPalette, hi: boolean): THREE.G
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.03;
   ring.renderOrder = 2;
-  ring.geometry.userData.shared = true;
-  (ring.material as THREE.Material).userData.shared = true;
+  markShared(ring.geometry);
+  markShared(ring.material as THREE.Material);
   const contact = new THREE.Mesh(new THREE.CircleGeometry(0.36, 20), mats.shadowCatch);
   contact.name = "discShadow";
-  contact.geometry.userData.shared = true;
+  markShared(contact.geometry);
   contact.rotation.x = -Math.PI / 2;
   contact.position.y = 0.02;
   root.add(contact, ring);
@@ -982,7 +984,7 @@ export function setHeroGhost(root: THREE.Object3D, on: boolean) {
         g.transparent = true;
         g.onBeforeCompile = base.onBeforeCompile;
         g.customProgramCacheKey = base.customProgramCacheKey;
-        g.userData.shared = true;
+        markShared(g);
         _ghosts.set(base, g);
       }
       // (re-asserted every time: nothing else may leave a twin opaque)
