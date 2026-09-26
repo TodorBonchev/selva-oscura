@@ -90,7 +90,11 @@ const MINOS_ID = "minos_gate";
 const MINOS_HP = 1750;
 /** While the borne flock lives, blows on Minos land at this share. */
 const FLOCK_WARD = 0.2;
-const FLOCK_PACK = "lust_minos_flock";
+/**
+ * The borne flock belongs to no pack (no pack-clear line, no respawn): its members are
+ * known by this id prefix (the client and the self-play bot read it too).
+ */
+const FLOCK_ID = "mob_lustflock_";
 const FLOCK_N = 3;
 const FLOCK_HP = 50;
 /** The borne flock circles its Judge ("di qua, di là, di giù, di sù li mena"). */
@@ -121,6 +125,10 @@ function rand(a, b) {
 function axisDev(a) {
   const c = Math.abs(Math.cos(a));
   return Math.acos(Math.min(1, c));
+}
+
+function isFlock(e) {
+  return e.kind === "mob" && typeof e.id === "string" && e.id.startsWith(FLOCK_ID);
 }
 
 function state(room) {
@@ -437,7 +445,7 @@ function carryFoes(room, L, dt) {
     const lover = isLover(L, e);
     if (!lover && !CARRIED.has(e.archetype)) continue;
     // (the borne flock rides its own whirl round the Judge)
-    if (e.packId === FLOCK_PACK) continue;
+    if (isFlock(e)) continue;
     if (e.dart) continue;
     if (lover && (e._lustHeldUntil || 0) > now) continue;
     if (nearestSession(room, e.x, e.y).d > CARRY_NEAR) continue;
@@ -802,7 +810,7 @@ function summonChorus(room, L, e) {
     p.y = clamp(p.y, 2, b.height - 2);
     pushOutOfRocks(L.wb, p, 0.9);
     L.chorusSeq = (L.chorusSeq || 0) + 1;
-    const id = `mob_lustflock_${L.chorusSeq}`;
+    const id = `${FLOCK_ID}${L.chorusSeq}`;
     const hp = FLOCK_HP;
     room.entities.set(id, {
       id,
@@ -814,9 +822,9 @@ function summonChorus(room, L, e) {
       homeY: e.y,
       hp,
       maxHp: hp,
-      packId: FLOCK_PACK,
-      // (a mechanic's summons: no pack-clear or road-clear lines — room.onEntityKilled;
-      // quietPack is wave3/avarice's name for the same, until the merge keeps one)
+      // (a mechanic's summons: no pack — so no pack-clear line — and `summoned`, so no
+      // road-clear line (room.onEntityKilled); quietPack is wave3/avarice's name for
+      // the same, until the merge keeps one)
       summoned: true,
       quietPack: true,
       champion: false,
@@ -878,7 +886,7 @@ function flockTick(room, L, e, dt) {
 function dismissFlock(room, L) {
   let n = 0;
   for (const f of room.entities.values()) {
-    if (f.packId !== FLOCK_PACK || f._dead) continue;
+    if (!isFlock(f) || f._dead) continue;
     f._dead = true;
     if (f.teleId) room.cancelTelegraph(f.teleId);
     room.entities.delete(f.id);
@@ -1050,7 +1058,7 @@ export default {
     tickStorm(room, L, dt);
     tickStrikes(room, L);
     let flock = 0;
-    for (const e of room.entities.values()) if (e.packId === FLOCK_PACK && e.hp > 0) flock++;
+    for (const e of room.entities.values()) if (isFlock(e) && e.hp > 0) flock++;
     if (flock !== L.flock) {
       L.flock = flock;
       room.markDirty();
@@ -1209,7 +1217,7 @@ export default {
 
   mobTick(room, e, dt) {
     const L = state(room);
-    if (!L || e.packId !== FLOCK_PACK) return false;
+    if (!L || !isFlock(e)) return false;
     return flockTick(room, L, e, dt);
   },
 

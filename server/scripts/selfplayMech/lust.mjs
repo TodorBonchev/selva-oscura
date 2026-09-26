@@ -132,7 +132,7 @@ function tally(bot, m) {
       ? "minos"
       : e.packId === "lust_champion_pair"
         ? "lovers"
-        : e.packId === "lust_minos_flock"
+        : String(e.id).startsWith("mob_lustflock_")
           ? "flock"
           : e.archetype || e.kind
     : src.startsWith("mech")

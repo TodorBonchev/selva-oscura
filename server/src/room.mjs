@@ -1142,7 +1142,7 @@ class CantoRoom {
     this.mech.onKilled?.(this, entity);
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
-    if (entity.packId && killer && !entity.summoned) {
+    if (entity.packId && killer) {
       let left = 0;
       for (const e of this.entities.values()) {
         if (e.packId === entity.packId && e.kind === "mob") left++;

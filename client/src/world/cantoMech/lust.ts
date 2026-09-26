@@ -215,7 +215,8 @@ export const lustMech: CantoMech = {
         let shade: any = null;
         let bd = Infinity;
         for (const e of ents) {
-          if (e.kind !== "mob" || e.packId !== "lust_minos_flock" || !alive(e)) continue;
+          // (the borne flock is no pack: its ids carry the server's prefix)
+          if (e.kind !== "mob" || !String(e.id).startsWith("mob_lustflock_") || !alive(e)) continue;
           const d = Math.hypot(e.x - you.x, e.y - you.y);
           if (d < bd) {
             bd = d;
