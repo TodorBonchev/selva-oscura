@@ -24,7 +24,7 @@ import {
 import { Telegraphs } from "./telegraph.mjs";
 import {
   POISE_BREAK,
-  POISE_DECAY,
+  POISE_HEAVY,
   bodyRadius,
   brake,
   chase,
@@ -667,8 +667,10 @@ class CantoRoom {
     const mech = this.mech.snapshotExtra ? this.mech.snapshotExtra(this, youSess) : undefined;
     return {
       cantoId: this.cantoId,
-      // Server clock at this snapshot: the client interpolates entities on it
-      st: Date.now(),
+      // Server clock of the tick that moved these positions (event snapshots between
+      // ticks repeat it, so the client refreshes that sample instead of adding a stale
+      // one); the client interpolates entities on it
+      st: this._tickAt && Date.now() - this._tickAt < 250 ? this._tickAt : Date.now(),
       ...(mech !== undefined ? { mech } : {}),
       title: this.canto.title,
       subtitleIt: this.canto.subtitle_it || this.canto.subtitleIt || null,
@@ -801,7 +803,10 @@ class CantoRoom {
         const champ = isChampionClass(v);
         // light stagger: its next blow comes a beat later
         v.atkCd = Math.min(1.4, (v.atkCd || 0) + (champ ? 0.05 : 0.1));
-        if (champ) v.poise = (v.poise || 0) + (extra.heavy ? 2 : 1);
+        // poise only counts blows thrown into a windup (reset when one starts)
+        if (champ && v.teleId) {
+          v.poise = (v.poise || 0) + (extra.heavy || extra.spellId === "dash" ? POISE_HEAVY : 1);
+        }
         if (v.teleId && (champ ? v.poise >= POISE_BREAK : extra.heavy)) {
           interruptAttack(this, v, champ ? 0.7 : 0.4);
         }
@@ -1727,6 +1732,21 @@ class CantoRoom {
     pushMob(e, dx, dy, Math.hypot(dx, dy));
   }
 
+  /** A blow met a dash / respawn iframe: the "safe" beat (no HP) everyone sees. */
+  dodgeBeat(target, attacker, extra = {}) {
+    this.broadcast({
+      type: "combat",
+      attackerId: attacker?.id ?? null,
+      targetId: target.playerId,
+      targetIsPlayer: true,
+      damage: 0,
+      soaked: 0,
+      iframeBlocked: true,
+      targetHp: target.hp,
+      ...extra,
+    });
+  }
+
   /**
    * A blow lands on a player: canto onDamage hook, dash/respawn iframes (a "safe"
    * beat, no HP), armor, the combat broadcast, death → wake at the entrance.
@@ -1736,17 +1756,7 @@ class CantoRoom {
     if (!target || !(target.hp > 0)) return 0;
     const attackerId = attacker?.id ?? null;
     if (target.iframes > 0) {
-      this.broadcast({
-        type: "combat",
-        attackerId,
-        targetId: target.playerId,
-        targetIsPlayer: true,
-        damage: 0,
-        soaked: 0,
-        iframeBlocked: true,
-        targetHp: target.hp,
-        ...extra,
-      });
+      this.dodgeBeat(target, attacker, extra);
       return 0;
     }
     let raw = dmg;
@@ -1855,6 +1865,7 @@ class CantoRoom {
 
   tick(dt) {
     if (this.sessions.size === 0) return;
+    this._tickAt = Date.now();
     this.tickPackRespawns(dt);
     this.tickBossRespawns(dt);
     let manaDirty = false;
@@ -1906,7 +1917,6 @@ class CantoRoom {
       if (e.atkCd > 0) e.atkCd = Math.max(0, e.atkCd - dt);
       if (e.windupLeft > 0) e.windupLeft = Math.max(0, e.windupLeft - dt);
       if (e.staggerLeft > 0) e.staggerLeft = Math.max(0, e.staggerLeft - dt);
-      if (e.poise > 0) e.poise = Math.max(0, e.poise - POISE_DECAY * dt);
       // (a telegraph cancelled from outside — a mechanic — frees its owner too)
       if (e.teleId && !this.tele.get(e.teleId)) {
         e.teleId = null;

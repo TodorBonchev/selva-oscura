@@ -12,7 +12,7 @@
 export const ATTACKS = {
   // Shades: a lunging claw swipe in front — step back or sideways out of the cone. It
   // starts while the shade is still closing (trigger > slot), and the lunge carries it in.
-  swipe: { shape: "cone", windup: 0.4, radius: 3.0, arc: 1.95, trigger: 2.9, recover: 0.45, kind: "shade_swipe", lunge: 0.45 },
+  swipe: { shape: "cone", windup: 0.4, radius: 3.0, arc: 1.95, trigger: 2.9, recover: 0.45, kind: "shade_swipe", lunge: 0.6 },
   // Wisps: coil, then dart along a short line (the wisp really moves along it)
   dart: { shape: "line", windup: 0.28, length: 4.8, width: 1.15, trigger: 4.2, minTrigger: 0.8, recover: 1.05, kind: "wisp_dart", dartDur: 0.16 },
   // Champions: overhead slam around them (Avarice weights raise their discs for it)
@@ -81,19 +81,26 @@ export function bodyRadius(e, cantoId) {
 /** Knockback distance (world units) a player blow gives, by weight class. */
 export function knockbackFor(e, heavy) {
   if (e.kind === "boss" || (e.archetype || "").endsWith("_heart")) return 0;
-  if (isChampionClass(e)) return heavy ? 0.28 : 0.1;
-  return heavy ? 0.8 : 0.3;
+  if (isChampionClass(e)) return heavy ? 0.3 : 0.1;
+  return heavy ? 0.9 : 0.35;
 }
 
-/** Poise: this many "hits" inside the decay window interrupt a champion windup. */
-export const POISE_BREAK = 4;
-export const POISE_DECAY = 1.4; // per second
+/**
+ * Poise: blows that land DURING a champion's windup build it — a plain blow or spell
+ * +1, a finisher or a dash cut +POISE_HEAVY — and POISE_BREAK breaks the windup
+ * (telegraph_cancel + stagger). It resets when a windup starts, so the break always
+ * answers blows thrown into that windup: a finisher plus one more blow, or three
+ * blows from a party.
+ */
+export const POISE_BREAK = 3;
+export const POISE_HEAVY = 2;
 const KB_RATE = 11; // impulse decay (1/s): the shove lands over ~0.2 s
 
 /** Give a mob a knockback impulse of `dist` world units along (dx,dy). */
 export function pushMob(e, dx, dy, dist) {
   const l = Math.hypot(dx, dy);
   if (!(l > 1e-4) || !(dist > 0)) return;
+  // v0 = dist·KB_RATE: the exact decay in tickImpulse travels exactly `dist`
   e.kvx = (e.kvx || 0) + (dx / l) * dist * KB_RATE;
   e.kvy = (e.kvy || 0) + (dy / l) * dist * KB_RATE;
 }
@@ -123,9 +130,11 @@ export function tickImpulse(e, dt, bounds) {
     moved = true;
   }
   if (e.kvx || e.kvy) {
-    e.x += e.kvx * dt;
-    e.y += e.kvy * dt;
+    // exact integral of v·e^(−k·t) over the tick (explicit Euler overshot by ~1.4×)
     const f = Math.exp(-KB_RATE * dt);
+    const g = (1 - f) / KB_RATE;
+    e.x += e.kvx * g;
+    e.y += e.kvy * g;
     e.kvx *= f;
     e.kvy *= f;
     if (Math.abs(e.kvx) + Math.abs(e.kvy) < 0.05) {
@@ -316,7 +325,9 @@ export function startAttack(room, e, target, targetD, dmg, over = null) {
     duration: p.windup * 1000,
     kind: p.kind,
     dmg,
-    onResolve: (r, t) => {
+    // the blow lands: the mob's own motion starts on the deadline (hits are judged
+    // right after, laggy players a grace later — telegraph.mjs)
+    onLand: (r, t) => {
       if (e.teleId !== t.id) return;
       e.teleId = null;
       e.windupLeft = 0;
@@ -357,6 +368,7 @@ export function startAttack(room, e, target, targetD, dmg, over = null) {
   e.teleId = t.id;
   e.windupLeft = p.windup;
   e.windupMax = p.windup;
+  e.poise = 0;
   e.hd = dir;
   // atkCd covers the windup; recover is added when it resolves
   e.atkCd = p.windup + 0.05;

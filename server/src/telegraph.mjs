@@ -11,14 +11,44 @@
  *
  * Wire: { type: "telegraph", id, attackerId, shape, x, y, dir, radius, length, width,
  *         arc, inner, duration (ms), kind, dmg } — and { type: "telegraph_cancel", id }.
- * The client draws the fill growing to the edge over `duration`; the server resolves
- * at the end of it (tick granularity, ≤66 ms late).
+ * The client draws the fill growing to the edge over `duration` from when it receives
+ * the message; the server lands it at the end of `duration` (tick granularity).
+ *
+ * Lag compensation (favour the defender): a dodge the player makes as the fill ends on
+ * their screen reaches us about one round trip after the server's deadline. So landing
+ * only picks the candidates (players inside the shape right then); each is judged
+ * `dodgeGrace(sess)` later (their reported RTT + a move-packet beat, capped at
+ * GRACE_CAP_MS): still inside and not dashing → hit. Walking in after the deadline
+ * never counts. Clients whose RTT exceeds the cap shorten their fill by the excess
+ * (client telegraphs.ts), so the visible deadline stays honest. Bots report no RTT
+ * and are judged at the deadline.
  *
  * Pure geometry (pointInShape / shapeExit) is shared with scripts/selfplay.mjs so the
  * bot dodges the exact shape the server tests.
  */
 
 let teleSeq = 0;
+
+/** Longest a landed blow waits for a laggy player's dodge (client mirrors it). */
+export const GRACE_CAP_MS = 220;
+/** A step out rides the next move packet (client MOVE_SEND_MS 50): half of it on average. */
+const MOVE_PACKET_MS = 30;
+/** Round trip (ms) each connection reports with its pings; absent = unknown (bots). */
+const rtts = new WeakMap();
+
+/** index.mjs: a client's ping carried its measured round trip. */
+export function noteClientRtt(ws, ms) {
+  const v = Number(ms);
+  if (!ws || !Number.isFinite(v) || v < 0) return;
+  rtts.set(ws, Math.min(2000, v));
+}
+
+/** Seconds a landed telegraph waits before judging this player (0 when RTT unknown). */
+export function dodgeGrace(sess) {
+  const r = sess?.ws ? rtts.get(sess.ws) : undefined;
+  if (!(r > 0)) return 0;
+  return Math.min(GRACE_CAP_MS, r + MOVE_PACKET_MS) / 1000;
+}
 
 function wrapAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -149,14 +179,21 @@ function wire(t) {
 export class Telegraphs {
   constructor(room) {
     this.room = room;
-    /** @type {any[]} live telegraphs, resolved in start order */
+    /** @type {any[]} live telegraphs (still winding up), landed in start order */
     this.live = [];
+    /** @type {any[]} landed telegraphs still judging laggy candidates (dodge grace) */
+    this.judging = [];
   }
 
   /**
    * Start a telegraph. spec: { attackerId, shape, x, y, dir, radius, length, width, arc,
-   * inner, duration (ms), kind, dmg, onResolve(room, t, hits), onHit(room, t, sess) → dmg,
-   * noDamage }. Returns the telegraph (its `id` is on the wire).
+   * inner, duration (ms), kind, dmg, noDamage, extra (merged into the wire message),
+   *   onLand(room, t)          at the deadline, before anyone is judged — the attacker's
+   *                            own motion (lunge, dart), hazards that spawn on impact,
+   *   onHit(room, t, sess) → dmg   per player about to be hit (null/0 spares them),
+   *   onResolve(room, t, hits) once every candidate was judged (≤ GRACE_CAP_MS after
+   *                            the deadline; at once when nobody is laggy) }.
+   * Returns the telegraph (its `id` is on the wire).
    */
   start(spec) {
     teleSeq += 1;
@@ -176,10 +213,16 @@ export class Telegraphs {
       left: Math.max(0.06, (Number(spec.duration) || 500) / 1000),
       kind: spec.kind || "slam",
       dmg: Math.max(0, Math.round(Number(spec.dmg) || 0)),
+      onLand: spec.onLand || null,
       onResolve: spec.onResolve || null,
       onHit: spec.onHit || null,
       noDamage: Boolean(spec.noDamage),
       extra: spec.extra || null,
+      // landing state
+      attacker: null,
+      age: 0,
+      cands: null,
+      hits: null,
     };
     this.live.push(t);
     const msg = wire(t);
@@ -204,16 +247,26 @@ export class Telegraphs {
     }
   }
 
+  /** A telegraph still winding up (landed ones are no longer cancellable). */
   get(id) {
     return this.live.find((t) => t.id === id) || null;
   }
 
   clear() {
     this.live.length = 0;
+    this.judging.length = 0;
   }
 
-  /** Count down; resolve the due ones against every player inside the shape. */
+  /** Count down; land the due ones; judge laggy candidates whose grace ran out. */
   tick(dt) {
+    if (this.judging.length) {
+      let w = 0;
+      for (const t of this.judging) {
+        t.age += dt;
+        if (!this.judge(t)) this.judging[w++] = t;
+      }
+      this.judging.length = w;
+    }
     if (!this.live.length) return;
     let due = null;
     for (let i = this.live.length - 1; i >= 0; i--) {
@@ -224,38 +277,69 @@ export class Telegraphs {
       (due || (due = [])).unshift(t);
     }
     if (!due) return;
-    for (const t of due) this.resolve(t);
+    for (const t of due) this.land(t);
   }
 
-  resolve(t) {
+  /** The windup is over: the attacker moves, candidates are picked, prompt ones judged. */
+  land(t) {
     const room = this.room;
     const attacker = t.attackerId ? room.entities.get(t.attackerId) : null;
     // A mob that died or was reset mid-windup never lands the blow
     if (t.attackerId && !attacker && !String(t.attackerId).startsWith("mech")) return;
-    const hits = [];
+    t.attacker = attacker || { id: t.attackerId };
+    if (t.onLand) t.onLand(room, t);
+    t.hits = [];
+    t.cands = [];
     if (!t.noDamage) {
-      for (const s of [...room.sessions.values()]) {
-        if (!(s.hp > 0)) continue;
-        if (!pointInShape(t, s.x, s.y)) continue;
-        let dmg = t.dmg;
-        if (t.onHit) dmg = t.onHit(room, t, s);
-        if (dmg == null || dmg <= 0) continue;
-        hits.push(s);
-        const taken = room.hitPlayer(s, attacker || { id: t.attackerId }, dmg, {
-          teleKind: t.kind,
-          teleId: t.id,
-          champTele: t.kind === "champ_slam" || undefined,
-        });
-        // Slams throw you off your feet a little (not on the respawn that a kill causes)
-        const shove = t.kind === "boss_slam" ? 0.9 : t.kind === "champ_slam" ? 0.45 : 0;
-        if (taken > 0 && shove > 0 && !(s.iframes > 0)) {
-          const dx = s.x - t.x;
-          const dy = s.y - t.y;
-          const l = Math.hypot(dx, dy) || 1;
-          room.shovePlayer(s, (dx / l) * shove, (dy / l) * shove, 200);
-        }
+      for (const s of room.sessions.values()) {
+        if (!(s.hp > 0) || !pointInShape(t, s.x, s.y)) continue;
+        // (dashed through the deadline: safe even if the iframes lapse during the grace)
+        t.cands.push({ s, at: dodgeGrace(s), iframed: s.iframes > 0, done: false });
       }
     }
-    if (t.onResolve) t.onResolve(room, t, hits);
+    if (!this.judge(t)) this.judging.push(t);
+  }
+
+  /** Judge the candidates whose grace is up; true once all of them are. */
+  judge(t) {
+    const room = this.room;
+    let open = 0;
+    for (const c of t.cands) {
+      if (c.done) continue;
+      if (c.at > t.age + 1e-6) {
+        open++;
+        continue;
+      }
+      c.done = true;
+      const s = c.s;
+      // left the room, died meanwhile, or stepped out during the grace
+      if (room.sessions.get(s.playerId) !== s || !(s.hp > 0)) continue;
+      if (c.at > 0 && !pointInShape(t, s.x, s.y)) continue;
+      let dmg = t.dmg;
+      if (t.onHit) dmg = t.onHit(room, t, s);
+      if (dmg == null || dmg <= 0) continue;
+      const extra = {
+        teleKind: t.kind,
+        teleId: t.id,
+        champTele: t.kind === "champ_slam" || undefined,
+      };
+      if (c.iframed && !(s.iframes > 0)) {
+        room.dodgeBeat(s, t.attacker, extra);
+        continue;
+      }
+      t.hits.push(s);
+      const taken = room.hitPlayer(s, t.attacker, dmg, extra);
+      // Slams throw you off your feet a little (not on the respawn that a kill causes)
+      const shove = t.kind === "boss_slam" ? 0.9 : t.kind === "champ_slam" ? 0.45 : 0;
+      if (taken > 0 && shove > 0 && !(s.iframes > 0)) {
+        const dx = s.x - t.x;
+        const dy = s.y - t.y;
+        const l = Math.hypot(dx, dy) || 1;
+        room.shovePlayer(s, (dx / l) * shove, (dy / l) * shove, 200);
+      }
+    }
+    if (open > 0) return false;
+    if (t.onResolve) t.onResolve(room, t, t.hits);
+    return true;
   }
 }

@@ -27,6 +27,7 @@ function loadLocalEnv() {
 }
 loadLocalEnv();
 import { World } from "./src/room.mjs";
+import { noteClientRtt } from "./src/telegraph.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
 import { getEmitLog, vault, resolvePlayerForSession } from "./src/ledger.mjs";
@@ -161,7 +162,10 @@ async function handleMessage(ws, meta, msg) {
       break;
     }
     case "ping": {
-      send(ws, { type: "pong", t: Date.now() });
+      // The client echoes its own clock (c) to measure the round trip, and reports the
+      // last one (rtt): telegraphs give laggy players that long to dodge (telegraph.mjs)
+      if (msg.rtt != null) noteClientRtt(ws, msg.rtt);
+      send(ws, { type: "pong", t: Date.now(), c: Number.isFinite(Number(msg.c)) ? Number(msg.c) : undefined });
       break;
     }
     case "move": {

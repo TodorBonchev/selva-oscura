@@ -27,8 +27,10 @@
  *   mobTick(room, e, dt) → bool        return true to replace the default mob AI this tick.
  *
  * Helpers on the room for mechanics:
- *   room.telegraph(spec) → t           ground telegraph (telegraph.mjs; spec.onResolve,
- *                                      spec.onHit, attackerId "mech:<name>" or a mob id)
+ *   room.telegraph(spec) → t           ground telegraph (telegraph.mjs; spec.onLand at
+ *                                      the deadline, spec.onHit per player, spec.onResolve
+ *                                      once all are judged — laggy players get a dodge
+ *                                      grace ≤ 220 ms; attackerId "mech:<name>" or a mob id)
  *   room.cancelTelegraph(id)
  *   room.shovePlayer(sess, dx, dy, durMs)   pushes the player (server + {type:"shove"})
  *   room.statusPlayer(sess, { slow, root, durMs })   {type:"status"}; slow is a speed
