@@ -21,6 +21,23 @@ import {
   MANA_REGEN_PER_SEC,
   spellById,
 } from "./spells.mjs";
+import { Telegraphs } from "./telegraph.mjs";
+import {
+  POISE_BREAK,
+  POISE_DECAY,
+  bodyRadius,
+  brake,
+  chase,
+  interruptAttack,
+  isChampionClass,
+  knockbackFor,
+  pushMob,
+  startAttack,
+  tickImpulse,
+  unstick,
+  walkTo,
+} from "./mobAi.mjs";
+import { getMech } from "./cantoMech/index.mjs";
 
 const ATTACK_RANGE = 3.5;
 /** Generous loot / POI reach so mobile players rarely see "Too far". */
@@ -48,39 +65,56 @@ const PLAYER_ATK_CD = 0.42;
  * 0.44 s and sends at blade contact, so every honest swing lands.
  */
 const PLAYER_ATK_GRACE = 0.06;
+/** Hits closer together than this chain the melee combo (the hero's 3-swing cadence). */
+const COMBO_CHAIN_MS = 900;
+/** The 3rd blow of a chain (the client's overhead finisher) hits harder and shoves. */
+const FINISHER_MULT = 1.3;
+/** Walking speed the client predicts at (units/s) — the move budget under slow/root. */
+const PLAYER_WALK_SPEED = 8;
+/** A boss dragged this far off its dais walks home and resets. */
+const BOSS_LEASH = 20;
+/** Seconds with nobody near before a boss starts knitting its wounds. */
+const BOSS_IDLE_HEAL_AFTER = 8;
+/** Gale Bolt flight speed (units/s); the client bolt flies for the same `duration`. */
+const GALE_BOLT_SPEED = 32;
 
+/**
+ * Fodder HP sits at two honest blows: a swing lands every ~0.44 s, so a pack gets its
+ * telegraphed swipes off while you cut the first one down (one-hit fodder never swung).
+ */
 const MOB_HP = {
-  whirl_shade: 36,
-  gale_wisp: 16,
+  whirl_shade: 45,
+  gale_wisp: 20,
   gale_warden: 120,
   storm_heart: 90,
   gale_champion: 80,
   // Gluttony / mire archetypes (circle 3)
-  mire_shade: 40,
-  mud_wisp: 18,
+  mire_shade: 50,
+  mud_wisp: 22,
   mire_warden: 130,
   mire_heart: 100,
   mire_champion: 88,
   // Avarice / weight archetypes (circle 4)
-  weight_shade: 44,
-  coin_wisp: 20,
+  weight_shade: 55,
+  coin_wisp: 25,
   ledger_warden: 140,
   hoard_heart: 110,
   weight_champion: 96,
   boss: 200,
 };
 
+/** Per landed blow. Every attack is telegraphed now, so a blow that lands hits harder. */
 const MOB_DMG = {
-  whirl_shade: 6,
-  gale_wisp: 4,
+  whirl_shade: 8,
+  gale_wisp: 6,
   gale_warden: 11,
   gale_champion: 12,
-  mire_shade: 6,
-  mud_wisp: 4,
+  mire_shade: 8,
+  mud_wisp: 6,
   mire_warden: 12,
   mire_champion: 13,
-  weight_shade: 7,
-  coin_wisp: 4,
+  weight_shade: 9,
+  coin_wisp: 6,
   ledger_warden: 13,
   weight_champion: 13,
   boss: 20,
@@ -157,6 +191,21 @@ function heartWards(room, e) {
   }
   return false;
 }
+
+/** Avarice coin wisps weave while they chase (greed that slips). */
+function avaCoinWeave(e, sx, sy, dt) {
+  e._weaveT = (e._weaveT || 0) + dt;
+  // Milder weave so burst (r≈4.2) still covers the pack cluster
+  const weave = Math.sin(e._weaveT * 5.2 + (e.x || 0) * 0.2) * 0.32;
+  let wx = sx - sy * weave;
+  let wy = sy + sx * weave;
+  const l = Math.hypot(wx, wy) || 1;
+  return [wx / l, wy / l];
+}
+
+/** Avarice weight champions raise their discs a touch longer (0.62 s vs 0.55 s). */
+const AVA_CHAMP_WIND = { windup: 0.62 };
+const ATTACKS_WARDEN = new Set(["gale_warden", "mire_warden", "ledger_warden"]);
 
 /** Remember every player who hurt a boss so a shared kill credits them all. */
 function noteBossHit(e, playerId) {
@@ -266,6 +315,12 @@ class CantoRoom {
     this.packRespawns = [];
     this._packRespawnStagger = 0;
     this._packRespawnClock = 0;
+    /** Ground telegraphs (windup attacks, boss slams, mechanic hazards). */
+    this.tele = new Telegraphs(this);
+    /** Delayed effects (gale bolt arrival…): { left, fn } */
+    this.pending = [];
+    /** Canto mechanic hooks (cantoMech/*); {} when the canto has none. */
+    this.mech = getMech(cantoId);
     this.spawnWorld();
   }
 
@@ -313,6 +368,9 @@ class CantoRoom {
 
     for (const boss of this.canto.bosses || []) this.spawnBoss(boss);
     enforceSpawnKeepout(this);
+    this.tele?.clear();
+    if (this.pending) this.pending.length = 0;
+    this.mech?.init?.(this);
   }
 
   spawnBoss(boss) {
@@ -606,8 +664,12 @@ class CantoRoom {
       // Local "you" snapshot below stays full.
       playerSnaps.push(pid === forPlayerId ? full : slimRemotePlayerSnap(full));
     }
+    const mech = this.mech.snapshotExtra ? this.mech.snapshotExtra(this, youSess) : undefined;
     return {
       cantoId: this.cantoId,
+      // Server clock at this snapshot: the client interpolates entities on it
+      st: Date.now(),
+      ...(mech !== undefined ? { mech } : {}),
       title: this.canto.title,
       subtitleIt: this.canto.subtitle_it || this.canto.subtitleIt || null,
       role: this.canto.role,
@@ -647,7 +709,11 @@ class CantoRoom {
   handleMove(playerId, x, y) {
     const s = this.sessions.get(playerId);
     if (!s) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const b = this.canto.geo.bounds;
+    const now = Date.now();
+    const dtMove = s._lastMoveAt ? Math.min(0.5, Math.max(0.016, (now - s._lastMoveAt) / 1000)) : 0.05;
+    s._lastMoveAt = now;
     const dx = x - s.x;
     const dy = y - s.y;
     const d = Math.hypot(dx, dy);
@@ -655,6 +721,30 @@ class CantoRoom {
       const scale = MOVE_SPEED / d;
       x = s.x + dx * scale;
       y = s.y + dy * scale;
+    }
+    // Mechanic status: rooted feet stay put; a slow caps the step to the slowed walk
+    // (plus any shove the client is still playing out)
+    const st = s.status;
+    if (st && st.until > now) {
+      if (st.root) {
+        x = s.x;
+        y = s.y;
+      } else if (st.slow < 1) {
+        const allow = PLAYER_WALK_SPEED * st.slow * dtMove * 1.35 + 0.25 + (s.shoveAllow || 0);
+        const sd = Math.hypot(x - s.x, y - s.y);
+        if (sd > allow) {
+          x = s.x + ((x - s.x) / sd) * allow;
+          y = s.y + ((y - s.y) / sd) * allow;
+        }
+      }
+    }
+    if (s.shoveAllow > 0) s.shoveAllow = Math.max(0, s.shoveAllow - PLAYER_WALK_SPEED * dtMove);
+    if (this.mech.adjustMove) {
+      const to = this.mech.adjustMove(this, s, { x: s.x, y: s.y }, { x, y }, dtMove);
+      if (to && Number.isFinite(to.x) && Number.isFinite(to.y)) {
+        x = to.x;
+        y = to.y;
+      }
     }
     let nx = clamp(x, 0.5, b.width - 0.5);
     let ny = clamp(y, 0.5, b.height - 0.5);
@@ -665,33 +755,73 @@ class CantoRoom {
       s._lastFaceX = mdx / ml;
       s._lastFaceY = mdy / ml;
     }
-    // Avarice: soft separation from rollers so pathing doesn't clip through weights
-    if (this.cantoId === "inferno_07") {
-      for (const e of this.entities.values()) {
-        if (e.kind !== "mob" || !(e.hp > 0)) continue;
-        const arch = e.archetype || "";
-        if (
-          arch !== "weight_shade" &&
-          arch !== "weight_champion" &&
-          arch !== "coin_wisp"
-        )
-          continue;
-        if ((e.stunLeft || 0) > 0.05) continue; // still measure — walk through
-        const rad = arch === "coin_wisp" ? 0.85 : arch === "weight_champion" ? 1.35 : 1.1;
-        const dR = Math.hypot(nx - e.x, ny - e.y);
-        if (dR >= rad || dR < 0.001) continue;
-        const ux = (nx - e.x) / dR;
-        const uy = (ny - e.y) / dR;
-        nx = clamp(e.x + ux * rad, 0.5, b.width - 0.5);
-        ny = clamp(e.y + uy * rad, 0.5, b.height - 0.5);
-      }
+    // Bodies: pilgrims slide around foes instead of walking through them (every canto;
+    // the client predicts the same push-out). Bell-stilled foes can be walked through.
+    for (const e of this.entities.values()) {
+      if ((e.kind !== "mob" && e.kind !== "boss") || !(e.hp > 0)) continue;
+      if ((e.stunLeft || 0) > 0.05) continue;
+      const rad = bodyRadius(e, this.cantoId);
+      const ex = nx - e.x;
+      const ey = ny - e.y;
+      if (Math.abs(ex) >= rad || Math.abs(ey) >= rad) continue;
+      const dR = Math.hypot(ex, ey);
+      if (dR >= rad || dR < 0.001) continue;
+      nx = clamp(e.x + (ex / dR) * rad, 0.5, b.width - 0.5);
+      ny = clamp(e.y + (ey / dR) * rad, 0.5, b.height - 0.5);
     }
     s.x = nx;
     s.y = ny;
     this.markDirty();
   }
 
-  handleAttack(playerId, targetId) {
+  /**
+   * A player's blow lands on a mob or boss: canto onDamage hook, HP, boss credit,
+   * reactions (knockback impulse, light stagger on atkCd, poise that breaks a champion
+   * windup; a heavy blow breaks a fodder windup), the combat broadcast and the kill.
+   * extra: { spellId, heavy, from: {x,y} (knockback source), kbMul }. Returns the damage.
+   */
+  damageMob(v, hit, playerId, extra = {}) {
+    if (!v || v._dead) return 0;
+    if (this.mech.onDamage) {
+      hit = this.mech.onDamage(this, v, hit, {
+        id: playerId,
+        kind: "player",
+        playerId,
+        spellId: extra.spellId,
+      });
+    }
+    hit = Math.max(0, Math.round(Number(hit) || 0));
+    v.hp = Math.max(0, v.hp - hit);
+    noteBossHit(v, playerId);
+    let kb = 0;
+    if (v.hp > 0 && !HEART_ARCHETYPES.has(v.archetype)) {
+      kb = knockbackFor(v, extra.heavy) * (extra.kbMul ?? 1);
+      if (extra.from && kb > 0) pushMob(v, v.x - extra.from.x, v.y - extra.from.y, kb);
+      if (v.kind === "mob") {
+        const champ = isChampionClass(v);
+        // light stagger: its next blow comes a beat later
+        v.atkCd = Math.min(1.4, (v.atkCd || 0) + (champ ? 0.05 : 0.1));
+        if (champ) v.poise = (v.poise || 0) + (extra.heavy ? 2 : 1);
+        if (v.teleId && (champ ? v.poise >= POISE_BREAK : extra.heavy)) {
+          interruptAttack(this, v, champ ? 0.7 : 0.4);
+        }
+      }
+    }
+    this.broadcast({
+      type: "combat",
+      attackerId: playerId,
+      targetId: v.id,
+      damage: hit,
+      targetHp: v.hp,
+      spellId: extra.spellId,
+      heavy: extra.heavy || undefined,
+      kb: kb > 0 ? +kb.toFixed(2) : undefined,
+    });
+    if (v.hp <= 0) this.onEntityKilled(playerId, v);
+    return hit;
+  }
+
+  handleAttack(playerId, targetId, combo) {
     const s = this.sessions.get(playerId);
     if (!s) return;
     const now = Date.now();
@@ -712,8 +842,15 @@ class CantoRoom {
     }
     s.atkCd = PLAYER_ATK_CD;
     s.atkReadyAt = Math.max(now, s.atkReadyAt || 0) + PLAYER_ATK_CD * 1000;
+    // Combo: the client swings forehand → backhand → overhead (combo 0/1/2). The
+    // server counts the chain itself, so a finisher needs two blows landed before it.
+    const chain = now - (s.lastBlowAt || 0) < COMBO_CHAIN_MS ? (s.chain || 0) + 1 : 0;
+    const finisher = Number(combo) === 2 && chain >= 2;
+    s.chain = finisher ? -1 : chain;
+    s.lastBlowAt = now;
     const gear = computeGearStats(players.get(playerId) || { inventory: [] });
-    const dmg = PLAYER_BASE_DMG + gear.dmg + Math.floor(Math.random() * 6);
+    let dmg = PLAYER_BASE_DMG + gear.dmg + Math.floor(Math.random() * 6);
+    if (finisher) dmg = Math.round(dmg * FINISHER_MULT);
     const victims = [target];
     for (const e of this.entities.values()) {
       if (e === target || (e.kind !== "mob" && e.kind !== "boss")) continue;
@@ -721,28 +858,19 @@ class CantoRoom {
       if (dist(target, e) > 2.6) continue;
       victims.push(e);
     }
-    let anyDead = false;
     for (const v of victims) {
       if (v._dead) continue;
       let hit = v === target ? dmg : Math.max(8, Math.round(dmg * 0.55));
       if (heartWards(this, v)) hit = Math.max(1, Math.round(hit * 0.7));
-      v.hp = Math.max(0, v.hp - hit);
-      noteBossHit(v, playerId);
-      this.broadcast({
-        type: "combat",
-        attackerId: playerId,
-        targetId: v.id,
-        damage: hit,
-        targetHp: v.hp,
+      this.damageMob(v, hit, playerId, {
+        heavy: finisher,
+        from: s,
+        kbMul: v === target ? 1 : 0.6,
       });
-      if (v.hp <= 0) {
-        anyDead = true;
-        this.onEntityKilled(playerId, v);
-      }
     }
     // The combat broadcasts carry targetHp; the next tick's snapshot (<=80ms) syncs the
     // rest instead of an extra ~8KB snapshot to every player on every swing
-    if (!anyDead) this.markDirty();
+    this.markDirty();
   }
 
   handleCast(playerId, spellId, aimX, aimY) {
@@ -856,16 +984,8 @@ class CantoRoom {
         Math.floor(Math.random() * (spell.damageVar + 1));
       if (heartWards(this, target)) dmg = Math.max(1, Math.round(dmg * 0.7));
       dmg = Math.max(1, Math.round(dmg * weightMatchupMult(spell.id, target)));
-      target.hp = Math.max(0, target.hp - dmg);
-      noteBossHit(target, playerId);
-      this.broadcast({
-        type: "combat",
-        attackerId: playerId,
-        targetId: target.id,
-        damage: dmg,
-        targetHp: target.hp,
-        spellId: spell.id,
-      });
+      // The bolt flies (≈32 u/s): the blow lands when it arrives, not on the cast frame
+      const travel = Math.min(0.32, Math.max(0.08, dist(s, target) / GALE_BOLT_SPEED));
       this.broadcast({
         type: "spell_fx",
         spellId: spell.id,
@@ -874,12 +994,14 @@ class CantoRoom {
         y: s.y,
         tx: target.x,
         ty: target.y,
+        duration: +travel.toFixed(3),
       });
-      if (target.hp <= 0) {
-        this.onEntityKilled(playerId, target);
-      } else {
-        this.markDirty(); // combat msg carries targetHp; tick snapshot follows
-      }
+      const from = { x: s.x, y: s.y };
+      this.schedule(travel, () => {
+        if (target._dead || !this.entities.has(target.id)) return;
+        this.damageMob(target, dmg, playerId, { spellId: spell.id, from });
+      });
+      this.markDirty(); // mana rides the tick snapshot
     } else {
       this.broadcast({
         type: "spell_fx",
@@ -889,6 +1011,7 @@ class CantoRoom {
         y: s.y,
         tx,
         ty,
+        duration: 0.28,
       });
       this.toast(s.ws, "info", "Gale Bolt lashes empty air…");
       this.pushSnapshot(playerId);
@@ -927,17 +1050,7 @@ class CantoRoom {
       let dmg = base + Math.floor(Math.random() * 5);
       if (heartWards(this, e)) dmg = Math.max(1, Math.round(dmg * 0.7));
       dmg = Math.max(1, Math.round(dmg * weightMatchupMult(spell.id, e)));
-      e.hp = Math.max(0, e.hp - dmg);
-      noteBossHit(e, playerId);
-      hit.push({ id: e.id, dmg, hp: e.hp, ent: e });
-      this.broadcast({
-        type: "combat",
-        attackerId: playerId,
-        targetId: e.id,
-        damage: dmg,
-        targetHp: e.hp,
-        spellId: spell.id,
-      });
+      hit.push({ ent: e, dmg });
     }
     this.broadcast({
       type: "spell_fx",
@@ -947,9 +1060,8 @@ class CantoRoom {
       y: s.y,
       radius: spell.radius,
     });
-    for (const h of hit) {
-      if (h.hp <= 0) this.onEntityKilled(playerId, h.ent);
-    }
+    // The burst blows everything outward (heavy shove)
+    for (const h of hit) this.damageMob(h.ent, h.dmg, playerId, { spellId: spell.id, from: s, heavy: true });
     // Combat msgs carry targetHp (kills already pushed); mana rides the next tick snapshot
     this.markDirty();
   }
@@ -959,6 +1071,8 @@ class CantoRoom {
     // Infernal Burst, Dash) still holds — never pay out the same corpse twice.
     if (!entity || entity._dead || !this.entities.has(entity.id)) return;
     entity._dead = true;
+    // A windup dies with its owner
+    if (entity.teleId) this.tele.cancelBy(entity.id, "death");
     const killer = this.sessions.get(killerId);
     const ledger = players.get(killerId);
     const dropTable = entity.dropTable || "inferno_pack_common";
@@ -1006,17 +1120,7 @@ class CantoRoom {
       for (const e of [...this.entities.values()]) {
         if (e === entity || e.kind !== "mob" || e._dead) continue;
         if (Math.hypot(e.x - entity.x, e.y - entity.y) > 14) continue;
-        const burst = 22;
-        e.hp = Math.max(0, e.hp - burst);
-        this.broadcast({
-          type: "combat",
-          attackerId: killerId,
-          targetId: e.id,
-          damage: burst,
-          targetHp: e.hp,
-          spellId: "heart",
-        });
-        if (e.hp <= 0) this.onEntityKilled(killerId, e);
+        this.damageMob(e, 22, killerId, { spellId: "heart", from: entity, heavy: true });
       }
       if (killer) this.toast(
         killer.ws,
@@ -1029,6 +1133,8 @@ class CantoRoom {
       );
     }
 
+    // Canto mechanic sees the kill with the loot on the ground (entity still listed)
+    this.mech.onKilled?.(this, entity);
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
     if (entity.packId && killer) {
@@ -1154,35 +1260,34 @@ class CantoRoom {
     dy /= len;
     const step = 5.5;
     const b = this.canto.geo.bounds;
+    const fromX = s.x;
+    const fromY = s.y;
     s.x = Math.max(2, Math.min(b.width - 2, s.x + dx * step));
     s.y = Math.max(2, Math.min(b.height - 2, s.y + dy * step));
     s._lastFaceX = dx;
     s._lastFaceY = dy;
     s.iframes = Math.max(s.iframes || 0, 0.35);
     s.dashCd = 4;
-    const fromX = s.x - dx * step;
-    const fromY = s.y - dy * step;
+    const segX = s.x - fromX;
+    const segY = s.y - fromY;
+    const segL2 = segX * segX + segY * segY || 1;
     let cut = 0;
     for (const e of [...this.entities.values()]) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
       if (e._dead) continue;
-      const d0 = Math.hypot(e.x - fromX, e.y - fromY);
-      const d1 = Math.hypot(e.x - s.x, e.y - s.y);
-      if (Math.min(d0, d1) > 2.2) continue;
+      // Everything the dash passes through (distance to the path segment), not just
+      // what stands near its two ends
+      const u = Math.max(0, Math.min(1, ((e.x - fromX) * segX + (e.y - fromY) * segY) / segL2));
+      const px = fromX + segX * u;
+      const py = fromY + segY * u;
+      if (Math.hypot(e.x - px, e.y - py) > 1.6 + bodyRadius(e, this.cantoId) * 0.5) continue;
       let dmg = e.kind === "boss" ? 12 : 18;
       if (heartWards(this, e)) dmg = Math.max(1, Math.round(dmg * 0.7));
-      e.hp = Math.max(0, e.hp - dmg);
-      noteBossHit(e, playerId);
       cut++;
-      this.broadcast({
-        type: "combat",
-        attackerId: playerId,
-        targetId: e.id,
-        damage: dmg,
-        targetHp: e.hp,
-        spellId: "dash",
-      });
-      if (e.hp <= 0) this.onEntityKilled(playerId, e);
+      // shoved aside, off the dash line
+      const off = Math.hypot(e.x - px, e.y - py);
+      const from = off > 0.05 ? { x: px, y: py } : { x: e.x + dy, y: e.y - dx };
+      this.damageMob(e, dmg, playerId, { spellId: "dash", from });
     }
     // A plain dash needs no words; a dash that cuts foes says how many
     if (cut) this.toast(s.ws, "loot", `Dash cuts ${cut}`);
@@ -1408,6 +1513,11 @@ class CantoRoom {
           this.toast(s.ws, "warn", `The bell is quiet (${Math.ceil(s.bellCd)}s)`);
           return;
         }
+        // A canto mechanic may own its bell (it sets bellCd / toasts itself)
+        if (this.mech.onBell?.(this, s, e)) {
+          this.pushSnapshot(playerId);
+          return null;
+        }
         s.bellCd = 18;
         let stilled = 0;
         // Avarice: slightly wider still so Ledger Bell catches strays under the post
@@ -1572,6 +1682,177 @@ class CantoRoom {
     this.dirty = true;
   }
 
+  /** Run `fn` after `sec` seconds of room time (resolved in tick; dropped on reset). */
+  schedule(sec, fn) {
+    this.pending.push({ left: Math.max(0, Number(sec) || 0), fn });
+  }
+
+  // ——— helpers for mob AI and canto mechanics (cantoMech/index.mjs) ———————————
+
+  /** Start a ground telegraph (see telegraph.mjs for the spec); returns it. */
+  telegraph(spec) {
+    return this.tele.start(spec);
+  }
+
+  cancelTelegraph(id, reason = "") {
+    return this.tele.cancel(id, reason);
+  }
+
+  /**
+   * Push a player (dx,dy world units over durMs). The server moves the session now;
+   * the client plays the same impulse in its prediction ({type:"shove"}), and the
+   * slowed-move budget allows for it.
+   */
+  shovePlayer(sess, dx, dy, durMs = 220) {
+    if (!sess || !(sess.hp > 0)) return;
+    const b = this.canto.geo.bounds;
+    sess.x = clamp(sess.x + dx, 0.5, b.width - 0.5);
+    sess.y = clamp(sess.y + dy, 0.5, b.height - 0.5);
+    sess.shoveAllow = (sess.shoveAllow || 0) + Math.hypot(dx, dy);
+    this.send(sess.ws, { type: "shove", dx: +dx.toFixed(3), dy: +dy.toFixed(3), dur: Math.round(durMs) });
+    this.markDirty();
+  }
+
+  /** Slow (speed multiplier) and/or root a player for durMs; {type:"status"} to them. */
+  statusPlayer(sess, { slow = 1, root = false, durMs = 1000 } = {}) {
+    if (!sess) return;
+    const until = Date.now() + Math.max(0, durMs);
+    sess.status = { slow: clamp(Number(slow) || 1, 0.05, 1), root: Boolean(root), until };
+    this.send(sess.ws, { type: "status", slow: sess.status.slow, root: sess.status.root, dur: Math.round(durMs) });
+  }
+
+  /** Knockback-style impulse on a mob (dx,dy = total shove in world units). */
+  shoveMob(e, dx, dy) {
+    if (!e) return;
+    pushMob(e, dx, dy, Math.hypot(dx, dy));
+  }
+
+  /**
+   * A blow lands on a player: canto onDamage hook, dash/respawn iframes (a "safe"
+   * beat, no HP), armor, the combat broadcast, death → wake at the entrance.
+   * attacker: the entity (or { id }); extra is merged into the combat message.
+   */
+  hitPlayer(target, attacker, dmg, extra = {}) {
+    if (!target || !(target.hp > 0)) return 0;
+    const attackerId = attacker?.id ?? null;
+    if (target.iframes > 0) {
+      this.broadcast({
+        type: "combat",
+        attackerId,
+        targetId: target.playerId,
+        targetIsPlayer: true,
+        damage: 0,
+        soaked: 0,
+        iframeBlocked: true,
+        targetHp: target.hp,
+        ...extra,
+      });
+      return 0;
+    }
+    let raw = dmg;
+    if (this.mech.onDamage) {
+      raw = this.mech.onDamage(this, target, raw, {
+        id: attackerId,
+        kind: attacker?.kind || "mech",
+        teleKind: extra.teleKind,
+      });
+    }
+    raw = Math.max(0, Math.round(Number(raw) || 0));
+    if (raw <= 0) return 0;
+    const led = players.get(target.playerId);
+    const armor = (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
+    const { taken, soaked } = mitigate(raw, armor);
+    target.hp = Math.max(0, target.hp - taken);
+    this.broadcast({
+      type: "combat",
+      attackerId,
+      targetId: target.playerId,
+      targetIsPlayer: true,
+      damage: taken,
+      soaked,
+      wardActive: !!(target.armorBuff > 0),
+      targetHp: target.hp,
+      ...extra,
+    });
+    this.markDirty();
+    if (target.hp <= 0) {
+      const sp = this.canto.geo.spawn;
+      target.x = sp.x;
+      target.y = sp.y;
+      target.hp = target.maxHp;
+      target.iframes = this.cantoId === "inferno_07" ? RESPAWN_IFRAMES + 0.6 : RESPAWN_IFRAMES;
+      target.status = null;
+      this.deathWakeToast(target.ws);
+    }
+    return taken;
+  }
+
+  /**
+   * Default boss slam, by phase. Avarice Hoard Crush phase 2 (≤50%): a faster, wider,
+   * heavier measure; the others keep the classic 1.4 s slam.
+   */
+  bossSlamPhase(e) {
+    const crushP2 = this.cantoId === "inferno_07" && e.id === "hoard_crush" && e.hp <= e.maxHp * 0.5;
+    if (crushP2 && !e.phase2Toast) {
+      e.phase2Toast = true;
+      e.phase = 2;
+      for (const s of this.sessions.values()) {
+        this.toast(s.ws, "warn", "il peso cresce — Crush doubles the measure");
+      }
+    }
+    return crushP2 ? { windup: 1.0, radius: 3.9 } : null;
+  }
+
+  /**
+   * Boss leash: dragged BOSS_LEASH off its dais it walks home ignoring everyone and
+   * resets (full HP, phase 1, credit cleared); left alone for BOSS_IDLE_HEAL_AFTER s
+   * it knits its wounds. Returns true while it is walking home.
+   */
+  tickBossLeash(e, nearestD, homeD, dt) {
+    if (nearestD > 20) {
+      e.idleT = (e.idleT || 0) + dt;
+      if (e.idleT > BOSS_IDLE_HEAL_AFTER && e.hp < e.maxHp) {
+        e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.12 * dt);
+        if (e.hp >= e.maxHp) this.resetBoss(e);
+        this.markDirty();
+      }
+    } else {
+      e.idleT = 0;
+    }
+    if (!e.resetting && homeD > BOSS_LEASH) {
+      e.resetting = true;
+      if (e.teleId) interruptAttack(this, e, 0, "leash");
+    }
+    if (!e.resetting) return false;
+    walkTo(this, e, e.homeX, e.homeY, 4.2, dt);
+    if (Math.hypot(e.x - e.homeX, e.y - e.homeY) < 0.8) {
+      e.resetting = false;
+      this.resetBoss(e);
+    }
+    return true;
+  }
+
+  resetBoss(e) {
+    e.hp = e.maxHp;
+    e.hitBy = null;
+    e.phase = undefined;
+    e.phase2Toast = false;
+    e.idleT = 0;
+    this.markDirty();
+  }
+
+  /** Damage a mob/boss deals with its telegraphed attack (tier-scaled). */
+  mobAttackDamage(e) {
+    const arch = e.archetype || (e.kind === "boss" ? "boss" : "whirl_shade");
+    let dmg =
+      e.kind === "boss"
+        ? MOB_DMG[arch] || MOB_DMG.boss
+        : MOB_DMG[arch] || (isChampionClass(e) ? MOB_DMG.gale_champion : MOB_DMG.whirl_shade);
+    // Crush phase 2: slightly heavier coin-iron blow
+    if (e.kind === "boss" && e.phase === 2 && e.id === "hoard_crush") dmg = Math.floor(dmg * 1.2);
+    return Math.round(dmg * tierOf(this.cantoId).dmg);
+  }
+
   tick(dt) {
     if (this.sessions.size === 0) return;
     this.tickPackRespawns(dt);
@@ -1583,6 +1864,7 @@ class CantoRoom {
       if (s.dashCd > 0) s.dashCd = Math.max(0, s.dashCd - dt);
       if (s.bellCd > 0) s.bellCd = Math.max(0, s.bellCd - dt);
       if (s.iframes > 0) s.iframes = Math.max(0, s.iframes - dt);
+      if (s.status && s.status.until <= Date.now()) s.status = null;
       if (s.spellCd) {
         for (const k of Object.keys(s.spellCd)) {
           if (s.spellCd[k] > 0) s.spellCd[k] = Math.max(0, s.spellCd[k] - dt);
@@ -1602,16 +1884,46 @@ class CantoRoom {
       }
     }
     if (manaDirty) this.markDirty();
+    this.mech.tick?.(this, dt);
+    if (this.pending.length) {
+      const due = [];
+      let w = 0;
+      for (const p of this.pending) {
+        p.left -= dt;
+        if (p.left <= 0) due.push(p);
+        else this.pending[w++] = p;
+      }
+      this.pending.length = w;
+      for (const p of due) p.fn();
+    }
+    // Windups that end this tick land before mobs act on the new state
+    this.tele.tick(dt);
+    const bounds = this.canto.geo.bounds;
+    const ava = this.cantoId === "inferno_07";
     let moved = false;
     for (const e of this.entities.values()) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
       if (e.atkCd > 0) e.atkCd = Math.max(0, e.atkCd - dt);
+      if (e.windupLeft > 0) e.windupLeft = Math.max(0, e.windupLeft - dt);
+      if (e.staggerLeft > 0) e.staggerLeft = Math.max(0, e.staggerLeft - dt);
+      if (e.poise > 0) e.poise = Math.max(0, e.poise - POISE_DECAY * dt);
+      // (a telegraph cancelled from outside — a mechanic — frees its owner too)
+      if (e.teleId && !this.tele.get(e.teleId)) {
+        e.teleId = null;
+        e.windupLeft = 0;
+      }
+      // Knockback impulses and wisp darts play out even on a stilled foe
+      if (tickImpulse(e, dt, bounds)) moved = true;
+      if (e.dart) continue;
       if (e.stunLeft > 0) {
         const prev = e.stunLeft;
         e.stunLeft = Math.max(0, e.stunLeft - dt);
+        // A bell still breaks any windup in progress
+        if (e.teleId) interruptAttack(this, e, 0, "still");
+        e.sp = 0;
         // Fairness: waking from Ledger Bell still — brief attack grace so walking
         // the measure does not eat an instant swipe the frame stun ends.
-        if (prev > 0 && e.stunLeft <= 0 && this.cantoId === "inferno_07") {
+        if (prev > 0 && e.stunLeft <= 0 && ava) {
           e.atkCd = Math.max(e.atkCd || 0, 0.45);
         }
         continue;
@@ -1620,6 +1932,7 @@ class CantoRoom {
       let nearest = null;
       let nearestD = 999;
       for (const s of this.sessions.values()) {
+        if (!(s.hp > 0)) continue;
         const d = dist(e, s);
         if (d < nearestD) {
           nearestD = d;
@@ -1632,10 +1945,24 @@ class CantoRoom {
         e.homeY = e.y;
       }
       const homeD = Math.hypot(e.x - e.homeX, e.y - e.homeY);
+      if (e.kind === "boss") {
+        // A canto boss pattern replaces the default slam AI when it says so
+        if (this.mech.bossTick?.(this, e, dt)) {
+          moved = true;
+          continue;
+        }
+        if (this.tickBossLeash(e, nearestD, homeD, dt)) {
+          moved = true;
+          continue;
+        }
+      } else if (this.mech.mobTick?.(this, e, dt)) {
+        moved = true;
+        continue;
+      }
       // Avarice fairness: Counterweight (mid-boss) + champions get longer leash so kiting
       // does not snap-home mid-measure; Crush Approach stays tight so it cannot steal the dais.
-      let leash = e.kind === "boss" ? 16 : 11;
-      if (this.cantoId === "inferno_07" && e.kind === "mob") {
+      let leash = 11;
+      if (ava && e.kind === "mob") {
         if (e.packId === "ava_counterweight") leash = 15.5;
         else if (e.archetype === "weight_champion" || e.champion) leash = 13.5;
         else if (e.packId === "ava_approach_flank") leash = 9.5;
@@ -1643,23 +1970,20 @@ class CantoRoom {
         else if (e.archetype === "coin_wisp") leash = 7.2;
       }
       if (e.kind !== "boss" && homeD > leash) {
-        const hx = e.homeX - e.x;
-        const hy = e.homeY - e.y;
-        const hl = Math.hypot(hx, hy) || 1;
+        if (e.teleId) interruptAttack(this, e, 0, "leash");
         // Slightly snappier return for approach packs; gentler for Counterweight
         const homeSpeed =
-          this.cantoId === "inferno_07" && e.packId === "ava_counterweight"
+          ava && e.packId === "ava_counterweight"
             ? 3.4
-            : this.cantoId === "inferno_07" && e.packId === "ava_approach_flank"
+            : ava && e.packId === "ava_approach_flank"
               ? 5.0
               : 4.2;
-        e.x += (hx / hl) * homeSpeed * dt;
-        e.y += (hy / hl) * homeSpeed * dt;
+        walkTo(this, e, e.homeX, e.homeY, homeSpeed, dt);
         moved = true;
         continue;
       }
       // Avarice: soft keep-out — weights drift off the entrance instead of camping spawn/death wake
-      if (this.cantoId === "inferno_07" && e.kind === "mob") {
+      if (ava && e.kind === "mob") {
         const sp = this.canto.geo.spawn;
         const sd = Math.hypot(e.x - sp.x, e.y - sp.y);
         if (sd < AVA_SPAWN_KEEP - 0.4 && sd > 0.05) {
@@ -1673,246 +1997,40 @@ class CantoRoom {
       const aggro =
         e.kind === "boss"
           ? 14
-          : this.cantoId === "inferno_07" && e.packId === "ava_counterweight"
+          : ava && e.packId === "ava_counterweight"
             ? 10.5
-            : this.cantoId === "inferno_07" && e.packId === "ava_approach_flank"
+            : ava && e.packId === "ava_approach_flank"
               ? 6.8
-              : this.cantoId === "inferno_07" && e.archetype === "ledger_warden"
+              : ava && e.archetype === "ledger_warden"
                 ? 9.5
-                : this.cantoId === "inferno_07" && e.archetype === "coin_wisp"
+                : ava && e.archetype === "coin_wisp"
                   ? 7.4
-                  : this.cantoId === "inferno_07" &&
-                      (e.archetype === "weight_champion" || e.champion)
+                  : ava && (e.archetype === "weight_champion" || e.champion)
                     ? 9.5
                     : 8;
-      const winding =
-        (e.kind === "boss" || e.champion || e.archetype === "weight_champion") &&
-        e.windupLeft > 0;
-      // Hold still during slam windup so the ground ring matches the hit.
-      if (!winding && nearestD < aggro && nearestD > 1.2) {
-        const dx = nearest.x - e.x;
-        const dy = nearest.y - e.y;
-        const len = Math.hypot(dx, dy) || 1;
-        let speed =
-          e.archetype === "gale_wisp" || e.archetype === "mud_wisp" || e.archetype === "coin_wisp"
-            ? 5.4
-            : e.archetype === "gale_warden" || e.archetype === "mire_warden" || e.archetype === "ledger_warden"
-              ? 1.6
-              : e.kind === "boss"
-                ? 2.2
-                : e.archetype === "weight_shade" || e.archetype === "weight_champion"
-                  ? 2.65
-                  : 3.0;
-        // Avarice: champion surge in mid band; coin wisps weave (greed that slips)
-        let sx = dx / len;
-        let sy = dy / len;
-        if (this.cantoId === "inferno_07") {
-          if (e.archetype === "weight_champion" && nearestD > 3.2 && nearestD < 6.5) {
-            speed *= 1.35;
-          }
-          if (e.archetype === "coin_wisp") {
-            e._weaveT = (e._weaveT || 0) + dt;
-            // Milder weave so burst (r≈4.2) still covers the pack cluster
-            const weave = Math.sin(e._weaveT * 5.2 + (e.x || 0) * 0.2) * 0.32;
-            const px = -sy;
-            const py = sx;
-            sx += px * weave;
-            sy += py * weave;
-            const sl = Math.hypot(sx, sy) || 1;
-            sx /= sl;
-            sy /= sl;
-          }
-        }
-        e.x += sx * speed * dt;
-        e.y += sy * speed * dt;
-        moved = true;
-        // Avarice: if chase progress stalls (wedged on pack/geometry), sidestep nudge
-        if (this.cantoId === "inferno_07" && e.kind === "mob") {
-          const lx = e._stuckX;
-          const ly = e._stuckY;
-          const step = lx == null ? 99 : Math.hypot(e.x - lx, e.y - ly);
-          e._stuckX = e.x;
-          e._stuckY = e.y;
-          if (step < 0.08) {
-            e._stuckT = (e._stuckT || 0) + dt;
-          } else {
-            e._stuckT = 0;
-          }
-          if ((e._stuckT || 0) > 0.55) {
-            const nx = -sy;
-            const ny = sx;
-            const side = (Math.sin((e.x || 0) * 2.1 + (e.y || 0)) >= 0 ? 1 : -1);
-            e.x += nx * side * 2.8 * dt;
-            e.y += ny * side * 2.8 * dt;
-            e._stuckT = 0.25; // keep a light bias until free
-            moved = true;
-          }
-        }
-      }
-      // Avarice: soft pack spacing so weights don't stack into one silhouette
-      if (this.cantoId === "inferno_07" && e.kind === "mob" && !winding) {
-        for (const o of this.entities.values()) {
-          if (o === e || o.kind !== "mob" || (o.hp != null && o.hp <= 0)) continue;
-          const sd = dist(e, o);
-          if (sd < 1.4 && sd > 0.05) {
-            const sx = (e.x - o.x) / sd;
-            const sy = (e.y - o.y) / sd;
-            e.x += sx * 0.85 * dt;
-            e.y += sy * 0.85 * dt;
-            moved = true;
-            break;
-          }
-        }
-      }
-      // Boss: telegraph windup before the hit so players can dodge
-      if (winding) {
-        e.windupLeft = Math.max(0, e.windupLeft - dt);
-        if (e.windupLeft <= 0) {
-          const target = this.sessions.get(e.windupTargetId);
-          e.windupTargetId = null;
-          const isChampWind =
-            e.kind !== "boss" && (e.champion || e.archetype === "weight_champion");
-          e.atkCd = isChampWind ? 1.05 : 1.35;
-          if (target) {
-            const dHit = dist(e, target);
-            const slamR = isChampWind ? 2.45 : e.slamRadius || 3.2;
-            if (dHit <= slamR) {
-              // Iframe (dash/respawn): telegraph still resolves — player-facing "safe" beat, no HP loss
-              if (target.iframes > 0) {
-                this.broadcast({
-                  type: "combat",
-                  attackerId: e.id,
-                  targetId: target.playerId,
-                  targetIsPlayer: true,
-                  damage: 0,
-                  soaked: 0,
-                  iframeBlocked: true,
-                  targetHp: target.hp,
-                  champTele: isChampWind || undefined,
-                });
-              } else {
-              const arch = e.archetype || (isChampWind ? "weight_champion" : "boss");
-              let dmg = isChampWind
-                ? MOB_DMG[arch] || MOB_DMG.weight_champion || MOB_DMG.gale_champion
-                : MOB_DMG[arch] || MOB_DMG.boss || 18;
-              // Crush phase 2: slightly heavier coin-iron blow
-              if (!isChampWind && e.phase === 2 && e.id === "hoard_crush") dmg = Math.floor(dmg * 1.2);
-              dmg = Math.round(dmg * tierOf(this.cantoId).dmg);
-              const led = players.get(target.playerId);
-              const armor =
-                (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
-              const { taken, soaked } = mitigate(dmg, armor);
-              target.hp = Math.max(0, target.hp - taken);
-              this.broadcast({
-                type: "combat",
-                attackerId: e.id,
-                targetId: target.playerId,
-                targetIsPlayer: true,
-                damage: taken,
-                soaked,
-                wardActive: !!(target.armorBuff > 0),
-                targetHp: target.hp,
-                champTele: isChampWind || undefined,
-              });
-              this.markDirty();
-              if (target.hp <= 0) {
-                const sp = this.canto.geo.spawn;
-                target.x = sp.x;
-                target.y = sp.y;
-                target.hp = target.maxHp;
-                target.iframes =
-                  this.cantoId === "inferno_07" ? RESPAWN_IFRAMES + 0.6 : RESPAWN_IFRAMES;
-                this.deathWakeToast(target.ws);
-              }
-              } // end non-iframe slam hit
-            }
-          }
-        }
+      // Hold still through a windup (the ground shape matches the blow) or a stagger
+      if (e.teleId || e.staggerLeft > 0) {
+        if (brake(e, dt)) moved = true;
         continue;
       }
-      if (nearestD <= 2.2 && e.atkCd <= 0 && !(nearest.iframes > 0)) {
-        if (e.kind === "boss") {
-          // Avarice Hoard Crush phase 2 (≤50%): faster heavier measure; others keep classic 1.4s
-          const crushP2 =
-            this.cantoId === "inferno_07" &&
-            e.id === "hoard_crush" &&
-            e.hp <= e.maxHp * 0.5;
-          if (crushP2 && !e.phase2Toast) {
-            e.phase2Toast = true;
-            e.phase = 2;
-            for (const s of this.sessions.values()) {
-              this.toast(s.ws, "warn", "il peso cresce — Crush doubles the measure");
-            }
-          }
-          const wind = crushP2 ? 1.0 : 1.4;
-          const rad = crushP2 ? 3.9 : 3.2;
-          const recov = crushP2 ? 1.85 : 2.2;
-          e.windupLeft = wind;
-          e.windupTargetId = nearest.playerId;
-          e.atkCd = recov;
-          e.slamRadius = rad;
-          this.broadcast({
-            type: "boss_telegraph",
-            id: e.id,
-            attackerId: e.id,
-            x: e.x,
-            y: e.y,
-            radius: rad,
-            duration: wind,
-            phase: crushP2 ? 2 : 1,
-          });
-          this.markDirty();
-          continue;
+      if (nearestD < aggro) {
+        let speedMul = 1;
+        let weave = null;
+        if (ava) {
+          // Avarice: champion surge in mid band; coin wisps weave (greed that slips)
+          if (e.archetype === "weight_champion" && nearestD > 3.2 && nearestD < 6.5) speedMul = 1.35;
+          if (e.archetype === "coin_wisp") weave = avaCoinWeave;
         }
-        // Champions telegraph a short coin-iron raise; shades stay instant swipes
-        if (e.champion || e.archetype === "weight_champion") {
-          const wind = this.cantoId === "inferno_07" ? 0.62 : 0.55;
-          e.windupLeft = wind;
-          e.windupTargetId = nearest.playerId;
-          e.atkCd = wind + 0.55;
-          this.broadcast({
-            type: "champ_telegraph",
-            id: e.id,
-            attackerId: e.id,
-            x: e.x,
-            y: e.y,
-            radius: 2.35,
-            duration: wind,
-          });
-          this.markDirty();
-          continue;
+        if (chase(this, e, nearest, dt, { speedMul, weave })) moved = true;
+        if (unstick(e, nearestD > 3.2, dt)) moved = true;
+        if (e.atkCd <= 0 && !(nearest.iframes > 0)) {
+          let over = null;
+          if (e.kind === "boss") over = this.bossSlamPhase(e);
+          else if (ava && isChampionClass(e) && !ATTACKS_WARDEN.has(e.archetype)) over = AVA_CHAMP_WIND;
+          if (startAttack(this, e, nearest, nearestD, this.mobAttackDamage(e), over)) this.markDirty();
         }
-        const arch = e.archetype || "whirl_shade";
-        const base = e.champion
-          ? MOB_DMG[arch] || MOB_DMG.gale_champion
-          : MOB_DMG[arch] || MOB_DMG.whirl_shade;
-        const dmg = Math.round(base * tierOf(this.cantoId).dmg);
-        const led = players.get(nearest.playerId);
-        const armor =
-          (led ? computeGearStats(led).armor : 0) + (nearest.armorBuff || 0);
-        const { taken, soaked } = mitigate(dmg, armor);
-        nearest.hp = Math.max(0, nearest.hp - taken);
-        e.atkCd = 0.9;
-        this.broadcast({
-          type: "combat",
-          attackerId: e.id,
-          targetId: nearest.playerId,
-          targetIsPlayer: true,
-          damage: taken,
-          soaked,
-          wardActive: !!(nearest.armorBuff > 0),
-          targetHp: nearest.hp,
-        });
-        this.markDirty();
-        if (nearest.hp <= 0) {
-          const sp = this.canto.geo.spawn;
-          nearest.x = sp.x;
-          nearest.y = sp.y;
-          nearest.hp = nearest.maxHp;
-          nearest.iframes =
-            this.cantoId === "inferno_07" ? RESPAWN_IFRAMES + 0.6 : RESPAWN_IFRAMES;
-          this.deathWakeToast(nearest.ws);
-        }
+      } else if (brake(e, dt)) {
+        moved = true;
       }
     }
     if (moved) this.markDirty();

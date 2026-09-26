@@ -12,6 +12,7 @@
  * Exits non-zero if any canto cannot be cleared or a gate misbehaves.
  */
 import WebSocket from "ws";
+import { pointInShape, shapeExit } from "../src/telegraph.mjs";
 
 const args = process.argv.slice(2);
 const arg = (k, d) => {
@@ -31,6 +32,23 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const MOVE_SPEED = 8; // client PREDICT_SPEED, units/sec
 const STEP_MS = 50;
 const ATTACK_RANGE = 3.2;
+/** Server drift from our predicted position that means "believe the server" (push-out, respawn). */
+const RESYNC = 1.0;
+const COMBO_CHAIN_MS = 800;
+
+/** Legacy slam messages (older servers) as circle telegraphs. */
+function legacyTele(m) {
+  return {
+    id: m.id,
+    attackerId: m.attackerId,
+    shape: "circle",
+    x: m.x,
+    y: m.y,
+    radius: m.radius,
+    durMs: (Number(m.duration) || 1) * 1000,
+    kind: m.type === "boss_telegraph" ? "boss_slam" : "champ_slam",
+  };
+}
 
 class Bot {
   constructor(name) {
@@ -63,6 +81,12 @@ class Bot {
       this.snap = m.room;
       const st = this.cur && this.stats[this.cur];
       if (st && m.room.you) st.minHp = Math.min(st.minHp, m.room.you.hp);
+      // Our own predicted position (like the client): moves step from it at walking
+      // speed instead of from the ~130 ms-old snapshot; big server corrections win.
+      const y = m.room.you;
+      if (y && (!this.me || this.me.canto !== m.room.cantoId || Math.hypot(y.x - this.me.x, y.y - this.me.y) > RESYNC)) {
+        this.me = { x: y.x, y: y.y, canto: m.room.cantoId };
+      }
     } else if (m.type === "toast") {
       this.toasts.push({ t: Date.now(), level: m.level, text: m.text });
       if (/slain|fall under the weight/i.test(m.text) && this.cur) this.stats[this.cur].deaths++;
@@ -70,10 +94,18 @@ class Bot {
     } else if (m.type === "error") {
       this.errors.push(m);
       this.log(`  ERROR ${m.code}: ${m.message}`);
+    } else if (m.type === "telegraph") {
+      this.telegraphs.push({ ...m, durMs: Number(m.duration) || 500, at: Date.now() });
+      if (this.cur && this.stats[this.cur] && m.dmg > 0) this.stats[this.cur].teles++;
+    } else if (m.type === "telegraph_cancel") {
+      this.telegraphs = this.telegraphs.filter((t) => t.id !== m.id);
     } else if (m.type === "boss_telegraph" || m.type === "champ_telegraph") {
-      this.telegraphs.push({ ...m, at: Date.now() });
+      this.telegraphs.push({ ...legacyTele(m), at: Date.now() });
     } else if (m.type === "combat" && m.targetIsPlayer && this.snap && m.targetId === this.snap.you?.id) {
-      if (this.cur) this.stats[this.cur].dmgTaken += m.damage || 0;
+      if (this.cur) {
+        this.stats[this.cur].dmgTaken += m.damage || 0;
+        if (m.damage > 0) this.stats[this.cur].hits++;
+      }
     }
   }
 
@@ -90,8 +122,20 @@ class Bot {
     throw new Error(`timeout: ${label}`);
   }
 
+  /** Server snapshot of us, with our predicted planar position. */
   get you() {
-    return this.snap.you;
+    const y = this.snap.you;
+    if (this.me && this.me.canto === this.snap.cantoId) return { ...y, x: this.me.x, y: this.me.y };
+    return y;
+  }
+
+  /** Step toward (x,y) (walking speed per STEP_MS at most) and tell the server. */
+  moveTo(x, y) {
+    if (this.me) {
+      this.me.x = x;
+      this.me.y = y;
+    }
+    this.send({ type: "move", x, y });
   }
 
   ents(kind) {
@@ -114,7 +158,7 @@ class Bot {
         if (near.length) await this.fightStep(near[0]);
       }
       const step = Math.min(d, (MOVE_SPEED * STEP_MS) / 1000);
-      this.send({ type: "move", x: you.x + ((x - you.x) / d) * step, y: you.y + ((y - you.y) / d) * step });
+      this.moveTo(you.x + ((x - you.x) / d) * step, you.y + ((y - you.y) / d) * step);
       await sleep(STEP_MS);
     }
     return false;
@@ -134,26 +178,60 @@ class Bot {
     return this.snap.entities.find((e) => e.kind === "poi" && e.poiKind === kind && extra(e));
   }
 
+  /**
+   * Skilled dodge: if we stand in a live damaging telegraph, step out along the
+   * shortest exit that doesn't land in another one (dash when walking can't make it
+   * in time or it's a slam). Returns true when it spent the step dodging.
+   */
+  async dodge(you, now) {
+    const live = [];
+    for (const t of this.telegraphs) {
+      if (now - t.at < t.durMs + 120) live.push(t);
+    }
+    this.telegraphs = live;
+    if (STYLE !== "skilled") return false;
+    const me = this.snap.you?.id;
+    let best = null;
+    let soonest = Infinity;
+    for (const t of live) {
+      if (t.attackerId === me || !(t.dmg > 0 || t.kind === "boss_slam" || t.kind === "champ_slam")) continue;
+      const ex = shapeExit(t, you.x, you.y, 0.45);
+      if (!ex) continue;
+      soonest = Math.min(soonest, t.durMs - (now - t.at));
+      // prefer an exit that lands clear of every other live shape
+      const ex2x = you.x + ex.x * ex.d;
+      const ex2y = you.y + ex.y * ex.d;
+      let blocked = 0;
+      for (const o of live) if (o !== t && o.attackerId !== me && pointInShape(o, ex2x, ex2y, 0.3)) blocked++;
+      const score = blocked * 10 + ex.d;
+      if (!best || score < best.score) best = { t, ex, score };
+    }
+    if (!best) return false;
+    const { ex, t } = best;
+    const walkable = (Math.max(0, soonest - 60) / 1000) * MOVE_SPEED * 0.85 >= ex.d;
+    const slam = t.kind === "boss_slam" || t.kind === "champ_slam" || t.kind === "champ_cleave";
+    if ((!walkable || (slam && ex.d > 1.2)) && (!this._dashAt || now - this._dashAt > 4200)) {
+      this._dashAt = now;
+      this.stats[this.cur].dashes++;
+      this.send({ type: "dash", x: ex.x, y: ex.y });
+      if (this.me) {
+        this.me.x += ex.x * 5.5;
+        this.me.y += ex.y * 5.5;
+      }
+    } else {
+      const step = Math.min(ex.d + 0.05, (MOVE_SPEED * STEP_MS) / 1000);
+      this.moveTo(you.x + ex.x * step, you.y + ex.y * step);
+    }
+    this.stats[this.cur].dodges++;
+    await sleep(STEP_MS);
+    return true;
+  }
+
   /** One tick of combat decisions against a target. */
   async fightStep(target) {
     const you = this.you;
     const now = Date.now();
-    // Dodge a live slam telegraph aimed near us
-    const tele = STYLE === "skilled" && this.telegraphs.find((t) => now - t.at < t.duration * 1000 && Math.hypot(t.x - you.x, t.y - you.y) < t.radius + 0.6);
-    if (tele) {
-      const dx = you.x - tele.x;
-      const dy = you.y - tele.y;
-      const l = Math.hypot(dx, dy) || 1;
-      if (!this._dashAt || now - this._dashAt > 4200) {
-        this._dashAt = now;
-        this.stats[this.cur].dashes++;
-        this.send({ type: "dash", x: dx / l, y: dy / l });
-      } else {
-        this.send({ type: "move", x: you.x + (dx / l) * 0.45, y: you.y + (dy / l) * 0.45 });
-      }
-      await sleep(STEP_MS);
-      return;
-    }
+    if (await this.dodge(you, now)) return;
     if (you.hp < you.maxHp * 0.45 && (!this._sipAt || now - this._sipAt > 8200)) {
       this._sipAt = now;
       this.stats[this.cur].sips++;
@@ -175,10 +253,12 @@ class Bot {
     }
     if (d > ATTACK_RANGE - 0.4) {
       const step = Math.min(d - (ATTACK_RANGE - 0.8), (MOVE_SPEED * STEP_MS) / 1000);
-      this.send({ type: "move", x: you.x + ((target.x - you.x) / d) * step, y: you.y + ((target.y - you.y) / d) * step });
+      this.moveTo(you.x + ((target.x - you.x) / d) * step, you.y + ((target.y - you.y) / d) * step);
     } else if (!this._atkAt || now - this._atkAt > 450) {
+      // the client chains forehand → backhand → overhead finisher while you keep swinging
+      this._combo = this._atkAt && now - this._atkAt < COMBO_CHAIN_MS ? ((this._combo || 0) + 1) % 3 : 0;
       this._atkAt = now;
-      this.send({ type: "attack", targetId: target.id });
+      this.send({ type: "attack", targetId: target.id, combo: this._combo });
     }
     await sleep(STEP_MS);
   }
@@ -236,7 +316,7 @@ class Bot {
   }
 
   async clearCanto(cantoId, bossId, maxMs = 240000, sealedRoad = null) {
-    const st = (this.stats[cantoId] = { t0: Date.now(), deaths: 0, dmgTaken: 0, minHp: 9999, loot: 0, sips: 0, dashes: 0, kills: 0 });
+    const st = (this.stats[cantoId] = { t0: Date.now(), deaths: 0, dmgTaken: 0, minHp: 9999, loot: 0, sips: 0, dashes: 0, kills: 0, dodges: 0, teles: 0, hits: 0 });
     this.cur = cantoId;
     const shrine = this.poi("shrine");
     const cache = this.poi("cache");
@@ -328,7 +408,7 @@ class Bot {
   async run() {
     await this.connect();
     this.cur = "inferno_01";
-    this.stats.inferno_01 = { t0: Date.now(), deaths: 0, dmgTaken: 0, minHp: 9999, loot: 0, sips: 0, dashes: 0 };
+    this.stats.inferno_01 = { t0: Date.now(), deaths: 0, dmgTaken: 0, minHp: 9999, loot: 0, sips: 0, dashes: 0, dodges: 0, teles: 0, hits: 0 };
     this.log(`hub spawn ${this.you.x},${this.you.y} inv=${this.you.inventory.length}`);
     await this.autoEquip();
     const board = this.poi("quest");
@@ -407,7 +487,7 @@ for (const c of ["inferno_05", "inferno_06", "inferno_07"]) {
   if (!rows.length) continue;
   const avg = (k) => (rows.reduce((s, r) => s + (r[k] || 0), 0) / rows.length).toFixed(1);
   console.log(
-    `${c}: cleared ${rows.filter((r) => r.cleared).length}/${rows.length}  avg ${avg("seconds")}s  deaths ${avg("deaths")}  minHp ${avg("minHp")}  dmgTaken ${avg("dmgTaken")}  loot ${avg("loot")}  sips ${avg("sips")}  dashes ${avg("dashes")}`
+    `${c}: cleared ${rows.filter((r) => r.cleared).length}/${rows.length}  avg ${avg("seconds")}s  deaths ${avg("deaths")}  minHp ${avg("minHp")}  dmgTaken ${avg("dmgTaken")}  hits ${avg("hits")}  loot ${avg("loot")}  sips ${avg("sips")}  dashes ${avg("dashes")}  dodges ${avg("dodges")}  teles ${avg("teles")}`
   );
 }
 const total = RUNS * PARTY;

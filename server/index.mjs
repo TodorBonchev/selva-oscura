@@ -173,7 +173,8 @@ async function handleMessage(ws, meta, msg) {
     case "attack": {
       const room = world.getRoom(playerId);
       if (!room) return;
-      room.handleAttack(playerId, String(msg.targetId));
+      // combo: the client's swing in its 3-hit chain (2 = overhead finisher)
+      room.handleAttack(playerId, String(msg.targetId), Number(msg.combo) || 0);
       break;
     }
     case "cast": {
