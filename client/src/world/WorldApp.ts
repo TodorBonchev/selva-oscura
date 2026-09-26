@@ -265,6 +265,8 @@ export class WorldApp {
   attackHeld = false;
   attackHoldRelease: ((e: PointerEvent) => void) | null = null;
   heroMotor: HeroMotor | null = null;
+  /** Real (unclamped, un-hit-stopped) step of the current frame; null outside loop(). */
+  frameRawDt: number | null = null;
   _pin: Vec2 = { x: 0, y: 0 };
   _step: Vec2 = { x: 0, y: 0 };
   lastHitFoe: { id: string; until: number } | null = null;
@@ -722,6 +724,16 @@ export class WorldApp {
       }
       if (e.code === "KeyF") this.stopAttackHold();
     });
+    // Focus lost with F / WASD / a mouse button down never sees the keyup: drop
+    // the held keys and the attack hold, or the hero would fight (and chase) alone
+    const dropHeld = () => {
+      this.stopAttackHold();
+      this.keys.clear();
+    };
+    window.addEventListener("blur", dropHeld);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) dropHeld();
+    });
 
     this.renderer.domElement.addEventListener("pointerdown", (ev) => {
       if (!this.room) return;
@@ -861,6 +873,8 @@ export class WorldApp {
     }
     if (this.ash?.points && !this.ash.points.visible) this.ash.points.visible = true;
     let dt = this.clock.getDelta();
+    // (the hero's combat clock runs on real frame time: no clamp, no hit-stop)
+    this.frameRawDt = dt;
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
     dt = Math.min(0.05, dt);
     if (dt > 0.034) this.slowFrames++;
@@ -873,10 +887,12 @@ export class WorldApp {
     this.animT += dt * 1000;
     this.tick(dt);
     this.draw(dt);
+    this.frameRawDt = null;
   };
 
   tick(dt: number) {
     if (!this.room) return;
+    this.heroMotor?.advance(this.frameRawDt ?? dt);
     const { fwd, right } = camPlanarBasis(this.camera);
     let fx = 0;
     let sx = 0;
@@ -1097,7 +1113,10 @@ export class WorldApp {
     const compact = isCompactUi();
     if (this.youGroup && this.heroMotor) {
       // Facing, swing/dash/death poses, blade trail and foot dust (heroMotor.ts)
-      this.heroMotor.update(dt, { channeling: Boolean(this.portalHold && !this.portalHold.completed) });
+      this.heroMotor.update(dt, {
+        channeling: Boolean(this.portalHold && !this.portalHold.completed),
+        dtRaw: this.frameRawDt ?? dt,
+      });
       // Net-offline ghost swaps in translucent twins; shared hero materials stay opaque
       setHeroGhost(this.youGroup, this.netOffline);
     }
@@ -1559,6 +1578,8 @@ export class WorldApp {
           // Remote pilgrims walk/run at their tracked speed (see syncEntities)
           const gait = n.kind === "player" ? Number(n.group.userData.gaitSpeed) || 0 : 0;
           tickHumanoid(n.group, { moving: gait > 0.6, tMs: this.animT, attacking: false, speed: gait });
+          // a swinging pilgrim draws its blade trail (pooled, see heroMotor)
+          if (n.kind === "player") this.heroMotor?.remoteTick(n.group, dt);
         }
         // The Guide turns to meet an approaching pilgrim (it would otherwise show
         // the phone camera its back)
@@ -2181,7 +2202,10 @@ export class WorldApp {
     }
     this.scene.remove(rec.group);
     // Pilgrims / the Guide share geometry + materials; free only the bone texture
-    if (rec.kind === "player" || rec.kind === "guide") disposeHero(rec.group);
+    if (rec.kind === "player" || rec.kind === "guide") {
+      disposeHero(rec.group);
+      this.heroMotor?.releaseRemote(rec.group);
+    }
     rec.label.element.remove();
   }
 
@@ -2976,14 +3000,9 @@ export class WorldApp {
           this.netOffline = true;
           showToast("Connection lost — reconnecting…", "warn");
         } else if (msg.state === "reconnected") {
+          // (draw() swaps the hero's shared materials back: setHeroGhost)
           this.netOffline = false;
           showToast("Reconnected", "info");
-          this.youGroup?.traverse((o) => {
-            const m = o as THREE.Mesh;
-            if (m.isMesh && m.material && "opacity" in m.material) {
-              (m.material as THREE.MeshStandardMaterial).opacity = 1;
-            }
-          });
         }
         break;
       case "toast": {
@@ -3285,6 +3304,7 @@ export class WorldApp {
         ud.lastSwingAt = this.animT;
         // the packet marks contact: skip most of the anticipation
         humanoidSwing(atk.group, this.animT, ud.swingKind, SWING_MS, 0.22);
+        this.heroMotor?.remoteSwing(atk.group, ud.swingKind);
         const tgt = this.room?.entities?.find((e: any) => String(e.id) === tid);
         if (tgt) {
           const p = this.entityRenderPos(tgt);

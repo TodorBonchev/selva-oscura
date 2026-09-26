@@ -31,7 +31,8 @@ export class BladeTrail {
   life = 120;
   intensity = 1;
 
-  constructor() {
+  /** `material`: share another trail's (same program, one material to keep warm). */
+  constructor(material?: THREE.Material) {
     const geo = new THREE.BufferGeometry();
     this.pos = new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3);
     this.pos.setUsage(THREE.DynamicDrawUsage);
@@ -48,6 +49,7 @@ export class BladeTrail {
     geo.setDrawRange(0, 0);
     this.mesh = new THREE.Mesh(
       geo,
+      material ??
       new THREE.MeshBasicMaterial({
         // fog-independent: fewer program variants to keep warm
         fog: false,

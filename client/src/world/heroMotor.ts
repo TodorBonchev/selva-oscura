@@ -8,7 +8,15 @@
  *  - a small root step into the cut and a movement slow while swinging,
  *  - the dash as a short eased tween (server stays authoritative) + streak/dust,
  *  - the death collapse (pinned at the fall spot) before the respawn teleport,
- *  - the blade trail, footstep dust on foot plants.
+ *  - the blade trail, footstep dust on foot plants,
+ *  - pooled blade trails for remote pilgrims' swings.
+ *
+ * Timing: the swing / dash / death timelines run on the motor's own combat
+ * clock (real frame time, NOT the world's animT, which is clamped to 50 ms per
+ * frame and slowed during hit-stop), so the swing cadence, the attack packet
+ * and the respawn pin don't stretch with frame rate or landed hits. The pose
+ * shows a visual progress that freezes with the world's hit-stop and catches
+ * up after it (the blow still "sticks", the rhythm doesn't slip).
  */
 import * as THREE from "three";
 import type { Vec2 } from "../render/smoothing";
@@ -23,6 +31,7 @@ import {
   humanoidFlinch,
   humanoidRevive,
   humanoidSwing,
+  humanoidSwingU,
   sampleBlade,
   takeFootPlant,
   tickHumanoid,
@@ -31,14 +40,19 @@ import { BladeTrail, DashStreak, DustPool } from "./heroFx";
 
 /**
  * One swing = the attack busy time. The server's PLAYER_ATK_CD is 0.42 s with a
- * 60 ms wall-clock grace (room.mjs), so it accepts a blow every ≥0.36 s: a swing
- * every 440 ms (contact frame ±1) is never dropped — no phantom slashes.
+ * 60 ms jitter grace that is carried forward (room.mjs: sustained cap stays one
+ * blow per 0.42 s), so a swing every 440 ms (contact ±1 frame, ±60 ms network
+ * jitter) is never dropped — no phantom slashes.
  */
 export const SWING_MS = 440;
 /** Attack packet goes out when the blade meets the target. */
 export const SWING_CONTACT_MS = Math.round(SWING_U_HIT * SWING_MS);
 export const DASH_MS = 160;
-export const DEATH_POSE_MS = 900;
+/**
+ * Collapse shown at the fall spot before the respawn teleport. Short: the server
+ * has already respawned you with RESPAWN_IFRAMES = 2 s, and this is eaten from it.
+ */
+export const DEATH_POSE_MS = 480;
 /** A swing that starts within this long after the previous one ended chains the combo. */
 const COMBO_GAP_MS = 320;
 const TURN_RATE = 15; // rad/s
@@ -55,6 +69,8 @@ export interface HeroHost {
   aimX: number;
   aimY: number;
   animT: number;
+  /** performance.now() deadline of the world's hit-stop (freezes the visual swing) */
+  hitStopUntil: number;
   standY(x: number, y: number, lift?: number): number;
   /** Live render position of a foe (null when gone/dead). */
   foeRenderPos(id: string): Vec2 | null;
@@ -67,14 +83,30 @@ export interface HeroHost {
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 
+/** Blade trails lent to remote pilgrims while they swing (hidden when idle: no draw). */
+const REMOTE_TRAILS = 2;
+type RemoteTrail = {
+  trail: BladeTrail;
+  root: THREE.Object3D | null;
+  prev: Float32Array;
+  until: number;
+  t: number;
+  dt: number;
+  push: (tip: THREE.Vector3, base: THREE.Vector3, k: number) => void;
+};
+
 export class HeroMotor {
   readonly trail = new BladeTrail();
   readonly dust = new DustPool();
   readonly streak = new DashStreak();
   private yaw = 0;
   private yawInit = false;
+  /** combat clock (ms of real frame time) */
+  private now = 0;
   // swing
   private swingStart = -1e9;
+  /** pose progress of the swing (lags the combat clock only through hit-stop) */
+  private uVis = -1;
   private swingKind = 0;
   private swingTarget: string | null = null;
   private contactSent = true;
@@ -94,16 +126,77 @@ export class HeroMotor {
   private pushSample = (tip: THREE.Vector3, base: THREE.Vector3, k: number) =>
     this.trail.push(tip, base, this.sampleT - (1 - k) * this.sampleDt);
 
+  private remote: RemoteTrail[] = [];
+
   constructor(private host: HeroHost) {
     host.scene.add(this.trail.mesh, this.dust.group, this.streak.mesh);
+    for (let i = 0; i < REMOTE_TRAILS; i++) {
+      const r: RemoteTrail = {
+        trail: new BladeTrail(this.trail.mesh.material as THREE.Material),
+        root: null,
+        prev: new Float32Array(16),
+        until: 0,
+        t: 0,
+        dt: 0,
+        push: (tip, base, k) => r.trail.push(tip, base, r.t - (1 - k) * r.dt),
+      };
+      r.trail.mesh.visible = false;
+      host.scene.add(r.trail.mesh);
+      this.remote.push(r);
+    }
   }
 
   /** Gold trail in Avarice, warm steel elsewhere. */
   setPalette(gold: boolean) {
-    this.trail.setTint(gold ? 0xffdc8a : 0xfff2d8);
+    const tint = gold ? 0xffdc8a : 0xfff2d8;
+    this.trail.setTint(tint);
+    for (const r of this.remote) r.trail.setTint(tint);
   }
 
-  swingU(t = this.host.animT): number {
+  /** A remote pilgrim began a swing (its pose is already started): lend it a trail. */
+  remoteSwing(root: THREE.Object3D, kind: number) {
+    let r = this.remote.find((x) => x.root === root) ?? this.remote.find((x) => !x.root);
+    if (!r) r = this.remote.reduce((a, b) => (a.until < b.until ? a : b));
+    r.root = root;
+    r.until = this.host.animT + SWING_MS + 250;
+    r.trail.clear();
+    r.trail.intensity = kind === 2 ? 0.8 : 0.65;
+    r.trail.life = kind === 2 ? 140 : 120;
+    r.trail.mesh.visible = true;
+    captureBladeChain(root, r.prev);
+  }
+
+  /** Right after a remote pilgrim's pose tick: sample its blade into its trail. */
+  remoteTick(root: THREE.Object3D, dt: number) {
+    const r = this.remote.find((x) => x.root === root);
+    if (!r) return;
+    const t = this.host.animT;
+    const u = humanoidSwingU(root, t);
+    if (u >= SWING_U_COCK - 0.03 && u < 0.52) {
+      r.t = t;
+      r.dt = dt * 1000;
+      sampleBlade(root, r.prev, 5, r.push);
+    } else captureBladeChain(root, r.prev);
+    r.trail.update(t);
+  }
+
+  /** A remote pilgrim left: take its trail back. */
+  releaseRemote(root: THREE.Object3D) {
+    for (const r of this.remote) {
+      if (r.root !== root) continue;
+      r.root = null;
+      r.trail.clear();
+      r.trail.mesh.visible = false;
+    }
+  }
+
+  /** Advance the combat clock by the real frame time (s); once per frame before tick. */
+  advance(dtRaw: number) {
+    this.now += Math.min(0.25, Math.max(0, dtRaw)) * 1000;
+  }
+
+  /** Swing progress on the combat clock, or −1. */
+  swingU(t = this.now): number {
     const u = (t - this.swingStart) / SWING_MS;
     return u >= 0 && u < 1 ? u : -1;
   }
@@ -126,16 +219,17 @@ export class HeroMotor {
 
   /** Start a swing at a foe (or the air); returns the combo kind. */
   startSwing(targetId: string | null): number {
-    const t = this.host.animT;
+    const t = this.now;
     const sinceEnd = t - (this.swingStart + SWING_MS);
     this.combo = sinceEnd >= 0 && sinceEnd < COMBO_GAP_MS ? (this.combo + 1) % 3 : 0;
     this.swingStart = t;
     this.swingKind = this.combo;
     this.swingTarget = targetId;
     this.contactSent = false;
+    this.uVis = 0;
     this.trail.clear();
     this.bladeSampling = false;
-    if (this.host.youGroup) humanoidSwing(this.host.youGroup, t, this.swingKind, SWING_MS);
+    if (this.host.youGroup) humanoidSwing(this.host.youGroup, this.host.animT, this.swingKind, SWING_MS);
     return this.swingKind;
   }
 
@@ -168,10 +262,11 @@ export class HeroMotor {
 
   startDash(from: Vec2, to: Vec2) {
     const t = this.host.animT;
-    this.dashStart = t;
+    this.dashStart = this.now;
     this.dashFrom = { x: from.x, y: from.y };
     this.dashTo = { x: to.x, y: to.y };
     this.swingStart = -1e9;
+    this.uVis = -1;
     this.contactSent = true;
     this.trail.clear();
     const g = this.host.youGroup;
@@ -185,7 +280,7 @@ export class HeroMotor {
 
   /** Planar position the hero is pinned to this frame (dash tween / death), or null. */
   pinnedPos(out: Vec2): Vec2 | null {
-    const t = this.host.animT;
+    const t = this.now;
     if (this.deathStart >= 0) {
       out.x = this.deathSpot.x;
       out.y = this.deathSpot.y;
@@ -197,7 +292,7 @@ export class HeroMotor {
       this.dashStart = -1;
       out.x = this.dashTo.x;
       out.y = this.dashTo.y;
-      this.dust.spawn(out.x, this.host.standY(out.x, out.y, 0.05), out.y, t, 1.3, 0.45, 460);
+      this.dust.spawn(out.x, this.host.standY(out.x, out.y, 0.05), out.y, this.host.animT, 1.3, 0.45, 460);
       return out;
     }
     // ease-out cubic: explosive start, soft arrival
@@ -209,10 +304,11 @@ export class HeroMotor {
 
   startDeath(at: Vec2) {
     if (this.deathStart >= 0) return;
-    this.deathStart = this.host.animT;
+    this.deathStart = this.now;
     this.deathSpot = { x: at.x, y: at.y };
     this.dashStart = -1;
     this.swingStart = -1e9;
+    this.uVis = -1;
     this.contactSent = true;
     if (this.host.youGroup) humanoidDeath(this.host.youGroup, this.host.animT);
   }
@@ -230,8 +326,12 @@ export class HeroMotor {
     humanoidCast(g, kind, this.host.animT, windMs);
   }
 
-  /** Per frame, after the planar position is final (draw). */
-  update(dt: number, opts: { channeling: boolean }) {
+  /**
+   * Per frame, after the planar position is final (draw). `dt` is the world's
+   * frame step (animT), `dtRaw` the real one (combat clock).
+   */
+  update(dt: number, opts: { channeling: boolean; dtRaw?: number }) {
+    const dtRaw = opts.dtRaw ?? dt;
     const h = this.host;
     const g = h.youGroup;
     if (!g) return;
@@ -239,7 +339,7 @@ export class HeroMotor {
     setPlanar(g.position, h.renderYou.x, h.renderYou.y, h.standY(h.renderYou.x, h.renderYou.y));
 
     // death: hold the fall, then hand over to the respawn and rise from a kneel
-    if (this.deathStart >= 0 && t - this.deathStart > DEATH_POSE_MS) {
+    if (this.deathStart >= 0 && this.now - this.deathStart > DEATH_POSE_MS) {
       this.deathStart = -1;
       h.onReviveTeleport();
       humanoidRevive(g, t);
@@ -247,7 +347,7 @@ export class HeroMotor {
     }
 
     // facing: re-aim at a live target until contact, turn at a finite rate
-    const u = this.swingU(t);
+    const u = this.swingU();
     if (u >= 0 && u < SWING_U_HIT && this.swingTarget) {
       const p = h.foeRenderPos(this.swingTarget);
       if (p) {
@@ -284,6 +384,18 @@ export class HeroMotor {
       h.onSwingContact(this.swingTarget, this.swingKind);
     }
 
+    // visual swing progress: = combat progress, except it holds through the
+    // world's hit-stop and then catches up (the cadence never slips)
+    if (u < 0) this.uVis = -1;
+    else {
+      const du = (dt * 1000) / SWING_MS;
+      const lag = u - Math.max(0, this.uVis);
+      if (this.uVis < 0 || lag < 0) this.uVis = u;
+      else if (performance.now() < h.hitStopUntil) this.uVis += Math.min(lag, du);
+      else this.uVis = lag < 0.004 ? u : this.uVis + Math.max(Math.min(lag, du), lag * (1 - Math.exp(-dtRaw * 30)));
+    }
+    const uv = this.uVis;
+
     const vx = this.dashing() ? 0 : h.velX;
     const vz = this.dashing() ? 0 : h.velY;
     tickHumanoid(g, {
@@ -292,12 +404,13 @@ export class HeroMotor {
       attacking: false,
       speed: Math.hypot(vx, vz),
       channeling: opts.channeling,
+      swingU: uv,
       vx,
       vz,
     });
 
     // blade trail: sub-frame arc samples from the strike through the follow-through
-    const sampling = u >= SWING_U_COCK - 0.03 && u < 0.52;
+    const sampling = uv >= SWING_U_COCK - 0.03 && uv < 0.52;
     if (sampling) {
       if (!this.bladeSampling) {
         this.bladeSampling = true;
@@ -312,6 +425,16 @@ export class HeroMotor {
       captureBladeChain(g, this.bladePrev);
     }
     this.trail.update(t);
+    // lent trails fade out (their samples come from remoteTick), then go back
+    for (const r of this.remote) {
+      if (!r.root) continue;
+      r.trail.update(t);
+      if (t > r.until) {
+        r.root = null;
+        r.trail.clear();
+        r.trail.mesh.visible = false;
+      }
+    }
 
     // footstep dust on the plant (running only)
     const plant = takeFootPlant(g);

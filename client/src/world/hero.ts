@@ -9,7 +9,7 @@
  *
  * Rig contract (heroAnim.ts / gearLook.ts / WorldApp rely on these names):
  *   wanderer → hips → { legL/R → kneeL/R → ankleL/R (toeL/R),
- *                        apron → apronHem, tabard → tabardHem,
+ *                        apronL/R → apronHemL/R, tabardL/R → tabardHemL/R,
  *                        torso → { armL/R → elbowL/R → handL/R (weapon, offhand),
  *                                  head → { hood, nose }, cloak → cloakMid → cloakHem,
  *                                  slashAnchor } }
@@ -753,15 +753,21 @@ function buildCape(rig: Rig, torso: THREE.Bone, M: HeroPaints, hi: boolean) {
 }
 
 /**
- * Full robe skirt from the belt to mid-shin. Front vertices ride the apron
- * joints, back ones the tabard joints, the flanks stay on the hips — so the
- * bell opens and swings with the stride and never gaps into planks.
+ * Full robe skirt from the belt to mid-shin. The front and back are each split
+ * down the middle into a left and a right two-joint panel over that leg (the
+ * cloth drapes over the knee that drives forward while the other side hangs,
+ * the centre seam stretches smoothly between them); the flanks stay on the
+ * hips — so the bell moves with each leg and never gaps into planks.
  */
 function buildRobeSkirt(rig: Rig, hips: THREE.Bone, M: HeroPaints, hi: boolean, armored: boolean) {
-  const apron = rig.bone("apron", hips, 0, SKIRT_TOP, -0.02);
-  const apronHem = rig.bone("apronHem", apron, 0, -PANEL_DROP, 0);
-  const tabard = rig.bone("tabard", hips, 0, SKIRT_TOP, 0.02);
-  const tabardHem = rig.bone("tabardHem", tabard, 0, -PANEL_DROP, 0);
+  const panel = (name: string, x: number, z: number) => {
+    const top = rig.bone(name, hips, x, SKIRT_TOP, z);
+    return [top, rig.bone(`${name.replace(/([LR])$/, "")}Hem${name.slice(-1)}`, top, 0, -PANEL_DROP, 0)] as const;
+  };
+  const [apronL, apronHemL] = panel("apronL", -0.05, -0.02);
+  const [apronR, apronHemR] = panel("apronR", 0.05, -0.02);
+  const [tabardL, tabardHemL] = panel("tabardL", -0.05, 0.02);
+  const [tabardR, tabardHemR] = panel("tabardR", 0.05, 0.02);
   const weights: Weights = (p) => {
     const v = (SKIRT_TOP - p.y) / SKIRT_L;
     const phi = Math.atan2(p.x, -p.z);
@@ -770,9 +776,30 @@ function buildRobeSkirt(rig: Rig, hips: THREE.Bone, M: HeroPaints, hi: boolean, 
     const back = cf < 0 ? Math.pow(-cf, 1.3) : 0;
     const a = smoothstep(0.0, 0.26, v);
     const b = smoothstep(0.3, 0.85, v);
+    // left / right panel share across the centre seam
+    const wl = smoothstep(0.12, -0.12, p.x);
+    const wr = 1 - wl;
     const out: [THREE.Bone, number][] = [[hips, 1 - (front + back) * a]];
-    if (front > 0) out.push([apron, front * a * (1 - b)], [apronHem, front * a * b]);
-    if (back > 0) out.push([tabard, back * a * (1 - b)], [tabardHem, back * a * b]);
+    if (front > 0)
+      out.push(
+        [apronL, front * a * (1 - b) * wl],
+        [apronHemL, front * a * b * wl],
+        [apronR, front * a * (1 - b) * wr],
+        [apronHemR, front * a * b * wr]
+      );
+    if (back > 0)
+      out.push(
+        [tabardL, back * a * (1 - b) * wl],
+        [tabardHemL, back * a * b * wl],
+        [tabardR, back * a * (1 - b) * wr],
+        [tabardHemR, back * a * b * wr]
+      );
+    // four influences at most: keep the strongest, renormalized
+    out.sort((m, n) => n[1] - m[1]);
+    if (out.length > 4) out.length = 4;
+    let sum = 0;
+    for (const e of out) sum += Math.max(0, e[1]);
+    for (const e of out) e[1] = Math.max(0, e[1]) / (sum || 1);
     return out;
   };
   const R = (v: number) => 0.17 + 0.115 * Math.pow(v, 1.15);
@@ -935,7 +962,11 @@ export function makeHero(mats: MatKit, palette: HeroPalette = "pilgrim"): THREE.
 
 const _ghosts = new Map<THREE.Material, THREE.Material>();
 
-/** Net-offline ghost: swap in cached translucent twins (shared mats stay opaque). */
+/**
+ * Net-offline ghost: swap the body's opaque (shared) materials for cached
+ * translucent twins; the shared originals are never touched. Already
+ * see-through parts (selection ring, contact shadow) keep their own look.
+ */
 export function setHeroGhost(root: THREE.Object3D, on: boolean) {
   if (Boolean(root.userData.heroGhost) === on) return;
   root.userData.heroGhost = on;
@@ -944,16 +975,18 @@ export function setHeroGhost(root: THREE.Object3D, on: boolean) {
     if (!m.isMesh || !m.material || Array.isArray(m.material)) return;
     if (on) {
       const base = m.material;
+      if (base.transparent) return;
       let g = _ghosts.get(base);
       if (!g) {
         g = base.clone();
         g.transparent = true;
-        g.opacity = 0.45;
         g.onBeforeCompile = base.onBeforeCompile;
         g.customProgramCacheKey = base.customProgramCacheKey;
         g.userData.shared = true;
         _ghosts.set(base, g);
       }
+      // (re-asserted every time: nothing else may leave a twin opaque)
+      g.opacity = 0.45;
       m.userData.baseMat = base;
       m.material = g;
     } else if (m.userData.baseMat) {
