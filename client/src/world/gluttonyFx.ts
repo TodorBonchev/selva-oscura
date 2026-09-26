@@ -11,8 +11,11 @@
  *  - Mounds: the bubbling mud over each buried shade (the ground's moss mound, instanced),
  *    heaving slowly; a woken one sinks away.
  *  - Clods: the fistful of mire in your hand, and thrown clods arcing onto a maw.
+ *  - ClodHeaps: the heaps of mire by the dais (clod POIs, whose nodes are empty props):
+ *    one instanced heap + one instanced ring, set once.
  */
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { MatKit } from "./materials";
 import { sharedMat } from "./dispose";
 
@@ -454,5 +457,91 @@ export class Clods {
   dispose() {
     this.group.removeFromParent();
     this.geo.dispose();
+  }
+}
+
+// ——— clod heaps ————————————————————————————————————————————————————————————————
+
+/** A heap of mire: a slumped lump with a few clods on top (built once per arrival). */
+function heapGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const put = (g: THREE.BufferGeometry, x: number, y: number, z: number, rx: number, ry: number, rz: number, sx = 1, sy = 1, sz = 1) => {
+    _e.set(rx, ry, rz);
+    _q.setFromEuler(_e);
+    _p.set(x, y, z);
+    _s.set(sx, sy, sz);
+    g.applyMatrix4(_m.compose(_p, _q, _s));
+    parts.push(g);
+  };
+  put(new THREE.IcosahedronGeometry(0.7, 1), 0, 0.12, 0, 0, 0.3, 0, 1.25, 0.42, 1.05);
+  put(new THREE.IcosahedronGeometry(0.2, 0), 0.22, 0.42, 0.1, 0.4, 0, 0.2);
+  put(new THREE.IcosahedronGeometry(0.18, 0), -0.25, 0.4, -0.08, 0.1, 0.5, 0);
+  put(new THREE.IcosahedronGeometry(0.16, 0), 0.02, 0.5, -0.25, 0.7, 0.2, 0.3);
+  const merged = mergeGeometries(parts, false)!;
+  for (const g of parts) g.dispose();
+  merged.computeVertexNormals();
+  return merged;
+}
+
+/** The clod heaps (POI spots): two draws for all of them, whatever their number. */
+export class ClodHeaps {
+  readonly group = new THREE.Group();
+  private heapGeo: THREE.BufferGeometry;
+  private ringGeo: THREE.TorusGeometry;
+  private heaps: THREE.InstancedMesh;
+  private rings: THREE.InstancedMesh;
+  private n = 0;
+
+  constructor(mats: MatKit, cap: number) {
+    this.group.name = "glutClodHeaps";
+    this.heapGeo = heapGeometry();
+    this.ringGeo = new THREE.TorusGeometry(1.05, 0.045, 5, 20);
+    this.heaps = new THREE.InstancedMesh(this.heapGeo, mats.moss, cap);
+    this.heaps.castShadow = false;
+    this.heaps.receiveShadow = true;
+    this.rings = new THREE.InstancedMesh(this.ringGeo, mats.mire, cap);
+    this.rings.castShadow = false;
+    this.heaps.count = 0;
+    this.rings.count = 0;
+    this.group.add(this.heaps, this.rings);
+  }
+
+  get size(): number {
+    return this.n;
+  }
+
+  /** Place the heaps (planar x, ground height, planar y per heap); bounds follow. */
+  set(xs: ArrayLike<number>, ys: ArrayLike<number>, zs: ArrayLike<number>, count: number) {
+    const cap = this.heaps.instanceMatrix.count;
+    this.n = Math.min(cap, count);
+    for (let i = 0; i < this.n; i++) {
+      const x = xs[i]!;
+      const y = ys[i]!;
+      const z = zs[i]!;
+      _p.set(x, y, z);
+      _e.set(0, (i * 1.93) % (Math.PI * 2), 0);
+      _q.setFromEuler(_e);
+      _s.set(1, 1, 1);
+      this.heaps.setMatrixAt(i, _m.compose(_p, _q, _s));
+      _p.y = y + 0.08;
+      _e.set(Math.PI / 2, 0, 0);
+      _q.setFromEuler(_e);
+      this.rings.setMatrixAt(i, _m.compose(_p, _q, _s));
+    }
+    this.heaps.count = this.n;
+    this.rings.count = this.n;
+    this.heaps.instanceMatrix.needsUpdate = true;
+    this.rings.instanceMatrix.needsUpdate = true;
+    // (culled as one volume: the heaps sit together around the dais)
+    this.heaps.computeBoundingSphere();
+    this.rings.computeBoundingSphere();
+  }
+
+  dispose() {
+    this.group.removeFromParent();
+    this.heapGeo.dispose();
+    this.ringGeo.dispose();
+    this.heaps.dispose();
+    this.rings.dispose();
   }
 }

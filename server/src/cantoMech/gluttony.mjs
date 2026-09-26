@@ -14,9 +14,11 @@
  *     pilgrim within RISE_R wakes one: it rises with a GRAB telegraph (hit → rooted),
  *     then fights normally. Mounds are not entities, so nothing can target them and the
  *     bot never counts them; the Maw's fall stills the rest.
- *  3. Grandine grossa — hail volleys: every ~10 s each pilgrim gets 3–5 small circle
+ *  3. Grandine grossa — hail volleys: every ~7 s each pilgrim gets 3–5 small circle
  *     telegraphs (one leads their stride), 1 s of warning, a light blow + short slow.
- *     Hail hits foes too: drag a pack under it.
+ *     Hail hits foes too: drag a pack under it. The storm answers the jaws: when a foe
+ *     winds up on a pilgrim whose volley is due soon, it falls now (the time it skipped
+ *     is added to the next wait — as many stones, only worse timed).
  *  4. Triple Maw (Cerberus): three heads bite left → centre → right as staggered cone
  *     telegraphs; hugging him earns a gorge slam. Clods: clod POIs by the dais (and
  *     Cerbero's step) are grabbed with E (onInteract) and thrown by the next attack
@@ -25,6 +27,8 @@
  *     any throat is choked. Phase 2 (≤50%): "Fango" wisps crawl out of the mire to feed
  *     him (heal) unless cut down. Plain damage always kills him.
  *     Cerbero (mid elite) wakes one head — a single bite cone — and teaches the clod.
+ *     A throw is an attack packet with combo THROW_COMBO (3; melee swings are 0–2), so a
+ *     blade swing in flight never spends the fistful.
  *
  * Wire (server → client; the client mech consumes these):
  *   glut_rise    { k, id, x, y, dur }        buried shade k rises (sent before its entity)
@@ -41,6 +45,7 @@
  * Snapshot mech: { bv, bb, c, cw?, bm?, hs?, cs? } — see snapshotExtra.
  */
 import { brake, chase, interruptAttack, pushMob, startAttack, walkTo } from "../mobAi.mjs";
+import { pointInShape } from "../telegraph.mjs";
 import { makeMire } from "./gluttonyMire.mjs";
 
 /** Armoured foes the mud drags (shades and wisps are the mire's own). */
@@ -86,6 +91,13 @@ const HAIL = {
    */
   crownP: 0.35,
   crownR: 2.9,
+  /**
+   * A pilgrim the mire holds (or held this recently, ms) is never pelted: their volley
+   * waits, and stones already falling spare them — every stone must be dodgeable.
+   */
+  heldGraceMs: 500,
+  /** a volley due within this many seconds falls with a foe's windup on (or by) the pilgrim */
+  syncS: 3.5,
 };
 
 /**
@@ -116,17 +128,29 @@ const SILENCE_MUL = 1.5;
  */
 /** A Fango cut down bursts in a spray of filth a beat later (step out of it). */
 const FANGO_BURST = { radius: 3.0, windupMs: 550, dmg: 12, slow: 0.6, slowMs: 900 };
-const FEED = { every: [7, 9], per: 2, max: 4, speed: 2.4, heal: 0.04, cap: 0.5, drain: 0.18, hp: 20, spawnR: [11.5, 13] };
+/** (`spawns`: at most this many crawl out per phase 2 — cut down or not, the mire runs dry) */
+const FEED = { every: [7, 9], per: 2, max: 4, spawns: 8, speed: 2.4, heal: 0.04, cap: 0.5, drain: 0.18, hp: 20, spawnR: [11.5, 13] };
 
 /** Cerbero, one waking head. */
 const CERB = { hpMul: 2.2, radius: 4.4, arc: 1.25, windup: 0.95, trigger: 3.8, recover: 1.15, dmgMul: 1.3 };
 
 /**
  * Clods of mire. The mire does not give up its earth freely: scooping one sets its hands
- * snapping shut on the taker (a quick grab telegraph at your feet — scoop with the dash
- * ready, or pay for the fistful).
+ * closing on the taker — a grab telegraph at your feet with a full second of warning, so
+ * a step or two out of it (wading, no dash needed) keeps the fistful free. Within
+ * `biterR` of a biter it only drags at you (a slow, never a hold into the next bite).
  */
-const CLOD = { range: 11, speed: 24, headDmg: 10, splatDmg: 6, mobDmg: 8, grabCdMs: 900, snatch: { radius: 2.4, windupMs: 550, rootMs: 700, dmg: 12 } };
+const CLOD = {
+  range: 11,
+  speed: 24,
+  headDmg: 10,
+  splatDmg: 6,
+  mobDmg: 8,
+  grabCdMs: 900,
+  snatch: { radius: 1.6, windupMs: 1000, rootMs: 600, dmg: 12, biterR: 10, slow: 0.55, slowMs: 800 },
+};
+/** The attack packet's combo value that throws (melee swings are 0–2). */
+const THROW_COMBO = 3;
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -150,6 +174,38 @@ function toastNear(room, x, y, r, level, text) {
   for (const s of room.sessions.values()) {
     if (Math.hypot(s.x - x, s.y - y) <= r) room.toast(s.ws, level, text);
   }
+}
+
+/** Every hold the mire puts on a pilgrim goes through here (the hail spares the held). */
+function holdFast(room, s, ms) {
+  s._glutHeldUntil = Math.max(s._glutHeldUntil || 0, Date.now() + ms);
+  room.statusPlayer(s, { root: true, durMs: ms });
+}
+
+function heldRecently(s, now) {
+  return now < (s._glutHeldUntil || 0) + HAIL.heldGraceMs;
+}
+
+/** A foe's windup (not the mire's own) that began this moment, on or by the pilgrim. */
+function freshThreatOn(room, s) {
+  const live = room.tele && room.tele.live;
+  if (!live) return false;
+  for (let i = 0; i < live.length; i++) {
+    const t = live[i];
+    if (!t.attackerId || String(t.attackerId).startsWith("mech") || !(t.dmg > 0)) continue;
+    if (t.durMs / 1000 - t.left > 0.2) continue;
+    if (pointInShape(t, s.x, s.y, 1.5)) return true;
+  }
+  return false;
+}
+
+/** A live biter (the Maw, or Cerbero) within r of (x, y). */
+function biterNear(room, x, y, r) {
+  for (const e of room.entities.values()) {
+    if (!(e.hp > 0) || e._dead || (e.id !== "triple_maw" && !e.cerbero)) continue;
+    if (Math.hypot(e.x - x, e.y - y) <= r) return true;
+  }
+  return false;
 }
 
 // ——— buried shades ————————————————————————————————————————————————————
@@ -194,7 +250,7 @@ function rise(room, g, b, who) {
     },
     // the mire's hands close on your ankles (not on a dash)
     onHit: (r, tt, s) => {
-      if (!(s.iframes > 0)) r.statusPlayer(s, { root: true, durMs: GRAB.rootMs });
+      if (!(s.iframes > 0)) holdFast(r, s, GRAB.rootMs);
       return tt.dmg;
     },
   });
@@ -238,7 +294,7 @@ function volley(room, s, phase2) {
         1.5
       );
     }
-    dropVolley(room, pts, true);
+    dropVolley(room, pts, true, s.playerId);
     return;
   }
   const vx = s._glutVx || 0;
@@ -263,11 +319,15 @@ function volley(room, s, phase2) {
       if (place(s.x + Math.cos(a) * d, s.y + Math.sin(a) * d, rand(HAIL.r[0], HAIL.r[1]))) break;
     }
   }
-  dropVolley(room, pts);
+  dropVolley(room, pts, false, s.playerId);
 }
 
-/** The volley's stones as hail telegraphs (+ the visual stones for everyone). */
-function dropVolley(room, pts, crown = false) {
+/**
+ * The volley's stones as hail telegraphs (+ the visual stones for everyone). `pid`: the
+ * pilgrim it fell for — a foe the hail kills is theirs (loot, bounty, pack lines), though
+ * the blow on the wire is the hail's own.
+ */
+function dropVolley(room, pts, crown, pid) {
   for (let i = 0; i < pts.length; i += 3) {
     room.telegraph({
       attackerId: "mech:hail",
@@ -283,13 +343,13 @@ function dropVolley(room, pts, crown = false) {
         for (const e of [...r.entities.values()]) {
           if ((e.kind !== "mob" && e.kind !== "boss") || !(e.hp > 0) || e._dead) continue;
           if (Math.hypot(e.x - t.x, e.y - t.y) > (t.radius || 1) + 0.35) continue;
-          r.damageMob(e, HAIL.mobDmg, "mech:hail", { spellId: "hail", from: { x: t.x, y: t.y } });
+          r.damageMob(e, HAIL.mobDmg, pid || "mech:hail", { spellId: "hail", from: { x: t.x, y: t.y }, source: "mech:hail" });
         }
       },
       onHit: (r, t, sess) => {
-        const st = sess.status;
-        const rooted = st && st.root && st.until > Date.now();
-        if (!(sess.iframes > 0) && !rooted) r.statusPlayer(sess, { slow: HAIL.slow, durMs: HAIL.slowMs });
+        // held fast by the mire as the stones fell: they couldn't step out — spared
+        if (heldRecently(sess, Date.now())) return 0;
+        if (!(sess.iframes > 0)) r.statusPlayer(sess, { slow: HAIL.slow, durMs: HAIL.slowMs });
         return t.dmg;
       },
     });
@@ -321,7 +381,7 @@ function tickSink(room, g, s, nowMs) {
     kind: "mire_sink",
     dmg: SINK.dmg,
     onHit: (r, t, sess) => {
-      if (!(sess.iframes > 0)) r.statusPlayer(sess, { root: true, durMs: SINK.rootMs });
+      if (!(sess.iframes > 0)) holdFast(r, sess, SINK.rootMs);
       return t.dmg;
     },
   });
@@ -349,10 +409,22 @@ function tickHail(room, s, dt, maw) {
   if (!(s.hp > 0)) return;
   if (s._glutHailT == null) s._glutHailT = rand(HAIL.first[0], HAIL.first[1]);
   s._glutHailT -= dt;
+  // the storm answers the jaws: a foe winding up on you pulls a due volley in (the skipped
+  // wait carries over to the next one)
+  if (s._glutHailT > 0 && s._glutHailT <= HAIL.syncS && freshThreatOn(room, s)) {
+    s._glutHailCarry = (s._glutHailCarry || 0) + s._glutHailT;
+    s._glutHailT = 0;
+  }
   if (s._glutHailT > 0) return;
+  // held by the mire (or only just freed): the volley waits for their feet
+  if (heldRecently(s, Date.now())) {
+    s._glutHailT = 0.4;
+    return;
+  }
   const nearMaw = maw && Math.hypot(maw.x - s.x, maw.y - s.y) < 18;
   const every = nearMaw ? HAIL.bossEvery : HAIL.every;
-  s._glutHailT = rand(every[0], every[1]);
+  s._glutHailT = rand(every[0], every[1]) + (s._glutHailCarry || 0);
+  s._glutHailCarry = 0;
   const sp = room.canto.geo.spawn;
   if (Math.hypot(s.x - sp.x, s.y - sp.y) < HAIL.spawnSafe || s.iframes > 0) return;
   volley(room, s, Boolean(nearMaw && maw.phase === 2));
@@ -449,9 +521,8 @@ function enterPhase2(room, e, m) {
   e.phase2Toast = true;
   m.feedT = 0.8;
   m.fed = 0;
-  for (const s of room.sessions.values()) {
-    room.toast(s.ws, "warn", "«le bocche aperse» — stop the Fango feeding him");
-  }
+  m.spawned = 0;
+  toastNear(room, e.x, e.y, 30, "warn", "«le bocche aperse» — stop the Fango feeding him");
 }
 
 function spawnFeeder(room, g, maw) {
@@ -483,11 +554,12 @@ function spawnFeeder(room, g, maw) {
 
 function tickFeeders(room, g, e, m, dt) {
   m.feedT -= dt;
-  if (m.feedT > 0 || (m.fed || 0) >= e.maxHp * FEED.drain) return;
+  if (m.feedT > 0 || (m.fed || 0) >= e.maxHp * FEED.drain || (m.spawned || 0) >= FEED.spawns) return;
   m.feedT = rand(FEED.every[0], FEED.every[1]);
   let alive = 0;
   for (const x of room.entities.values()) if (x._feeder) alive++;
-  const n = Math.min(FEED.per, FEED.max - alive);
+  const n = Math.min(FEED.per, FEED.max - alive, FEED.spawns - (m.spawned || 0));
+  m.spawned = (m.spawned || 0) + Math.max(0, n);
   for (let i = 0; i < n; i++) spawnFeeder(room, g, e);
   if (n > 0) room.markDirty();
   if (n > 0 && !m.feedToast) {
@@ -768,6 +840,36 @@ export default {
   onKilled(room, e) {
     const g = room._glut;
     if (!g) return;
+    // The core's pack / road lines count the foes in the world — the buried aren't in it
+    if (e.kind === "mob" && !e._feeder && g.buried.length) {
+      let buried = 0;
+      let packBuried = false;
+      for (const b of g.buried) {
+        if (b.up) continue;
+        buried++;
+        if (e.packId && b.e.packId === e.packId) packBuried = true;
+      }
+      // its fellows still lie in the mud: the pack hasn't settled (the line comes with
+      // the last of them; this corpse leaves the world right after this hook)
+      if (packBuried) e.packId = null;
+      if (buried > 0) {
+        // the road line is the mire's while mounds still bubble (the core skips it)
+        e.summoned = true;
+        let mobs = 0;
+        let bossUp = false;
+        for (const o of room.entities.values()) {
+          if (o !== e && o.kind === "mob" && o.hp > 0 && !o.summoned) mobs++;
+          if (o.kind === "boss" && o.hp > 0) bossUp = true;
+        }
+        if (mobs === 0 && bossUp && !g.roadToast) {
+          g.roadToast = true;
+          // (the whole room's news, like the gate lines)
+          for (const p of room.sessions.values()) {
+            room.toast(p.ws, "emit", "The road is clear — only the mounds still bubble. Triple Maw waits.");
+          }
+        }
+      }
+    }
     if (e._feeder) {
       const fb = FANGO_BURST;
       room.telegraph({
@@ -873,6 +975,7 @@ export default {
     sess._glutGrabAt = now;
     sess._glutClod = true;
     room.broadcast({ type: "glut_grab", pid: sess.playerId, id: e.id });
+    // the mire's hands close where the thief stood: a second to wade clear
     const sn = CLOD.snatch;
     room.telegraph({
       attackerId: "mech:heap",
@@ -884,7 +987,11 @@ export default {
       kind: "mire_grab",
       dmg: Math.round(sn.dmg * 1.15),
       onHit: (r, t, s) => {
-        if (!(s.iframes > 0)) r.statusPlayer(s, { root: true, durMs: sn.rootMs });
+        if (!(s.iframes > 0)) {
+          // (by the jaws a hold would feed you to the next bite: the mud only drags)
+          if (biterNear(r, s.x, s.y, sn.biterR)) r.statusPlayer(s, { slow: sn.slow, durMs: sn.slowMs });
+          else holdFast(r, s, sn.rootMs);
+        }
         return t.dmg;
       },
     });
@@ -896,8 +1003,9 @@ export default {
     return true;
   },
 
-  onAttack(room, sess, target, _combo) {
-    if (!sess._glutClod) return false;
+  onAttack(room, sess, target, combo) {
+    // (a blade swing is a blade swing: only the throw packet spends the fistful)
+    if (!sess._glutClod || Number(combo) !== THROW_COMBO) return false;
     const d = Math.hypot(target.x - sess.x, target.y - sess.y);
     // out of a throw's reach: an ordinary swing (or "Too far"), the clod stays in hand
     if (d > CLOD.range) return false;

@@ -780,7 +780,9 @@ class CantoRoom {
    * A player's blow lands on a mob or boss: canto onDamage hook, HP, boss credit,
    * reactions (knockback impulse, light stagger on atkCd, poise that breaks a champion
    * windup; a heavy blow breaks a fodder windup), the combat broadcast and the kill.
-   * extra: { spellId, heavy, from: {x,y} (knockback source), kbMul }. Returns the damage.
+   * extra: { spellId, heavy, from: {x,y} (knockback source), kbMul, source (a hazard's
+   * id: the blow is the world's — combat attackerId + from on the wire — while
+   * playerId keeps the kill credit) }. Returns the damage.
    */
   damageMob(v, hit, playerId, extra = {}) {
     if (!v || v._dead) return 0;
@@ -812,15 +814,18 @@ class CantoRoom {
         }
       }
     }
+    const env = extra.source && extra.from;
     this.broadcast({
       type: "combat",
-      attackerId: playerId,
+      attackerId: extra.source || playerId,
       targetId: v.id,
       damage: hit,
       targetHp: v.hp,
       spellId: extra.spellId,
       heavy: extra.heavy || undefined,
       kb: kb > 0 ? +kb.toFixed(2) : undefined,
+      fx: env ? +extra.from.x.toFixed(1) : undefined,
+      fy: env ? +extra.from.y.toFixed(1) : undefined,
     });
     if (v.hp <= 0) this.onEntityKilled(playerId, v);
     return hit;
@@ -1148,7 +1153,7 @@ class CantoRoom {
     this.mech.onKilled?.(this, entity);
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
-    if (entity.packId && killer && !entity.summoned) {
+    if (entity.packId && killer) {
       let left = 0;
       for (const e of this.entities.values()) {
         if (e.packId === entity.packId && e.kind === "mob") left++;

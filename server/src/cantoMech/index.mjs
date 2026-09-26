@@ -33,8 +33,8 @@
  *                                      action (the room still applies the swing cooldown).
  *   dashScale(room, sess) → number     dash distance multiplier where the dash starts
  *                                      (the client mech's dashScale must agree).
- * Entities a mechanic summons may set `summoned: true`: pack-clear and road-clear lines
- * don't count them.
+ * Entities a mechanic summons may set `summoned: true`: the road-clear line doesn't
+ * count them.
  *
  * Helpers on the room for mechanics:
  *   room.telegraph(spec) → t           ground telegraph (telegraph.mjs; spec.onLand at

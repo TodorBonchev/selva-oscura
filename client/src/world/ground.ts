@@ -621,8 +621,11 @@ export function buildGround(
       puddles.instanceMatrix.needsUpdate = true;
       group.add(puddles);
 
-      // The old stone causeway: slabs over the band and landings, curbs along its lips
+      // The old stone causeway: slabs over the band and landings, curbs along its lips;
+      // their tops are the drawn surface on the road (decals, telegraphs sit on them)
       buildCauseway(group, heightAt, mats, compact);
+      group.userData.surfaceTop = (x: number, z: number) =>
+        mireDepth(x, z, CAUSEWAY_PTS, CAUSEWAY_HALF, CAUSEWAY_PADS) < 0.1 ? heightAt(x, z) + 0.05 : -Infinity;
       // Lanterns on the stones where the road bends (a few; each is a flame sprite)
       const lamps: [number, number][] = compact
         ? [[23, 48.5], [63, 50], [92.5, 59.5], [115.5, 44]]
@@ -910,11 +913,10 @@ export function buildGround(
   };
   const dais = isHub ? null : bossDaisFor(cantoId);
   const daisBase = dais ? heightAt(dais.x, dais.z) : 0;
-  const glutStones = cantoId === "inferno_06";
+  // a canto branch may lay its own surface over the floor (group.userData.surfaceTop)
+  const top = group.userData.surfaceTop as ((x: number, z: number) => number) | undefined;
   const surfaceAt = (x: number, z: number): number => {
-    let f = floorAt(x, z);
-    // Gluttony: the causeway slabs' tops (buildCauseway) are what's drawn on the road
-    if (glutStones && mireDepth(x, z, CAUSEWAY_PTS, CAUSEWAY_HALF, CAUSEWAY_PADS) < 0.1) f = Math.max(f, heightAt(x, z) + 0.05);
+    const f = top ? Math.max(floorAt(x, z), top(x, z)) : floorAt(x, z);
     return dais ? Math.max(f, daisTopAt(cantoId, daisBase, dais.x, dais.z, x, z)) : f;
   };
   return { group, floor, cantoId, heightAt, surfaceAt };

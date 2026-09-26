@@ -8,7 +8,10 @@
  *     the hail telegraphs; mud ripples under your steps, bubbling buried mounds, shades
  *     tearing out of the mud (gluttonyFx.ts);
  *   - the Maw's three heads (and Cerbero's one) rearing through their own bites, choked
- *     with mire when a clod lands; the clod in your fist and in the air;
+ *     with mire when a clod lands; the clod in your fist and in the air, and the heaps
+ *     by the dais (one instanced draw — their POI nodes are empty props);
+ *   - the throw: an attack press with mire in hand, sent on the server's blade clock
+ *     (a packet inside its swing cooldown would be dropped) with combo THROW_COMBO;
  *   - the objective line for the Gluttony chain and the right hint at the right moment.
  * Nothing here allocates per frame: pools are built in enter() and freed in exit().
  */
@@ -17,11 +20,12 @@ import type { CantoMech, MoveFeelOut } from "./index";
 import type { WorldApp } from "../WorldApp";
 import type { Objective } from "../objective";
 import { GluttonyRain, type RainTier } from "../gluttonyRain";
-import { BuriedMounds, Clods, Hailstones, MudRipples } from "../gluttonyFx";
+import { BuriedMounds, ClodHeaps, Clods, Hailstones, MudRipples } from "../gluttonyFx";
 import { adoptMire, mireDashAt, mireDepthAt, mireMulAt } from "../gluttonyMire";
 import { mobAttack, registerAttackPose, type MobState, type Pose } from "../mobAnim";
 import { registerTelePalette, visibleWindupMs } from "../telegraphs";
-import { makeClodMound, makeMireHeart, resolveKind } from "../meshes";
+import { makeFango, makeMireHeart, registerPropPoi, resolveKind } from "../meshes";
+import { SWING_CONTACT_MS, SWING_MS } from "../heroMotor";
 import { isCompactUi } from "../../ui/hud";
 
 /** Server HEAD_OFF: head i's cone sits this far (planar rad) off the Maw's facing. */
@@ -29,6 +33,14 @@ const HEAD_OFF = [-0.8, 0, 0.8];
 const BITE_KIND = ["maw_bite_l", "maw_bite_c", "maw_bite_r"];
 /** How far a throw reaches (server CLOD.range, a little inside it). */
 const THROW_REACH = 10.5;
+/** Server THROW_COMBO: the attack packet's combo value that throws (swings are 0–2). */
+const THROW_COMBO = 3;
+/** Server PLAYER_ATK_CD (ms): a throw rides the blade's cooldown like any attack packet. */
+const ATK_CD_MS = 420;
+/** A queued throw that couldn't go in this long (ms) is let go (the moment passed). */
+const THROW_QUEUE_MS = 900;
+/** Clod heaps drawn (content has six). */
+const HEAP_CAP = 10;
 /** Rise → hide the body under the mud by its height (× this). */
 const RISE_SINK = 1.04;
 
@@ -54,11 +66,21 @@ const S = {
   hail: null as Hailstones | null,
   mounds: null as BuriedMounds | null,
   clods: null as Clods | null,
+  heaps: null as ClodHeaps | null,
+  heapsSet: false,
+  heapX: new Float32Array(HEAP_CAP),
+  heapY: new Float32Array(HEAP_CAP),
+  heapZ: new Float32Array(HEAP_CAP),
   /** the ripple / hail meshes draw only while something lives in them */
   ripplesUntil: 0,
   hailUntil: 0,
   carry: false,
   throwAt: -1e9,
+  /** a throw pressed, waiting for the server's blade clock (Date.now ms it was pressed) */
+  throwQueued: false,
+  throwQueuedAt: 0,
+  /** Date.now ms the last throw packet left */
+  throwSentAt: -1e12,
   bb: 0,
   moundsSet: false,
   bubbleAt: new Float32Array(31),
@@ -89,6 +111,7 @@ const S = {
   sinkTips: 0,
   snatchUntil: 0,
   snatchTips: 0,
+  sinkShort: false,
   sinkX: 0,
   sinkY: 0,
   sinkBubbleAt: 0,
@@ -124,10 +147,13 @@ function fixMawFacing(st: MobState, head: number) {
 function registerOnce() {
   if (registered) return;
   registered = true;
+  // clod heaps are drawn instanced here; their nodes only carry the label + interaction
+  registerPropPoi("clod");
   // hail: pale ice; the mire's grab: dark mud with a tan lip; bites: bone-red jaws
   registerTelePalette("hail", { base: 0x0a1622, hot: 0x7fa6c8, rim: 0xeef6ff });
   registerTelePalette("mire_grab", { base: 0x120e04, hot: 0x8a7428, rim: 0xf0d890 });
-  registerTelePalette("mire_sink", { base: 0x0e0a02, hot: 0x6a5418, rim: 0xd8b060 });
+  // (the sink sits right on your own footing ring: livid violet, never the hero's gold)
+  registerTelePalette("mire_sink", { base: 0x0c0414, hot: 0x6a2c9a, rim: 0xe0a8ff });
   registerTelePalette("fango_burst", { base: 0x0c1004, hot: 0x6a8a18, rim: 0xd8f070 });
   const bite = { base: 0x1c0604, hot: 0xc8401c, rim: 0xffd0a0 };
   for (const k of BITE_KIND) registerTelePalette(k, bite);
@@ -326,6 +352,89 @@ function clodLand(x: number, y: number, z: number) {
   }
 }
 
+/**
+ * When (Date.now ms) the server takes our next attack packet: PLAYER_ATK_CD after the
+ * last one — a swing's left at its blade contact (heroMotor), a throw when thrown.
+ */
+function bladeReadyAt(app: WorldApp): number {
+  const start = app.attackBusyUntil - SWING_MS;
+  const swing = app.heroMotor ? start + SWING_CONTACT_MS : start;
+  return Math.max(swing, S.throwSentAt) + ATK_CD_MS;
+}
+
+/** The foe a throw goes to: the one you locked, else a biter, else the nearest in reach. */
+function throwTarget(app: WorldApp): any {
+  const room = app.room;
+  if (!room) return null;
+  const you = app.renderYou;
+  if (app.lockedId) {
+    const e = entityById(app, app.lockedId);
+    if (e && (e.hp == null || e.hp > 0)) {
+      const p = app.entityRenderPos(e);
+      if (Math.hypot(p.x - you.x, p.y - you.y) <= THROW_REACH) return e;
+    }
+  }
+  let target: any = null;
+  let best = THROW_REACH;
+  for (const e of room.entities) {
+    if ((e.kind !== "mob" && e.kind !== "boss") || !(e.hp > 0)) continue;
+    const p = app.entityRenderPos(e);
+    let d = Math.hypot(p.x - you.x, p.y - you.y);
+    if (d > THROW_REACH) continue;
+    if (e.id === "triple_maw" || String(e.id) === S.cerbId) d -= 100;
+    if (d < best) {
+      best = d;
+      target = e;
+    }
+  }
+  return target;
+}
+
+/** Throw the queued clod once the server's blade clock allows (called per frame). */
+function fireQueuedThrow(app: WorldApp) {
+  if (!S.carry || Date.now() - S.throwQueuedAt > THROW_QUEUE_MS) {
+    S.throwQueued = false;
+    return;
+  }
+  if (Date.now() < bladeReadyAt(app) || (app.heroMotor && !app.heroMotor.canDash())) return;
+  S.throwQueued = false;
+  const target = throwTarget(app);
+  if (!target) return;
+  const you = app.renderYou;
+  const p = app.entityRenderPos(target);
+  app.aimX = p.x - you.x;
+  app.aimY = p.y - you.y;
+  app.moveTarget = null;
+  app.socket.attack(String(target.id), THROW_COMBO);
+  app.heroMotor?.cast("gale_bolt", 180);
+  S.throwSentAt = Date.now();
+  S.throwAt = performance.now();
+  // (the fist empties now; the snapshot gives it back if the server never took the throw)
+  S.carry = false;
+  if (S.clods) S.clods.hand.visible = false;
+}
+
+/** The heaps by the dais, from the clod POIs (once per arrival). */
+function placeHeaps(app: WorldApp) {
+  const heaps = S.heaps;
+  const ents = app.room?.entities;
+  if (!heaps || !ents) return;
+  let n = 0;
+  for (let i = 0; i < ents.length && n < HEAP_CAP; i++) {
+    const e = ents[i];
+    if (e.kind !== "poi" || e.poiKind !== "clod") continue;
+    const x = Number(e.x) || 0;
+    const y = Number(e.y) || 0;
+    S.heapX[n] = x;
+    S.heapY[n] = app.standY(x, y);
+    S.heapZ[n] = y;
+    n++;
+  }
+  if (!n) return;
+  heaps.set(S.heapX, S.heapY, S.heapZ, n);
+  S.heapsSet = true;
+}
+
 // ——— the hooks ————————————————————————————————————————————————————————————
 
 export const gluttonyMech: CantoMech = {
@@ -349,6 +458,8 @@ export const gluttonyMech: CantoMech = {
       app.scene.add(S.mounds.mesh);
       S.clods = new Clods(mats);
       app.scene.add(S.clods.group);
+      S.heaps = new ClodHeaps(mats, HEAP_CAP);
+      app.scene.add(S.heaps.group);
       // wet, sheened mud (the ground material is Gluttony's own)
       S.groundRough = mats.groundGlut.roughness;
       S.groundMetal = mats.groundGlut.metalness;
@@ -358,6 +469,8 @@ export const gluttonyMech: CantoMech = {
     S.moundsSet = false;
     S.bb = 0;
     S.carry = false;
+    S.throwQueued = false;
+    S.heapsSet = false;
     S.rising.clear();
     S.heads.clear();
     S.cerbId = "";
@@ -383,6 +496,9 @@ export const gluttonyMech: CantoMech = {
     S.hail?.dispose();
     S.mounds?.dispose();
     S.clods?.dispose();
+    S.heaps?.dispose();
+    S.heaps = null;
+    S.throwQueued = false;
     S.rain = null;
     S.ripples = null;
     S.hail = null;
@@ -412,47 +528,26 @@ export const gluttonyMech: CantoMech = {
 
   nodeMesh(app, e) {
     if (!app.mats) return null;
-    if (e?.kind === "poi" && e.poiKind === "clod") return makeClodMound(app.mats);
     if (e?.archetype === "mire_heart") return makeMireHeart(app.mats);
+    // the Maw's feeders (phase 2): a cheap two-draw body, up to four at once
+    if (e?.kind === "mob" && e.name === "Fango") return makeFango(app.mats);
     return null;
   },
 
   onAttackPress(app) {
-    if (!S.carry || !app.room) return false;
-    const you = app.renderYou;
-    let target: any = null;
-    let best = THROW_REACH;
-    // the foe you locked, else a gaping biter, else the nearest foe in reach
-    if (app.lockedId) {
-      const e = entityById(app, app.lockedId);
-      if (e && (e.hp == null || e.hp > 0)) {
-        const p = app.entityRenderPos(e);
-        if (Math.hypot(p.x - you.x, p.y - you.y) <= THROW_REACH) target = e;
-      }
+    if (!S.carry) {
+      // just threw: the next swing waits until its blade contact (the packet) lands past
+      // the throw's cooldown on the server — else the server drops the blow
+      return Date.now() < S.throwSentAt + ATK_CD_MS - SWING_CONTACT_MS;
     }
-    if (!target) {
-      for (const e of app.room.entities) {
-        if ((e.kind !== "mob" && e.kind !== "boss") || !(e.hp > 0)) continue;
-        const p = app.entityRenderPos(e);
-        let d = Math.hypot(p.x - you.x, p.y - you.y);
-        if (d > THROW_REACH) continue;
-        if (e.id === "triple_maw" || String(e.id) === S.cerbId) d -= 100;
-        if (d < best) {
-          best = d;
-          target = e;
-        }
-      }
-    }
-    if (!target) return false;
-    const p = app.entityRenderPos(target);
-    app.aimX = p.x - you.x;
-    app.aimY = p.y - you.y;
-    app.moveTarget = null;
-    app.socket.attack(String(target.id), 0);
-    app.heroMotor?.cast("gale_bolt", 180);
-    S.carry = false;
-    S.throwAt = performance.now();
-    if (S.clods) S.clods.hand.visible = false;
+    if (!app.room) return false;
+    // mire in hand: the press throws (queued until the server's blade clock allows it)
+    if (S.throwQueued) return true;
+    // nothing in a throw's reach: an ordinary press (walk in on the nearest foe)
+    if (!throwTarget(app)) return false;
+    S.throwQueued = true;
+    S.throwQueuedAt = Date.now();
+    fireQueuedThrow(app);
     return true;
   },
 
@@ -587,7 +682,9 @@ export const gluttonyMech: CantoMech = {
         S.sinkX = Number(msg.x) || app.renderYou.x;
         S.sinkY = Number(msg.y) || app.renderYou.y;
         S.sinkBubbleAt = 0;
-        if (S.sinkTips < 3) S.sinkTips++;
+        S.sinkTips++;
+        // (after the first few, the short callout)
+        S.sinkShort = S.sinkTips > 3;
         return true;
       }
       case "glut_feed": {
@@ -617,8 +714,10 @@ export const gluttonyMech: CantoMech = {
       S.mounds.applyMask(S.bb, nowSec());
     }
     const now = performance.now();
-    // the server's word on the fist, except right after our own throw
-    if (now - S.throwAt > 450) S.carry = Boolean(m.c);
+    // the server's word on the fist, except right after our own throw (its reply is a
+    // round trip away)
+    if (now - S.throwAt > 450 + (app.socket.rttMs || 0)) S.carry = Boolean(m.c);
+    if (!S.heapsSet) placeHeaps(app);
     if (Array.isArray(m.hs)) {
       const a = headsOf("triple_maw", 3);
       for (let i = 0; i < 3; i++) {
@@ -677,6 +776,7 @@ export const gluttonyMech: CantoMech = {
       if (S.hail.mesh.visible && tSec > S.hailUntil) S.hail.mesh.visible = false;
     }
     S.clods?.update(tSec, clodAim, clodLand);
+    if (S.throwQueued) fireQueuedThrow(app);
     // — buried mounds: heave at ~20 Hz, bubble near the camera —
     if (S.mounds && S.moundsSet) {
       S.moundTick += dt;
@@ -812,8 +912,8 @@ export const gluttonyMech: CantoMech = {
       else if (e.kind === "poi" && e.poiKind === "clod" && Math.hypot(e.x - you.x, e.y - you.y) < 18) clod = true;
     }
     if (nowMs < S.seizedUntil) sub = "Seized by the mire — hold on";
-    else if (nowMs < S.snatchUntil) sub = "The mire snatches at the thief — dash clear!";
-    else if (nowMs < S.sinkUntil && S.sinkTips <= 3) sub = "The mud closes on your feet — step out!";
+    else if (nowMs < S.snatchUntil) sub = "The mire snatches at the thief — step clear!";
+    else if (nowMs < S.sinkUntil) sub = S.sinkShort ? "Sinking — step out!" : "The mud closes on your feet — step out!";
     else if (S.carry) sub = "Mire in hand — attack a gaping maw to throw";
     else if (S.mawPhase >= 2 && fango) sub = "Cut down the Fango before it feeds the Maw";
     else if (nearBiter && clod) sub = S.compact ? "Grab mire (Use), throw it in a gaping maw" : "Grab mire (E), throw it in a gaping maw";

@@ -778,37 +778,53 @@ export function makeMireHeart(mats: MatKit): THREE.Group {
   return g;
 }
 
+
 /**
- * A clod heap by the Maw's dais ("prese la terra, e con piene le pugna") — a mound of
- * wet earth with fist-sized lumps on top and a pale ring that says "take one".
+ * Fango — the mire's own filth crawling out to feed the Triple Maw (his phase 2): a low
+ * dripping slug of mud with a sick green glow and two ember eyes. Two draws (one merged
+ * body, one merged pair of eyes) — up to four crawl at once.
  */
-export function makeClodMound(mats: MatKit): THREE.Group {
+export function makeFango(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
-  g.name = "clod_mound";
-  const heap = new THREE.Mesh(
-    geo("clodHeap", () => {
+  g.name = "whirl";
+  const body = new THREE.Mesh(
+    geo("fangoBody", () => {
       const parts = [
-        xform(new THREE.IcosahedronGeometry(0.7, 1), 0, 0.12, 0, 0, 0.3, 0, 1.25, 0.42, 1.05),
-        xform(new THREE.IcosahedronGeometry(0.2, 0), 0.22, 0.42, 0.1, 0.4, 0, 0.2),
-        xform(new THREE.IcosahedronGeometry(0.18, 0), -0.25, 0.4, -0.08, 0.1, 0.5, 0),
-        xform(new THREE.IcosahedronGeometry(0.16, 0), 0.02, 0.5, -0.25, 0.7, 0.2, 0.3),
+        xform(new THREE.SphereGeometry(0.42, 10, 7), 0, 0.28, 0.05, 0, 0, 0, 1.2, 0.6, 1.55),
+        xform(new THREE.SphereGeometry(0.27, 9, 6), 0, 0.5, -0.36, 0.3, 0, 0, 1, 0.85, 1.05),
+        xform(new THREE.ConeGeometry(0.13, 0.32, 6), 0.26, 0.12, 0.34, Math.PI, 0, 0),
+        xform(new THREE.ConeGeometry(0.11, 0.26, 6), -0.28, 0.12, 0.12, Math.PI, 0, 0),
+        xform(new THREE.ConeGeometry(0.1, 0.24, 6), 0.05, 0.1, 0.62, Math.PI, 0, 0),
       ];
       const merged = mergeGeometries(parts, false)!;
+      for (const q of parts) q.dispose();
       merged.computeVertexNormals();
       return merged;
     }),
-    mats.moss
+    sharedMat("fangoBody", () =>
+      std(null, 0x2a3014, { roughness: 0.38, metalness: 0.12, emissive: 0x56701a, emissiveIntensity: 0.62 })
+    )
   );
-  heap.castShadow = false;
-  heap.receiveShadow = true;
-  const ring = new THREE.Mesh(geo("clodRing", () => new THREE.TorusGeometry(1.05, 0.045, 5, 20)), mats.mire);
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = 0.08;
-  ring.name = "ribbon";
-  g.add(heap, ring);
+  body.castShadow = false;
+  const eyes = new THREE.Mesh(
+    geo("fangoEyes", () => {
+      const parts = [
+        xform(new THREE.SphereGeometry(0.06, 6, 5), -0.11, 0.6, -0.58, 0, 0, 0),
+        xform(new THREE.SphereGeometry(0.06, 6, 5), 0.11, 0.6, -0.58, 0, 0, 0),
+      ];
+      const merged = mergeGeometries(parts, false)!;
+      for (const q of parts) q.dispose();
+      return merged;
+    }),
+    mats.ember
+  );
+  eyes.name = "ember";
+  eyes.castShadow = false;
+  g.add(body, eyes, nose(mats, 0.55, -0.62));
+  // (a touch larger than a wisp: the thing to cut down reads from the phone camera)
+  g.scale.setScalar(1.2);
   return g;
 }
-
 
 /** Shared ledger plate geos — one draw-friendly buffer for every weight shade plate. */
 let SHARED_LEDGER_PLATE_GEO: THREE.BoxGeometry | null = null;
@@ -1981,7 +1997,16 @@ export type KindKey =
   | "shrine"
   | "pyre"
   | "portal"
-  | "loot";
+  | "loot"
+  /** an inert POI a canto mechanic draws itself (registerPropPoi) */
+  | "prop";
+
+/** POI kinds a canto mechanic draws itself (instanced, say): their nodes are empty props. */
+const PROP_POI = new Set<string>();
+
+export function registerPropPoi(poiKind: string) {
+  PROP_POI.add(poiKind);
+}
 
 
 /** Filth Cache — chest with olive sludge band (Gluttony-readable vs Wind Cache). */
@@ -2222,6 +2247,8 @@ export function makeByKind(kind: KindKey, mats: MatKit, rarity?: string): THREE.
       return makePortal(mats);
     case "loot":
       return makeLootGem(mats, rarity);
+    case "prop":
+      return new THREE.Group();
   }
 }
 
@@ -2249,6 +2276,7 @@ export function resolveKind(ent: {
     if (ent.poiKind === "quest") return "quest";
     if (ent.poiKind === "shrine" || ent.poiKind === "bell") return "shrine";
     if (ent.poiKind === "pyre") return "pyre";
+    if (ent.poiKind && PROP_POI.has(ent.poiKind)) return "prop";
     return "guide";
   }
   if (ent.kind === "mob") return ent.champion ? "champion" : "whirl";

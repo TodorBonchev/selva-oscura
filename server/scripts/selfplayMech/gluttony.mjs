@@ -13,6 +13,8 @@ import { CANTOS } from "../../src/content.mjs";
 const STEP = 0.4; // bot walk step per 50 ms (8 u/s)
 const MOUND_KEEP = 4.4;
 const CLOD_REACH = 10.5;
+/** server cantoMech/gluttony.mjs THROW_COMBO */
+const THROW_COMBO = 3;
 const BITE_KINDS = new Set(["maw_bite_l", "maw_bite_c", "maw_bite_r", "cerbero_bite"]);
 
 /** GLUT_DEBUG=1: per-run breakdown of Gluttony damage by source, printed on leaving. */
@@ -186,10 +188,14 @@ export default {
         if (!BITE_KINDS.has(t.kind) || t.attackerId !== biter.id) continue;
         const age = now - t.at;
         if (age < 260 || age > t.durMs - 180) continue;
+        // the server's blade cooldown covers throws too (a packet inside it is dropped)
+        if (bot._atkAt && now - bot._atkAt < 430) break;
+        bot._atkAt = now;
         s.throwAt = now;
         s.throws++;
         s.holdSince = 0;
-        bot.send({ type: "attack", targetId: biter.id, combo: 0 });
+        // (a throw is its own packet: combo 3 — melee swings never spend the fistful)
+        bot.send({ type: "attack", targetId: biter.id, combo: THROW_COMBO });
         await sleep(50);
         return true;
       }
