@@ -1,8 +1,9 @@
 /**
  * Avarice ground dressing that follows the processions (avariceProcession.ts): the two
- * worn tracks the weights roll in (one merged strip, both arcs: gold rims, dark rut
- * grooves, a polished lane) and the scarred clash rings where the road crosses them.
- * Static, built with the canto's ground and disposed with it (ground.ts).
+ * worn tracks the weights roll in (both arcs: gold rims, dark rut grooves, a polished
+ * lane) and the scarred clash rings where the road meets them — one merged, vertex-
+ * coloured mesh (one draw) — plus Plutus's two coin piles. Static, built with the
+ * canto's ground and disposed with it (ground.ts).
  */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
@@ -71,28 +72,43 @@ function trackGeometry(heightAt: (x: number, z: number) => number, segs: number)
   return geo;
 }
 
-/** Scarred clash rings at W and E (merged, one draw). */
-function clashGeometry(heightAt: (x: number, z: number) => number, compact: boolean): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
+/** Bronze of the scarred clash rings (linear RGB, like the track profile). */
+const RING_RGB: [number, number, number] = [0.62, 0.42, 0.16];
+
+/** A torus as a track part: position + normal + colour only (merges with the strip). */
+function ringPart(r: number, tube: number, segs: number, x: number, y: number, z: number): THREE.BufferGeometry {
+  const g = new THREE.TorusGeometry(r, tube, 3, segs);
+  g.rotateX(Math.PI / 2);
+  g.translate(x, y, z);
+  g.deleteAttribute("uv");
+  const n = g.attributes.position!.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    col[i * 3] = RING_RGB[0];
+    col[i * 3 + 1] = RING_RGB[1];
+    col[i * 3 + 2] = RING_RGB[2];
+  }
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
+/** The tracks + scarred clash rings at W and E, merged (one draw). */
+function trackAndRings(heightAt: (x: number, z: number) => number, compact: boolean): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [trackGeometry(heightAt, compact ? 48 : 96)];
   for (const c of [PROC.W, PROC.E]) {
-    const ring = new THREE.TorusGeometry(PROC.CLASH_R, 0.075, 4, compact ? 28 : 40);
-    ring.rotateX(Math.PI / 2);
-    ring.translate(c.x, heightAt(c.x, c.y) + 0.06, c.y);
-    parts.push(ring);
-    const inner = new THREE.TorusGeometry(PROC.CLASH_R * 0.42, 0.05, 4, compact ? 16 : 22);
-    inner.rotateX(Math.PI / 2);
-    inner.translate(c.x, heightAt(c.x, c.y) + 0.06, c.y);
-    parts.push(inner);
+    const y = heightAt(c.x, c.y) + 0.06;
+    parts.push(ringPart(PROC.CLASH_R, 0.075, compact ? 28 : 40, c.x, y, c.y));
+    parts.push(ringPart(PROC.CLASH_R * 0.42, 0.05, compact ? 14 : 22, c.x, y, c.y));
   }
   const g = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
   return g!;
 }
 
-/** Plutus's two coin piles on his dais rim (the Fiorini rise from them; server PILES). */
+/** Plutus's hoard: two coin piles in the tip of the ring, flanking the Ledger Bell (the Fiorini rise from them; server PILES). */
 const PILES: [number, number][] = [
-  [138, 39.5],
-  [138, 56.5],
+  [120.5, 47.5],
+  [120.5, 52.5],
 ];
 
 function pileGeometry(heightAt: (x: number, z: number) => number): THREE.BufferGeometry {
@@ -120,11 +136,10 @@ function pileGeometry(heightAt: (x: number, z: number) => number): THREE.BufferG
   return g!;
 }
 
-/** Add the tracks + clash rings to the Avarice ground group. */
+/** Add the tracks + clash rings and the coin piles to the Avarice ground group. */
 export function buildAvariceTracks(
   group: THREE.Group,
   heightAt: (x: number, z: number) => number,
-  ringMat: THREE.Material,
   compact: boolean,
   pileMat: THREE.Material
 ) {
@@ -139,17 +154,13 @@ export function buildAvariceTracks(
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
-  const tracks = new THREE.Mesh(trackGeometry(heightAt, compact ? 64 : 96), trackMat);
+  const tracks = new THREE.Mesh(trackAndRings(heightAt, compact), trackMat);
   tracks.name = "avaTracks";
   tracks.receiveShadow = true;
   tracks.castShadow = false;
   // (drawn with the floor pass: after the other opaques, before the sky)
   tracks.renderOrder = 5;
   group.add(tracks);
-  const clash = new THREE.Mesh(clashGeometry(heightAt, compact), ringMat);
-  clash.name = "avaClashRings";
-  clash.castShadow = false;
-  group.add(clash);
   const piles = new THREE.Mesh(pileGeometry(heightAt), pileMat);
   piles.name = "avaCoinPiles";
   piles.castShadow = !compact;

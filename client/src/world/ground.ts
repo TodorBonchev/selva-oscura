@@ -4,6 +4,8 @@
  */
 import * as THREE from "three";
 import type { MatKit } from "./materials";
+import { distToArcs } from "./avariceProcession";
+import { buildAvariceTracks } from "./avariceGround";
 import {
   makeBrazier,
   makeFallenLog,
@@ -16,8 +18,6 @@ import {
 } from "./meshes";
 import { isCompactUi } from "../ui/hud";
 import { makeLightShaft } from "./fx";
-import { distToArcs } from "./avariceProcession";
-import { buildAvariceTracks } from "./avariceGround";
 
 export type GroundRig = {
   group: THREE.Group;
@@ -88,17 +88,19 @@ const GLUTTONY_HUNT: [number, number][] = [
   [100, 58],
   [138, 48],
 ];
-/** Avarice road: enters the ring of the processions at the west clash, leaves at the east. */
 const AVARICE_HUNT: [number, number][] = [
   [18, 52],
+  // Avarice road: into the ring of the processions through the west clash, past the Hoard
+  // Heart, across the wasters' lane mid-span to the Counterweight, then beside their last
+  // run and through the east clash onto Plutus's dais
   [29, 52],
   [40, 57],
-  [56, 55],
-  [72, 53],
-  [88, 55],
-  [104, 52],
-  [118, 51],
-  [133, 49.5],
+  [62, 59],
+  [82, 61],
+  [93, 70],
+  [108, 72],
+  [122, 62],
+  [133, 51],
   [138, 48],
 ];
 
@@ -396,10 +398,10 @@ export function buildGround(
             { x: 24, z: 96, r: 4 },
             { x: 148, z: 92, r: 4 },
             { x: 30, z: 52, r: 5 },
-            { x: 78, z: 58, r: 5 },
-            { x: 106, z: 52, r: 5 },
+            { x: 81, z: 58, r: 5 },
+            { x: 100, z: 76, r: 5 },
             { x: 100, z: 34, r: 5 },
-            { x: 110, z: 69, r: 4 },
+            { x: 117, z: 69, r: 4 },
             { x: 138, z: 48, r: 9 },
           ]
         : [
@@ -799,7 +801,7 @@ export function buildGround(
       // (the tracks' east ends climb onto the dais: drape them over its plinth)
       const onDais = (x: number, z: number) =>
         Math.max(heightAt(x, z), daisTopAt(cantoId, hy, daisPos.x, daisPos.z, x, z));
-      buildAvariceTracks(group, onDais, mats.bronze, compact, mats.gold);
+      buildAvariceTracks(group, onDais, compact, mats.gold);
 
       // Restrained gold haze (Lust-soften parity — keep slash readable)
       const hazeN = compact ? 1 : 2;
@@ -819,8 +821,8 @@ export function buildGround(
 
       // Road ledger slabs + gate approach plates (two instanced meshes: slab + gold trim)
       const slabPts: [number, number][] = compact
-        ? [[18, 52], [29, 52], [72, 53], [104, 52]]
-        : [[14, 50], [22, 52], [29, 52], [48, 56], [64, 54], [80, 54], [96, 53], [116, 51], [132, 49]];
+        ? [[18, 52], [29, 52], [72, 60], [100, 71]]
+        : [[14, 50], [22, 52], [29, 52], [50, 58], [70, 60], [96, 70.5], [104, 71.5], [115, 67], [127, 57]];
       const slabs = new THREE.InstancedMesh(new THREE.BoxGeometry(1.1, 0.08, 0.7), mats.bone, slabPts.length);
       const trims = new THREE.InstancedMesh(new THREE.BoxGeometry(1.15, 0.03, 0.08), mats.gold, slabPts.length);
       slabs.castShadow = false;

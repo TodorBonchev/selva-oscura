@@ -3622,7 +3622,9 @@ export class WorldApp {
     if (ent && msg.targetHp != null && Number.isFinite(Number(msg.targetHp))) ent.hp = Number(msg.targetHp);
     const attacker = String(msg.attackerId ?? "");
     const weHit = Boolean(attacker) && (attacker === youId || attacker === sockId);
-    if (ent && attacker) {
+    // A canto hazard's blow (a rolling weight…) carries where it struck from: fx/fy
+    const env = msg.fx != null && msg.fy != null;
+    if (ent && attacker && !env) {
       // whoever struck last topples it (entity_removed follows the killing blow)
       if (this.lastAttackerOf.size > 96) this.lastAttackerOf.clear();
       this.lastAttackerOf.set(tid, attacker);
@@ -3680,7 +3682,11 @@ export class WorldApp {
       this.spawnHitFx(pos, heavy ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, heavy || comboBoost > 0.2 || Boolean(msg.heavy), dustElite);
       if (rec && this.combat) {
         // flinch away from whoever struck (the burst / heart: from its centre)
-        const from = this.attackerPos(attacker, pos);
+        let from = this._atkPos;
+        if (env) {
+          from.x = Number(msg.fx);
+          from.y = Number(msg.fy);
+        } else from = this.attackerPos(attacker, pos);
         this.combat.hitMob(rec, from.x, from.y, Boolean(msg.heavy), now);
       }
     }

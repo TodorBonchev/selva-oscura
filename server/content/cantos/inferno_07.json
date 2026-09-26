@@ -34,10 +34,10 @@
       {
         "id": "ledger_bell",
         "kind": "bell",
-        "x": 128.5,
-        "y": 56,
+        "x": 124,
+        "y": 50,
         "label": "Ledger Bell",
-        "hint": "Ring it when Plutus swells with coin — it breaks him"
+        "hint": "When Plutus holds two coin, ring it between clashes"
       },
       {
         "id": "ledger_cache",
@@ -71,7 +71,7 @@
         "x": 33,
         "y": 53,
         "label": "Ledger Stone",
-        "hint": "«Perché tieni?» «Perché burli?» — the weights clash where the road crosses their ring. Cross between clashes."
+        "hint": "«Perché tieni?» «Perché burli?» — the weights clash where the road meets their ring, and roll their lanes between: cross a lane behind a passing weight, a clash between clashes."
       }
     ]
   },
@@ -88,7 +88,7 @@
         "x": 78,
         "y": 58
       },
-      "notes": "Wards nearby weights until broken — the heart of the ring, between the processions"
+      "notes": "Wards nearby weights until broken — the heart of the ring, between the processions, where the road turns to cross the wasters' lane"
     },
     {
       "id": "ava_coin_wisps",
@@ -183,10 +183,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 110,
+        "x": 117,
         "y": 69
       },
-      "notes": "South of the wasters' track — the lane is a weapon"
+      "notes": "On the road beside the wasters' last run into the east clash — the lane is a weapon"
     },
     {
       "id": "ava_approach_flank",
@@ -214,7 +214,7 @@
         "x": 114,
         "y": 53
       },
-      "notes": "Tablet shield beside the Counterweight, inside the ring before the east clash"
+      "notes": "Tablet shield inside the ring before the east clash (off the road)"
     },
     {
       "id": "ava_counterweight",
@@ -225,10 +225,10 @@
       "champion": true,
       "drop_table": "avarice_pack_weights",
       "anchor": {
-        "x": 106,
-        "y": 52
+        "x": 97,
+        "y": 76
       },
-      "notes": "Mid-elite inside the ring: charges down a lane like the rolling weights (break its charge with a finisher); tip it before Plutus"
+      "notes": "Mid-elite on the wasters' side, past the road's crossing of their lane: charges like a rolling weight (sidestep; break the charge with a finisher) — lure it into the lane and the weights crush it too"
     },
     {
       "id": "ava_north_measure",

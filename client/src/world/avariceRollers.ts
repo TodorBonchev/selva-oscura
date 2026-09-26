@@ -21,6 +21,9 @@ import { setPlanar } from "./frames";
 const WEIGHTS = PROC.N * 2;
 /** Instance index of Plutus's hurled weight. */
 const SWEEP = WEIGHTS;
+/** The hurled weight's speed down its lane (units/s) and how fast a cut-short one sinks. */
+const SWEEP_SPEED = 17;
+const SWEEP_SINK_MS = 380;
 
 const IRON: [number, number, number] = [0.13, 0.105, 0.08];
 const GOLD: [number, number, number] = [0.95, 0.68, 0.24];
@@ -38,24 +41,29 @@ function paint(g: THREE.BufferGeometry, c: [number, number, number]): THREE.Buff
   return g;
 }
 
-/** One weight: a drum rolling about local X (forward = local +Z), radius PROC.R. */
+/**
+ * One weight: a drum rolling about local X (forward = local +Z), radius PROC.R. Compact
+ * (phones): fewer sides, thinner band tubes, four cleats, no hub bosses — ~half the
+ * triangles, drawn twice (shadow pass) for eleven instances.
+ */
 function weightGeometry(compact: boolean): THREE.BufferGeometry {
   const R = PROC.R;
   const W = 1.34;
-  const seg = compact ? 16 : 22;
+  const seg = compact ? 12 : 22;
   const parts: THREE.BufferGeometry[] = [];
   const drum = new THREE.CylinderGeometry(R * 0.97, R * 0.97, W, seg, 1, false);
   drum.rotateZ(Math.PI / 2);
   parts.push(paint(drum, IRON));
   for (const x of [-0.46, 0.46]) {
-    const band = new THREE.TorusGeometry(R * 0.985, 0.075, 5, seg);
+    const band = new THREE.TorusGeometry(R * 0.985, 0.075, compact ? 3 : 5, seg);
     band.rotateY(Math.PI / 2);
     band.translate(x, 0, 0);
     parts.push(paint(band, GOLD));
   }
   // cleats across the tread: the roll reads from far away
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
+  const cleats = compact ? 4 : 6;
+  for (let i = 0; i < cleats; i++) {
+    const a = (i / cleats) * Math.PI * 2;
     const c = new THREE.BoxGeometry(W * 0.92, 0.2, 0.36);
     c.translate(0, R * 0.96, 0);
     c.rotateX(a);
@@ -70,6 +78,7 @@ function weightGeometry(compact: boolean): THREE.BufferGeometry {
     const bar = new THREE.BoxGeometry(0.1, R * 1.7, 0.26);
     bar.translate((side * W) / 2 + side * 0.07, 0, 0);
     parts.push(paint(bar, BRONZE));
+    if (compact) continue;
     const boss = new THREE.CylinderGeometry(0.26, 0.3, 0.2, 8);
     boss.rotateZ(Math.PI / 2);
     boss.translate((side * W) / 2 + side * 0.12, 0, 0);
@@ -97,8 +106,24 @@ export type RollerHost = {
   compact(): boolean;
 };
 
-/** el: the animated inner line (CSS2DRenderer owns the outer element's transform). */
-type Shout = { obj: CSS2DObject; el: HTMLSpanElement; until: number };
+/**
+ * el: the animated inner line (CSS2DRenderer owns the outer element's transform). go:
+ * which of the two identical float-up animations runs — switching the animation name
+ * restarts it without a forced layout (no offsetWidth read).
+ */
+type Shout = { obj: CSS2DObject; el: HTMLSpanElement; until: number; go: number };
+
+/** Restart a line's float-up animation (alternate two identical keyframe names). */
+export function restartLine(el: HTMLElement, base: string, go: number): number {
+  const next = go === 1 ? 2 : 1;
+  el.classList.remove(`${base}${go === 2 ? "2" : ""}`);
+  el.classList.add(`${base}${next === 2 ? "2" : ""}`);
+  return next;
+}
+
+/** Where a crowd cries from: this far back along its arc, and this far outside it. */
+const SHOUT_BACK = 9;
+const SHOUT_OUT = 3.2;
 
 export class AvariceRollers {
   readonly group = new THREE.Group();
@@ -123,6 +148,10 @@ export class AvariceRollers {
   private sweepDeadline = 0;
   private sweepHitAt = 0;
   private sweepSpin = 0;
+  private sweepId = "";
+  /** cut short (bell / leash / death): sinks where it stands from this time (ms) */
+  private sweepSinkAt = 0;
+  private sweepStopAt = 0;
 
   constructor(private host: RollerHost) {
     this.group.name = "avaProcessions";
@@ -151,7 +180,7 @@ export class AvariceRollers {
       const obj = new CSS2DObject(wrap);
       obj.visible = false;
       this.group.add(obj);
-      this.shouts.push({ obj, el, until: 0 });
+      this.shouts.push({ obj, el, until: 0, go: 0 });
     }
     host.scene.add(this.group);
   }
@@ -183,8 +212,10 @@ export class AvariceRollers {
   }
 
   /** Plutus hurls a weight down a lane: it passes `hitAt` along the lane at `deadlineMs`. */
-  startSweep(x: number, y: number, dir: number, len: number, deadlineMs: number, hitAt: number) {
+  startSweep(id: string, x: number, y: number, dir: number, len: number, deadlineMs: number, hitAt: number) {
     this.sweepOn = true;
+    this.sweepId = id;
+    this.sweepSinkAt = 0;
     this.sweepX = x;
     this.sweepY = y;
     this.sweepDir = dir;
@@ -194,11 +225,19 @@ export class AvariceRollers {
     this.mesh.count = WEIGHTS + 1;
   }
 
+  /** The throw was cut short (the server's ava_sweep_cancel): the drum sinks where it is. */
+  cancelSweep(id: string, nowMs: number) {
+    if (!this.sweepOn || id !== this.sweepId || this.sweepSinkAt > 0) return;
+    this.sweepSinkAt = nowMs;
+    this.sweepStopAt = this.sweepHitAt + ((nowMs - this.sweepDeadline) / 1000) * SWEEP_SPEED;
+  }
+
   private updateSweep(nowMs: number) {
     if (!this.sweepOn) return;
-    const SPEED = 17;
-    const along = this.sweepHitAt + ((nowMs - this.sweepDeadline) / 1000) * SPEED;
-    if (along > this.sweepLen + 1) {
+    const sinking = this.sweepSinkAt > 0;
+    const along = sinking ? this.sweepStopAt : this.sweepHitAt + ((nowMs - this.sweepDeadline) / 1000) * SWEEP_SPEED;
+    const sink = sinking ? 1 - (nowMs - this.sweepSinkAt) / SWEEP_SINK_MS : 1;
+    if (along > this.sweepLen + 1 || sink <= 0) {
       this.sweepOn = false;
       this.mesh.count = WEIGHTS;
       return;
@@ -209,8 +248,9 @@ export class AvariceRollers {
     const x = this.sweepX + ux * a;
     const y = this.sweepY + uy * a;
     this.sweepSpin = a / PROC.R;
-    // rising out of the ground as it gathers pace, sinking at the lane's end
-    const rise = Math.min(1, (along + 3) / 3) * Math.min(1, (this.sweepLen + 1 - along) / 1.5);
+    // rising out of the ground as it gathers pace, sinking at the lane's end (or where
+    // the throw was cut short)
+    const rise = Math.min(1, (along + 3) / 3) * Math.min(1, (this.sweepLen + 1 - along) / 1.5) * sink;
     this.e.set(this.sweepSpin, Math.atan2(ux, uy), 0);
     this.q.setFromEuler(this.e);
     this.p.set(x, this.host.surfaceY(x, y) + PROC.R * 1.1 * Math.max(0.05, rise) - PROC.R * 0.12, y);
@@ -244,17 +284,21 @@ export class AvariceRollers {
     h.flashLight(c.x, c.y, y0 + 2, 0xffc060, d < 25 ? 14 : 8);
     const near = d < 10 ? 1 : d < 22 ? 0.55 : d < 40 ? 0.22 : 0;
     if (near > 0) h.kick(0.55 * near, 0.8 * near, dx, dy);
-    // the two crowds cry at each other, a few steps back along their own arc
+    // the two crowds cry at each other from their own arcs — back along the lane and
+    // outside it, so the two lines (and the guidance beacon over the clash) stay apart
+    if (d >= 45) return;
     for (let k = 0; k < 2; k++) {
       const s = this.shouts[k]!;
-      arcPoint(k, side === 0 ? 3.2 : GEO.L - 3.2, this.pt);
-      setPlanar(s.obj.position, this.pt.x, this.pt.y, h.heightAt(this.pt.x, this.pt.y) + 3.4);
-      s.obj.visible = d < 45;
+      const pt = arcPoint(k, side === 0 ? SHOUT_BACK : GEO.L - SHOUT_BACK, this.pt);
+      // outside the lens (planar +y is south; the left of travel toward E is +y): the
+      // hoarders cry from north of their arc, the wasters from south of theirs
+      const o = (k === 0 ? -1 : 1) * SHOUT_OUT;
+      const x = pt.x - pt.ty * o;
+      const y = pt.y + pt.tx * o;
+      setPlanar(s.obj.position, x, y, h.heightAt(x, y) + 3.4);
+      s.obj.visible = true;
       s.until = nowMs + 1700;
-      // restart the float-up animation
-      s.el.classList.remove("ava-shout-go");
-      void s.el.offsetWidth;
-      s.el.classList.add("ava-shout-go");
+      s.go = restartLine(s.el, "ava-shout-go", s.go);
     }
   }
 

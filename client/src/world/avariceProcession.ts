@@ -159,6 +159,49 @@ export function distToArcs(x: number, y: number): number {
   return best;
 }
 
+export type LaneHit = { k: number; s: number; d: number };
+
+/** Nearest lane within the arcs' spans: { k, s, d } into out (d = Infinity off both). */
+export function nearestLane(x: number, y: number, out: LaneHit): LaneHit {
+  out.k = -1;
+  out.s = 0;
+  out.d = Infinity;
+  for (let k = 0; k < 2; k++) {
+    const a = GEO.arcs[k]!;
+    const dx = x - a.ox;
+    const dy = y - a.oy;
+    let rel = (Math.atan2(dy, dx) - a.a0) * a.sign;
+    while (rel < -Math.PI) rel += Math.PI * 2;
+    while (rel > Math.PI) rel -= Math.PI * 2;
+    if (rel < 0 || rel > GEO.sweep) continue;
+    const d = Math.abs(Math.hypot(dx, dy) - GEO.R);
+    if (d < out.d) {
+      out.k = k;
+      out.s = rel * GEO.R;
+      out.d = d;
+    }
+  }
+  return out;
+}
+
+/** Seconds until a rolling weight (≥ minSpeed) covers arc length s (within reach); Infinity if not within horizon. */
+export function lanePassIn(t: number, s: number, horizon: number, step: number, reach: number, minSpeed: number): number {
+  const n = PROC.N;
+  for (let dt = 0; dt <= horizon + 1e-6; dt += step) {
+    const tt = t + dt;
+    if (!rollingAt(tt)) continue;
+    if (Math.abs(progressRate(tt) * GEO.gap) < minSpeed) continue;
+    const p = progressAt(tt);
+    const u = (s - PROC.STOP) / GEO.gap - p;
+    const j0 = Math.floor(u);
+    for (let j = j0; j <= j0 + 1; j++) {
+      if (j < 0 || j >= n) continue;
+      if (Math.abs(weightS(j, p) - s) <= reach) return dt;
+    }
+  }
+  return Infinity;
+}
+
 export function untilClash(t: number, side: 0 | 1): number {
   const T = PROC.T;
   const at = side === 0 ? 0 : T / 2;

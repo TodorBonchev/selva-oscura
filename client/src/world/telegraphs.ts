@@ -33,8 +33,6 @@ export type TelegraphMsg = {
   duration: number;
   kind?: string;
   dmg?: number;
-  /** Optional colours [base, hot, rim] (a hazard that should read apart from foe blows). */
-  pal?: [number, number, number];
 };
 
 /** A telegraph that just landed (host plays the shock / camera for slams). */
@@ -395,8 +393,18 @@ export class TelegraphRenderer {
   }
 }
 
+/** Palettes a canto mechanic registered for its own telegraph kinds. */
+const KIND_PALETTE: Record<string, TelePalette> = {};
+
+/** A canto mechanic colours its own telegraph kinds (hail, bites, grabs…). */
+export function registerTelePalette(kind: string, pal: TelePalette) {
+  KIND_PALETTE[kind] = pal;
+}
+
 /** Colours by canto palette and attack weight (slams read hotter than a claw swipe). */
 export function telePalette(cantoId: string | undefined, kind: string): TelePalette {
+  const own = KIND_PALETTE[kind];
+  if (own) return own;
   const heavy = kind === "boss_slam" || kind === "champ_slam" || kind === "champ_cleave";
   if (cantoId === "inferno_07") {
     return heavy

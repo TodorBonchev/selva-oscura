@@ -191,6 +191,54 @@ export function distToArcs(x, y) {
   return best;
 }
 
+/**
+ * Nearest lane to (x,y) within the arcs' spans: writes { k, s, d } (arc, arc length of
+ * the closest centreline point, distance off it) into out; d = Infinity off both spans.
+ */
+export function nearestLane(x, y, out) {
+  out.k = -1;
+  out.s = 0;
+  out.d = Infinity;
+  for (let k = 0; k < 2; k++) {
+    const a = GEO.arcs[k];
+    const dx = x - a.ox;
+    const dy = y - a.oy;
+    let rel = (Math.atan2(dy, dx) - a.a0) * a.sign;
+    while (rel < -Math.PI) rel += Math.PI * 2;
+    while (rel > Math.PI) rel -= Math.PI * 2;
+    if (rel < 0 || rel > GEO.sweep) continue;
+    const d = Math.abs(Math.hypot(dx, dy) - GEO.R);
+    if (d < out.d) {
+      out.k = k;
+      out.s = rel * GEO.R;
+      out.d = d;
+    }
+  }
+  return out;
+}
+
+/**
+ * Seconds (from t, sampled every `step` up to `horizon`) until a rolling weight — moving
+ * at ≥ minSpeed — covers arc length s (within `reach` along the lane; both arcs roll in
+ * unison, so the lane does not matter). Infinity when none does in the horizon.
+ */
+export function lanePassIn(t, s, horizon, step, reach, minSpeed) {
+  const n = PROC.N;
+  for (let dt = 0; dt <= horizon + 1e-6; dt += step) {
+    const tt = t + dt;
+    if (!rollingAt(tt)) continue;
+    if (Math.abs(progressRate(tt) * GEO.gap) < minSpeed) continue;
+    const p = progressAt(tt);
+    const u = (s - PROC.STOP) / GEO.gap - p;
+    const j0 = Math.floor(u);
+    for (let j = j0; j <= j0 + 1; j++) {
+      if (j < 0 || j >= n) continue;
+      if (Math.abs(weightS(j, p) - s) <= reach) return dt;
+    }
+  }
+  return Infinity;
+}
+
 /** Seconds until the next clash at W (side 0) or E (side 1). */
 export function untilClash(t, side) {
   const T = PROC.T;

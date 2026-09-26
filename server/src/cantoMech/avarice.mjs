@@ -6,15 +6,21 @@
  * 1) Processions. Two arcs of huge indestructible weights (hoarders north, wasters
  *    south) roll in unison on a fixed clock and clash where the road crosses the ring
  *    (W at t≡0, E at t≡T/2): a telegraphed shockwave (kind "ava_clash", 1.2 s ahead)
- *    hurts and throws everyone standing there, the clash spills coin in an outer ring
- *    right after ("ava_spill": whoever only just got clear), then the weights recoil
- *    and roll back. A weight that rolls over a pilgrim or a foe crushes it (contact
+ *    hurts and throws everyone standing there; at the west clash (the road's gate) the
+ *    coin spills a beat later over a wider ring ("ava_spill", warned together with the
+ *    clash, so its whole area fills from the same moment); then the weights recoil and
+ *    roll back. A weight that rolls over a pilgrim or a foe crushes it (contact
  *    "ava_roll", one procession blow per target per HIT_CD) and throws it out of the
- *    lane — luring a pack into a lane is a real tactic. Positions are a pure function
- *    of the procession clock; the snapshot carries { t, T } (the phase now).
+ *    lane — luring a pack into a lane is a real tactic (the blow is the procession's:
+ *    combat attackerId "mech:procession", the nearest pilgrim keeps the kill credit).
+ *    Contact is lag-fair: a pilgrim is judged against the weights where they stood
+ *    when their last move was made (half their round trip earlier, capped).
+ *    Positions are a pure function of the procession clock; the snapshot carries
+ *    { t, T } (the phase now).
  * 2) Plutus ("Pape Satàn, pape Satàn aleppe!") — boss id hoard_crush. While a pilgrim
- *    fights him he calls coins: Fiorini rise from the two piles on his dais (and spill
- *    from each east clash) and stream to him — biting (a wisp dart) whoever stands in
+ *    fights him he calls coins: Fiorini rise from his hoard (two piles in the tip of the
+ *    ring, beside the bell, west of the east clash — and spill from each east clash) and
+ *    stream to him through the clash — biting (a wisp dart) whoever stands in
  *    their way; each one he swallows swells him (damage taken −6% a stack, up to 4; a wider
  *    slam, a bigger body) and, swollen, the hoard pulses around him ("plutus_pulse",
  *    radius and frequency grow with the coin) and its ring burns whoever stands in it
@@ -24,21 +30,28 @@
  *    the bell ("plutus_fall" cone): step aside after ringing. At ≤50% he hurls a great
  *    weight down a lane ("plutus_roll" line telegraph; the client rolls it). His dais
  *    holds the east clash: the weights' last run climbs onto it, so his fight keeps
- *    the procession's rhythm (weights through the lanes, the clash and its spill every
- *    T). Left alone for 40 s he knits back at most a quarter of his life (a retreat to
- *    the shrine does not undo a long fight).
- * 3) The Counterweight (mid-elite) charges down a lane ("cw_charge" line telegraph,
- *    then it rolls through) between its slams — the rollers' lesson before the ring's
- *    east clash. Its charge crushes foes in the lane too; poise breaks it.
+ *    the procession's rhythm (weights through the lanes, the clash every T). Left alone
+ *    for 40 s he knits back at most a quarter of his life (a retreat to the shrine does
+ *    not undo a long fight).
+ * 3) The Counterweight (mid-elite, on the wasters' side where the road crosses their
+ *    lane) charges down a lane ("cw_charge" line telegraph, then it rolls through)
+ *    between its slams — the rollers' lesson. Its charge crushes foes in the lane too;
+ *    poise breaks it; lured into the procession's lane, the weights crush it.
  * 4) Avarice fodder packs refill (48 s+, away from pilgrims); hearts / Counterweight /
  *    Warden / champion pair stay down until the room empties.
  * 5) The Ledger Bell (onBell) stills weights near the ringer and breaks a swollen Plutus.
+ *    It hangs in the tip of the ring, between the two processions' last runs and west of
+ *    the east clash: reaching it from his dais means timing the clash and the lanes —
+ *    the bell's reward (his collapse) is bought with the processions' risk.
  *
  * Wire (server → client): telegraph kinds ava_clash / ava_spill / plutus_pulse /
- * plutus_roll / plutus_fall / cw_charge (extra { pal: [base, hot, rim], side? }); { type: "ava_sweep",
- * id, x, y, dir, length, duration } the hurled weight's lane; { type: "ava_absorb", id,
- * x, y, inf } a coin swallowed; { type: "ava_collapse", id, dur, fall } the bell broke him;
- * { type: "ava_call", id, first } he calls the coins. snapshotExtra → { t, T, inf?, col? }.
+ * plutus_roll / plutus_fall / cw_charge (extra { side? }; colours: the client registers
+ * them); { type: "ava_sweep", id, x, y, dir, length, duration } the hurled weight's lane
+ * ({ type: "ava_sweep_cancel", id } when the throw is cut short); { type: "ava_absorb",
+ * id, x, y, inf } a coin swallowed and { type: "ava_sink", id } a coin sunk (the client
+ * drops the Fiorino quietly — no kill beat; entity_removed follows); { type:
+ * "ava_collapse", id, dur, fall } the bell broke him; { type: "ava_call", id, first } he
+ * calls the coins. snapshotExtra → { t, T, inf?, col? }.
  */
 import {
   PROC,
@@ -49,11 +62,12 @@ import {
   rollingAt,
 } from "./avariceProcession.mjs";
 import { brake, chase, unstick, walkTo, startAttack, bodyRadius } from "../mobAi.mjs";
+import { dodgeGrace } from "../telegraph.mjs";
 
 export const PLUTUS_ID = "hoard_crush";
 
 /** Procession damage to pilgrims (× canto tier) and to foes (flat). */
-const ROLL_DMG = 24;
+const ROLL_DMG = 28;
 const CLASH_DMG = 20;
 const MOB_ROLL_DMG = 70;
 const MOB_CLASH_DMG = 90;
@@ -66,12 +80,17 @@ const ROLL_HALF_W = 0.72;
 const PLAYER_PAD = 0.35;
 /** One procession blow per target per this many seconds (roll or clash). */
 const HIT_CD = 1.2;
-/** The clash spills coin: an outer ring right after the weights meet. */
+/**
+ * The west clash spills coin: an outer ring that lands SPILL_LAG after the weights meet.
+ * It is warned with the clash (one fill from the same moment, the clash circle inside
+ * it), so stepping clear of the whole ring in time is always possible. (Not at the east
+ * clash: that is Plutus's arena, and his melee ring would sit in it.)
+ */
 const SPILL_OUT = 2.6;
-const SPILL_MS = 450;
+const SPILL_LAG = 0.45;
 const SPILL_DMG = 13;
-/** Palette for procession-weight lanes (bronze-white on red-black; client telegraphs). */
-const PAL_WEIGHT = [0x1c0703, 0xd8581c, 0xfff0c8];
+/** Rolling-weight contact: judge a laggy pilgrim this far back (≤ s), see lagOf. */
+const LAG_CAP = 0.16;
 
 /** Plutus. */
 const INFLATE_MAX = 4;
@@ -91,23 +110,30 @@ const FEEDER_SPEED = 3.4;
 const FEEDER_HP = 22;
 /** A Fiorino darts at a pilgrim this close to its flight. */
 const FEEDER_BITE = 3.4;
-/** Coin piles on the dais rim the Fiorini rise from. */
+/**
+ * His hoard: two coin piles in the tip of the ring, flanking the Ledger Bell between the
+ * processions' last runs. The Fiorini rise there and stream to him through the east
+ * clash — cut them down between the weights, or let the clash grind them.
+ */
 const PILES = [
-  { x: 138, y: 39.5 },
-  { x: 138, y: 56.5 },
+  { x: 120.5, y: 47.5 },
+  { x: 120.5, y: 52.5 },
 ];
 /** Swollen with coin, the hoard pulses around him (radius grows with every coin). */
 const PULSE_WIND = 0.6;
 const PULSE_BASE_R = 2.3;
 const PULSE_R_PER = 0.45;
-const PULSE_DMG = 5;
+const PULSE_DMG = 4;
 const PULSE_DMG_PER = 1;
-const PAL_HOARD = [0x160c02, 0xe0a020, 0xfff4c0];
-/** Swollen, the ring of his hoard burns whoever stands in it (a tick a second). */
-const AURA_DMG = 1.4;
-const AURA_DMG_PER = 1;
+/**
+ * Swollen, the ring of his hoard burns whoever stands in it (a tick a second): the
+ * price of fighting him close while he holds coin — cut the Fiorini down, break him
+ * with the bell, or strike from range.
+ */
+const AURA_DMG = 3.5;
+const AURA_DMG_PER = 0.5;
 const AURA_PAD = 0.4;
-const PLUTUS_SLAM = 10;
+const PLUTUS_SLAM = 8;
 const ROLL_EVERY = 7.5;
 const ROLL_LEN = 22;
 const ROLL_W = 3.0;
@@ -148,8 +174,9 @@ function init(room) {
     warned: [-1, -1],
     /** target id → clock (s) before which the procession cannot hit it again */
     cd: new Map(),
-    /** weight records (weightsAt) */
+    /** weight records (weightsAt): now, and a laggy pilgrim's view */
     ws: [],
+    wsLag: [],
     /** fodder refills { packId, at, x, y } */
     refills: [],
     refillStagger: 0,
@@ -176,6 +203,17 @@ function nearestPlayer(room, x, y, r) {
   return best;
 }
 
+/**
+ * How far back (s) to judge a pilgrim against the rolling weights: their position is
+ * the last move packet, made while their screen showed the weights about half a round
+ * trip + a move beat earlier (the client draws them on the server's clock). Bots report
+ * no round trip: 0.
+ */
+function lagOf(s) {
+  const g = dodgeGrace(s);
+  return g > 0 ? Math.min(LAG_CAP, g / 2 + 0.015) : 0;
+}
+
 function isCrushable(e) {
   return e && e.kind === "mob" && !e._dead && e.hp > 0 && !String(e.archetype || "").endsWith("_heart");
 }
@@ -191,18 +229,24 @@ function footprint(w, x, y, pad) {
   return across;
 }
 
-/** Crush a foe with procession / lane damage; credit the nearest pilgrim. */
-function crushMob(room, e, dmg, fromX, fromY, spellId) {
+/**
+ * Crush a foe with procession / lane damage. The nearest pilgrim keeps the credit (loot,
+ * bounty — they lured it there), but the blow is the hazard's (`source`): their client
+ * shows it as the world's, not their swing (no hit-stop, no combo), and the foe
+ * flinches away from the weight.
+ */
+function crushMob(room, e, dmg, fromX, fromY, spellId, source) {
   const credit = nearestPlayer(room, e.x, e.y, 18);
   room.damageMob(e, dmg, credit ? credit.playerId : null, {
     spellId,
     heavy: true,
     from: { x: fromX, y: fromY },
+    source,
   });
 }
 
 /** Foes along a line (lane attacks crush what they roll over). */
-function crushLine(room, x, y, dir, len, width, dmg, spellId, skipId) {
+function crushLine(room, x, y, dir, len, width, dmg, spellId, source, skipId) {
   const ux = Math.cos(dir);
   const uy = Math.sin(dir);
   for (const e of [...room.entities.values()]) {
@@ -213,11 +257,105 @@ function crushLine(room, x, y, dir, len, width, dmg, spellId, skipId) {
     if (along < -0.5 || along > len + 0.5) continue;
     const across = -dx * uy + dy * ux;
     if (Math.abs(across) > width / 2 + bodyRadius(e, room.cantoId) * 0.6) continue;
-    crushMob(room, e, dmg, e.x - ux - uy * Math.sign(across || 1), e.y - uy + ux * Math.sign(across || 1), spellId);
+    crushMob(room, e, dmg, e.x - ux - uy * Math.sign(across || 1), e.y - uy + ux * Math.sign(across || 1), spellId, source);
   }
 }
 
 // ——— processions ————————————————————————————————————————————————————————
+
+/** One procession blow per target per HIT_CD (a clash and a roll never stack). */
+function procHit(A, id, now) {
+  if ((A.cd.get(id) || 0) > now) return false;
+  A.cd.set(id, now + HIT_CD);
+  return true;
+}
+
+function warnClash(room, A, side, left) {
+  const c = side === 0 ? PROC.W : PROC.E;
+  const onHit = (r, tt, s) => (procHit(A, s.playerId, clock(r)) ? tt.dmg : 0);
+  // The west clash spills coin a beat later over a wider ring — warned now, with the
+  // clash: both fills start together, so the whole area reads from the first moment
+  if (side === 0) {
+    room.telegraph({
+      attackerId: "mech:procession",
+      shape: "ring",
+      x: c.x,
+      y: c.y,
+      inner: PROC.CLASH_R - 0.3,
+      radius: PROC.CLASH_R + SPILL_OUT,
+      duration: (left + SPILL_LAG) * 1000,
+      kind: "ava_spill",
+      dmg: tierDmg(room, SPILL_DMG),
+      extra: { side },
+      onHit,
+    });
+  }
+  room.telegraph({
+    attackerId: "mech:procession",
+    shape: "circle",
+    x: c.x,
+    y: c.y,
+    radius: PROC.CLASH_R,
+    duration: left * 1000,
+    kind: "ava_clash",
+    dmg: tierDmg(room, CLASH_DMG),
+    extra: { side },
+    onLand: (r) => {
+      // the shockwave crushes foes standing in it (not the pillars, not Plutus)
+      for (const e of [...r.entities.values()]) {
+        if (!isCrushable(e)) continue;
+        const d = Math.hypot(e.x - c.x, e.y - c.y);
+        if (d > PROC.CLASH_R + bodyRadius(e, r.cantoId) * 0.5) continue;
+        crushMob(r, e, MOB_CLASH_DMG, c.x, c.y, "ava_clash", "mech:procession");
+      }
+      // east clashes shake Fiorini loose from both processions' last weights: they
+      // stream to Plutus from a dozen steps out (time to cut them down)
+      if (side === 1) {
+        const p = r.entities.get(PLUTUS_ID);
+        if (p && p.engaged && !(p.collapseLeft > 0)) {
+          for (let k = 0; k < 2; k++) {
+            arcPoint(k, GEO.L - 9, _pt);
+            spawnFeeder(r, _pt.x, _pt.y);
+          }
+        }
+      }
+    },
+    onHit,
+    onResolve: (r, tt, hits) => {
+      for (const s of hits) {
+        if (!(s.hp > 0) || s.iframes > 0) continue;
+        let dx = s.x - c.x;
+        let dy = s.y - c.y;
+        const l = Math.hypot(dx, dy);
+        if (l < 0.2) {
+          dx = -1;
+          dy = 0;
+        } else {
+          dx /= l;
+          dy /= l;
+        }
+        const push = Math.max(1.2, PROC.CLASH_R + 0.8 - l);
+        r.shovePlayer(s, dx * push, dy * push, 260);
+      }
+    },
+  });
+}
+
+/** A rolling weight ran over a pilgrim: the blow, then thrown out of the lane. */
+function rollOver(room, A, s, w, across, now) {
+  if (!procHit(A, s.playerId, now)) return;
+  const taken = room.hitPlayer(s, { id: "mech:procession", kind: "mech" }, tierDmg(room, ROLL_DMG), {
+    teleKind: "ava_roll",
+  });
+  if (!(taken > 0) || !(s.hp > 0) || s.iframes > 0) return;
+  // thrown out of the lane, a little along the roll
+  const side = across >= 0 ? 1 : -1;
+  const out = ROLL_HALF_W + PLAYER_PAD + 1.5 - Math.abs(across);
+  const fwd = Math.sign(w.vx * w.tx + w.vy * w.ty) || 1;
+  const dx = -w.ty * side * out + w.tx * fwd * 0.7;
+  const dy = w.tx * side * out + w.ty * fwd * 0.7;
+  room.shovePlayer(s, dx, dy, 240);
+}
 
 function tickProcession(room, dt) {
   const A = st(room);
@@ -229,115 +367,39 @@ function tickProcession(room, dt) {
     const at = Math.round((t + left) * 1000);
     if (A.warned[side] === at) continue;
     A.warned[side] = at;
-    const c = side === 0 ? PROC.W : PROC.E;
-    room.telegraph({
-      attackerId: "mech:procession",
-      shape: "circle",
-      x: c.x,
-      y: c.y,
-      radius: PROC.CLASH_R,
-      duration: left * 1000,
-      kind: "ava_clash",
-      dmg: tierDmg(room, CLASH_DMG),
-      extra: { pal: PAL_WEIGHT, side },
-      onLand: (r) => {
-        // the shockwave crushes foes standing in it (not the pillars, not Plutus)
-        for (const e of [...r.entities.values()]) {
-          if (!isCrushable(e)) continue;
-          const d = Math.hypot(e.x - c.x, e.y - c.y);
-          if (d > PROC.CLASH_R + bodyRadius(e, r.cantoId) * 0.5) continue;
-          crushMob(r, e, MOB_CLASH_DMG, c.x, c.y, "ava_clash");
-        }
-        // the clash spills coin: an outer ring right after (whoever only just got clear)
-        r.telegraph({
-          attackerId: "mech:procession",
-          shape: "ring",
-          x: c.x,
-          y: c.y,
-          inner: PROC.CLASH_R - 0.3,
-          radius: PROC.CLASH_R + SPILL_OUT,
-          duration: SPILL_MS,
-          kind: "ava_spill",
-          dmg: tierDmg(r, SPILL_DMG),
-          extra: { pal: PAL_WEIGHT, side },
-          onHit: (r2, tt, s) => {
-            const now = clock(r2);
-            if ((A.cd.get(s.playerId) || 0) > now) return 0;
-            A.cd.set(s.playerId, now + HIT_CD);
-            return tt.dmg;
-          },
-        });
-        // east clashes shake Fiorini loose from both processions' last weights: they
-        // stream to Plutus from a dozen steps out (time to cut them down)
-        if (side === 1) {
-          const p = r.entities.get(PLUTUS_ID);
-          if (p && p.engaged && !(p.collapseLeft > 0)) {
-            for (let k = 0; k < 2; k++) {
-              arcPoint(k, GEO.L - 9, _pt);
-              spawnFeeder(r, _pt.x, _pt.y);
-            }
-          }
-        }
-      },
-      onHit: (r, tt, s) => {
-        const now = clock(r);
-        if ((A.cd.get(s.playerId) || 0) > now) return 0;
-        A.cd.set(s.playerId, now + HIT_CD);
-        return tt.dmg;
-      },
-      onResolve: (r, tt, hits) => {
-        for (const s of hits) {
-          if (!(s.hp > 0) || s.iframes > 0) continue;
-          let dx = s.x - c.x;
-          let dy = s.y - c.y;
-          const l = Math.hypot(dx, dy);
-          if (l < 0.2) {
-            dx = side === 0 ? -1 : -1;
-            dy = 0;
-          } else {
-            dx /= l;
-            dy /= l;
-          }
-          const push = Math.max(1.2, PROC.CLASH_R + 0.8 - l);
-          r.shovePlayer(s, dx * push, dy * push, 260);
-        }
-      },
-    });
+    warnClash(room, A, side, left);
   }
-  // Contact: a rolling weight crushes what it rolls over
-  const ws = weightsAt(t, A.ws);
-  if (!rollingAt(t)) return;
   const now = t;
-  for (const w of ws) {
-    if (w.speed < ROLL_MIN_SPEED) continue;
-    for (const s of room.sessions.values()) {
-      if (!(s.hp > 0) || s.iframes > 0) continue;
+  // Contact, pilgrims: each judged against the weights as their screen showed them when
+  // they last moved (lagOf) — a near miss on screen is a miss here
+  for (const s of room.sessions.values()) {
+    if (!(s.hp > 0) || s.iframes > 0) continue;
+    const tl = t - lagOf(s);
+    if (!rollingAt(tl)) continue;
+    const ws = weightsAt(tl, A.wsLag);
+    for (const w of ws) {
+      if (w.speed < ROLL_MIN_SPEED) continue;
       const across = footprint(w, s.x, s.y, PLAYER_PAD);
       if (across == null) continue;
-      if ((A.cd.get(s.playerId) || 0) > now) continue;
-      A.cd.set(s.playerId, now + HIT_CD);
-      const taken = room.hitPlayer(s, { id: "mech:procession", kind: "mech" }, tierDmg(room, ROLL_DMG), {
-        teleKind: "ava_roll",
-      });
-      if (taken > 0 && s.hp > 0 && !(s.iframes > 0)) {
-        // thrown out of the lane, a little along the roll
-        const side = across >= 0 ? 1 : -1;
-        const out = ROLL_HALF_W + PLAYER_PAD + 1.5 - Math.abs(across);
-        const fwd = Math.sign(w.vx * w.tx + w.vy * w.ty) || 1;
-        const dx = -w.ty * side * out + w.tx * fwd * 0.7;
-        const dy = w.tx * side * out + w.ty * fwd * 0.7;
-        room.shovePlayer(s, dx, dy, 240);
-      }
+      rollOver(room, A, s, w, across, now);
+      break;
     }
+  }
+  // Contact, foes (the server's own clock): a rolling weight crushes what it rolls over
+  if (rollingAt(t)) {
+    const ws = weightsAt(t, A.ws);
     for (const e of room.entities.values()) {
       if (!isCrushable(e)) continue;
       const pad = bodyRadius(e, room.cantoId) * 0.8;
-      const across = footprint(w, e.x, e.y, pad);
-      if (across == null) continue;
-      if ((A.cd.get(e.id) || 0) > now) continue;
-      A.cd.set(e.id, now + HIT_CD);
-      const side = across >= 0 ? 1 : -1;
-      crushMob(room, e, MOB_ROLL_DMG, e.x + w.ty * side * 2, e.y - w.tx * side * 2, "ava_roll");
+      for (const w of ws) {
+        if (w.speed < ROLL_MIN_SPEED) continue;
+        const across = footprint(w, e.x, e.y, pad);
+        if (across == null) continue;
+        if (!procHit(A, e.id, now)) break;
+        const side = across >= 0 ? 1 : -1;
+        crushMob(room, e, MOB_ROLL_DMG, e.x + w.ty * side * 2, e.y - w.tx * side * 2, "ava_roll", "mech:procession");
+        break;
+      }
     }
   }
   // forget stale cooldowns now and then (ids of the dead / departed)
@@ -366,17 +428,27 @@ function spawnFeeder(room, x, y) {
     packId: "ava_plutus_coins",
     champion: false,
     elite: false,
-    dropTable: "inferno_pack_common",
+    // (a called coin, not a pack: a pinch of base metal at most — no farm beside him)
+    dropTable: "avarice_fiorino",
     archetype: "coin_wisp",
     atkCd: 0.6,
     feed: true,
-    quietPack: true,
+    // (a mechanic's add: no "pack cleared" / "road is clear" lines — room.onEntityKilled)
+    summoned: true,
     homeX: x,
     homeY: y,
   };
   room.entities.set(id, e);
   room.markDirty();
   return e;
+}
+
+/** A Fiorino leaves the world without dying (swallowed / sunk): the client drops it quietly. */
+function removeFeeder(room, e, msg) {
+  room.entities.delete(e.id);
+  room.broadcast(msg);
+  room.broadcast({ type: "entity_removed", id: e.id });
+  room.markDirty();
 }
 
 /**
@@ -388,8 +460,7 @@ function tickFeeder(room, e, dt) {
   const p = room.entities.get(PLUTUS_ID);
   if (!p || !(p.hp > 0)) {
     // nothing to feed: the coin sinks back into the ground
-    room.entities.delete(e.id);
-    room.broadcast({ type: "entity_removed", id: e.id });
+    removeFeeder(room, e, { type: "ava_sink", id: e.id });
     return true;
   }
   if (e.teleId || e.staggerLeft > 0) {
@@ -415,11 +486,8 @@ function tickFeeder(room, e, dt) {
   }
   walkTo(room, e, p.x, p.y, FEEDER_SPEED, dt);
   if (Math.hypot(p.x - e.x, p.y - e.y) < 2.1) {
-    room.entities.delete(e.id);
     if (!(p.collapseLeft > 0)) p.inflate = Math.min(INFLATE_MAX, (p.inflate || 0) + 1);
-    room.broadcast({ type: "ava_absorb", id: e.id, x: +e.x.toFixed(2), y: +e.y.toFixed(2), inf: p.inflate || 0 });
-    room.broadcast({ type: "entity_removed", id: e.id });
-    room.markDirty();
+    removeFeeder(room, e, { type: "ava_absorb", id: e.id, x: +e.x.toFixed(2), y: +e.y.toFixed(2), inf: p.inflate || 0 });
   }
   return true;
 }
@@ -449,14 +517,14 @@ function plutusRoll(room, p, target) {
     duration: ROLL_WIND * 1000,
     kind: "plutus_roll",
     dmg: tierDmg(room, ROLL_SWEEP_DMG),
-    extra: { pal: PAL_WEIGHT },
     onLand: (r, tt) => {
       if (p.teleId === tt.id) {
         p.teleId = null;
         p.windupLeft = 0;
       }
+      if (p.sweepId === tt.id) p.sweepId = null;
       p.atkCd = Math.max(p.atkCd || 0, 0.9);
-      crushLine(r, tt.x, tt.y, tt.dir, tt.length, tt.width, MOB_SWEEP_DMG, "plutus_roll");
+      crushLine(r, tt.x, tt.y, tt.dir, tt.length, tt.width, MOB_SWEEP_DMG, "plutus_roll", "mech:procession");
     },
     onResolve: (r, tt, hits) => {
       for (const s of hits) {
@@ -471,6 +539,8 @@ function plutusRoll(room, p, target) {
   });
   // (the client rolls the weight down the lane on the fill's clock)
   room.broadcast({ type: "ava_sweep", id: t.id, x: +x.toFixed(2), y: +y.toFixed(2), dir: +dir.toFixed(3), length: ROLL_LEN, duration: ROLL_WIND * 1000 });
+  // (cut short — bell, leash, death — the client sinks the drum: tickPlutus / onKilled)
+  p.sweepId = t.id;
   p.teleId = t.id;
   p.windupLeft = ROLL_WIND;
   p.windupMax = ROLL_WIND;
@@ -493,7 +563,6 @@ function plutusPulse(room, p) {
     duration: PULSE_WIND * 1000,
     kind: "plutus_pulse",
     dmg: tierDmg(room, PULSE_DMG + PULSE_DMG_PER * inf),
-    extra: { pal: PAL_HOARD },
     onHit: (r, tt) => (p.hp > 0 && !p._dead && !(p.collapseLeft > 0) ? tt.dmg : 0),
   });
   p.pulseCd = Math.max(2.6, 4.4 - 0.4 * inf);
@@ -542,8 +611,16 @@ function plutusLeash(room, p, nearestD, homeD, dt) {
   return true;
 }
 
+/** His hurled weight's throw was cut short (bell, leash, death): sink the client's drum. */
+function sweepCancelled(room, p) {
+  if (!p.sweepId || room.tele.get(p.sweepId)) return;
+  room.broadcast({ type: "ava_sweep_cancel", id: p.sweepId });
+  p.sweepId = null;
+}
+
 function tickPlutus(room, p, dt) {
   if (p.inflate == null) resetPlutus(p);
+  sweepCancelled(room, p);
   let nearest = null;
   let nearestD = 999;
   for (const s of room.sessions.values()) {
@@ -633,9 +710,12 @@ function tickPlutus(room, p, dt) {
   return true;
 }
 
-/** Ledger Bell: stills nearby foes (as every bell) and breaks a swollen Plutus. */
+/**
+ * Ledger Bell: stills nearby foes (as every bell) and breaks a swollen Plutus. A toll
+ * that answers nothing (Plutus not swollen enough, no foe near) costs only a short
+ * breath, not the full 18 s — the bell is never wasted on a misread.
+ */
 function ringBell(room, sess, poi) {
-  sess.bellCd = 18;
   const p = room.entities.get(PLUTUS_ID);
   let broke = false;
   if (p && p.hp > 0 && Math.hypot(p.x - poi.x, p.y - poi.y) <= BELL_REACH) {
@@ -662,7 +742,6 @@ function ringBell(room, sess, poi) {
         duration: FALL_MS,
         kind: "plutus_fall",
         dmg: tierDmg(room, FALL_DMG),
-        extra: { pal: PAL_HOARD },
         onResolve: (r, tt, hits) => {
           for (const s of hits) {
             if (!(s.hp > 0) || s.iframes > 0) continue;
@@ -671,7 +750,7 @@ function ringBell(room, sess, poi) {
         },
       });
       room.broadcast({ type: "ava_collapse", id: p.id, dur: COLLAPSE_SEC * 1000, fall: FALL_MS });
-      for (const s of room.sessions.values()) room.toast(s.ws, "emit", "«Taci, maledetto lupo!» — Plutus falls like a sail when the mast breaks");
+      for (const s of room.sessions.values()) room.toast(s.ws, "emit", "«Taci, maledetto lupo!» — Plutus falls like a sail");
     }
   }
   let stilled = 0;
@@ -682,12 +761,13 @@ function ringBell(room, sess, poi) {
     mob.stunLeft = 3.4;
     stilled++;
   }
+  sess.bellCd = broke || stilled > 0 ? 18 : 2;
   if (!broke) {
-    const swollen = p && p.hp > 0 && Math.hypot(p.x - poi.x, p.y - poi.y) <= BELL_REACH && !(p.collapseLeft > 0);
+    const near = p && p.hp > 0 && Math.hypot(p.x - poi.x, p.y - poi.y) <= BELL_REACH && !(p.collapseLeft > 0);
     const line = stilled
       ? `peso — the Ledger Bell stills ${stilled} · 3.4s measure`
-      : swollen
-        ? "The bell tolls — Plutus is not swollen with coin yet"
+      : near
+        ? `The bell tolls — Plutus holds too little coin yet (${Math.floor(p.inflate || 0)}/${BELL_BREAK_MIN})`
         : "peso — the Ledger Bell tolls; no weight answers.";
     room.toast(sess.ws, stilled ? "emit" : "info", line);
   }
@@ -727,7 +807,6 @@ function tickCounterweight(room, e, dt) {
     duration: CW_WIND * 1000,
     kind: "cw_charge",
     dmg: tierDmg(room, CW_DMG),
-    extra: { pal: PAL_WEIGHT },
     onLand: (r, tt) => {
       if (e.teleId !== tt.id) return;
       e.teleId = null;
@@ -745,7 +824,7 @@ function tickCounterweight(room, e, dt) {
       };
       e.hd = tt.dir;
       e.sp = 0;
-      crushLine(r, tt.x, tt.y, tt.dir, tt.length, tt.width, 45, "cw_charge", e.id);
+      crushLine(r, tt.x, tt.y, tt.dir, tt.length, tt.width, 45, "cw_charge", e.id, e.id);
     },
     onResolve: (r, tt, hits) => {
       for (const s of hits) {
@@ -858,10 +937,10 @@ export default {
     if (e.id === PLUTUS_ID) {
       // his coins scatter: the Fiorini still streaming to him sink back
       for (const f of [...room.entities.values()]) {
-        if (!f.feed) continue;
-        room.entities.delete(f.id);
-        room.broadcast({ type: "entity_removed", id: f.id });
+        if (f.feed) removeFeeder(room, f, { type: "ava_sink", id: f.id });
       }
+      // (the kill cancelled his throw: room.onEntityKilled → cancelBy)
+      sweepCancelled(room, e);
       resetPlutus(e);
       return;
     }
