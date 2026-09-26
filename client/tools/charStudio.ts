@@ -3,7 +3,8 @@
  * and Dark Wood lighting in a grid of views (close-ups + in-game scale).
  *
  *   npm run dev → http://localhost:5173/tools/char-studio.html
- *   ?anim=idle|walk|attack  &t=<ms>  &u=<attack phase 0..1>  &slash=0 (no trail)
+ *   ?anim=idle|walk|attack  &t=<ms>  &u=<attack phase 0..1>
+ *   (the in-game blade trail lives on the hero motor — heroFx.ts — not on this rig)
  *   &hide=<joint,names>  &who=guide (the Virgil NPC palette)
  *
  * Not part of the production build (Vite only bundles index.html).
@@ -13,7 +14,6 @@ import { loadMatKit } from "../src/world/materials";
 import { makeGuide, makeWanderer } from "../src/world/meshes";
 import { tickHumanoid } from "../src/world/anim";
 import { applyEquippedLook } from "../src/world/gearLook";
-import { makeSlashTrail, tickSlashTrail } from "../src/world/fx";
 
 const q = new URLSearchParams(location.search);
 const anim = q.get("anim") || "idle";
@@ -118,14 +118,6 @@ async function main() {
         attackU: Number(q.get("u") || 0.34),
         speed: anim === "walk" ? 8 : 0,
       });
-    }
-    if (anim === "attack" && q.get("slash") !== "0") {
-      const u = Number(q.get("u") || 0.34);
-      const slash = makeSlashTrail();
-      const anchor = hero.getObjectByName("slashAnchor") || hero;
-      anchor.add(slash);
-      tickSlashTrail(slash, u);
-      slash.visible = true;
     }
     const cam = new THREE.PerspectiveCamera(v.fov, 1, 0.1, 200);
     cam.position.set(v.cam[0], v.cam[1], v.cam[2]);
