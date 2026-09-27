@@ -16,6 +16,8 @@ import { isCompactUi, setQuestLine } from "../ui/hud";
 const OBJECTIVE_EVERY_MS = 100;
 /** How long a newly opened gate says "Open" (label sub-line + compass arrow). */
 const OPENED_MS = 8000;
+/** A sealed gate's label is quiet while a living boss is this close to you (m). */
+const GATE_BOSS_QUIET = 22;
 
 type NodeLike = { id: string; kind: string; group: THREE.Group; hpEl: HTMLElement };
 
@@ -272,15 +274,24 @@ export class Guidance {
     const nearest = this.app.nearestInteract?.id === rec.id;
     const opened = this.openedId === rec.id && performance.now() < this.openedUntil;
     if (el.classList.contains("gate-opened") !== opened) el.classList.toggle("gate-opened", opened);
-    // The "Open" flash shows at any distance: that moment is the news
-    if (d > GATE_LABEL_RANGE && !nearest && !opened) {
+    const st = (rec.group.userData.portalState as GateState | undefined) ?? this.stateOf(e);
+    // The "Open" flash shows at any distance: that moment is the news. Otherwise the
+    // label stands down when the gold arrow already says the same (the gate is up under
+    // the HUD / minimap: a clipped duplicate), and a sealed gate says nothing while the
+    // boss that holds it fights you (his plate and the objective line carry it — in the
+    // Minos arena the callout, both plates and the prompt piled into one band)
+    const hide =
+      !opened &&
+      ((d > GATE_LABEL_RANGE && !nearest) ||
+        this.app.radar?.objArrowFor === rec.id ||
+        (st === "locked" && this.bossNear(GATE_BOSS_QUIET)));
+    if (hide) {
       if (rec.label.visible) rec.label.visible = false;
       if (el.style.opacity !== "0") el.style.opacity = "0";
       return;
     }
     if (!rec.label.visible) rec.label.visible = true;
     if (el.style.opacity !== "1") el.style.opacity = "1";
-    const st = (rec.group.userData.portalState as GateState | undefined) ?? this.stateOf(e);
     const nameEl = el.querySelector(".wl-name") as HTMLElement | null;
     const subEl = el.querySelector(".wl-sub") as HTMLElement | null;
     const name = e?.toCanto ? gateTitle(e) : String(e?.label || e?.name || "Gate");
@@ -291,6 +302,27 @@ export class Guidance {
     else sub = `${Math.round(d)}m`;
     if (subEl && subEl.textContent !== sub) subEl.textContent = sub;
   }
+
+  /** A living boss within r of the hero (cached per frame-ish: 10 Hz is plenty). */
+  private bossNear(r: number): boolean {
+    const now = performance.now();
+    if (now - this.bossNearAt < 100) return this.bossNearV;
+    this.bossNearAt = now;
+    this.bossNearV = false;
+    const room = this.app.room;
+    const you = this.app.renderYou;
+    if (!room) return false;
+    for (const e of room.entities) {
+      if (e.kind !== "boss" || !(e.hp == null || e.hp > 0)) continue;
+      if (Math.hypot(e.x - you.x, e.y - you.y) < r) {
+        this.bossNearV = true;
+        break;
+      }
+    }
+    return this.bossNearV;
+  }
+  private bossNearAt = -1e9;
+  private bossNearV = false;
 
   /** Short arrival goal for the canto title card. */
   arrivalGoal(cantoId: string, you: any): string {

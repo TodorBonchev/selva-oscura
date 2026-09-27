@@ -2242,10 +2242,12 @@ body.death-flash #death-flash {
 body.respawn-fade #death-flash {
   background:
     radial-gradient(ellipse 78% 70% at 50% 46%, #1a1208aa 0%, #0a0806dd 62%, #050403f2 100%);
-  animation: respawn-veil 0.72s ease-in forwards;
+  animation: respawn-veil 0.92s ease-in forwards;
 }
 @keyframes respawn-veil {
-  0% { opacity: 0.78; }
+  0% { opacity: 0.35; }
+  24% { opacity: 0.88; }
+  38% { opacity: 0.86; }
   100% { opacity: 0; }
 }
 
@@ -4253,6 +4255,12 @@ body.in-avarice .world-label.is-nearest:not(.foe) .wl-name {
   width: 92px;
   border-color: #e8c86a;
 }
+/* phones: a trash foe's bar is its whole plate (labelDeclutter.ts) — slimmer than the
+   hero is wide would be ideal; this keeps a pack's bars from fencing him in */
+body.hud-compact .world-label.foe:not(.elite):not(.boss):not(.midboss) .wl-hp {
+  width: 56px;
+  height: 6px;
+}
 .world-label.foe.elite .wl-name { color: #e8c86a; }
 .world-label.foe.boss .wl-hp {
   width: 128px;
@@ -4266,6 +4274,11 @@ body.in-avarice .world-label.is-nearest:not(.foe) .wl-name {
 .world-label .wl-hp i.low {
   background: linear-gradient(90deg, #6a1010, #d63a2a);
 }
+/* Nameplate declutter (world/labelDeclutter.ts): trash plates wear only their HP bar,
+   overlapped plates hide, and a plate over the hero fades to a ghost */
+.world-label.wl-noname .wl-name { display: none; }
+.world-label.wl-cull { visibility: hidden; }
+.world-label.wl-fade > * { opacity: 0.16; }
 /* Combat numbers (ui/damageNumbers.ts): one pooled layer moved by transform per frame */
 .dmg-layer {
   position: absolute;
@@ -4323,6 +4336,22 @@ body.hud-compact .dmg-other { font-size: 12px; }
   text-shadow: 0 0 12px #ff6622;
 }
 #dodge-callout.hidden { display: none; }
+/* Phones: the callout keeps a reserved slot out of the world-label band round the hero —
+   landscape just above the bottom target plate, portrait under the left column */
+body.hud-landscape #dodge-callout {
+  top: auto;
+  bottom: calc(var(--safe-bottom) + 12px + 4.4rem);
+  transform: translateX(-50%);
+  font-size: 1rem;
+  padding: 0.3rem 0.8rem;
+}
+body.hud-compact:not(.hud-landscape) #dodge-callout {
+  top: 31%;
+  font-size: 1rem;
+  padding: 0.3rem 0.8rem;
+  max-width: calc(100vw - 24px);
+  white-space: nowrap;
+}
 #dodge-callout.avarice-dodge {
   color: #f2dea0;
   border-color: #a0782888;
@@ -5258,6 +5287,11 @@ body.hud-compact #target-plate {
   background: linear-gradient(180deg, #1a0e0ce6, #0e0908e6);
 }
 body.hud-compact #target-name { font-size: 0.68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Portrait: the plate stacks under the objective block (whose sub-line carries the
+   canto hints) — --qt-bottom is written by hud.ts when #quest-track resizes */
+body.hud-compact:not(.hud-landscape) #target-plate {
+  top: max(calc(var(--hv-top) + 100px), calc(var(--qt-bottom, 0px) + 6px));
+}
 
 /* ——— Stick ——— */
 body.hud-compact #virtual-joystick {
@@ -5775,8 +5809,8 @@ body.in-avarice.hud-compact .world-label.portal-label { transform: none; }
 }
 .world-label.foe.is-hover .wl-name { text-decoration-color: #d63a2a99; }
 
-/* ——— Toasts: one line on landscape phones (wide column); portrait's column is
-   ~260px, so allow a second line there rather than cutting off the action ——— */
+/* ——— Toasts on phones: up to two lines in landscape's wide column, three in
+   portrait's ~260px one, rather than cutting off the action ——— */
 body.hud-compact #toast-layer #toast,
 body.hud-compact #toast-layer.toast-above-actions #toast {
   white-space: nowrap;
@@ -5785,6 +5819,16 @@ body.hud-compact #toast-layer.toast-above-actions #toast {
 }
 body.hud-compact:not(.hud-landscape) #toast-layer #toast,
 body.hud-compact:not(.hud-landscape) #toast-layer.toast-above-actions #toast {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+/* (landscape too: a teaching line cut to "…the weights clash where …" taught nothing;
+   two lines of the wide column hold ~110 characters — content hints stay under that) */
+body.hud-landscape #toast-layer #toast,
+body.hud-landscape #toast-layer.toast-above-actions #toast {
   white-space: normal;
   display: -webkit-box;
   -webkit-box-orient: vertical;

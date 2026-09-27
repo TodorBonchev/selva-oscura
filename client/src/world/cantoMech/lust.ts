@@ -51,9 +51,10 @@ registerAttackPose("minos_sentence", (u, r, _st, out: Pose) => {
   out.ry = 0.38 * w - 0.5 * s;
 });
 
-// Colour-coded judgement: the coils in violet, the sentence in pale gold
+// Colour-coded judgement: the coils in violet, the sentence bone-white on crimson (gold
+// is the guidance colour — objective arrow, beacon, open gate: "gold = go" everywhere)
 registerTelePalette("minos_coil", { base: 0x1c0418, hot: 0xb0247a, rim: 0xff8ad0 });
-registerTelePalette("minos_sentence", { base: 0x1e1406, hot: 0xffbe40, rim: 0xfff4c8 });
+registerTelePalette("minos_sentence", { base: 0x1c0406, hot: 0xd8283c, rim: 0xfff0ea });
 // the storm's own strikes: cold ash-blue, unlike any foe's blow
 registerTelePalette("bufera_strike", { base: 0x080c14, hot: 0x6f8fc0, rim: 0xe6eeff });
 // His blows land like a boss's slam (shock, hit light, camera); the sentence's lines a

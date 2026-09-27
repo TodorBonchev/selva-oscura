@@ -73,14 +73,15 @@ export function tickCamLead(
  * Camera offset in world units. Phones sit higher (steeper pitch) so the camera
  * clears the canopy band (trees are 7–14 tall) and the ground around the hero
  * reads on a small screen; portrait is steepest since it has the most vertical room.
- *   desktop  ≈ 27° pitch · landscape ≈ 41° · portrait ≈ 43°
+ *   desktop  ≈ 27° pitch · landscape ≈ 41° · portrait ≈ 43° (portrait also widens its
+ *   lens to the screen's aspect: WorldApp.camFov)
  */
 export const CAM_BACK_DESKTOP = 9.2;
 export const CAM_HEIGHT_DESKTOP = 6.7;
 export const CAM_BACK_MOBILE = 9.2;
 export const CAM_HEIGHT_MOBILE = 11.4;
-export const CAM_BACK_PORTRAIT = 9.8;
-export const CAM_HEIGHT_PORTRAIT = 13.2;
+export const CAM_BACK_PORTRAIT = 11.2;
+export const CAM_HEIGHT_PORTRAIT = 15.0;
 
 /** Local Object3D forward. */
 export const LOCAL_FWD = new THREE.Vector3(0, 0, -1);

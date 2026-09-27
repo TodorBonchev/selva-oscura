@@ -487,6 +487,9 @@ let questMain: HTMLElement | null = null;
 let questSub: HTMLElement | null = null;
 
 /** Objective line + an optional secondary hint beneath it (never replaces it). */
+let questRo: ResizeObserver | null = null;
+let questBottom = "";
+
 export function setQuestLine(text: string, sub = "") {
   const el = document.getElementById("quest-track");
   if (!el) return;
@@ -497,6 +500,19 @@ export function setQuestLine(text: string, sub = "") {
     questSub = document.createElement("span");
     questSub.className = "qt-sub";
     el.append(questMain, questSub);
+    // Portrait stacks the target plate under this block (styles.css --qt-bottom): follow
+    // its height as the objective wraps (a ResizeObserver: no layout read per text change)
+    if (!questRo && typeof ResizeObserver !== "undefined") {
+      questRo = new ResizeObserver(() => {
+        const r = el.getBoundingClientRect();
+        const v = r.height > 0 ? `${Math.round(r.bottom)}px` : "0px";
+        if (v !== questBottom) {
+          questBottom = v;
+          document.documentElement.style.setProperty("--qt-bottom", v);
+        }
+      });
+      questRo.observe(el);
+    }
   }
   if (questMain.textContent !== text) questMain.textContent = text;
   if (questSub && questSub.textContent !== sub) {
@@ -1221,14 +1237,16 @@ export function playDeathRevive() {
   document.body.classList.remove("respawn-fade");
   document.body.classList.add("death-flash");
   el.setAttribute("aria-hidden", "false");
+  // (the veil darkens over the held fall and is darkest when the hero is moved to the
+  // entrance, ~720 ms in — heroMotor DEATH_POSE_MS — so the cut happens under it)
   window.setTimeout(() => {
     document.body.classList.remove("death-flash");
     document.body.classList.add("respawn-fade");
     window.setTimeout(() => {
       document.body.classList.remove("respawn-fade");
       el.setAttribute("aria-hidden", "true");
-    }, 740);
-  }, 280);
+    }, 940);
+  }, 440);
 }
 
 /** Brief Inv bag glow matching loot rarity when a new item lands. */

@@ -24,6 +24,10 @@ const ARROW_EVERY_MS = 50;
 const FOE_ARROW_RANGE = 40;
 /** Arrows clamped under the hero slide at least this far sideways (px). */
 const HERO_CLEAR_PX = 78;
+/** Objective and foe arrows closer than this (px) on both axes: the foe's slides away. */
+const ARROW_SEP = 46;
+/** How often the target plate's box is re-read for the arrows' keep-out (ms). */
+const PLATE_EVERY_MS = 500;
 const _ndc = new Vector3();
 const _dir = new Vector3();
 
@@ -379,42 +383,87 @@ export class Radar {
 
     const obj = opts.objective?.target ?? null;
     const oa = this.arrow("objective");
+    let objShown = false;
+    let bossFight = false;
+    this.objArrowFor = null;
     if (obj) {
       const d = Math.hypot(obj.x - opts.you.x, obj.y - opts.you.y);
       const p = this.projectEdge(opts.camera, obj.x, obj.y, vw, vh, padL, padT, padR, padB);
       // On screen and close: the world label / beacon carries it
       // (gate labels show name + distance to GATE_LABEL_RANGE; past that the arrow is the label)
-      // Only when the target sits in the open band with room above it for its
-      // label (not tucked under the top HUD); a gate that just opened shows its
-      // "Open" label at any range
-      const labelClear = p.inside && p.y > padT + 40;
+      // Only when the target is on screen below the top HUD band, with room above it for
+      // its label — whether or not it sits in the arrow band (on a landscape phone the
+      // band ends above the hero, and a target beside you was never "inside" it: the
+      // arrow was clamped onto its own plate). A gate that just opened shows its "Open"
+      // label at any range.
+      const labelClear = p.visible && p.sy > padT + 40 && p.sx > 24 && p.sx < vw - (opts.compact ? 118 : 24);
       const hide = labelClear && (obj.open || d <= (obj.kind === "gate" ? GATE_LABEL_RANGE : 16));
-      this.place(oa, !hide, p.x, p.y, p.ang, "objective", obj.label, `${Math.round(d)}m`);
+      objShown = !hide;
+      if (objShown) this.objArrowFor = obj.id;
+      bossFight = obj.entity?.kind === "boss" && d < 24;
+      let ay = p.y;
+      if (objShown) ay = this.clearOf(p.x, ay, vh);
+      this.place(oa, objShown, p.x, ay, p.ang, "objective", obj.label, `${Math.round(d)}m`);
     } else {
       this.place(oa, false, 0, 0, 0, "", "", "");
     }
 
     let foe: any = null;
     let foeD = FOE_ARROW_RANGE;
-    for (const e of opts.entities) {
-      if (e.kind !== "mob" && e.kind !== "boss") continue;
-      if (e.hp != null && e.hp <= 0) continue;
-      if (obj && String(e.id) === obj.id) continue;
-      const d = Math.hypot(e.x - opts.you.x, e.y - opts.you.y);
-      if (d < foeD) {
-        foeD = d;
-        foe = e;
+    // (in a boss fight the boss is the news: no "Elite 18m" arrow printed on its plate)
+    if (!bossFight) {
+      for (const e of opts.entities) {
+        if (e.kind !== "mob" && e.kind !== "boss") continue;
+        if (e.hp != null && e.hp <= 0) continue;
+        if (obj && String(e.id) === obj.id) continue;
+        const d = Math.hypot(e.x - opts.you.x, e.y - opts.you.y);
+        if (d < foeD) {
+          foeD = d;
+          foe = e;
+        }
       }
     }
     const fa = this.arrow("foe");
     if (foe) {
       const p = this.projectEdge(opts.camera, foe.x, foe.y, vw, vh, padL, padT, padR, padB);
       const label = foe.kind === "boss" ? "Boss" : foe.champion ? "Elite" : "Foe";
+      let fx = p.x;
+      let fy = p.y;
+      // Two arrows clamped to the same stretch of edge: slide the foe's along it
+      if (objShown && Math.abs(fx - oa.x) < ARROW_SEP && Math.abs(fy - oa.y) < ARROW_SEP) {
+        const alongX = Math.abs(fy - padT) < 2 || Math.abs(fy - Math.max(padT + 40, vh - padB)) < 2;
+        if (alongX) fx = oa.x + (fx >= oa.x ? ARROW_SEP : -ARROW_SEP);
+        else fy = oa.y + (fy >= oa.y ? ARROW_SEP : -ARROW_SEP);
+      }
+      fy = this.clearOf(fx, fy, vh);
       // A foe you can already see needs no arrow
-      this.place(fa, !p.visible, p.x, p.y, p.ang, "foe", label, `${Math.round(foeD)}m`);
+      this.place(fa, !p.visible, fx, fy, p.ang, "foe", label, `${Math.round(foeD)}m`);
     } else {
       this.place(fa, false, 0, 0, 0, "", "", "");
     }
+  }
+
+  /** Id of the target the gold objective arrow points at right now (null = hidden). */
+  objArrowFor: string | null = null;
+  private plateRect: DOMRect | null = null;
+  private plateAt = -1e9;
+
+  /**
+   * An arrow landing on the bottom target plate climbs above it. (The plate's box is
+   * read at most every PLATE_EVERY_MS — it only moves on resize / show / hide.)
+   */
+  private clearOf(x: number, y: number, vh: number): number {
+    const now = performance.now();
+    if (now - this.plateAt > PLATE_EVERY_MS) {
+      this.plateAt = now;
+      const el = document.getElementById("target-plate");
+      const r = el && !el.classList.contains("hidden") ? el.getBoundingClientRect() : null;
+      this.plateRect = r && r.height > 0 && r.top > vh * 0.5 ? r : null;
+    }
+    const r = this.plateRect;
+    if (!r) return y;
+    if (x > r.left - 30 && x < r.right + 30 && y > r.top - 26) return r.top - 26;
+    return y;
   }
 
   /**
@@ -432,7 +481,7 @@ export class Radar {
     padT: number,
     padR: number,
     padB: number
-  ): { x: number; y: number; ang: number; inside: boolean; visible: boolean } {
+  ): { x: number; y: number; sx: number; sy: number; ang: number; inside: boolean; visible: boolean } {
     _ndc.set(x, 1.2, y).project(camera);
     let nx = _ndc.x;
     let ny = _ndc.y;
@@ -456,7 +505,7 @@ export class Radar {
     let dy = sy - cy;
     if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) dy = -1;
     const ang = (Math.atan2(dx, -dy) * 180) / Math.PI;
-    if (inside) return { x: sx, y: sy, ang, inside, visible };
+    if (inside) return { x: sx, y: sy, sx, sy, ang, inside, visible };
     const hw = (right - left) * 0.5;
     const hh = (bot - top) * 0.5;
     const m = Math.max(Math.abs(dx) / (hw || 1), Math.abs(dy) / (hh || 1), 1);
@@ -468,6 +517,6 @@ export class Radar {
     if (ey >= bot - 1 && Math.abs(ex - heroX) < HERO_CLEAR_PX) {
       ex = heroX + (ex >= heroX ? HERO_CLEAR_PX : -HERO_CLEAR_PX);
     }
-    return { x: ex, y: ey, ang, inside, visible };
+    return { x: ex, y: ey, sx, sy, ang, inside, visible };
   }
 }

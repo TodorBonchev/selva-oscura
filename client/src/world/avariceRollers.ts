@@ -104,6 +104,12 @@ export type RollerHost = {
   flashLight(x: number, y: number, h: number, color: number, intensity: number): void;
   kick(shake: number, punch: number, dirX: number, dirY: number): void;
   compact(): boolean;
+  /**
+   * Is a world point (planar x, y at height h) on screen clear of the HUD — vitals,
+   * objective line, compass arrows' edge, minimap / Inv column, thumbs? (A crowd's cry
+   * that would land there is not shown.)
+   */
+  screenClear(x: number, h: number, y: number, halfW: number): boolean;
 };
 
 /**
@@ -124,6 +130,8 @@ export function restartLine(el: HTMLElement, base: string, go: number): number {
 /** Where a crowd cries from: this far back along its arc, and this far outside it. */
 const SHOUT_BACK = 9;
 const SHOUT_OUT = 3.2;
+/** Half the width (px) of a cry's line, for its on-screen keep-out test. */
+const SHOUT_HALF_W = 70;
 
 export class AvariceRollers {
   readonly group = new THREE.Group();
@@ -295,7 +303,10 @@ export class AvariceRollers {
       const o = (k === 0 ? -1 : 1) * SHOUT_OUT;
       const x = pt.x - pt.ty * o;
       const y = pt.y + pt.tx * o;
-      setPlanar(s.obj.position, x, y, h.heightAt(x, y) + 3.4);
+      const hy = h.heightAt(x, y) + 3.4;
+      // (a cry over the HUD — the gold arrow, the minimap, the Inv button — stays unsaid)
+      if (!h.screenClear(x, hy, y, SHOUT_HALF_W)) continue;
+      setPlanar(s.obj.position, x, y, hy);
       s.obj.visible = true;
       s.until = nowMs + 1700;
       s.go = restartLine(s.el, "ava-shout-go", s.go);

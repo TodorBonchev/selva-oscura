@@ -40,14 +40,24 @@ const BELL_BREAK_MIN = 2;
 const SPILL_LAG = 0.45;
 /** Rolling-weight footprint along the lane + a pilgrim's pad (server ROLL_HALF_L + pad). */
 const LANE_REACH = PROC.R + 0.55;
+/** Scratch for the crowd cries' screen test. */
+const _sv = new THREE.Vector3();
+/** In Plutus's fight, a lane pass due within this long (s) takes over the objective sub-line. */
+const LANE_WARN_S = 1.6;
+/** A creeping weight (under this, u/s) only nudges you (server avarice.mjs ROLL_SOFT_SPEED). */
+const ROLL_SOFT_SPEED = 4.0;
 /** Below this a weight only creeps (server ROLL_MIN_SPEED): it does not crush. */
 const ROLL_MIN_SPEED = 2.2;
 /** Procession weights / hurled weight / charge: bronze-white on red-black. */
 const PAL_WEIGHT = { base: 0x1c0703, hot: 0xd8581c, rim: 0xfff0c8 };
-/** The west clash's coin spill: gold — a second beat, read apart from the clash. */
-const PAL_SPILL = { base: 0x140a02, hot: 0xc89020, rim: 0xffe8a0 };
-/** Plutus's hoard (pulse, fall): pale gold. */
-const PAL_HOARD = { base: 0x160c02, hot: 0xe0a020, rim: 0xfff4c0 };
+/**
+ * The west clash's coin spill: ember-orange, lighter than the weights' — a second beat,
+ * read apart from the clash. (Never gold: on Avarice's gold road gold is the guidance
+ * colour — the beacon, the arrow, the open gate — and danger is white-hot over ember.)
+ */
+const PAL_SPILL = { base: 0x1a0803, hot: 0xf07a2c, rim: 0xfff0dc };
+/** Plutus's hoard (pulse, fall): hot amber-red, his coin burning. */
+const PAL_HOARD = { base: 0x1c0703, hot: 0xe0502a, rim: 0xffe8cc };
 /** His hoard in the tip of the ring (server PILES). */
 const PILES = [
   { x: 120.5, y: 48.2 },
@@ -136,6 +146,21 @@ class AvariceView {
         app.camFovKick = Math.max(app.camFovKick, punch * 2.4);
       },
       compact: () => isCompactUi(),
+      screenClear(x, h, y, halfW) {
+        _sv.set(x, h, y).project(app.camera);
+        if (_sv.z > 1) return false;
+        const vw = app.viewW > 1 ? app.viewW : window.innerWidth;
+        const vh = app.viewH > 1 ? app.viewH : window.innerHeight;
+        const sx = (_sv.x * 0.5 + 0.5) * vw;
+        const sy = (-_sv.y * 0.5 + 0.5) * vh;
+        const compact = isCompactUi();
+        const land = document.body.classList.contains("hud-landscape");
+        // top: vitals + objective + the arrows' top edge; right: minimap / Inv column
+        const top = compact ? (land ? 112 : 250) : 140;
+        const right = compact ? 150 : 220;
+        const bottom = compact ? (land ? 150 : 320) : 130;
+        return sx - halfW > 64 && sx + halfW < vw - right && sy > top && sy < vh - bottom;
+      },
     };
     this.rollers = new AvariceRollers(this.host);
     // Plutus's swollen-with-coin shield (one ring; radius grows with every coin)
@@ -450,9 +475,14 @@ class AvariceView {
       const dBoss = Math.hypot(plutus.x - you.x, plutus.y - you.y);
       const bellReady = (Number(me.bellCd) || 0) <= 0.4;
       const coin = Math.floor(this.inf);
+      // A weight about to roll through where you stand outranks his lines: his fight
+      // sits in the ring's tip, where the lanes converge
+      const laneWarn = dBoss < 26 ? this.laneWarning(you, nowMs) : null;
       if (nowMs < this.colStart + this.fallMs + 120) {
         obj.text = "He falls toward the bell — step aside!";
         obj.sub = "Then strike — double damage while he lies fallen";
+      } else if (laneWarn) {
+        obj.sub = laneWarn;
       } else if (nowMs < this.colUntil) {
         obj.text = "Plutus has fallen — strike now!";
         obj.sub = "Double damage while he lies fallen";
@@ -533,6 +563,24 @@ class AvariceView {
             : `A weight rolls through here in ${next.toFixed(1)}s — cross behind it`;
       obj.sub = this.lastSub;
     }
+  }
+
+  /**
+   * Standing on (or at the edge of) a lane with a weight due within LANE_WARN_S: the
+   * countdown line, else null. Strings only change with the shown tenths.
+   */
+  private laneWarning(you: { x: number; y: number }, nowMs: number): string | null {
+    const lane = nearestLane(you.x, you.y, this.lane);
+    if (lane.d > 2.6) return null;
+    const next = lanePassIn(this.procT(nowMs), lane.s, LANE_WARN_S, 0.1, LANE_REACH, ROLL_SOFT_SPEED);
+    if (next === Infinity) return null;
+    const key = 9000 + lane.k * 100 + Math.round(next * 10);
+    if (key !== this.lastSubKey) {
+      this.lastSubKey = key;
+      this.lastSub =
+        next < 0.15 ? "A weight rolls through — off the lane!" : `A weight rolls through here in ${next.toFixed(1)}s — step off the lane`;
+    }
+    return this.lastSub;
   }
 
   dispose() {

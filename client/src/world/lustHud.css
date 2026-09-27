@@ -54,12 +54,13 @@ body.in-lust #lust-wind.warn .lw-arrow {
     transform: translateX(6%);
   }
 }
-/* (to the map's left, clear of its caption below and the screen edge above) */
+/* (inside the disc, under the wind arrow: beside the map it covered the objective
+   arrow's corner and, in portrait, the target plate) */
 body.in-lust #lust-wind .lw-label {
   position: absolute;
-  right: calc(100% + 0.3rem);
-  top: 50%;
-  transform: translateY(-50%);
+  left: 50%;
+  bottom: 9%;
+  transform: translateX(-50%);
   white-space: nowrap;
   font-size: 0.62rem;
   letter-spacing: 0.12em;
@@ -82,29 +83,44 @@ body.in-lust.hud-landscape #lust-wind .lw-label {
 }
 
 /* Composited streak layer over the world during the gust (transform / opacity only) */
+/* (the layer exists only while the storm warns or blows: a full-screen composited layer
+   in calm cost a phone's compositor ~15% for nothing) */
 body.in-lust #lust-streaks {
   position: fixed;
   inset: -18%;
   z-index: 2;
   pointer-events: none;
+  display: none;
   opacity: 0;
-  transition: opacity 0.3s linear;
-  will-change: opacity, transform;
 }
 body.in-lust #lust-streaks > i {
   position: absolute;
   inset: 0;
   background-image: var(--lust-streak-tile);
   background-size: 420px 180px;
-  will-change: transform;
   animation: lust-streak 1.4s linear infinite;
   animation-play-state: paused;
+}
+body.in-lust #lust-streaks.warn,
+body.in-lust #lust-streaks.gust {
+  display: block;
+  will-change: opacity, transform;
+  animation: lust-streaks-in 0.3s linear;
+}
+body.in-lust #lust-streaks.warn > i,
+body.in-lust #lust-streaks.gust > i {
+  will-change: transform;
 }
 body.in-lust #lust-streaks.warn {
   opacity: 0.22;
 }
 body.in-lust #lust-streaks.gust {
   opacity: 0.5;
+}
+@keyframes lust-streaks-in {
+  from {
+    opacity: 0;
+  }
 }
 body.in-lust #lust-streaks.warn > i,
 body.in-lust #lust-streaks.gust > i {
@@ -122,7 +138,7 @@ body.in-lust #lust-streaks.gust > i {
   }
 }
 
-/* Minos's dodge callouts (cantoMech/lust.ts): his colours — violet coils, gold
+/* Minos's dodge callouts (cantoMech/lust.ts): his colours — violet coils, crimson
    sentence — and tighter tracking so the longer lines fit a landscape phone */
 body.in-lust #dodge-callout.lust-judge {
   letter-spacing: 0.08em;
@@ -132,10 +148,10 @@ body.in-lust #dodge-callout.lust-judge {
   text-shadow: 0 1px 0 #000, 0 0 10px #b0247a88;
 }
 body.in-lust #dodge-callout.lust-judge.sentence {
-  color: #fff2c8;
-  background: #1e1406e8;
-  border-color: #ffbe40;
-  text-shadow: 0 1px 0 #000, 0 0 10px #ffbe4088;
+  color: #fff0ea;
+  background: #20060ae8;
+  border-color: #e0404e;
+  text-shadow: 0 1px 0 #000, 0 0 10px #d8283c88;
 }
 body.in-lust.hud-compact #dodge-callout.lust-judge {
   font-size: 1.05rem;

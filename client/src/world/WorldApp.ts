@@ -60,7 +60,8 @@ import {
   expAlpha,
   type Vec2,
 } from "../render/smoothing";
-import { isPortraitCompact, camPlanarBasis, camRel, placeFollowCamera, setPlanar, tickCamLead, yawFromPlanar, UP } from "./frames";
+import { LabelDeclutter } from "./labelDeclutter";
+import { CAM_BACK_PORTRAIT, CAM_HEIGHT_PORTRAIT, isPortraitCompact, camPlanarBasis, camRel, placeFollowCamera, setPlanar, tickCamLead, yawFromPlanar, UP } from "./frames";
 import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
 import {
   makeByKind,
@@ -166,6 +167,13 @@ const AUTO_PICKUP_RETRY_MS = 900;
 /** Server bag cap (room.mjs handlePickup). */
 const BAG_CAP = 40;
 const PREDICT_SPEED = 8.0;
+/** Portrait phones: ground half-width (m) the lens widens to show beside the hero, and its cap (°). */
+const PORTRAIT_HALF_W = 5.8;
+const PORTRAIT_FOV_MAX = 72;
+/** Phones: foes farther than this (m) are not drawn (4 m hysteresis). */
+const FOE_CULL_R = 58;
+/** A POI hint longer than this is cut on a phone's toast (two landscape lines). */
+const HINT_MAX = 110;
 /** Client dash cooldown: the server's 4 s plus a margin for its tick and jitter. */
 const DASH_CD_MS = 4060;
 const MOVE_ACCEL = 28;
@@ -208,6 +216,12 @@ type NodeRec = {
   hpFill: HTMLElement;
   /** syncEntities pass that last saw this node (frame stamp instead of a per-frame Set). */
   seenAt: number;
+  /** labelDeclutter state */
+  dcCull?: boolean;
+  dcCullShown?: boolean;
+  dcFade?: boolean;
+  dcNoName?: boolean;
+  dcShift?: number;
 };
 
 /** Named parts tickFx/syncEntities animate — resolved once per node, not per frame. */
@@ -305,6 +319,11 @@ export class WorldApp {
   lastChaseToast = 0;
   dashReadyAt = 0;
   lockedId: string | null = null;
+  /** The hero's own foot ring (unshared material, tinted per canto). */
+  selfRing: THREE.Mesh | null = null;
+  /** Foe the bottom target plate shows (paintChrome): its world plate outranks the rest. */
+  plateTargetId: string | null = null;
+  declutter = new LabelDeclutter();
   lockRing: THREE.Mesh | null = null;
   wardMat = markShared(
     new THREE.MeshBasicMaterial({
@@ -618,6 +637,17 @@ export class WorldApp {
     this.youGroup = makeByKind("player", this.mats);
     this.youGroup.userData.entityId = "you";
     this.youGroup.scale.setScalar(1.42);
+    {
+      // Your own foot ring: its own (unshared) material and a bolder band than the
+      // remotes' — on a phone the hero is ~35 px tall and must be found at a glance
+      const ring = this.youGroup.getObjectByName("heroRing") as THREE.Mesh | undefined;
+      if (ring) {
+        const mat = (ring.material as THREE.MeshBasicMaterial).clone();
+        ring.material = mat;
+        ring.geometry = new THREE.RingGeometry(0.33, 0.47, 32);
+        this.selfRing = ring;
+      }
+    }
     applyEquippedLook(this.youGroup, {});
     this.heroLight.position.set(0.08, 1.15, -0.42);
     this.heroLight.intensity = 3.4;
@@ -960,8 +990,19 @@ export class WorldApp {
   }
 
   camFov(): number {
-    if (isLandscapeCompact()) return 56;
-    if (isCompactUi()) return 54;
+    // (landscape phones: a touch tighter than before so the hero reads bigger than 31 px)
+    if (isLandscapeCompact()) return 50;
+    if (isCompactUi()) {
+      if (isPortraitCompact()) {
+        // Portrait is narrow: widen the lens until ±PORTRAIT_HALF_W m of ground show
+        // beside the hero (a 54° lens showed ±4 m — packs struck from off-screen)
+        const aspect = this.viewW > 1 && this.viewH > 1 ? this.viewW / this.viewH : window.innerWidth / Math.max(1, window.innerHeight);
+        const dist = Math.hypot(CAM_BACK_PORTRAIT, CAM_HEIGHT_PORTRAIT);
+        const v = (2 * Math.atan(PORTRAIT_HALF_W / (dist * Math.max(0.3, aspect))) * 180) / Math.PI;
+        return Math.max(54, Math.min(PORTRAIT_FOV_MAX, v));
+      }
+      return 54;
+    }
     return 52;
   }
 
@@ -1556,6 +1597,8 @@ export class WorldApp {
     }
 
     this.syncEntities();
+    // Foe plates: trash names off on phones, overlaps hidden, none over the hero (~10 Hz)
+    this.declutter.tick(this, compact, performance.now());
     if (this.prewarmPending) {
       // New canto: ground + first entity wave exist now — build their programs up front
       this.prewarmPending = false;
@@ -2191,6 +2234,9 @@ export class WorldApp {
         break;
       }
     }
+    const you = this.renderYou;
+    const cullR2 = isCompactUi() && this.room.cantoId !== "inferno_01" ? FOE_CULL_R * FOE_CULL_R : 0;
+    const cullIn2 = (FOE_CULL_R - 4) * (FOE_CULL_R - 4);
     try {
     for (const e of this.room.entities) {
       const id = String(e.id);
@@ -2203,6 +2249,19 @@ export class WorldApp {
       rec.seenAt = stamp;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
+      if (cullR2 > 0 && e.kind === "mob") {
+        // Phones: foes far across the canto (a speck at the top of the frame, deep in
+        // fog) are not drawn — ~11 draws each, and Avarice's ring put 19 of them in view
+        const dx = pos.x - you.x;
+        const dy = pos.y - you.y;
+        const d2 = dx * dx + dy * dy;
+        const ud = rec.group.userData;
+        const culled = ud.distCulled ? d2 > cullIn2 : d2 > cullR2;
+        if (culled !== Boolean(ud.distCulled)) {
+          ud.distCulled = culled;
+          rec.group.visible = !culled;
+        }
+      }
       // (foes face their travel / attack / melee target in combatView.tickMob)
       if (e.kind === "mob" && (e.champion || e.archetype === "weight_champion")) {
         rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
@@ -2522,6 +2581,7 @@ export class WorldApp {
       group.userData.avaHubHomeGlow = hubHome;
     }
     group.userData.entityId = id.replace(/^pl:/, "");
+    if (e?.packId) group.userData.packId = String(e.packId);
     const wrap = document.createElement("div");
     wrap.className = "world-label";
     wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div><div class="interact-prompt" hidden></div>`;
@@ -2988,6 +3048,13 @@ export class WorldApp {
     document.body.classList.toggle("in-lust", lust);
     document.body.classList.toggle("in-gluttony", glut);
     document.body.classList.toggle("in-avarice", ava);
+    if (this.selfRing) {
+      // pale bone where the ground is red (Lust) or gold (Avarice): the ring must not
+      // melt into the floor; gold elsewhere
+      const m = this.selfRing.material as THREE.MeshBasicMaterial;
+      m.color.setHex(lust || ava ? 0xf4ecd6 : 0xe4c060);
+      m.opacity = lust || ava ? 0.88 : 0.78;
+    }
     if (!ava) document.body.classList.remove("ava-idle");
     if (this.ash) {
       if (ava) this.ash.setColor(0xd4a840, isCompactUi() ? 0.32 : 0.4);
@@ -4129,11 +4196,13 @@ export class WorldApp {
         near.e.archetype === "storm_heart" ||
         near.e.archetype === "mire_heart" ||
         /^counterweight$/i.test(String(near.e.name || ""));
+      this.plateTargetId = String(near.e.id);
       setTargetPlate(near.e.name || "Foe", hp / max, {
         boss: isBoss,
         avarice: this.room?.cantoId === "inferno_07",
       });
     } else {
+      this.plateTargetId = null;
       setTargetPlate(null, 0);
     }
     const foeNear = Boolean(this.nearestFoe(CHASE_RANGE));
@@ -4983,9 +5052,19 @@ export class WorldApp {
       if (best.kind === "poi") {
         const id = String(best.id);
         if (!this.poiHintsShown.has(id)) {
-          // Content hints say "E to …"; on touch the key is the Use seal
+          // Content hints say "E to …" / "E — …"; on touch the key is the Use seal
           let hint = String(best.hint || "").trim();
-          if (isCompactUi()) hint = hint.replace(/\bE to\b/g, "Use to").replace(/\bHold E\b/g, "Hold Use");
+          if (isCompactUi()) {
+            hint = hint
+              .replace(/\bE to\b/g, "Use to")
+              .replace(/\bHold E\b/g, "Hold Use")
+              .replace(/^E — /, "Use — ");
+          }
+          // A gate's hint explains its seal: an open road needs no "once X falls…"
+          if (best.poiKind === "portal" && !this.portalIsLocked(best)) hint = "";
+          if (import.meta.env.DEV && hint.length > HINT_MAX) {
+            console.info(`[content] POI ${id} hint is ${hint.length} chars (toast holds ~${HINT_MAX})`);
+          }
           let line = hint;
           if (!line) {
             if (best.poiKind === "cache") {
@@ -5105,7 +5184,7 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
           this.cerberoApproachShown = true;
-          showToast("Cerbero ahead — three maws taste the road", "warn");
+          showToast("Cerbero guards the road — one maw, then the Triple Maw", "warn");
           break;
         }
       }
@@ -5205,8 +5284,8 @@ export class WorldApp {
           window.setTimeout(() => {
             showToast(
               this.room?.cantoId === "inferno_07"
-                ? "Tip: you wake at the ledger gate — use the Shrine before facing Plutus"
-                : "Tip: death returns you to the canto entrance with brief invulnerability",
+                ? "Tip: kneel at the Ledger Shrine before facing Plutus"
+                : "Tip: you wake at the entrance, briefly untouchable",
               "info"
             );
           }, 700);
@@ -5232,6 +5311,13 @@ export class WorldApp {
     this.velX = 0;
     this.velY = 0;
     this.moveTarget = null;
+    // The camera cuts with the hero (under the veil) instead of whip-panning across the
+    // canto on its follow smoothing — the travel path does the same
+    const sx = this.serverYou.x;
+    const sy = this.serverYou.y;
+    this.camFollow.set(sx, this.standY(sx, sy), sy);
+    this.camLead.x = 0;
+    this.camLead.z = 0;
     // Avarice: bone-gold wake pulse at the entrance keep-out
     if (this.room?.cantoId === "inferno_07") {
       this.spawnAvaEntrancePulse(this.serverYou.x, this.serverYou.y);

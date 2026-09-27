@@ -160,11 +160,16 @@ export type GovernorEvent = { ratio?: number; tier?: Tier };
  *   of oscillating.
  * It never steps a tier up, so it cannot flip-flop.
  */
+/** A frame interval over this (ms) is a hitch unless most recent ones are too. */
+const HITCH_MS = 120;
+
 export class FrameGovernor {
   ema = FRAME_MS;
   ratio: number;
   ceiling: number;
   private fastFor = 0;
+  /** Last five intervals, one bit each: longer than HITCH_MS. */
+  private longBits = 0;
   private slowFor = 0;
   private floorSlowFor = 0;
   private cooldown = 2;
@@ -219,9 +224,19 @@ export class FrameGovernor {
 
   /** `ms` = time since the previous executed frame. */
   sample(ms: number): GovernorEvent | null {
+    this.clock += ms / 1000;
+    // A long frame alone is a hitch (GC, compile, tab) — not a steady-state signal. But
+    // when most recent frames are long, the device is simply that slow (single-digit
+    // fps): judge it like any slow run, at a clamped interval, so ratio / tier still drop.
+    const long = ms > HITCH_MS;
+    this.longBits = ((this.longBits << 1) | (long ? 1 : 0)) & 0x1f;
+    if (long) {
+      let n = 0;
+      for (let b = this.longBits; b; b &= b - 1) n++;
+      if (n < 3) return null;
+      ms = HITCH_MS;
+    }
     const sec = ms / 1000;
-    this.clock += sec;
-    if (ms > 120) return null; // hitch (GC, compile, tab) — not a steady-state signal
     this.ema += (ms - this.ema) * 0.06;
     if (this.blockDrops > 0) this.blockDrops -= sec;
     if (this.cooldown > 0) {

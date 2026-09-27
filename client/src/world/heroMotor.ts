@@ -52,7 +52,8 @@ export const DASH_MS = 160;
  * Collapse shown at the fall spot before the respawn teleport. Short: the server
  * has already respawned you with RESPAWN_IFRAMES = 2 s, and this is eaten from it.
  */
-export const DEATH_POSE_MS = 480;
+/** The fall is held a beat before the cut to the entrance (under the dark veil: hud.ts). */
+export const DEATH_POSE_MS = 720;
 /** A swing that starts within this long after the previous one ended chains the combo. */
 const COMBO_GAP_MS = 320;
 const TURN_RATE = 15; // rad/s
