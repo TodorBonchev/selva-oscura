@@ -28,6 +28,8 @@ const HERO_CLEAR_PX = 78;
 const ARROW_SEP = 46;
 /** How often the target plate's box is re-read for the arrows' keep-out (ms). */
 const PLATE_EVERY_MS = 500;
+/** The arrival title card shows for a few seconds: re-read its box this often (ms). */
+const CARD_EVERY_MS = 150;
 const _ndc = new Vector3();
 const _dir = new Vector3();
 
@@ -470,11 +472,24 @@ export class Radar {
       const r = el && !el.classList.contains("hidden") ? el.getBoundingClientRect() : null;
       this.plateRect = r && r.height > 0 && r.top > vh * 0.5 ? r : null;
     }
+    // (the arrival title card, while it shows: an arrow on it steps below it)
+    if (now - this.cardAt > CARD_EVERY_MS) {
+      this.cardAt = now;
+      const el = document.getElementById("canto-card");
+      // (from its show until its fade-out has all but ended)
+      const on = el && (el.classList.contains("cc-show") || Number(getComputedStyle(el).opacity) > 0.05);
+      const r = on ? el.getBoundingClientRect() : null;
+      this.cardRect = r && r.height > 0 ? r : null;
+    }
+    const c = this.cardRect;
+    if (c && x > c.left - 40 && x < c.right + 40 && y > c.top - 22 && y < c.bottom + 22) y = c.bottom + 22;
     const r = this.plateRect;
     if (!r) return y;
     if (x > r.left - 30 && x < r.right + 30 && y > r.top - 26) return r.top - 26;
     return y;
   }
+  private cardRect: DOMRect | null = null;
+  private cardAt = -1e9;
 
   /**
    * Screen point of (x, y) clamped into the arrow band. The band's own centre
