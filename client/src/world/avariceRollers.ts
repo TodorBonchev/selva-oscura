@@ -130,6 +130,12 @@ export function restartLine(el: HTMLElement, base: string, go: number): number {
 /** Where a crowd cries from: this far back along its arc, and this far outside it. */
 const SHOUT_BACK = 9;
 const SHOUT_OUT = 3.2;
+/** Lane cues: drums within CUE_NEAR (u) at ≥ CUE_MIN_SPEED (u/s; the server's crushing
+ * speed, ROLL_SOFT_SPEED) light the next CUE_AHEAD_S of their track (≤ CUE_MAX_LEN). */
+const CUE_NEAR = 14;
+const CUE_MIN_SPEED = 4.0;
+const CUE_AHEAD_S = 1.0;
+const CUE_MAX_LEN = 9;
 /** Half the width (px) of a cry's line, for its on-screen keep-out test. */
 const SHOUT_HALF_W = 70;
 
@@ -138,6 +144,13 @@ export class AvariceRollers {
   readonly mesh: THREE.InstancedMesh;
   private readonly mat: THREE.MeshStandardMaterial;
   private readonly ws: Weight[] = [];
+  private readonly cue: THREE.InstancedMesh;
+  private readonly cueMat: THREE.MeshBasicMaterial;
+  private readonly cueE = new THREE.Euler(0, 0, 0, "YXZ");
+  private readonly cueQ = new THREE.Quaternion();
+  private readonly cueP = new THREE.Vector3();
+  private readonly cueS = new THREE.Vector3(1, 1, 1);
+  private readonly cueC = new THREE.Color();
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly e = new THREE.Euler(0, 0, 0, "YXZ");
@@ -178,6 +191,29 @@ export class AvariceRollers {
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.count = WEIGHTS;
     this.group.add(this.mesh);
+    // the glowing track ahead of drums bearing down near you (updateCues)
+    const cueGeo = new THREE.PlaneGeometry(1, 1);
+    cueGeo.rotateX(-Math.PI / 2);
+    this.cueMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.55,
+      // (the lane band under it is itself pulled toward the camera: avariceGround)
+      polygonOffset: true,
+      polygonOffsetFactor: -6,
+      polygonOffsetUnits: -6,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      forceSinglePass: true,
+    });
+    this.cue = new THREE.InstancedMesh(cueGeo, this.cueMat, WEIGHTS);
+    this.cue.name = "avaLaneCues";
+    this.cue.frustumCulled = false;
+    this.cue.renderOrder = 2;
+    this.cue.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.cue.setColorAt(0, new THREE.Color(0, 0, 0));
+    this.cue.count = 1;
+    this.group.add(this.cue);
     // the crowds' cries at each clash (north = hoarders, south = wasters)
     for (let i = 0; i < 2; i++) {
       const wrap = document.createElement("div");
@@ -208,6 +244,7 @@ export class AvariceRollers {
     }
     this.updateSweep(nowMs);
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.updateCues(ws);
     // clash beats: the local clock passed a clash since the last frame
     if (this.lastT === this.lastT && t > this.lastT && t - this.lastT < 0.5) {
       if (untilClash(t, 0) > untilClash(this.lastT, 0)) this.clash(0, nowMs);
@@ -217,6 +254,52 @@ export class AvariceRollers {
     for (const s of this.shouts) {
       if (s.obj.visible && nowMs > s.until) s.obj.visible = false;
     }
+  }
+
+  /**
+   * Track ahead of every drum rolling near you (≤ CUE_NEAR, at a crushing speed) glows
+   * ember-red for the ~1 s it is about to cover: the lanes' danger read on
+   * the ground, where the eye already is (the objective line's countdown is small on a
+   * phone). One instanced draw; the visible ones are packed first.
+   */
+  private updateCues(ws: Weight[]) {
+    const cue = this.cue;
+    const yx = this.host.youX();
+    const yy = this.host.youY();
+    let n = 0;
+    for (let i = 0; i < ws.length; i++) {
+      const w = ws[i]!;
+      if (w.speed < CUE_MIN_SPEED) continue;
+      const d = Math.hypot(w.x - yx, w.y - yy);
+      if (d > CUE_NEAR) continue;
+      const sp = Math.hypot(w.vx, w.vy) || 1;
+      const fx = w.vx / sp;
+      const fy = w.vy / sp;
+      const len = Math.min(CUE_MAX_LEN, w.speed * CUE_AHEAD_S);
+      const cx = w.x + fx * (PROC.R + len * 0.5);
+      const cy = w.y + fy * (PROC.R + len * 0.5);
+      this.cueE.set(0, Math.atan2(fx, fy), 0);
+      this.cueQ.setFromEuler(this.cueE);
+      this.cueP.set(cx, this.host.surfaceY(cx, cy) + 0.12, cy);
+      this.cueS.set(1.5, 1, len);
+      this.m.compose(this.cueP, this.cueQ, this.cueS);
+      cue.setMatrixAt(n, this.m);
+      // brighter the nearer (and the faster) it bears
+      const k = Math.min(1, 0.35 + (CUE_NEAR - d) / 8) * Math.min(1, 0.5 + w.speed / 16);
+      this.cueC.setRGB(0.8 + 0.2 * k, 0.12 + 0.14 * k, 0.05 + 0.04 * k);
+      cue.setColorAt(n, this.cueC);
+      n++;
+    }
+    // (one zero-scale instance keeps the draw — and its program — alive when none show)
+    if (n === 0) {
+      this.cueS.set(0, 0, 0);
+      this.m.compose(this.cueP, this.cueQ, this.cueS);
+      cue.setMatrixAt(0, this.m);
+      n = 1;
+    }
+    cue.count = n;
+    cue.instanceMatrix.needsUpdate = true;
+    if (cue.instanceColor) cue.instanceColor.needsUpdate = true;
   }
 
   /** Plutus hurls a weight down a lane: it passes `hitAt` along the lane at `deadlineMs`. */
@@ -323,5 +406,8 @@ export class AvariceRollers {
     this.mesh.geometry.dispose();
     this.mat.dispose();
     this.mesh.dispose();
+    this.cue.geometry.dispose();
+    this.cueMat.dispose();
+    this.cue.dispose();
   }
 }
