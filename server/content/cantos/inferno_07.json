@@ -56,6 +56,14 @@
         "hint": "rebalance — restores life and breath (kneel at the measure)"
       },
       {
+        "id": "tally_shrine",
+        "kind": "shrine",
+        "x": 103,
+        "y": 52.5,
+        "label": "Tally Shrine",
+        "hint": "rebalance — inside the ring, short of Plutus: restores life and breath"
+      },
+      {
         "id": "avarice_portal_home",
         "kind": "portal",
         "x": 151,

@@ -32,6 +32,8 @@
  *                                      default still).
  *   onKilled(room, e)                  a mob/boss died (loot already rolled).
  *   bossTick(room, boss, dt) → bool    return true to replace the default boss AI this tick.
+ *   onBossReset(room, boss)            a boss left alone knit whole (../bossMend.mjs):
+ *                                      reset its fight state (phase and credit already are).
  *   mobTick(room, e, dt) → bool        return true to replace the default mob AI this tick.
  *   onInteract(room, sess, poi) → bool a POI in reach was used (E); return true when the
  *                                      mechanic owns it (it toasts / marks dirty itself).

@@ -1,3 +1,4 @@
+import { BOSS_ABSENT_R, BOSS_MEND_AFTER, BOSS_MEND_RATE, BOSS_LEASH } from "./bossMend.mjs";
 import { CANTOS } from "./content.mjs";
 import { rollDrops, makeStarterKitItems } from "./loot.mjs";
 import {
@@ -84,10 +85,7 @@ const FREE_MOVE = process.env.SELVA_FREE_MOVE === "1" && process.env.NODE_ENV !=
 /** Dash cooldown (s); one may arrive this early (ms: jitter) — carried as debt. */
 const DASH_CD = 4;
 const DASH_GRACE_MS = 150;
-/** A boss dragged this far off its dais walks home and resets. */
-const BOSS_LEASH = 20;
-/** Seconds with nobody near before a boss starts knitting its wounds. */
-const BOSS_IDLE_HEAL_AFTER = 8;
+
 /** Gale Bolt flight speed (units/s); the client bolt flies for the same `duration`. */
 const GALE_BOLT_SPEED = 32;
 
@@ -763,10 +761,13 @@ class CantoRoom {
       });
     }
     hit = Math.max(0, Math.round(Number(hit) || 0));
+    // a boss walking home off its leash is not to be whittled on the way (no heal there)
+    const evade = v.kind === "boss" && v.resetting && hit > 0;
+    if (evade) hit = 0;
     v.hp = Math.max(0, v.hp - hit);
     noteBossHit(v, playerId);
     let kb = 0;
-    if (v.hp > 0 && !HEART_ARCHETYPES.has(v.archetype)) {
+    if (v.hp > 0 && !evade && !HEART_ARCHETYPES.has(v.archetype)) {
       kb = knockbackFor(v, extra.heavy) * (extra.kbMul ?? 1);
       if (extra.from && kb > 0) pushMob(v, v.x - extra.from.x, v.y - extra.from.y, kb);
       if (v.kind === "mob") {
@@ -791,6 +792,7 @@ class CantoRoom {
       targetHp: v.hp,
       spellId: extra.spellId,
       heavy: extra.heavy || undefined,
+      evade: evade || undefined,
       kb: kb > 0 ? +kb.toFixed(2) : undefined,
       fx: env ? +extra.from.x.toFixed(1) : undefined,
       fy: env ? +extra.from.y.toFixed(1) : undefined,
@@ -1562,14 +1564,15 @@ class CantoRoom {
       } else if (e.poiKind === "pyre" || e.poiKind === "shrine") {
         s.hp = s.maxHp;
         s.mana = s.maxMana;
+        // (each combat canto keeps two shrines: by the entrance and short of its boss)
+        const shrineName =
+          e.label || (this.cantoId === "inferno_07" ? "Ledger Shrine" : this.cantoId === "inferno_06" ? "Mire Shrine" : "Wind Shrine");
         const shrineLine =
           e.poiKind === "pyre"
             ? "The camp pyre warms you. Life and breath restored."
             : this.cantoId === "inferno_07"
-              ? "rebalance — the Ledger Shrine restores life and breath."
-              : this.cantoId === "inferno_06"
-                ? "The Mire Shrine knits your wounds and fills your breath."
-                : "The Wind Shrine knits your wounds and fills your breath.";
+              ? `rebalance — the ${shrineName} restores life and breath.`
+              : `The ${shrineName} knits your wounds and fills your breath.`;
         this.toast(s.ws, "emit", shrineLine);
       }
     }
@@ -1807,21 +1810,30 @@ class CantoRoom {
   }
 
   /**
-   * Boss leash: dragged BOSS_LEASH off its dais it walks home ignoring everyone and
-   * resets (full HP, phase 1, credit cleared); left alone for BOSS_IDLE_HEAL_AFTER s
-   * it knits its wounds. Returns true while it is walking home.
+   * Boss mend (./bossMend.mjs): call every tick with the nearest living pilgrim's
+   * distance. Returns "whole" on the tick it knits whole (reset done), else null.
+   */
+  tickBossMend(e, nearestD, dt) {
+    if (!(nearestD > BOSS_ABSENT_R)) {
+      e.idleT = 0;
+      return null;
+    }
+    e.idleT = (e.idleT || 0) + dt;
+    if (e.idleT <= BOSS_MEND_AFTER || !(e.hp < e.maxHp)) return null;
+    e.hp = Math.min(e.maxHp, e.hp + e.maxHp * BOSS_MEND_RATE * dt);
+    this.markDirty();
+    if (e.hp < e.maxHp) return null;
+    this.resetBoss(e);
+    return "whole";
+  }
+
+  /**
+   * Boss leash: dragged BOSS_LEASH off its dais it walks home ignoring everyone (blows
+   * glance off it on the way — see damageMob) and takes up the fight where it stood;
+   * it heals only by tickBossMend. Returns true while it is walking home.
    */
   tickBossLeash(e, nearestD, homeD, dt) {
-    if (nearestD > 20) {
-      e.idleT = (e.idleT || 0) + dt;
-      if (e.idleT > BOSS_IDLE_HEAL_AFTER && e.hp < e.maxHp) {
-        e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.12 * dt);
-        if (e.hp >= e.maxHp) this.resetBoss(e);
-        this.markDirty();
-      }
-    } else {
-      e.idleT = 0;
-    }
+    this.tickBossMend(e, nearestD, dt);
     if (!e.resetting && homeD > BOSS_LEASH) {
       e.resetting = true;
       if (e.teleId) interruptAttack(this, e, 0, "leash");
@@ -1830,7 +1842,7 @@ class CantoRoom {
     walkTo(this, e, e.homeX, e.homeY, 4.2, dt);
     if (Math.hypot(e.x - e.homeX, e.y - e.homeY) < 0.8) {
       e.resetting = false;
-      this.resetBoss(e);
+      this.markDirty();
     }
     return true;
   }
@@ -1841,6 +1853,7 @@ class CantoRoom {
     e.phase = undefined;
     e.phase2Toast = false;
     e.idleT = 0;
+    this.mech.onBossReset?.(this, e);
     this.markDirty();
   }
 

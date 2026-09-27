@@ -104,8 +104,10 @@ export function computeObjective(room: any, you: Vec2, todayUtc: string): Object
       else if (e.kind === "mob" && alive(e)) {
         if (HEART_ARCH.has(String(e.archetype || ""))) heart = e;
         else if (MID_ELITE.test(String(e.name || ""))) elite = e;
-      } else if (e.kind === "poi" && e.poiKind === "shrine") shrine = e;
-      else if (e.kind === "poi" && e.poiKind === "bell") bell = e;
+      } else if (e.kind === "poi" && e.poiKind === "shrine") {
+        // (two shrines a canto — by the entrance and short of the boss: the nearer mends)
+        if (!shrine || Math.hypot(e.x - you.x, e.y - you.y) < Math.hypot(shrine.x - you.x, shrine.y - you.y)) shrine = e;
+      } else if (e.kind === "poi" && e.poiKind === "bell") bell = e;
     }
     const fwd = forwardGate(entities, canto);
     const cleared = clears.includes(canto);
@@ -146,7 +148,7 @@ export function computeObjective(room: any, you: Vec2, todayUtc: string): Object
     let sub = "";
     if (shrine && hpFrac < 0.5) {
       const d = Math.round(Math.hypot(shrine.x - you.x, shrine.y - you.y));
-      sub = `${shrineName(canto)} mends you · ${d}m`;
+      sub = `${shrine.label || shrineName(canto)} mends you · ${d}m`;
     } else if (bell && (Number(me.bellCd) || 0) <= 0.4 && Math.hypot(bell.x - you.x, bell.y - you.y) < 12) {
       let near = 0;
       for (const e of entities) {

@@ -53,6 +53,7 @@
 import { brake, chase, interruptAttack, pushMob, startAttack, walkTo } from "../mobAi.mjs";
 import { pointInShape } from "../telegraph.mjs";
 import { makeMire } from "./gluttonyMire.mjs";
+import { BOSS_ABSENT_R } from "../bossMend.mjs";
 
 /** Armoured foes the mud drags (shades and wisps are the mire's own). */
 const MIRE_DRAGGED = new Set(["mire_champion", "mire_warden"]);
@@ -572,6 +573,25 @@ function enterPhase2(room, e, m) {
   toastNear(room, e.x, e.y, 30, "warn", "«le bocche aperse» — stop the Fango feeding him");
 }
 
+/**
+ * Knit back past half (left alone: ../bossMend.mjs) the Maw closes its mouths again:
+ * the Fango crawl back into the mire and his second phase re-arms (it replays, toast
+ * and feeders anew, when he is wounded again).
+ */
+function leavePhase2(room, e, m) {
+  e.phase = undefined;
+  e.phase2Toast = false;
+  m.fed = 0;
+  m.spawned = 0;
+  m.feedToast = false;
+  for (const x of [...room.entities.values()]) {
+    if (x._feeder !== e.id) continue;
+    room.entities.delete(x.id);
+    room.broadcast({ type: "entity_removed", id: x.id });
+  }
+  room.markDirty();
+}
+
 function spawnFeeder(room, g, maw) {
   const b = room.canto.geo.bounds;
   const hx = maw.homeX ?? maw.x;
@@ -956,10 +976,13 @@ export default {
     const homeD = Math.hypot(e.x - e.homeX, e.y - e.homeY);
     if (room.tickBossLeash(e, near.d, homeD, dt)) {
       if (m.seq) endSeq(room, m);
+      if (e.phase === 2 && e.hp > e.maxHp * 0.5) leavePhase2(room, e, m);
       return true;
     }
     if (e.phase !== 2 && e.hp <= e.maxHp * 0.5) enterPhase2(room, e, m);
-    if (e.phase === 2 && g) tickFeeders(room, g, e, m, dt);
+    else if (e.phase === 2 && e.hp > e.maxHp * 0.5) leavePhase2(room, e, m);
+    // (the Fango crawl to him only while someone fights him: an empty dais is no feast)
+    if (e.phase === 2 && g && near.d <= BOSS_ABSENT_R) tickFeeders(room, g, e, m, dt);
     if (m.seq) {
       stepSeq(room, e, m, dt);
       brake(e, dt);

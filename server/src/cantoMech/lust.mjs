@@ -908,7 +908,7 @@ function dismissFlock(room, L) {
   return n;
 }
 
-/** A reset Judge (leash walk, idle heal) replays the whole fight: flock and all. */
+/** A Judge knit back past half (left alone: room.tickBossMend) replays the whole fight: flock and all. */
 function resetMinosFight(room, L, e, ms) {
   dismissFlock(room, L);
   ms.chorus = false;
@@ -943,9 +943,10 @@ function minosTick(room, L, e, dt) {
     room.markDirty();
   }
   if (room.tickBossLeash(e, nearestD, homeD, dt)) {
+    // (walking home he keeps his wounds, and his flock rides the whirl round him still)
+    if (ms.st === "coil") e.windupLeft = 0;
     ms.st = "chase";
-    ms.next = 1;
-    if (ms.p2 || ms.chorus) resetMinosFight(room, L, e, ms);
+    ms.next = Math.max(ms.next, 1);
     return true;
   }
   if (!ms.p2 && e.hp <= e.maxHp * 0.5) {

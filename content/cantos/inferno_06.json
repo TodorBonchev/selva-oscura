@@ -63,6 +63,14 @@
         "hint": "Restores life and breath — E to kneel"
       },
       {
+        "id": "causeway_shrine",
+        "kind": "shrine",
+        "x": 104.5,
+        "y": 43.9,
+        "label": "Causeway Shrine",
+        "hint": "On the old stones, short of the Maw — restores life and breath"
+      },
+      {
         "id": "clod_c1",
         "kind": "clod",
         "x": 117,

@@ -54,6 +54,14 @@
         "y": 64,
         "label": "Wind Shrine",
         "hint": "Restores life and breath — E to kneel"
+      },
+      {
+        "id": "lee_shrine",
+        "kind": "shrine",
+        "x": 106,
+        "y": 52.5,
+        "label": "Lee Shrine",
+        "hint": "In the rock's lee, short of the Judge — restores life and breath"
       }
     ],
     "windbreaks": [

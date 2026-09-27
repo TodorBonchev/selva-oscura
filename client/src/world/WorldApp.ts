@@ -3445,14 +3445,22 @@ export class WorldApp {
             }
           }
         }
-        // Ledger Shrine kneel — bone-gold claim feel (audio-free)
-        if (this.room?.cantoId === "inferno_07" && /rebalance — the Ledger Shrine/i.test(text)) {
+        // Ledger / Tally Shrine kneel — bone-gold claim feel (audio-free)
+        if (this.room?.cantoId === "inferno_07" && /rebalance — the \w+ Shrine/i.test(text)) {
           this.camPunch = Math.max(this.camPunch, 0.42);
           document.body.classList.add("ava-claim-flash");
           window.setTimeout(() => document.body.classList.remove("ava-claim-flash"), 480);
-          const shrine = this.room.entities.find(
-            (e: any) => e.poiKind === "shrine" || e.id === "ledger_shrine"
-          );
+          // (the shrine knelt at: the one beside you)
+          let shrine: any = null;
+          let sd = Infinity;
+          for (const e of this.room.entities) {
+            if (e.poiKind !== "shrine") continue;
+            const d = Math.hypot(e.x - this.renderYou.x, e.y - this.renderYou.y);
+            if (d < sd) {
+              sd = d;
+              shrine = e;
+            }
+          }
           if (shrine) {
             this.spawnAvaClaimRing(shrine, 0xf2dea0, 0.9, 2.8, 820);
             const sp = this.entityRenderPos(shrine);
@@ -3755,6 +3763,12 @@ export class WorldApp {
       if (isComboHorizonFold(streak)) pulseHorizonFold();
     }
     if (!ent) return;
+    if (msg.evade) {
+      // a boss walking home off its leash: the blow glances off (no heal waits there)
+      const ep = this.entityRenderPos(ent);
+      if (weHit) this.combat?.number(ep.x, this.standY(ep.x, ep.y) + 4.2, ep.y, 0, "block", tid, now, "unmoved");
+      return;
+    }
     const heavy = ent.kind === "boss";
     const spell = String(msg.spellId || "");
     const pos = this.entityRenderPos(ent);
@@ -5076,12 +5090,10 @@ export class WorldApp {
                     ? "Filth Cache — one champion drop per visit"
                     : "Wind Cache — one champion drop per visit";
             } else if (best.poiKind === "shrine") {
-              line =
-                this.room?.cantoId === "inferno_07"
-                  ? "Ledger Shrine — restores life and breath"
-                  : this.room?.cantoId === "inferno_06"
-                    ? "Mire Shrine — restores life and breath"
-                    : "Wind Shrine — restores life and breath";
+              const name =
+                best.label ||
+                (this.room?.cantoId === "inferno_07" ? "Ledger Shrine" : this.room?.cantoId === "inferno_06" ? "Mire Shrine" : "Wind Shrine");
+              line = `${name} — restores life and breath`;
             } else if (best.poiKind === "bell") {
               line =
                 this.room?.cantoId === "inferno_07"

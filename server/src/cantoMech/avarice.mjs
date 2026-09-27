@@ -34,9 +34,8 @@
  *    the bell ("plutus_fall" cone): step aside after ringing. At ≤50% he hurls a great
  *    weight down a lane ("plutus_roll" line telegraph; the client rolls it). His dais
  *    holds the east clash: the weights' last run climbs onto it, so his fight keeps
- *    the procession's rhythm (weights through the lanes, the clash every T). Left alone
- *    for 40 s he knits back at most a quarter of his life (a retreat to the shrine does
- *    not undo a long fight).
+ *    the procession's rhythm (weights through the lanes, the clash every T). He heals as
+ *    every boss does (../bossMend.mjs): only when left alone, and slowly.
  * 3) The Counterweight (mid-elite, on the wasters' side where the road crosses their
  *    lane) charges down a lane ("cw_charge" line telegraph, then it rolls through)
  *    between its slams — the rollers' lesson. Its charge crushes foes in the lane too;
@@ -652,35 +651,19 @@ function resetPlutus(p) {
 }
 
 /**
- * Plutus's leash: dragged off his dais he walks home; left alone he counts his coin and
- * knits back at most a quarter of his life (a long fight is not undone by one retreat to
- * the shrine — the default boss leash heals fully).
+ * Plutus's leash and mend are every boss's (room.tickBossLeash, ../bossMend.mjs): dragged
+ * off his dais he walks home keeping his wounds; left alone ~20 s he counts his coin and
+ * knits slowly. Walking home he lets his coin go and forgets whoever engaged him. Knit
+ * back past half he stops hurling weights (phase 2 re-arms); knit whole his fight resets.
  */
 function plutusLeash(room, p, nearestD, homeD, dt) {
-  if (nearestD > 20) {
-    p.idleT = (p.idleT || 0) + dt;
-    if (p.idleT > 40 && p.hp < p.maxHp && (p.idleHealed || 0) < p.maxHp * 0.25) {
-      const h = Math.min(p.maxHp - p.hp, p.maxHp * 0.04 * dt);
-      p.hp += h;
-      p.idleHealed = (p.idleHealed || 0) + h;
-      room.markDirty();
-    }
-  } else {
-    p.idleT = 0;
-    p.idleHealed = 0;
+  const walking = room.tickBossLeash(p, nearestD, homeD, dt);
+  if (p.phase === 2 && p.hp > p.maxHp * 0.5) {
+    p.phase = undefined;
+    p.phase2Toast = false;
   }
-  if (!p.resetting && homeD > 20) {
-    p.resetting = true;
-    if (p.teleId) {
-      room.cancelTelegraph(p.teleId, "leash");
-      p.teleId = null;
-      p.windupLeft = 0;
-    }
-  }
-  if (!p.resetting) return false;
-  walkTo(room, p, p.homeX, p.homeY, 4.2, dt);
-  if (Math.hypot(p.x - p.homeX, p.y - p.homeY) < 0.8) p.resetting = false;
-  return true;
+  if (walking) p.windupLeft = 0;
+  return walking;
 }
 
 /** His hurled weight's throw was cut short (bell, leash, death): sink the client's drum. */
@@ -1020,6 +1003,11 @@ export default {
       return;
     }
     scheduleRefill(room, e);
+  },
+
+  onBossReset(room, e) {
+    // knit whole: his coin, calls and hurled weights all start over
+    if (e.id === PLUTUS_ID) resetPlutus(e);
   },
 
   bossTick(room, boss, dt) {
