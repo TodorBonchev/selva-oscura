@@ -1834,14 +1834,22 @@ class CantoRoom {
    */
   tickBossLeash(e, nearestD, homeD, dt) {
     this.tickBossMend(e, nearestD, dt);
-    if (!e.resetting && homeD > BOSS_LEASH) {
+    if (e.leashCd > 0) e.leashCd -= dt;
+    if (!e.resetting && homeD > BOSS_LEASH && !(e.leashCd > 0)) {
       e.resetting = true;
+      e.resetT = 0;
       if (e.teleId) interruptAttack(this, e, 0, "leash");
     }
     if (!e.resetting) return false;
     walkTo(this, e, e.homeX, e.homeY, 4.2, dt);
-    if (Math.hypot(e.x - e.homeX, e.y - e.homeY) < 0.8) {
+    e.resetT = (e.resetT || 0) + dt;
+    // home — or as good as, however the walk went (a pilgrim on its seat, the mire): the
+    // evade never outlasts the walk it covers, and a walk that got nowhere is not retried
+    // (blows landing) for a while
+    const home = Math.hypot(e.x - e.homeX, e.y - e.homeY) < 1.5;
+    if (home || e.resetT > BOSS_LEASH / 4.2 + 3) {
       e.resetting = false;
+      if (!home) e.leashCd = 6;
       this.markDirty();
     }
     return true;
