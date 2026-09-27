@@ -94,7 +94,9 @@ class Bot {
       }
     } else if (m.type === "toast") {
       this.toasts.push({ t: Date.now(), level: m.level, text: m.text });
-      if (/slain|fall under the weight/i.test(m.text) && this.cur) this.stats[this.cur].deaths++;
+      // (every canto's wake line — Avarice's is "misura spezzata — you fall, and wake…";
+      // the killing blow's combat message usually counted it already)
+      if (/slain|fall under the weight|you fall, and wake/i.test(m.text) && this.cur) this.noteDeath();
       if (!QUIET && m.level !== "info") this.log(`  toast[${m.level}] ${m.text}`);
     } else if (m.type === "error") {
       this.errors.push(m);
@@ -116,8 +118,19 @@ class Bot {
       if (this.cur) {
         this.stats[this.cur].dmgTaken += m.damage || 0;
         if (m.damage > 0) this.stats[this.cur].hits++;
+        // the killing blow (the server wakes you at the entrance on the same tick)
+        if (m.targetHp != null) this.stats[this.cur].minHp = Math.min(this.stats[this.cur].minHp, Number(m.targetHp));
+        if (m.targetHp != null && Number(m.targetHp) <= 0) this.noteDeath();
       }
     }
+  }
+
+  /** One death per fall: the killing blow and the wake line both report it. */
+  noteDeath() {
+    const now = Date.now();
+    if (this._deathAt && now - this._deathAt < 1500) return;
+    this._deathAt = now;
+    if (this.cur && this.stats[this.cur]) this.stats[this.cur].deaths++;
   }
 
   send(m) {
