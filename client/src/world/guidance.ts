@@ -275,16 +275,15 @@ export class Guidance {
     const opened = this.openedId === rec.id && performance.now() < this.openedUntil;
     if (el.classList.contains("gate-opened") !== opened) el.classList.toggle("gate-opened", opened);
     const st = (rec.group.userData.portalState as GateState | undefined) ?? this.stateOf(e);
-    // The "Open" flash shows at any distance: that moment is the news. Otherwise the
-    // label stands down when the gold arrow already says the same (the gate is up under
-    // the HUD / minimap: a clipped duplicate), and a sealed gate says nothing while the
+    // The label stands down when the gold arrow already says the same (the gate is up
+    // under the HUD / minimap: a clipped duplicate — the arrow reads "· Open" too). The
+    // "Open" flash otherwise shows at any distance: that moment is the news. A sealed
+    // gate says nothing while the
     // boss that holds it fights you (his plate and the objective line carry it — in the
     // Minos arena the callout, both plates and the prompt piled into one band)
     const hide =
-      !opened &&
-      ((d > GATE_LABEL_RANGE && !nearest) ||
-        this.app.radar?.objArrowFor === rec.id ||
-        (st === "locked" && this.bossNear(GATE_BOSS_QUIET)));
+      this.app.radar?.objArrowFor === rec.id ||
+      (!opened && ((d > GATE_LABEL_RANGE && !nearest) || (st === "locked" && this.bossNear(GATE_BOSS_QUIET))));
     if (hide) {
       if (rec.label.visible) rec.label.visible = false;
       if (el.style.opacity !== "0") el.style.opacity = "0";

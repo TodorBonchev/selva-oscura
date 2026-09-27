@@ -5,7 +5,7 @@
  *
  *   - Trash foes wear only their HP bar on phones (the bottom target plate names the
  *     foe you fight); on desktop one name per pack (its member nearest you).
- *   - Plates are ranked target > boss > elite / mid-boss / ally > trash (nearer first);
+ *   - Plates are ranked target / hovered > boss > elite / mid-boss / ally > trash (nearer first);
  *     a plate whose rect overlaps an already placed one by more than OVERLAP of the
  *     smaller is hidden (bosses and the target never are).
  *   - A foe's plate (not a boss's) over the hero's projected body fades to a ghost.
@@ -123,7 +123,7 @@ export class LabelDeclutter {
       const cls = rec.hpEl.classList;
       const elite = cls.contains("elite") || cls.contains("midboss");
       const id = rec.id;
-      const target = id === host.plateTargetId || id === host.lockedId;
+      const target = id === host.plateTargetId || id === host.lockedId || cls.contains("is-hover");
       it.rec = rec;
       it.x = (_v.x * 0.5 + 0.5) * vw;
       it.y = (-_v.y * 0.5 + 0.5) * vh + (rec.hpEl.style.marginTop && g.userData.lustPlate ? -17 : 0);

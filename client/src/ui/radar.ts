@@ -401,6 +401,16 @@ export class Radar {
       objShown = !hide;
       if (objShown) this.objArrowFor = obj.id;
       bossFight = obj.entity?.kind === "boss" && d < 24;
+      // (a boss's fight is a boss fight whatever the objective points at — the bell…)
+      if (!bossFight) {
+        for (const e of opts.entities) {
+          if (e.kind !== "boss" || (e.hp != null && e.hp <= 0)) continue;
+          if (Math.hypot(e.x - opts.you.x, e.y - opts.you.y) < 20) {
+            bossFight = true;
+            break;
+          }
+        }
+      }
       let ay = p.y;
       if (objShown) ay = this.clearOf(p.x, ay, vh);
       this.place(oa, objShown, p.x, ay, p.ang, "objective", obj.label, `${Math.round(d)}m`);
