@@ -14,8 +14,8 @@
  *     other plate offset).
  *   - No world label (foe plate, POI / gate / loot name) ever draws over the HUD: the
  *     vitals and objective bands, the minimap, the stick, the action buttons, the
- *     target plate, toasts, callouts and the Guide's dialogue — nor over the arrival
- *     title card while it shows. One that would is hidden until it clears (HUD rects re-read ~4 Hz).
+ *     target plate, toasts, callouts, the compass arrows and the Guide's dialogue — nor
+ *     over the arrival title card while it shows. One that would is hidden until it clears (HUD rects re-read ~4 Hz).
  *
  * Plate sizes are estimated from the CSS (styles.css .world-label.foe …) instead of
  * measured: no layout reads. Class toggles only on change; no per-pass allocation
@@ -55,8 +55,14 @@ const KEEP_OUT = [
   "#bar-tip",
   "#canto-card",
   "#dialogue",
+  "#canto-compass .compass-arrow",
 ].join(",");
 const KEEP_PAD = 4;
+/**
+ * World lines that speak (Plutus's cry, the Avarice crowds' shouts): a trash foe's bar
+ * under one yields while it is up (the line is short-lived; the foe is still there).
+ */
+const LINES = ".ava-plutus-line, .ava-shout";
 /** Share of a label's box over a keep-out rect past which it hides. */
 const KEEP_OVER = 0.04;
 
@@ -90,6 +96,8 @@ type Item = {
   d: number;
   trash: boolean;
   boss: boolean;
+  /** the HP bar's height (px) at the plate's foot */
+  bh: number;
 };
 
 export type DeclutterHost = {
@@ -119,6 +127,14 @@ function inter(ax0: number, ay0: number, ax1: number, ay1: number, bx0: number, 
   return w > 0 && h > 0 ? w * h : 0;
 }
 
+/** What of the HUD comes and goes at once (title card, toast, dialogue): a change re-reads it now. */
+function hudSignature(): string {
+  const c = document.getElementById("canto-card");
+  const t = document.getElementById("toast");
+  const d = document.getElementById("dialogue");
+  return `${c?.className ?? ""}|${t?.className ?? ""}|${d ? d.className + d.childElementCount : ""}`;
+}
+
 /**
  * Drawn at all: in the layout, not hidden, not faded out (its own opacity × its
  * ancestors'). A title card / toast counts from the moment it is shown (its class), not
@@ -141,12 +157,24 @@ export class LabelDeclutter {
   private lastAt = 0;
   private hudAt = -1e9;
   private hudBottom = 0;
+  private hudSig = "";
   private pool: Item[] = [];
   private items: Item[] = [];
   private others: PlateRec[] = [];
   private packNear = new Map<string, Item>();
   /** keep-out rects, flat [x0, y0, x1, y1, …] (client px) */
   private keep: number[] = [];
+  /** speaking world lines' rects (same layout): only trash bars yield to them */
+  private lines: number[] = [];
+
+  private overLines(x0: number, y0: number, x1: number, y1: number): boolean {
+    const k = this.lines;
+    const a = Math.max(1, (x1 - x0) * (y1 - y0)) * OVERLAP;
+    for (let i = 0; i < k.length; i += 4) {
+      if (inter(x0, y0, x1, y1, k[i]!, k[i + 1]!, k[i + 2]!, k[i + 3]!) > a) return true;
+    }
+    return false;
+  }
 
   /** Does the box overlap the HUD (any keep-out rect) by more than KEEP_OVER of itself? */
   overHud(x0: number, y0: number, x1: number, y1: number): boolean {
@@ -164,8 +192,11 @@ export class LabelDeclutter {
     this.lastAt = now;
     const vw = host.viewW || window.innerWidth;
     const vh = host.viewH || window.innerHeight;
-    if (now - this.hudAt > HUD_EVERY_MS) {
+    // (the title card or a toast just came up: read the HUD now, not at the next beat)
+    const sig = hudSignature();
+    if (now - this.hudAt > HUD_EVERY_MS || sig !== this.hudSig) {
       this.hudAt = now;
+      this.hudSig = sig;
       this.hudBottom = this.measureHud();
     }
     const cam = host.camera;
@@ -213,6 +244,7 @@ export class LabelDeclutter {
       const barH = boss ? 12 : ally ? 7 : compact && !elite ? 9 : 10;
       it.w = Math.max(barW, name.length * font * 0.58);
       it.h = barH + (name ? font * 1.3 : 0);
+      it.bh = barH;
       items.push(it);
     }
     // Names: phones show none on trash (the target plate names your foe); desktop one per pack
@@ -275,7 +307,9 @@ export class LabelDeclutter {
           const o = items[j]!;
           if (o.rec.dcCull) continue;
           const ov = inter(x0, y0, x1, y1, o.x - o.w / 2, o.y - o.h, o.x + o.w / 2, o.y);
-          if (ov > OVERLAP * Math.min(a, o.w * o.h)) {
+          // (against the smallest part either plate would lose: a bar printed over by a
+          // name is as unreadable as two whole plates stacked)
+          if (ov > OVERLAP * Math.min(a, o.w * o.h, it.w * it.bh, o.w * o.bh)) {
             cull = true;
             break;
           }
@@ -283,6 +317,7 @@ export class LabelDeclutter {
       }
       // never over the HUD (a boss's too: the target plate carries its life meanwhile)
       if (!cull && this.overHud(x0, y0, x1, y1)) cull = true;
+      if (!cull && it.trash && this.lines.length && this.overLines(x0, y0, x1, y1)) cull = true;
       // (any foe's plate but a boss's: the bottom target plate still names your foe)
       const fade = !cull && !it.boss && rec0(it) && inter(x0, y0, x1, y1, hx0, hy0, hx1, hy1) > HERO_COVER * Math.min(a, heroA);
       // (a culled plate must not block the ones ranked below it: mark before the next)
@@ -312,7 +347,8 @@ export class LabelDeclutter {
     const g = rec.group;
     const L = rec.label;
     _v.set(g.position.x, g.position.y + L.position.y * g.scale.y, g.position.z).project(host.camera);
-    let cull = false;
+    // (a label not yet measured stays hidden: it shows once it is known to be clear)
+    let cull = !((rec.dcW || 0) > 0);
     if (_v.z <= 1 && _v.x > -1.3 && _v.x < 1.3 && _v.y > -1.3 && _v.y < 1.3 && (rec.dcW || 0) > 0) {
       const w = rec.dcW || 0;
       const h = rec.dcH || 0;
@@ -324,7 +360,9 @@ export class LabelDeclutter {
       for (let i = 0; i < plates.length && !cull; i++) {
         const o = plates[i]!;
         if (o.rec.dcCull || o.rec.kind === "player") continue;
-        const oa = o.w * o.h;
+        // (measured against the plate's smallest part, its bar: a name printed over a bar
+        // hides it however little of the plate's box the two share)
+        const oa = o.w * Math.min(o.h, o.bh);
         if (inter(x0, y0, x0 + w, y0 + h, o.x - o.w / 2, o.y - o.h, o.x + o.w / 2, o.y) > OVERLAP * Math.min(w * h, oa)) cull = true;
       }
     }
@@ -353,6 +391,16 @@ export class LabelDeclutter {
       const r = el.getBoundingClientRect();
       if (r.width < 2 || r.height < 2) continue;
       k.push(r.left - KEEP_PAD, r.top - KEEP_PAD, r.right + KEEP_PAD, r.bottom + KEEP_PAD);
+    }
+    const L = this.lines;
+    L.length = 0;
+    const ls = document.querySelectorAll<HTMLElement>(LINES);
+    for (let i = 0; i < ls.length; i++) {
+      const el = ls[i]!;
+      if (!el.textContent || !drawn(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) continue;
+      L.push(r.left, r.top, r.right, r.bottom);
     }
     return b;
   }

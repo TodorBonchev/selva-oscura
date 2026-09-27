@@ -2584,7 +2584,9 @@ export class WorldApp {
     group.userData.entityId = id.replace(/^pl:/, "");
     if (e?.packId) group.userData.packId = String(e.packId);
     const wrap = document.createElement("div");
-    wrap.className = "world-label";
+    // (born hidden: the label declutter shows it on its next pass, once it is known to
+    // sit clear of the HUD and the title card — no first-frame flash over either)
+    wrap.className = "world-label wl-cull";
     wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div><div class="interact-prompt" hidden></div>`;
     if (kind === "player") {
       wrap.classList.add("ally", "remote");
@@ -2688,6 +2690,8 @@ export class WorldApp {
       hpBar: wrap.querySelector(".wl-hp") as HTMLElement,
       hpFill: wrap.querySelector(".wl-hp i") as HTMLElement,
       seenAt: this.syncStamp,
+      dcCull: true,
+      dcCullShown: true,
     };
     this.nodes.set(id, rec);
     return rec;
