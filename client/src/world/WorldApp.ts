@@ -222,6 +222,7 @@ type NodeRec = {
   dcFade?: boolean;
   dcNoName?: boolean;
   dcShift?: number;
+  dcShiftX?: number;
 };
 
 /** Named parts tickFx/syncEntities animate — resolved once per node, not per frame. */

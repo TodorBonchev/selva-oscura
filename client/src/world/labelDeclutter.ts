@@ -9,8 +9,9 @@
  *     a plate whose rect overlaps an already placed one by more than OVERLAP of the
  *     smaller is hidden (bosses and the target never are).
  *   - A foe's plate (not a boss's) over the hero's projected body fades to a ghost.
- *   - A boss plate projected into the top HUD band is pinned just under it (a top
- *     margin: bosses carry no other plate offset).
+ *   - A boss plate projected into the top HUD band is pinned just under it, and kept
+ *     on screen sideways clear of the phone's minimap column (margins: bosses carry no
+ *     other plate offset).
  *
  * Plate sizes are estimated from the CSS (styles.css .world-label.foe …) instead of
  * measured: no layout reads. Class toggles only on change; no per-pass allocation
@@ -26,6 +27,8 @@ const OVERLAP = 0.25;
 const HERO_COVER = 0.2;
 /** How tall the hero stands (world units, with the hero group's scale). */
 const HERO_H = 2.5;
+/** Phones: width (px) of the minimap / Inv column a boss plate keeps clear of. */
+const RIGHT_COL = 118;
 /** Recompute the top HUD band's bottom this often (ms): it moves with the quest line. */
 const HUD_EVERY_MS = 700;
 
@@ -42,6 +45,7 @@ export type PlateRec = {
   dcFade?: boolean;
   dcNoName?: boolean;
   dcShift?: number;
+  dcShiftX?: number;
 };
 
 type Item = {
@@ -180,10 +184,16 @@ export class LabelDeclutter {
       if (noName) it.h -= 13 * 1.3;
       // Bosses: never under the top HUD band — pinned just below it
       let shift = 0;
-      if (it.boss && hudB > 0) {
+      let shiftX = 0;
+      if (it.boss) {
         const top = it.y - it.h;
-        if (top < hudB + 6) shift = Math.min(vh * 0.4, hudB + 6 - top);
+        if (hudB > 0 && top < hudB + 6) shift = Math.min(vh * 0.4, hudB + 6 - top);
         it.y += shift;
+        // …and kept on screen sideways, clear of the phone's minimap / Inv column
+        const right = vw - 6 - (compact && it.y - it.h < vh * 0.55 ? RIGHT_COL : 0);
+        if (it.x + it.w / 2 > right) shiftX = right - (it.x + it.w / 2);
+        else if (it.x - it.w / 2 < 6) shiftX = 6 - (it.x - it.w / 2);
+        it.x += shiftX;
       }
       const x0 = it.x - it.w / 2;
       const x1 = it.x + it.w / 2;
@@ -206,7 +216,7 @@ export class LabelDeclutter {
       const fade = !cull && !it.boss && rec0(it) && inter(x0, y0, x1, y1, hx0, hy0, hx1, hy1) > HERO_COVER * Math.min(a, heroA);
       // (a culled plate must not block the ones ranked below it: mark before the next)
       it.rec.dcCull = cull;
-      this.apply(it.rec, cull, fade, noName, shift);
+      this.apply(it.rec, cull, fade, noName, shift, shiftX);
     }
   }
 
@@ -223,7 +233,7 @@ export class LabelDeclutter {
     return b;
   }
 
-  private apply(rec: PlateRec, cull: boolean, fade: boolean, noName: boolean, shift: number) {
+  private apply(rec: PlateRec, cull: boolean, fade: boolean, noName: boolean, shift: number, shiftX = 0) {
     const cls = rec.hpEl.classList;
     if ((rec.dcCullShown ?? false) !== cull) {
       rec.dcCullShown = cull;
@@ -242,6 +252,11 @@ export class LabelDeclutter {
       rec.dcShift = s;
       // (plates are bottom-anchored: a top margin moves the whole plate down)
       rec.hpEl.style.marginTop = s > 0 ? `${s}px` : "";
+    }
+    const sx = Math.round(shiftX);
+    if ((rec.dcShiftX ?? 0) !== sx) {
+      rec.dcShiftX = sx;
+      rec.hpEl.style.marginLeft = sx !== 0 ? `${sx}px` : "";
     }
   }
 }
