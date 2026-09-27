@@ -15,7 +15,10 @@
  *                                      a move packet: return the position to accept
  *                                      (wind drift, mud slow budget…). `from` is the
  *                                      server position, `to` the requested one, dt the
- *                                      seconds since the last move packet.
+ *                                      seconds since the last move packet (real
+ *                                      wall-clock time: 0 for bunched packets).
+ *   moveAllowance(room, sess) → number extra u/s the room's move budget allows (a
+ *                                      gust carrying a walker downwind).
  *   adjustDash(room, sess, fromX, fromY, toX, toY, dirX, dirY) → {x,y} | null
  *                                      where a dash really ends (the client mirrors it
  *                                      in CantoMech.adjustDash).

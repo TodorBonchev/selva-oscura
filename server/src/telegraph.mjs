@@ -18,7 +18,8 @@
  * their screen reaches us about one round trip after the server's deadline. So landing
  * only picks the candidates (players inside the shape right then); each is judged
  * `dodgeGrace(sess)` later (their reported RTT + a move-packet beat, capped at
- * GRACE_CAP_MS): still inside and not dashing → hit. Walking in after the deadline
+ * GRACE_CAP_MS; the report is capped by the RTT the server measures itself with ws
+ * pings): still inside and not dashing → hit. Walking in after the deadline
  * never counts. Clients whose RTT exceeds the cap shorten their fill by the excess
  * (client telegraphs.ts), so the visible deadline stays honest. Bots report no RTT
  * and are judged at the deadline.
@@ -35,6 +36,11 @@ export const GRACE_CAP_MS = 220;
 const MOVE_PACKET_MS = 30;
 /** Round trip (ms) each connection reports with its pings; absent = unknown (bots). */
 const rtts = new WeakMap();
+/** Round trip (ms) the server measured itself (ws ping → pong), smoothed. */
+const measured = new WeakMap();
+/** A reported RTT is trusted up to the measured one × this + MEASURE_SLACK_MS. */
+const MEASURE_MUL = 1.25;
+const MEASURE_SLACK_MS = 40;
 
 /** index.mjs: a client's ping carried its measured round trip. */
 export function noteClientRtt(ws, ms) {
@@ -43,10 +49,26 @@ export function noteClientRtt(ws, ms) {
   rtts.set(ws, Math.min(2000, v));
 }
 
-/** Seconds a landed telegraph waits before judging this player (0 when RTT unknown). */
+/** index.mjs: the server's own ws ping came back after `ms` (its clock, not the client's). */
+export function noteServerRtt(ws, ms) {
+  const v = Number(ms);
+  if (!ws || !Number.isFinite(v) || v < 0) return;
+  const prev = measured.get(ws);
+  // quick to follow a slower link, slow to believe a single fast echo
+  measured.set(ws, prev == null ? v : v > prev ? prev + (v - prev) * 0.5 : prev + (v - prev) * 0.2);
+}
+
+/**
+ * Seconds a landed telegraph waits before judging this player (0 when RTT unknown).
+ * The client's report is capped by what the server measured: editing the field buys
+ * nothing over the real link.
+ */
 export function dodgeGrace(sess) {
-  const r = sess?.ws ? rtts.get(sess.ws) : undefined;
+  const ws = sess?.ws;
+  let r = ws ? rtts.get(ws) : undefined;
   if (!(r > 0)) return 0;
+  const m = measured.get(ws);
+  r = Math.min(r, m != null ? m * MEASURE_MUL + MEASURE_SLACK_MS : 60);
   return Math.min(GRACE_CAP_MS, r + MOVE_PACKET_MS) / 1000;
 }
 
@@ -315,18 +337,20 @@ export class Telegraphs {
       // left the room, died meanwhile, or stepped out during the grace
       if (room.sessions.get(s.playerId) !== s || !(s.hp > 0)) continue;
       if (c.at > 0 && !pointInShape(t, s.x, s.y)) continue;
-      let dmg = t.dmg;
-      if (t.onHit) dmg = t.onHit(room, t, s);
-      if (dmg == null || dmg <= 0) continue;
       const extra = {
         teleKind: t.kind,
         teleId: t.id,
         champTele: t.kind === "champ_slam" || undefined,
       };
-      if (c.iframed && !(s.iframes > 0)) {
-        room.dodgeBeat(s, t.attacker, extra);
+      // Dashed through the deadline (or still iframed): the safe beat, and none of the
+      // blow's side effects either — onHit's shove / root / slow never land on a dodge
+      if (c.iframed || s.iframes > 0) {
+        if (t.dmg > 0) room.dodgeBeat(s, t.attacker, extra);
         continue;
       }
+      let dmg = t.dmg;
+      if (t.onHit) dmg = t.onHit(room, t, s);
+      if (dmg == null || dmg <= 0) continue;
       t.hits.push(s);
       const taken = room.hitPlayer(s, t.attacker, dmg, extra);
       // Slams throw you off your feet a little (not on the respawn that a kill causes)

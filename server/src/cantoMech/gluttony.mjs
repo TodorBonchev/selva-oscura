@@ -114,6 +114,9 @@ const HAIL = {
   roadRate: 1.4,
   engagedRate: 0.65,
   engagedR: 6,
+  /** co-op: pilgrims this close share one hail clock (a volley per knot per gap) */
+  knotR: 6.5,
+  knotGapMs: 5000,
 };
 
 /**
@@ -279,7 +282,7 @@ function rise(room, g, b, who) {
     },
     // the mire's hands close on your ankles (not on a dash)
     onHit: (r, tt, s) => {
-      if (!(s.iframes > 0)) holdFast(r, s, GRAB.rootMs);
+      holdFast(r, s, GRAB.rootMs);
       return tt.dmg;
     },
   });
@@ -378,7 +381,7 @@ function dropVolley(room, pts, crown, pid) {
       onHit: (r, t, sess) => {
         // held fast by the mire as the stones fell: they couldn't step out — spared
         if (heldRecently(sess, Date.now())) return 0;
-        if (!(sess.iframes > 0)) r.statusPlayer(sess, { slow: HAIL.slow, durMs: HAIL.slowMs });
+        r.statusPlayer(sess, { slow: HAIL.slow, durMs: HAIL.slowMs });
         return t.dmg;
       },
     });
@@ -410,7 +413,7 @@ function tickSink(room, g, s, nowMs) {
     kind: "mire_sink",
     dmg: SINK.dmg,
     onHit: (r, t, sess) => {
-      if (!(sess.iframes > 0)) holdFast(r, sess, SINK.rootMs);
+      holdFast(r, sess, SINK.rootMs);
       return t.dmg;
     },
   });
@@ -461,6 +464,14 @@ function tickHail(room, s, dt, maw) {
   s._glutHailCarry = 0;
   const sp = room.canto.geo.spawn;
   if (Math.hypot(s.x - sp.x, s.y - sp.y) < HAIL.spawnSafe || s.iframes > 0) return;
+  // Co-op: a knot of pilgrims shares one storm — a volley just fell on a companion
+  // close by (its stones fall on this pilgrim too), so this clock waits its turn
+  const nowMs = Date.now();
+  for (const o of room.sessions.values()) {
+    if (o === s || !(o._glutVolleyAt > nowMs - HAIL.knotGapMs)) continue;
+    if (Math.hypot(o.x - s.x, o.y - s.y) < HAIL.knotR) return;
+  }
+  s._glutVolleyAt = nowMs;
   volley(room, s, Boolean(nearMaw && maw.phase === 2));
 }
 
@@ -924,7 +935,7 @@ export default {
         kind: "fango_burst",
         dmg: Math.round(fb.dmg * 1.15),
         onHit: (r, t, s) => {
-          if (!(s.iframes > 0)) r.statusPlayer(s, { slow: fb.slow, durMs: fb.slowMs });
+          r.statusPlayer(s, { slow: fb.slow, durMs: fb.slowMs });
           return t.dmg;
         },
       });
@@ -1029,11 +1040,9 @@ export default {
       kind: "mire_grab",
       dmg: Math.round(sn.dmg * 1.15),
       onHit: (r, t, s) => {
-        if (!(s.iframes > 0)) {
-          // (by the jaws a hold would feed you to the next bite: the mud only drags)
-          if (biterNear(r, s.x, s.y, sn.biterR)) r.statusPlayer(s, { slow: sn.slow, durMs: sn.slowMs });
-          else holdFast(r, s, sn.rootMs);
-        }
+        // (by the jaws a hold would feed you to the next bite: the mud only drags)
+        if (biterNear(r, s.x, s.y, sn.biterR)) r.statusPlayer(s, { slow: sn.slow, durMs: sn.slowMs });
+        else holdFast(r, s, sn.rootMs);
         return t.dmg;
       },
     });

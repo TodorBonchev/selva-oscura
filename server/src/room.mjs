@@ -69,8 +69,19 @@ const PLAYER_ATK_GRACE = 0.06;
 const COMBO_CHAIN_MS = 900;
 /** The 3rd blow of a chain (the client's overhead finisher) hits harder and shoves. */
 const FINISHER_MULT = 1.3;
-/** Walking speed the client predicts at (units/s) — the move budget under slow/root. */
+/** Walking speed the client predicts at (units/s) — the move budget's pace. */
 const PLAYER_WALK_SPEED = 8;
+/**
+ * Move budget (room.handleMove): distance a pilgrim may cover refills on the wall
+ * clock at PLAYER_WALK_SPEED × MOVE_SLACK (the client's soft-snap pull and step-in
+ * ride a little over the walk), and at most MOVE_BANK is banked, so packets bunched
+ * by network jitter still land in full — but no packet rate buys speed.
+ */
+const MOVE_SLACK = 1.3;
+const MOVE_BANK = 3.2;
+/** Dash cooldown (s); one may arrive this early (ms: jitter) — carried as debt. */
+const DASH_CD = 4;
+const DASH_GRACE_MS = 150;
 /** A boss dragged this far off its dais walks home and resets. */
 const BOSS_LEASH = 20;
 /** Seconds with nobody near before a boss starts knitting its wounds. */
@@ -550,13 +561,14 @@ class CantoRoom {
     const ledger = players.get(forPlayerId);
     const entities = [];
     for (const e of this.entities.values()) {
+      // (positions to the centimetre, whole HP: a phone's snapshot is mostly this list)
       entities.push({
         id: e.id,
         kind: e.kind,
         name: e.name,
-        x: e.x,
-        y: e.y,
-        hp: e.hp,
+        x: Math.round(e.x * 100) / 100,
+        y: Math.round(e.y * 100) / 100,
+        hp: e.hp > 0 ? Math.ceil(e.hp) : e.hp,
         maxHp: e.maxHp,
         packId: e.packId,
         champion: e.champion,
@@ -564,13 +576,16 @@ class CantoRoom {
         archetype: e.archetype,
         poiKind: e.poiKind,
         label: e.label,
-        hint: e.hint || null,
+        hint: e.hint || undefined,
         toCanto: e.toCanto,
-        requireClear: e.requireClear || null,
+        requireClear: e.requireClear || undefined,
         item: e.item,
         // Avarice/Lust/Glut bell still — client gold measure tint
         stunLeft: e.stunLeft > 0.05 ? Math.round(e.stunLeft * 5) / 5 : undefined,
-        windupLeft: (e.kind === "boss" || e.champion || e.archetype === "weight_champion") && e.windupLeft > 0 ? e.windupLeft : undefined,
+        windupLeft:
+          (e.kind === "boss" || e.champion || e.archetype === "weight_champion") && e.windupLeft > 0
+            ? Math.round(e.windupLeft * 100) / 100
+            : undefined,
         phase: e.kind === "boss" && e.phase ? e.phase : undefined,
       });
     }
@@ -578,8 +593,8 @@ class CantoRoom {
     for (const [pid, s] of this.sessions) {
       const led = players.get(pid);
       const full = snapshotPlayer(led, {
-        x: s.x,
-        y: s.y,
+        x: Math.round(s.x * 100) / 100,
+        y: Math.round(s.y * 100) / 100,
         hp: s.hp,
         maxHp: s.maxHp,
         mana: s.mana,
@@ -606,8 +621,8 @@ class CantoRoom {
       players: playerSnaps,
       you: {
         ...snapshotPlayer(ledger, {
-          x: youSess.x,
-          y: youSess.y,
+          x: Math.round(youSess.x * 100) / 100,
+          y: Math.round(youSess.y * 100) / 100,
           hp: youSess.hp,
           maxHp: youSess.maxHp,
           mana: youSess.mana,
@@ -640,33 +655,32 @@ class CantoRoom {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const b = this.canto.geo.bounds;
     const now = Date.now();
-    const dtMove = s._lastMoveAt ? Math.min(0.5, Math.max(0.016, (now - s._lastMoveAt) / 1000)) : 0.05;
+    // Real wall-clock time since the last move packet (no floor: a flood of packets
+    // earns no extra walking — every budget below refills on this clock)
+    const dtMove = s._lastMoveAt ? Math.min(0.5, Math.max(0, (now - s._lastMoveAt) / 1000)) : 0.05;
     s._lastMoveAt = now;
+    const st = s.status && s.status.until > now ? s.status : null;
+    const slow = st ? (st.root ? 0 : st.slow) : 1;
+    // Move budget: refills at the walk pace × slack (× a slow, + a canto's drift),
+    // banks at most MOVE_BANK (less while slowed) for packets bunched by jitter
+    const rate = PLAYER_WALK_SPEED * MOVE_SLACK * slow + (this.mech.moveAllowance?.(this, s) || 0);
+    const bank = st ? Math.max(0.5, MOVE_BANK * slow) : MOVE_BANK;
+    const budget = Math.min(bank, (s._moveBudget ?? MOVE_BANK) + rate * dtMove);
+    const credit = s.shoveAllow > 0 ? s.shoveAllow : 0;
+    if (st?.root) {
+      // rooted feet stay put (a shove still carries you: its credit)
+      x = s.x;
+      y = s.y;
+    }
     const dx = x - s.x;
     const dy = y - s.y;
     const d = Math.hypot(dx, dy);
-    if (d > MOVE_SPEED) {
-      const scale = MOVE_SPEED / d;
-      x = s.x + dx * scale;
-      y = s.y + dy * scale;
+    const allow = Math.min(MOVE_SPEED, budget + credit);
+    if (d > allow) {
+      const k = allow / d;
+      x = s.x + dx * k;
+      y = s.y + dy * k;
     }
-    // Mechanic status: rooted feet stay put; a slow caps the step to the slowed walk
-    // (plus any shove the client is still playing out)
-    const st = s.status;
-    if (st && st.until > now) {
-      if (st.root) {
-        x = s.x;
-        y = s.y;
-      } else if (st.slow < 1) {
-        const allow = PLAYER_WALK_SPEED * st.slow * dtMove * 1.35 + 0.25 + (s.shoveAllow || 0);
-        const sd = Math.hypot(x - s.x, y - s.y);
-        if (sd > allow) {
-          x = s.x + ((x - s.x) / sd) * allow;
-          y = s.y + ((y - s.y) / sd) * allow;
-        }
-      }
-    }
-    if (s.shoveAllow > 0) s.shoveAllow = Math.max(0, s.shoveAllow - PLAYER_WALK_SPEED * dtMove);
     if (this.mech.adjustMove) {
       const to = this.mech.adjustMove(this, s, { x: s.x, y: s.y }, { x, y }, dtMove);
       if (to && Number.isFinite(to.x) && Number.isFinite(to.y)) {
@@ -674,6 +688,11 @@ class CantoRoom {
         y = to.y;
       }
     }
+    // Spend: the shove's credit first, then the budget; the credit also fades with time
+    const moved = Math.hypot(x - s.x, y - s.y);
+    const useCredit = Math.min(credit, moved);
+    s.shoveAllow = Math.max(0, credit - useCredit - PLAYER_WALK_SPEED * dtMove);
+    s._moveBudget = Math.max(0, budget - (moved - useCredit));
     let nx = clamp(x, 0.5, b.width - 0.5);
     let ny = clamp(y, 0.5, b.height - 0.5);
     const mdx = nx - s.x;
@@ -697,6 +716,7 @@ class CantoRoom {
       nx = clamp(e.x + (ex / dR) * rad, 0.5, b.width - 0.5);
       ny = clamp(e.y + (ey / dR) * rad, 0.5, b.height - 0.5);
     }
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
     s.x = nx;
     s.y = ny;
     this.markDirty();
@@ -774,7 +794,7 @@ class CantoRoom {
       s.atkReadyAt = Math.max(now, s.atkReadyAt || 0) + PLAYER_ATK_CD * 1000;
       return;
     }
-    if (dist(s, target) > ATTACK_RANGE) {
+    if (!(dist(s, target) <= ATTACK_RANGE)) {
       // Quiet OOR: longer gap + info (not warn) so measure spam stays bone-soft
       if (!s._oorToastAt || now - s._oorToastAt > 2400) {
         s._oorToastAt = now;
@@ -796,7 +816,7 @@ class CantoRoom {
     const victims = [target];
     for (const e of this.entities.values()) {
       if (e === target || (e.kind !== "mob" && e.kind !== "boss")) continue;
-      if (dist(s, e) > ATTACK_RANGE + 0.35) continue;
+      if (!(dist(s, e) <= ATTACK_RANGE + 0.35)) continue;
       if (dist(target, e) > 2.6) continue;
       victims.push(e);
     }
@@ -823,8 +843,9 @@ class CantoRoom {
       this.toast(s.ws, "warn", "Unknown spell.");
       return;
     }
-    const cdLeft = s.spellCd?.[spell.id] ?? 0;
-    if (cdLeft > 0) {
+    // (wall clock, like the dash: the ticked spellCd could refuse a cast right at 0)
+    const readyAt = s.spellReadyAt?.[spell.id] || 0;
+    if (Date.now() < readyAt - DASH_GRACE_MS) {
       this.toast(s.ws, "warn", `${spell.name} recharging…`);
       return;
     }
@@ -858,6 +879,9 @@ class CantoRoom {
     s.mana = Math.max(0, s.mana - spell.manaCost);
     if (!s.spellCd) s.spellCd = {};
     s.spellCd[spell.id] = spell.cooldown;
+    if (!s.spellReadyAt) s.spellReadyAt = {};
+    const now = Date.now();
+    s.spellReadyAt[spell.id] = Math.max(now, s.spellReadyAt[spell.id] || 0) + spell.cooldown * 1000;
   }
 
   _nearestFoe(from, maxRange) {
@@ -988,7 +1012,7 @@ class CantoRoom {
     for (const e of [...this.entities.values()]) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
       if (e._dead) continue;
-      if (dist(s, e) > spell.radius) continue;
+      if (!(dist(s, e) <= spell.radius)) continue;
       let dmg = base + Math.floor(Math.random() * 5);
       if (heartWards(this, e)) dmg = Math.max(1, Math.round(dmg * 0.7));
       dmg = Math.max(1, Math.round(dmg * weightMatchupMult(spell.id, e)));
@@ -1013,8 +1037,9 @@ class CantoRoom {
     // Infernal Burst, Dash) still holds — never pay out the same corpse twice.
     if (!entity || entity._dead || !this.entities.has(entity.id)) return;
     entity._dead = true;
-    // A windup dies with its owner
-    if (entity.teleId) this.tele.cancelBy(entity.id, "death");
+    // A windup dies with its owner — every telegraph it owns (a boss's rings and lines
+    // are not all on entity.teleId), so none lands after the killing blow
+    this.tele.cancelBy(entity.id, "death");
     const killer = this.sessions.get(killerId);
     const ledger = players.get(killerId);
     const dropTable = entity.dropTable || "inferno_pack_common";
@@ -1190,13 +1215,25 @@ class CantoRoom {
   handleDash(playerId, aimX, aimY) {
     const s = this.sessions.get(playerId);
     if (!s || s.hp <= 0) return;
-    if (s.dashCd > 0) {
-      this.toast(s.ws, "warn", `Dash cooling (${Math.ceil(s.dashCd)}s)`);
+    // Cooldown on the wall clock (dashCd only ticks at ~15 Hz: a dash sent the moment
+    // the client's 4 s ran out met a sliver of it and was refused — a dodge on screen
+    // with no iframes). Early by up to the grace is carried forward as debt.
+    const now = Date.now();
+    if (now < (s.dashReadyAt || 0) - DASH_GRACE_MS) {
+      const left = ((s.dashReadyAt || 0) - now) / 1000;
+      this.toast(s.ws, "warn", `Dash cooling (${Math.ceil(left)}s)`);
+      this.send(s.ws, { type: "dash_denied", ms: Math.round((s.dashReadyAt || 0) - now) });
       return;
     }
-    let dx = Number(aimX) || s._lastFaceX || 0;
-    let dy = Number(aimY) || s._lastFaceY || -1;
-    const len = Math.hypot(dx, dy) || 1;
+    // A non-finite aim (1e999 parses to Infinity) falls back to the facing
+    let dx = Number(aimX);
+    let dy = Number(aimY);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy) || !(Math.hypot(dx, dy) > 1e-6)) {
+      dx = s._lastFaceX || 0;
+      dy = s._lastFaceY || -1;
+    }
+    const len = Math.hypot(dx, dy);
+    if (!(len > 1e-6) || !Number.isFinite(len)) return;
     dx /= len;
     dy /= len;
     // (a canto's ground may shorten it — the client asks its mech the same)
@@ -1217,8 +1254,13 @@ class CantoRoom {
     }
     s._lastFaceX = dx;
     s._lastFaceY = dy;
+    if (!Number.isFinite(s.x) || !Number.isFinite(s.y)) {
+      s.x = fromX;
+      s.y = fromY;
+    }
     s.iframes = Math.max(s.iframes || 0, 0.35);
-    s.dashCd = 4;
+    s.dashCd = DASH_CD;
+    s.dashReadyAt = Math.max(now, s.dashReadyAt || 0) + DASH_CD * 1000;
     const segX = s.x - fromX;
     const segY = s.y - fromY;
     const segL2 = segX * segX + segY * segY || 1;
@@ -1249,8 +1291,9 @@ class CantoRoom {
   handleSip(playerId) {
     const s = this.sessions.get(playerId);
     if (!s) return;
-    if (s.sipCd > 0) {
-      this.toast(s.ws, "warn", `Flask cooling (${Math.ceil(s.sipCd)}s)`);
+    const now = Date.now();
+    if (now < (s.sipReadyAt || 0) - DASH_GRACE_MS) {
+      this.toast(s.ws, "warn", `Flask cooling (${Math.ceil(((s.sipReadyAt || 0) - now) / 1000)}s)`);
       return;
     }
     if (s.hp >= s.maxHp && s.mana >= s.maxMana) {
@@ -1262,6 +1305,7 @@ class CantoRoom {
     s.hp += heal;
     s.mana += mana;
     s.sipCd = 8;
+    s.sipReadyAt = Math.max(now, s.sipReadyAt || 0) + 8000;
     this.toast(s.ws, "loot", `Flask +${heal} life, +${mana} breath`);
     this.pushSnapshot(playerId);
   }
@@ -1296,7 +1340,7 @@ class CantoRoom {
     if (!s || !ledger) return;
     const loot = this.entities.get(lootId);
     if (!loot || loot.kind !== "loot") return;
-    if (dist(s, loot) > (this.cantoId === "inferno_07" ? PICKUP_RANGE + 1.2 : PICKUP_RANGE)) {
+    if (!(dist(s, loot) <= (this.cantoId === "inferno_07" ? PICKUP_RANGE + 1.2 : PICKUP_RANGE))) {
       this.toast(s.ws, "warn", "Too far.");
       return;
     }
@@ -1323,7 +1367,7 @@ class CantoRoom {
         : this.cantoId === "inferno_07"
           ? INTERACT_RANGE + 0.8
           : INTERACT_RANGE;
-    if (dist(s, e) > maxDist) {
+    if (!(dist(s, e) <= maxDist)) {
       this.toast(s.ws, "warn", "Move closer.");
       return;
     }
@@ -1576,7 +1620,7 @@ class CantoRoom {
     const s = this.sessions.get(playerId);
     if (!s) return;
     const stash = [...this.entities.values()].find((e) => e.kind === "poi" && e.poiKind === "stash");
-    if (!stash || dist(s, stash) > INTERACT_RANGE + 1.5) {
+    if (!stash || !(dist(s, stash) <= INTERACT_RANGE + 1.5)) {
       this.toast(s.ws, "warn", "Walk to the Dark Wood stash to bank items.");
       return;
     }
@@ -1652,6 +1696,7 @@ class CantoRoom {
    */
   shovePlayer(sess, dx, dy, durMs = 220) {
     if (!sess || !(sess.hp > 0)) return;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
     const b = this.canto.geo.bounds;
     sess.x = clamp(sess.x + dx, 0.5, b.width - 0.5);
     sess.y = clamp(sess.y + dy, 0.5, b.height - 0.5);
@@ -1793,6 +1838,13 @@ class CantoRoom {
     this.tickBossRespawns(dt);
     let manaDirty = false;
     for (const s of this.sessions.values()) {
+      // (no path may leave a pilgrim at NaN — every range check would pass them by)
+      if (!Number.isFinite(s.x) || !Number.isFinite(s.y)) {
+        const sp = this.canto.geo.spawn;
+        s.x = sp.x;
+        s.y = sp.y;
+        this.markDirty();
+      }
       if (s.atkCd > 0) s.atkCd = Math.max(0, s.atkCd - dt);
       if (s.sipCd > 0) s.sipCd = Math.max(0, s.sipCd - dt);
       if (s.dashCd > 0) s.dashCd = Math.max(0, s.dashCd - dt);
@@ -2049,6 +2101,13 @@ export class World {
   getRoom(playerId) {
     const cid = this.playerRoom.get(playerId);
     return cid ? this.rooms.get(cid) : null;
+  }
+
+  /** Forget mid-combat resumes nobody came back for. */
+  pruneResumes(now = Date.now()) {
+    for (const [pid, r] of this.resumeByPlayer) {
+      if (!(r.until > now)) this.resumeByPlayer.delete(pid);
+    }
   }
 
   travel(playerId, toCanto, ws, name, opts = {}) {

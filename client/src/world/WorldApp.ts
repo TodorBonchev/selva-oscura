@@ -166,6 +166,8 @@ const AUTO_PICKUP_RETRY_MS = 900;
 /** Server bag cap (room.mjs handlePickup). */
 const BAG_CAP = 40;
 const PREDICT_SPEED = 8.0;
+/** Client dash cooldown: the server's 4 s plus a margin for its tick and jitter. */
+const DASH_CD_MS = 4060;
 const MOVE_ACCEL = 28;
 /** Coasting stop (no input): a planted stop, not a skid. */
 const MOVE_FRICTION = 24;
@@ -3309,6 +3311,12 @@ export class WorldApp {
         }
         break;
       }
+      case "dash_denied": {
+        // the server still had cooldown left: the button follows its clock
+        const ms = Math.max(0, Number(msg.ms) || 0);
+        this.dashReadyAt = Date.now() + ms + 60;
+        break;
+      }
       case "net":
         if (msg.state === "disconnected") {
           this.netOffline = true;
@@ -3317,6 +3325,9 @@ export class WorldApp {
           // (draw() swaps the hero's shared materials back: setHeroGhost)
           this.netOffline = false;
           showToast("Reconnected", "info");
+        } else if (msg.state === "replaced") {
+          this.netOffline = true;
+          showToast("This pilgrim walks on in another tab — reload here to take it back", "warn");
         }
         break;
       case "toast": {
@@ -4185,7 +4196,8 @@ export class WorldApp {
     const now = Date.now();
     if (now < this.dashReadyAt) return;
     if (this.heroMotor && !this.heroMotor.canDash()) return;
-    this.dashReadyAt = now + 4000;
+    // (a hair over the server's 4 s: a dash the server refuses is a dodge with no iframes)
+    this.dashReadyAt = now + DASH_CD_MS;
     noteUtilityCd("btn-dash", 4);
     const len = Math.hypot(this.aimX, this.aimY) || 1;
     const nx = this.aimX / len;

@@ -9,6 +9,9 @@ function toWsUrl(httpBase: string): string {
   return u.toString();
 }
 
+/** Pings unanswered this long (ms) → the link is dead: reconnect (GameSocket.recycle). */
+const PONG_DEAD_MS = 9000;
+
 export class GameSocket {
   ws: WebSocket | null = null;
   playerId: string | null = null;
@@ -26,6 +29,10 @@ export class GameSocket {
    */
   rttMs = 0;
   private pingTimer: number | null = null;
+  /** performance.now() of the oldest ping still unanswered (0 = none outstanding). */
+  private pingPendingSince = 0;
+  /** The server handed this pilgrim to a newer connection (close 4000): stay down. */
+  replaced = false;
 
   constructor(httpBase: string, name: string) {
     this.url = toWsUrl(httpBase);
@@ -59,8 +66,14 @@ export class GameSocket {
       if (msg.type === "pong") this.notePong(msg);
       for (const h of this.handlers) h(msg);
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       this.stopPings();
+      if (ev.code === 4000) {
+        // another tab / device took this pilgrim over: reconnecting would steal it back
+        this.replaced = true;
+        for (const h of this.handlers) h({ type: "net", state: "replaced" });
+        return;
+      }
       if (this.everConnected) {
         for (const h of this.handlers) h({ type: "net", state: "disconnected" });
       }
@@ -74,9 +87,42 @@ export class GameSocket {
   /** Ping every 2 s (and right away) to keep a round-trip estimate. */
   private startPings() {
     this.stopPings();
-    const ping = () => this.send({ type: "ping", c: performance.now(), rtt: this.rttMs > 0 ? Math.round(this.rttMs) : undefined });
+    this.pingPendingSince = 0;
+    const ping = () => {
+      const now = performance.now();
+      // Watchdog: pings unanswered this long mean a dead link the browser hasn't
+      // noticed (a phone switching networks) — drop it and dial again
+      if (this.pingPendingSince > 0 && now - this.pingPendingSince > PONG_DEAD_MS) {
+        this.recycle();
+        return;
+      }
+      if (this.pingPendingSince === 0) this.pingPendingSince = now;
+      this.send({ type: "ping", c: now, rtt: this.rttMs > 0 ? Math.round(this.rttMs) : undefined });
+    };
     ping();
     this.pingTimer = window.setInterval(ping, 2000);
+  }
+
+  /** Abandon a silent socket (its late close is ignored) and reconnect at once. */
+  private recycle() {
+    const old = this.ws;
+    this.stopPings();
+    if (old) {
+      old.onopen = null;
+      old.onmessage = null;
+      old.onclose = null;
+      old.onerror = null;
+      try {
+        old.close();
+      } catch {
+        /* already closing */
+      }
+    }
+    this.ws = null;
+    if (this.everConnected) {
+      for (const h of this.handlers) h({ type: "net", state: "disconnected" });
+    }
+    this.connect();
   }
 
   private stopPings() {
@@ -85,6 +131,7 @@ export class GameSocket {
   }
 
   private notePong(msg: { c?: number }) {
+    this.pingPendingSince = 0;
     const c = Number(msg.c);
     if (!Number.isFinite(c)) return;
     const sample = performance.now() - c;

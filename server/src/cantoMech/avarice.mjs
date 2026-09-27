@@ -445,6 +445,9 @@ function spawnFeeder(room, x, y) {
 
 /** A Fiorino leaves the world without dying (swallowed / sunk): the client drops it quietly. */
 function removeFeeder(room, e, msg) {
+  // (a dart still winding up leaves with it)
+  room.tele.cancelBy(e.id, "gone");
+  e.teleId = null;
   room.entities.delete(e.id);
   room.broadcast(msg);
   room.broadcast({ type: "entity_removed", id: e.id });

@@ -27,7 +27,7 @@ function loadLocalEnv() {
 }
 loadLocalEnv();
 import { World } from "./src/room.mjs";
-import { noteClientRtt } from "./src/telegraph.mjs";
+import { noteClientRtt, noteServerRtt } from "./src/telegraph.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
 import { getEmitLog, vault, resolvePlayerForSession } from "./src/ledger.mjs";
@@ -93,9 +93,28 @@ function send(ws, msg) {
   if (ws.readyState === 1) ws.send(JSON.stringify(msg));
 }
 
+/**
+ * Heartbeat: a ws ping every HEARTBEAT_MS. The echo times the round trip on the
+ * server's own clock (telegraph dodge grace trusts no client report beyond it), and a
+ * socket silent for HEARTBEAT_DEAD_MS (a phone that switched networks without a close)
+ * is terminated, so its session is freed instead of lingering.
+ */
+const HEARTBEAT_MS = 2000;
+const HEARTBEAT_DEAD_MS = 20000;
+
 wss.on("connection", (ws) => {
   const playerId = crypto.randomUUID();
   sockets.set(ws, { playerId, name: null, chain: Promise.resolve() });
+  ws._hb = { sentAt: 0, seenAt: Date.now() };
+  ws.on("pong", () => {
+    const hb = ws._hb;
+    const now = Date.now();
+    hb.seenAt = now;
+    if (hb.sentAt) {
+      noteServerRtt(ws, now - hb.sentAt);
+      hb.sentAt = 0;
+    }
+  });
 
   send(ws, {
     type: "welcome",
@@ -105,6 +124,7 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("message", (raw) => {
+    ws._hb.seenAt = Date.now();
     let msg;
     try {
       msg = JSON.parse(String(raw));
@@ -113,6 +133,8 @@ wss.on("connection", (ws) => {
       return;
     }
     const meta = sockets.get(ws);
+    // a socket whose pilgrim was handed to a newer connection drives nothing
+    if (meta.stale) return;
     // Serialize per-socket handlers so async hello cannot race travel/move
     // (otherwise DEV __selvaTravel mid-boot can leave HUD on one canto and meshes on hub).
     meta.chain = meta.chain
@@ -125,9 +147,35 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     const meta = sockets.get(ws);
-    if (meta) world.leave(meta.playerId);
+    if (!meta || meta.stale) return;
+    // Only the socket that still owns the session leaves: a reconnect that beat this
+    // close has the pilgrim now (index hello hands it over)
+    const room = world.getRoom(meta.playerId);
+    const sess = room?.sessions.get(meta.playerId);
+    if (sess && sess.ws !== ws) return;
+    world.leave(meta.playerId);
   });
 });
+
+setInterval(() => {
+  const now = Date.now();
+  for (const ws of wss.clients) {
+    const hb = ws._hb;
+    if (!hb) continue;
+    if (now - hb.seenAt > HEARTBEAT_DEAD_MS) {
+      ws.terminate();
+      continue;
+    }
+    if (hb.sentAt) continue; // still waiting on the last echo
+    hb.sentAt = now;
+    try {
+      ws.ping();
+    } catch {
+      /* closing */
+    }
+  }
+  world.pruneResumes(now);
+}, HEARTBEAT_MS);
 
 async function handleMessage(ws, meta, msg) {
   const { playerId } = meta;
@@ -149,6 +197,25 @@ async function handleMessage(ws, meta, msg) {
           protocol: PROTOCOL_VERSION,
           server: "selva-oscura-server",
         });
+      }
+      // Reconnect before the old socket's close arrived (a phone switching networks):
+      // hand the live session to this socket — same room, place, HP — and retire the
+      // old one, whose late close must not tear the pilgrim down
+      const live = world.getRoom(meta.playerId);
+      const liveSess = live?.sessions.get(meta.playerId);
+      if (liveSess && liveSess.ws !== ws) {
+        const old = liveSess.ws;
+        const oldMeta = sockets.get(old);
+        if (oldMeta) oldMeta.stale = true;
+        liveSess.ws = ws;
+        try {
+          old.close(4000, "replaced");
+        } catch {
+          /* already gone */
+        }
+        live.pushSnapshot(meta.playerId);
+        if (live.canto?.role === "combat") live.toast(ws, "info", "Connection restored — right where you stood.");
+        break;
       }
       const room = world.resumeOrHub(ws, meta.playerId, meta.name);
       room.pushSnapshot(meta.playerId);

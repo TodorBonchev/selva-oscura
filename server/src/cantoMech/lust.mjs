@@ -1144,9 +1144,25 @@ export default {
       }
       sess._lustUp = Math.max(0, sess._lustUp - Math.min(up, allow));
     }
-    // Windbreaks are solid
+    // Windbreaks are solid: a long step (bunched packets) stops at a rock's face
+    // instead of hopping it (the end-point push-out alone could land it past the centre)
+    const sx = p.x - from.x;
+    const sy = p.y - from.y;
+    if (sx * sx + sy * sy > 0.8 * 0.8) {
+      const t = sweepRocks(L.wb, from.x, from.y, p.x, p.y, PLAYER_PAD);
+      if (t < 1) {
+        p.x = from.x + sx * t;
+        p.y = from.y + sy * t;
+      }
+    }
     pushOutOfRocks(L.wb, p, PLAYER_PAD);
     return p;
+  },
+
+  /** room.handleMove's budget: a gust carries a walker downwind this much faster (u/s). */
+  moveAllowance(room) {
+    const L = state(room);
+    return L && L.str > 0.05 ? PLAYER_DRIFT * L.str : 0;
   },
 
   /**
