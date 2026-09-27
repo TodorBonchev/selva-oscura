@@ -6,15 +6,17 @@
  * 1) Processions. Two arcs of huge indestructible weights (hoarders north, wasters
  *    south) roll in unison on a fixed clock and clash where the road crosses the ring
  *    (W at t≡0, E at t≡T/2): a telegraphed shockwave (kind "ava_clash", 1.2 s ahead)
- *    hurts and throws everyone standing there; at the west clash (the road's gate) the
- *    coin spills a beat later over a wider ring ("ava_spill", warned together with the
- *    clash, so its whole area fills from the same moment); then the weights recoil and
- *    roll back. A weight that rolls over a pilgrim or a foe crushes it (contact
+ *    hurts and throws everyone standing there; the coin spills a beat later over a wider
+ *    ring ("ava_spill", warned together with the clash, so its whole area fills from the
+ *    same moment) — at the west clash across the road's gate, at the east across the
+ *    west half of Plutus's dais; then the weights recoil and roll back. A weight that
+ *    rolls over a pilgrim or a foe crushes it (contact
  *    "ava_roll", one procession blow per target per HIT_CD) and throws it out of the
  *    lane — luring a pack into a lane is a real tactic (the blow is the procession's:
  *    combat attackerId "mech:procession", the nearest pilgrim keeps the kill credit).
  *    A pilgrim's blow scales with the drum's speed (a creeping drum only nudges you off
- *    its lane) and a second roll-over within ROLL_REPEAT_S lands lighter. Plutus is no
+ *    its lane) and a roll-over within ROLL_REPEAT_S of the last lands light (one full
+ *    crush per stretch, not a run decided by a second unlucky drum). Plutus is no
  *    foe to crush: a drum that rolls into him breaks his windup, chips him and shoves
  *    him off the rails (railPlutus), so his fight is not fought standing on a lane.
  *    Contact is lag-fair: a pilgrim is judged against the weights where they stood
@@ -32,9 +34,11 @@
  *    swollen and near it breaks him like a sail when the mast snaps: a 4 s collapse,
  *    ×2 damage taken, the coin gone («Taci, maledetto lupo!») — and he falls toward
  *    the bell ("plutus_fall" cone): step aside after ringing. At ≤50% he hurls a great
- *    weight down a lane ("plutus_roll" line telegraph; the client rolls it). His dais
- *    holds the east clash: the weights' last run climbs onto it, so his fight keeps
- *    the procession's rhythm (weights through the lanes, the clash every T). He heals as
+ *    weight down a lane ("plutus_roll" line telegraph; the client rolls it). He holds his
+ *    hoard: never more than PLUTUS_HOLD off his seat, east of the east clash, where the
+ *    weights' last runs end — his fight is always fought at the crash (the lead drums
+ *    rushing in, the clash and its spill across his dais every T), and whoever keeps
+ *    out of his reach gets a weight hurled at them. He heals as
  *    every boss does (../bossMend.mjs): only when left alone, and slowly.
  * 3) The Counterweight (mid-elite, on the wasters' side where the road crosses their
  *    lane) charges down a lane ("cw_charge" line telegraph, then it rolls through)
@@ -69,9 +73,13 @@ import { dodgeGrace } from "../telegraph.mjs";
 
 export const PLUTUS_ID = "hoard_crush";
 
-/** Procession damage to pilgrims (× canto tier) and to foes (flat). */
-const ROLL_DMG = 40;
-const CLASH_DMG = 20;
+/**
+ * Procession damage to pilgrims (× canto tier) and to foes (flat). A full-speed
+ * roll-over is the canto's one hard lesson (ROLL_REPEAT_*: the next ones in a long
+ * stretch land light); the clash is its rhythm — telegraphed, every T/2, at both ends.
+ */
+const ROLL_DMG = 44;
+const CLASH_DMG = 24;
 const MOB_ROLL_DMG = 70;
 const MOB_CLASH_DMG = 90;
 /** A weight only crushes while it rolls with some speed (not in its rest / recoil). */
@@ -83,9 +91,16 @@ const ROLL_MIN_SPEED = 2.2;
 const ROLL_SOFT_SPEED = 4.0;
 const ROLL_FULL_SPEED = 7.2;
 const ROLL_MIN_SHARE = 0.4;
-/** A second roll-over within this many seconds lands at ROLL_REPEAT_MUL (no pile-ons). */
-const ROLL_REPEAT_S = 12;
-const ROLL_REPEAT_MUL = 0.4;
+/**
+ * A roll-over within this many seconds of the last lands at ROLL_REPEAT_MUL: one full
+ * crush per crossing of the canto, then lighter blows, each a little lighter — every lane
+ * you misjudge still costs, but no run is decided by a second or third unlucky drum.
+ */
+const ROLL_REPEAT_S = 90;
+const ROLL_REPEAT_MUL = 0.6;
+/** …and each further one in the stretch a little lighter, down to the floor. */
+const ROLL_REPEAT_DECAY = 0.85;
+const ROLL_REPEAT_FLOOR = 0.3;
 /**
  * Plutus is no weight: a drum that rolls into him staggers him (his windup broken), chips
  * him and shoves him off the rails — his fight is not fought standing on a lane.
@@ -101,10 +116,11 @@ const PLAYER_PAD = 0.35;
 /** One procession blow per target per this many seconds (roll or clash). */
 const HIT_CD = 1.2;
 /**
- * The west clash spills coin: an outer ring that lands SPILL_LAG after the weights meet.
- * It is warned with the clash (one fill from the same moment, the clash circle inside
- * it), so stepping clear of the whole ring in time is always possible. (Not at the east
- * clash: that is Plutus's arena, and his melee ring would sit in it.)
+ * Every clash spills coin: an outer ring that lands SPILL_LAG after the weights meet. It
+ * is warned with the clash (one fill from the same moment, the clash circle inside it),
+ * so stepping clear of the whole ring in time is always possible. At the east clash it
+ * crosses the west half of Plutus's dais: the crash is the beat of his fight (clear the
+ * whole ring as the fill closes — out of the lanes, round behind his seat).
  */
 const SPILL_OUT = 2.6;
 const SPILL_LAG = 0.45;
@@ -114,7 +130,7 @@ const LAG_CAP = 0.16;
 
 /** Plutus. */
 const INFLATE_MAX = 4;
-const INFLATE_DR = 0.06;
+const INFLATE_DR = 0.04;
 const BELL_BREAK_MIN = 2;
 const BELL_REACH = 15;
 const COLLAPSE_SEC = 4;
@@ -128,6 +144,16 @@ const CALL_EVERY = 6.5;
 /** His first call comes this soon after a pilgrim engages him. */
 const FIRST_CALL = 0.6;
 const ENGAGE_R = 16;
+/**
+ * He holds his hoard: never more than this far off his seat (the dais east of the east
+ * clash), so his fight is always fought where the processions end and crash — the same
+ * lanes to read, the same beat, every time — never dragged out along a lane. Whoever
+ * keeps out of his reach meanwhile gets a weight hurled down the ground at them.
+ */
+const PLUTUS_HOLD = 5;
+/** Out of his reach (this far) this long while he holds: he hurls (phase 1 too). */
+const PLUTUS_HURL_R = 4.8;
+const PLUTUS_HURL_AFTER = 2.5;
 const FEEDER_SPEED = 4.4;
 const FEEDER_HP = 38;
 /** A Fiorino darts at a pilgrim this close to its flight. */
@@ -148,17 +174,17 @@ const PILES = [
 const PULSE_WIND = 0.6;
 const PULSE_BASE_R = 2.3;
 const PULSE_R_PER = 0.45;
-const PULSE_DMG = 4;
+const PULSE_DMG = 3;
 const PULSE_DMG_PER = 0.5;
 /**
  * Swollen, the ring of his hoard burns whoever stands in it (a tick a second): the
  * price of fighting him close while he holds coin — cut the Fiorini down, break him
  * with the bell, or strike from range.
  */
-const AURA_DMG = 4.0;
+const AURA_DMG = 2.0;
 const AURA_DMG_PER = 0.15;
 const AURA_PAD = 0.4;
-const PLUTUS_SLAM = 8;
+const PLUTUS_SLAM = 6;
 const ROLL_EVERY = 7.5;
 const ROLL_LEN = 22;
 const ROLL_W = 3.0;
@@ -199,7 +225,7 @@ function init(room) {
     warned: [-1, -1],
     /** target id → clock (s) before which the procession cannot hit it again */
     cd: new Map(),
-    /** pilgrim id → clock (s) of their last roll-over (a quick second one is lighter) */
+    /** pilgrim id → { at: clock (s) of their last roll-over, n: roll-overs in this stretch } */
     rolled: new Map(),
     /** weight records (weightsAt): now, and a laggy pilgrim's view */
     ws: [],
@@ -300,23 +326,21 @@ function procHit(A, id, now) {
 function warnClash(room, A, side, left) {
   const c = side === 0 ? PROC.W : PROC.E;
   const onHit = (r, tt, s) => (procHit(A, s.playerId, clock(r)) ? tt.dmg : 0);
-  // The west clash spills coin a beat later over a wider ring — warned now, with the
-  // clash: both fills start together, so the whole area reads from the first moment
-  if (side === 0) {
-    room.telegraph({
-      attackerId: "mech:procession",
-      shape: "ring",
-      x: c.x,
-      y: c.y,
-      inner: PROC.CLASH_R - 0.3,
-      radius: PROC.CLASH_R + SPILL_OUT,
-      duration: (left + SPILL_LAG) * 1000,
-      kind: "ava_spill",
-      dmg: tierDmg(room, SPILL_DMG),
-      extra: { side },
-      onHit,
-    });
-  }
+  // The clash spills coin a beat later over a wider ring — warned now, with the clash:
+  // both fills start together, so the whole area reads from the first moment
+  room.telegraph({
+    attackerId: "mech:procession",
+    shape: "ring",
+    x: c.x,
+    y: c.y,
+    inner: PROC.CLASH_R - 0.3,
+    radius: PROC.CLASH_R + SPILL_OUT,
+    duration: (left + SPILL_LAG) * 1000,
+    kind: "ava_spill",
+    dmg: tierDmg(room, SPILL_DMG),
+    extra: { side },
+    onHit,
+  });
   room.telegraph({
     attackerId: "mech:procession",
     shape: "circle",
@@ -381,8 +405,10 @@ function rollOver(room, A, s, w, across, now) {
   }
   const share = clamp((w.speed - ROLL_MIN_SPEED) / (ROLL_FULL_SPEED - ROLL_MIN_SPEED), ROLL_MIN_SHARE, 1);
   const last = A.rolled.get(s.playerId);
-  const repeat = last != null && now - last < ROLL_REPEAT_S ? ROLL_REPEAT_MUL : 1;
-  A.rolled.set(s.playerId, now);
+  const n = last && now - last.at < ROLL_REPEAT_S ? last.n : 0;
+  // (the first in a stretch lands full; the next at ROLL_REPEAT_MUL, each after a little lighter)
+  const repeat = n > 0 ? Math.max(ROLL_REPEAT_FLOOR, ROLL_REPEAT_MUL * ROLL_REPEAT_DECAY ** (n - 1)) : 1;
+  A.rolled.set(s.playerId, { at: now, n: n + 1 });
   const taken = room.hitPlayer(s, { id: "mech:procession", kind: "mech" }, tierDmg(room, ROLL_DMG * share * repeat), {
     teleKind: "ava_roll",
   });
@@ -467,7 +493,7 @@ function tickProcession(room, dt) {
     for (const [k, v] of A.cd) if (v < now) A.cd.delete(k);
   }
   if (A.rolled.size > 40) {
-    for (const [k, v] of A.rolled) if (v < now - ROLL_REPEAT_S) A.rolled.delete(k);
+    for (const [k, v] of A.rolled) if (v.at < now - ROLL_REPEAT_S) A.rolled.delete(k);
   }
   void dt;
 }
@@ -636,7 +662,7 @@ function plutusPulse(room, p) {
     dmg: tierDmg(room, PULSE_DMG + PULSE_DMG_PER * inf),
     onHit: (r, tt) => (p.hp > 0 && !p._dead && !(p.collapseLeft > 0) ? tt.dmg : 0),
   });
-  p.pulseCd = Math.max(2.6, 4.4 - 0.4 * inf);
+  p.pulseCd = Math.max(3.0, 4.6 - 0.4 * inf);
   return t;
 }
 
@@ -756,13 +782,27 @@ function tickPlutus(room, p, dt) {
     return true;
   }
   if (!nearest || nearestD >= 14) {
+    p.outReachT = 0;
     brake(p, dt);
     return true;
   }
   chase(room, p, nearest, dt);
   unstick(p, nearestD > 3.2, dt);
+  // he holds his hoard (PLUTUS_HOLD): the chase ends at the edge of his seat
+  const hx = p.x - p.homeX;
+  const hy = p.y - p.homeY;
+  const hd = Math.hypot(hx, hy);
+  if (hd > PLUTUS_HOLD) {
+    p.x = p.homeX + (hx / hd) * PLUTUS_HOLD;
+    p.y = p.homeY + (hy / hd) * PLUTUS_HOLD;
+  }
+  // (whoever keeps out of his reach while he is held to his seat — for a while: not a
+  // pilgrim on the way in)
+  const outOfReach = hd >= PLUTUS_HOLD - 0.35 && nearestD > PLUTUS_HURL_R;
+  p.outReachT = outOfReach ? (p.outReachT || 0) + dt : 0;
   if (p.atkCd <= 0 && !(nearest.iframes > 0)) {
-    if (p.phase === 2 && p.rollCd <= 0 && nearestD > 2.2 && nearestD < 13) plutusRoll(room, p, nearest);
+    // (at ≤50% he hurls weights; held to his seat, at whoever keeps out of his reach too)
+    if ((p.phase === 2 || p.outReachT > PLUTUS_HURL_AFTER) && p.rollCd <= 0 && nearestD > 2.2 && nearestD < 13) plutusRoll(room, p, nearest);
     else if (plutusSlam(room, p, nearest, nearestD)) room.markDirty();
   }
   return true;

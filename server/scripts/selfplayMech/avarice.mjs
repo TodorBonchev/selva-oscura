@@ -67,18 +67,18 @@ function crushedAt(now, t, x, y, pad = PAD) {
   return null;
 }
 
-/** The west clash spills coin a beat later over a wider ring (server SPILL_*). */
+/** Every clash spills coin a beat later over a wider ring (server SPILL_*). */
 const SPILL_R = PROC.CLASH_R + 2.6;
 const SPILL_LAG = 0.45;
 
-/** Inside a clash zone that lands within `soon` seconds (or the west spill still to land)? */
+/** Inside a clash zone that lands within `soon` seconds (or its spill still to land)? */
 function clashSoon(t, x, y, soon, pad = 0.6) {
   for (const side of [0, 1]) {
     const c = side === 0 ? PROC.W : PROC.E;
     const d = Math.hypot(x - c.x, y - c.y);
     const left = untilClash(t, side);
     if (d <= PROC.CLASH_R + pad && left < soon) return true;
-    if (side === 0 && d <= SPILL_R + pad && (left < soon + SPILL_LAG || PROC.T - left < SPILL_LAG)) return true;
+    if (d <= SPILL_R + pad && (left < soon + SPILL_LAG || PROC.T - left < SPILL_LAG)) return true;
   }
   return false;
 }

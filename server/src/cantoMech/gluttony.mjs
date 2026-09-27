@@ -73,7 +73,7 @@ const RISE_R = 3.8;
 /** The buried lie together: a rising shade wakes its fellows this near, a beat apart. */
 const CHAIN_R = 10.5;
 const CHAIN_BEAT = 0.3;
-const GRAB = { radius: 3.8, windupMs: 800, rootMs: 800, dmg: 15 };
+const GRAB = { radius: 3.8, windupMs: 800, rootMs: 800, dmg: 13 };
 
 /**
  * The mire closes on a pilgrim who stands still in it: after STILL_S within ANCHOR_R of

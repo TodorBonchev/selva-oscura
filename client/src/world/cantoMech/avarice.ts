@@ -36,8 +36,10 @@ const PLUTUS = "hoard_crush";
 const MOTES = 14;
 /** Coin he must hold before the Ledger Bell breaks him (server BELL_BREAK_MIN). */
 const BELL_BREAK_MIN = 2;
-/** The west clash's coin spill lands this long after the clash (server SPILL_LAG). */
+/** Each clash's coin spill lands this long after the clash (server SPILL_LAG)… */
 const SPILL_LAG = 0.45;
+/** …out to this far past the clash circle (server SPILL_OUT). */
+const CRASH_SPILL_OUT = 2.6;
 /** Rolling-weight footprint along the lane + a pilgrim's pad (server ROLL_HALF_L + pad). */
 const LANE_REACH = PROC.R + 0.55;
 /** Scratch for the crowd cries' screen test. */
@@ -51,7 +53,7 @@ const ROLL_MIN_SPEED = 2.2;
 /** Procession weights / hurled weight / charge: bronze-white on red-black. */
 const PAL_WEIGHT = { base: 0x1c0703, hot: 0xd8581c, rim: 0xfff0c8 };
 /**
- * The west clash's coin spill: ember-orange, lighter than the weights' — a second beat,
+ * A clash's coin spill: ember-orange, lighter than the weights' — a second beat,
  * read apart from the clash. (Never gold: on Avarice's gold road gold is the guidance
  * colour — the beacon, the arrow, the open gate — and danger is white-hot over ember.)
  */
@@ -477,14 +479,18 @@ class AvariceView {
       const dBoss = Math.hypot(plutus.x - you.x, plutus.y - you.y);
       const bellReady = (Number(me.bellCd) || 0) <= 0.4;
       const coin = Math.floor(this.inf);
-      // A weight about to roll through where you stand outranks his lines: his fight
-      // sits in the ring's tip, where the lanes converge
+      // A weight about to roll through where you stand outranks his lines: he holds his
+      // dais at the lanes' end, where the processions rush in and crash
       const laneWarn = dBoss < 26 ? this.laneWarning(you, nowMs) : null;
+      // …and so does the crash on his dais (he holds it: the east clash is his fight's beat)
+      const crashWarn = dBoss < 26 && !laneWarn ? this.crashWarning(you, nowMs) : null;
       if (nowMs < this.colStart + this.fallMs + 120) {
         obj.text = "He falls toward the bell — step aside!";
         obj.sub = "Then strike — double damage while he lies fallen";
       } else if (laneWarn) {
         obj.sub = laneWarn;
+      } else if (crashWarn) {
+        obj.sub = crashWarn;
       } else if (nowMs < this.colUntil) {
         obj.text = "Plutus has fallen — strike now!";
         obj.sub = "Double damage while he lies fallen";
@@ -524,8 +530,8 @@ class AvariceView {
       if (d > 11) continue;
       const left = untilClash(tt, side);
       const since = PROC.T - left;
-      // (the west clash spills its coin a beat later: cross once that has landed too)
-      const settled = since > (side === 0 ? SPILL_LAG + 0.15 : 0.15);
+      // (every clash spills its coin a beat later: cross once that has landed too)
+      const settled = since > SPILL_LAG + 0.15;
       // (strings only change when the shown tenths change: no churn at 10 Hz)
       const key = side * 1000 + Math.round(left * 10);
       if (key === this.lastSubKey) {
@@ -537,9 +543,7 @@ class AvariceView {
         left < 2.4
           ? `The weights clash here in ${left.toFixed(1)}s — stand clear`
           : !settled
-            ? side === 0
-              ? "The coin spills — stand clear"
-              : "The weights clash — stand clear"
+            ? "The coin spills — stand clear"
             : since < 2.2
               ? "They recoil and turn back — cross now"
               : "The weights clash here — cross between clashes";
@@ -565,6 +569,27 @@ class AvariceView {
             : `A weight rolls through here in ${next.toFixed(1)}s — cross behind it`;
       obj.sub = this.lastSub;
     }
+  }
+
+  /**
+   * Inside the east clash or its coin spill as it comes due (within LANE_WARN_S, until
+   * the spill has landed): the countdown line, else null.
+   */
+  private crashWarning(you: { x: number; y: number }, nowMs: number): string | null {
+    const d = Math.hypot(PROC.E.x - you.x, PROC.E.y - you.y);
+    if (d > PROC.CLASH_R + CRASH_SPILL_OUT + 0.6) return null;
+    const left = untilClash(this.procT(nowMs), 1);
+    const since = PROC.T - left;
+    if (left > LANE_WARN_S && since > SPILL_LAG + 0.1) return null;
+    const key = 7000 + (left <= LANE_WARN_S ? Math.round(left * 10) : 99);
+    if (key !== this.lastSubKey) {
+      this.lastSubKey = key;
+      this.lastSub =
+        left <= LANE_WARN_S
+          ? `The weights crash on his dais in ${left.toFixed(1)}s — clear the whole ring`
+          : "The coin spills across the dais — stand clear";
+    }
+    return this.lastSub;
   }
 
   /**
