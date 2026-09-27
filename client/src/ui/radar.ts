@@ -1,96 +1,87 @@
 /**
- * D4-style minimap + screen-edge arrows toward the portal and nearest foes.
- * Planar (x, y) → canvas (x right, y down = world +z).
+ * D4-style minimap + screen-edge arrows.
+ *
+ * The minimap turns with the camera (screen-up = camera forward), so a gate at
+ * the top of the map is at the top of the screen. Two arrows at most:
+ *   objective — gold, driven by the one objective model (world/objective.ts);
+ *   foe       — nearest foe that is NOT on screen (and not the objective).
+ * Redraws are throttled (map ~12 Hz, arrows ~20 Hz) and DOM is written only on
+ * change; arrows move by transform.
  */
 import type { PerspectiveCamera } from "three";
 import { Vector3 } from "three";
+import type { Objective } from "../world/objective";
+import { GATE_LABEL_RANGE, gateState, isTwinExitOf, type GateState } from "../world/gates";
 
 type Vec2 = { x: number; y: number };
 
 const RANGE = 38;
-/** Avarice gold road is long — pull camera out so Crush/CW/hub gate fit. */
+/** Avarice gold road is long — pull the map out so Crush/CW/hub gate fit. */
 const RANGE_AVA = 48;
+const MAP_EVERY_MS = 80;
+const ARROW_EVERY_MS = 50;
+/** Nearest-foe arrow only for foes this close (further ones are the objective's job). */
+const FOE_ARROW_RANGE = 40;
+/** Arrows clamped under the hero slide at least this far sideways (px). */
+const HERO_CLEAR_PX = 78;
+/** Objective and foe arrows closer than this (px) on both axes: the foe's slides away. */
+const ARROW_SEP = 46;
+/** How often the target plate's box is re-read for the arrows' keep-out (ms). */
+const PLATE_EVERY_MS = 500;
+/** The arrival title card shows for a few seconds: re-read its box this often (ms). */
+const CARD_EVERY_MS = 150;
 const _ndc = new Vector3();
+const _dir = new Vector3();
 
-function cantoShort(id: string | undefined): string | null {
-  if (id === "inferno_05") return "Lust";
-  if (id === "inferno_06") return "Gluttony";
-  if (id === "inferno_07") return "Avarice";
-  if (id === "inferno_01") return "Wood";
-  return null;
-}
+const GATE_FILL: Record<GateState, string> = {
+  forward: "#ffd46a",
+  return: "#9cc0ee",
+  locked: "#6a6658",
+};
 
-function destLabel(e: any): string {
-  if (e?.kind === "exit" || e?.poiKind === "portal") {
-    return cantoShort(e.toCanto) || e.label || "Portal";
-  }
-  if (e?.kind === "boss") return e.name || "Boss";
-  if (e?.kind === "mob") {
-    if (/^counterweight$/i.test(String(e.name || ""))) return "Counterweight";
-    return e.champion ? "Champion" : "Shade";
-  }
-  if (e?.poiKind === "npc" || e?.kind === "poi") return e.label || e.name || "Guide";
-  return e?.label || e?.name || "";
-}
+type ArrowEl = {
+  el: HTMLElement;
+  chev: HTMLElement;
+  lab: HTMLElement;
+  dist: HTMLElement;
+  x: number;
+  y: number;
+  ang: number;
+  shown: boolean;
+  label: string;
+  distTxt: string;
+  dest: string;
+};
 
-/** Avarice measure lane: prefer Counterweight, then Crush — wardens must not steal the arrow. */
-function pickAvaMeasureFoe(you: Vec2, entities: any[]): any | null {
-  const cw = entities.find(
-    (e: any) => /^counterweight$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
-  );
-  const crush = entities.find((e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0));
-  if (cw) {
-    const d = Math.hypot(cw.x - you.x, cw.y - you.y);
-    if (d < 52) return cw;
-  }
-  if (crush) {
-    const d = Math.hypot(crush.x - you.x, crush.y - you.y);
-    // After CW tips (or already on the dais band), lock compass onto Crush
-    if (!cw && (you.x > 100 || d < 42)) return crush;
-  }
-  return null;
-}
-
-function destClass(toCanto: string | undefined): string {
-  if (toCanto === "inferno_05") return "lust";
-  if (toCanto === "inferno_06") return "gluttony";
-  if (toCanto === "inferno_07") return "avarice";
-  if (toCanto === "inferno_01") return "wood";
-  return "wood";
-}
-
-
-/** Collapse exit + portal-POI twins (same toCanto, nearby) to one minimap blip. Prefer exit. */
-function portalPlotKeepIds(entities: any[]): Set<string> {
-  const portals = entities.filter((e) => e.kind === "exit" || e.poiKind === "portal");
-  const kept: any[] = [];
-  for (const e of portals) {
-    const twinIdx = kept.findIndex(
-      (k) =>
-        k.toCanto &&
-        k.toCanto === e.toCanto &&
-        Math.hypot((k.x || 0) - (e.x || 0), (k.y || 0) - (e.y || 0)) < 6
-    );
-    if (twinIdx >= 0) {
-      const twin = kept[twinIdx];
-      if (twin.kind !== "exit" && e.kind === "exit") kept[twinIdx] = e;
-      continue;
-    }
-    kept.push(e);
-  }
-  return new Set(kept.map((e) => String(e.id)));
-}
+export type RadarTick = {
+  you: Vec2;
+  aimX: number;
+  aimY: number;
+  bounds: { width: number; height: number };
+  entities: any[];
+  cantoId: string;
+  camera: PerspectiveCamera;
+  compact: boolean;
+  firstClears?: string[];
+  objective: Objective | null;
+  /** Caption under the minimap (objective target + distance, or the hold prompt). */
+  hint: string;
+};
 
 export class Radar {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   hint: HTMLElement;
   compass: HTMLElement;
-  arrows = new Map<string, HTMLElement>();
+  private arrows = new Map<string, ArrowEl>();
   private lastHint = "";
-  /** Avarice: remember Counterweight so we can hand the compass to Crush once. */
-  private avaSawCw = false;
-  private avaHandoffUntil = 0;
+  private lastMapAt = 0;
+  private lastArrowAt = 0;
+  /** Camera planar basis (forward f, right r) for the rotated map. */
+  private fx = 0;
+  private fz = -1;
+  private rx = 1;
+  private rz = 0;
 
   constructor() {
     this.canvas = document.getElementById("minimap-canvas") as HTMLCanvasElement;
@@ -116,71 +107,35 @@ export class Radar {
     }
   }
 
-  tick(opts: {
-    you: Vec2;
-    aimX: number;
-    aimY: number;
-    bounds: { width: number; height: number };
-    entities: any[];
-    cantoId: string;
-    camera: PerspectiveCamera;
-    compact: boolean;
-    firstClears?: string[];
-    bellCd?: number;
-    dailyWritOpen?: boolean;
-    spokeToGuide?: boolean;
-    stashBankTip?: boolean;
-  }) {
-    if (opts.cantoId !== "inferno_07") {
-      this.avaSawCw = false;
-      this.avaHandoffUntil = 0;
+  tick(opts: RadarTick) {
+    const now = performance.now();
+    if (now - this.lastArrowAt >= ARROW_EVERY_MS) {
+      this.lastArrowAt = now;
+      this.drawArrows(opts);
     }
-    this.drawMap(opts);
-    this.drawArrows(opts);
-    this.writeHint(opts);
+    if (now - this.lastMapAt >= MAP_EVERY_MS) {
+      this.lastMapAt = now;
+      this.readBasis(opts.camera);
+      this.drawMap(opts, now);
+    }
+    if (opts.hint !== this.lastHint) {
+      this.lastHint = opts.hint;
+      this.hint.textContent = opts.hint;
+      this.hint.classList.toggle("hidden", !opts.hint);
+    }
   }
 
-  private portalPreferred(entities: any[], cantoId: string, firstClears?: string[]): any | null {
-    const portals = entities.filter((e) => e.kind === "exit" || e.poiKind === "portal");
-    if (!portals.length) return null;
-    const cleared = Array.isArray(firstClears) ? firstClears : [];
-    const unlocked = (e: any) => !e.requireClear || cleared.includes(e.requireClear);
-    // After Lust clear, prefer the Gluttony gate; after Gluttony clear, prefer Avarice
-    if (cantoId === "inferno_05") {
-      const glut = portals.find((e) => e.toCanto === "inferno_06" && unlocked(e));
-      if (glut) return glut;
-      const glutLocked = portals.find((e) => e.toCanto === "inferno_06");
-      if (glutLocked) return glutLocked;
-    }
-    if (cantoId === "inferno_06") {
-      const ava = portals.find((e) => e.toCanto === "inferno_07" && unlocked(e));
-      if (ava) return ava;
-      const avaLocked = portals.find((e) => e.toCanto === "inferno_07");
-      if (avaLocked) return avaLocked;
-      const lust = portals.find((e) => e.toCanto === "inferno_05");
-      if (lust) return lust;
-    }
-    if (cantoId === "inferno_07") {
-      // Crush broken → the Dark Wood road beside the dais is the way home
-      if (cleared.includes("inferno_07")) {
-        const home = portals.find((e) => e.toCanto === "inferno_01" && e.requireClear && unlocked(e));
-        if (home) return home;
-      }
-      const glut = portals.find((e) => e.toCanto === "inferno_06");
-      if (glut) return glut;
-    }
-    return portals.find((e) => e.toCanto && e.toCanto !== "inferno_01") || portals[0];
+  private readBasis(camera: PerspectiveCamera) {
+    camera.getWorldDirection(_dir);
+    const len = Math.hypot(_dir.x, _dir.z) || 1;
+    this.fx = _dir.x / len;
+    this.fz = _dir.z / len;
+    // right = forward × up
+    this.rx = -this.fz;
+    this.rz = this.fx;
   }
 
-  private drawMap(opts: {
-    you: Vec2;
-    aimX: number;
-    aimY: number;
-    bounds: { width: number; height: number };
-    entities: any[];
-    cantoId: string;
-    firstClears?: string[];
-  }) {
+  private drawMap(opts: RadarTick, now: number) {
     const { ctx, canvas } = this;
     const w = canvas.width;
     const h = canvas.height;
@@ -188,7 +143,11 @@ export class Radar {
     const cy = h * 0.5;
     const range = opts.cantoId === "inferno_07" ? RANGE_AVA : RANGE;
     const scale = (w * 0.46) / range;
+    const { fx, fz, rx, rz } = this;
+    const ux = opts.you.x;
+    const uy = opts.you.y;
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#0c0b08ee";
     ctx.beginPath();
@@ -203,10 +162,39 @@ export class Radar {
     ctx.arc(cx, cy, w * 0.32, 0, Math.PI * 2);
     ctx.stroke();
 
-    const plot = (x: number, y: number) => ({
-      px: cx + (x - opts.you.x) * scale,
-      py: cy + (y - opts.you.y) * scale,
-    });
+    // Canto floor, drawn in world units through the camera-yaw transform
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, w * 0.47, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.setTransform(
+      rx * scale,
+      -fx * scale,
+      rz * scale,
+      -fz * scale,
+      cx - (ux * rx + uy * rz) * scale,
+      cy + (ux * fx + uy * fz) * scale
+    );
+    ctx.fillStyle = "#3a342855";
+    ctx.fillRect(0, 0, opts.bounds.width, opts.bounds.height);
+    // Avarice gold road tint — measure lane readable on the map
+    if (opts.cantoId === "inferno_07") {
+      const road: [number, number][] = [
+        [18, 52], [28, 50], [38, 56], [54, 68], [70, 48], [86, 58], [110, 52], [138, 48],
+      ];
+      ctx.strokeStyle = "#d4a84066";
+      ctx.lineWidth = 3.2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (let i = 0; i < road.length; i++) {
+        if (i === 0) ctx.moveTo(road[i][0], road[i][1]);
+        else ctx.lineTo(road[i][0], road[i][1]);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     const ring = (px: number, py: number, r: number, fill: string, stroke?: string) => {
       ctx.beginPath();
@@ -220,123 +208,75 @@ export class Radar {
       }
     };
 
-    ctx.fillStyle = "#3a342855";
-    ctx.fillRect(
-      cx - opts.you.x * scale,
-      cy - opts.you.y * scale,
-      opts.bounds.width * scale,
-      opts.bounds.height * scale
-    );
-
-    // Avarice gold road tint — measure lane readable on the map
-    if (opts.cantoId === "inferno_07") {
-      const road: [number, number][] = [
-        [18, 52], [28, 50], [38, 56], [54, 68], [70, 48], [86, 58], [110, 52], [138, 48],
-      ];
-      ctx.save();
-      ctx.strokeStyle = "#d4a84066";
-      ctx.lineWidth = Math.max(2.5, 5.5 * scale * 0.22);
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      for (let i = 0; i < road.length; i++) {
-        const { px, py } = plot(road[i][0], road[i][1]);
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.stroke();
-      ctx.strokeStyle = "#f2dea033";
-      ctx.lineWidth = Math.max(1.2, 2.4 * scale * 0.22);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    const portalKeep = portalPlotKeepIds(opts.entities);
+    const rim = w * 0.45;
+    const clears = opts.firstClears || [];
+    const objId = opts.objective?.target?.id ?? null;
+    let objX = 0;
+    let objY = 0;
+    let objOn = false;
+    let objFound = false;
     for (const e of opts.entities) {
-      const { px, py } = plot(e.x, e.y);
-      const dx = px - cx;
-      const dy = py - cy;
+      const dxw = e.x - ux;
+      const dyw = e.y - uy;
+      const dx = (dxw * rx + dyw * rz) * scale;
+      const dy = -(dxw * fx + dyw * fz) * scale;
       const d = Math.hypot(dx, dy);
-      const rim = w * 0.45;
       const on = d <= rim;
-      const sx = on ? px : cx + (dx / d) * rim;
-      const sy = on ? py : cy + (dy / d) * rim;
+      const sx = on ? cx + dx : cx + (dx / d) * rim;
+      const sy = on ? cy + dy : cy + (dy / d) * rim;
+      if (objId && String(e.id) === objId) {
+        objX = sx;
+        objY = sy;
+        objOn = on;
+        objFound = true;
+      }
 
       if (e.kind === "exit" || e.poiKind === "portal") {
-        if (!portalKeep.has(String(e.id))) continue;
-        const clears = opts.firstClears || [];
-        const locked = Boolean(e.requireClear && !clears.includes(e.requireClear));
-        const towardGlut = e.toCanto === "inferno_06";
-        const towardAva = e.toCanto === "inferno_07";
-        const fill = locked
-          ? "#6a6048"
-          : towardAva
-            ? "#e8c86a"
-            : towardGlut
-              ? "#c8e070"
-              : "#e8c86a";
+        if (isTwinExitOf(e, opts.entities)) continue;
+        const st = gateState(e, opts.cantoId, clears);
+        const fill = GATE_FILL[st];
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(Math.PI / 4);
         ctx.fillStyle = fill;
-        ctx.globalAlpha = locked ? 0.45 : 1;
-        ctx.fillRect(-5, -5, 10, 10);
+        ctx.globalAlpha = st === "locked" ? 0.55 : 1;
+        const s = st === "forward" ? 6 : 5;
+        ctx.fillRect(-s, -s, s * 2, s * 2);
+        ctx.strokeStyle = "#1a1408";
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(-s, -s, s * 2, s * 2);
         ctx.restore();
-        if (!on) this.rimChevron(ctx, sx, sy, fill);
+        if (!on && st !== "locked") this.rimChevron(ctx, sx, sy, fill);
       } else if (e.kind === "boss") {
         ring(sx, sy, on ? 6 : 5, "#d63a2a", "#ffc8b8");
       } else if (e.kind === "mob") {
+        if (!on) continue;
         ring(sx, sy, e.champion ? 4.5 : 3.2, e.champion ? "#e8c86a" : "#c44a3a");
       } else if (e.kind === "loot") {
-        ring(sx, sy, 2.4, "#f0d982");
+        if (on) ring(sx, sy, 2.4, "#f0d982");
       } else if (e.kind === "poi" || e.poiKind) {
-        const pk = String(e.poiKind || "");
-        if (opts.cantoId === "inferno_07" && (pk === "bell" || pk === "cache" || pk === "shrine" || pk === "marker")) {
-          ctx.save();
-          ctx.translate(sx, sy);
-          if (pk === "bell") {
-            // ledger bell — upright diamond
-            ctx.rotate(Math.PI / 4);
-            ctx.fillStyle = "#e8c86a";
-            ctx.fillRect(-3.2, -3.2, 6.4, 6.4);
-            ctx.strokeStyle = "#1a1408";
-            ctx.lineWidth = 1;
-            ctx.strokeRect(-3.2, -3.2, 6.4, 6.4);
-          } else if (pk === "cache") {
-            // chest — square with gold lid tick
-            ctx.fillStyle = "#c9a227";
-            ctx.fillRect(-3.5, -3, 7, 6);
-            ctx.fillStyle = "#f2dea0";
-            ctx.fillRect(-3.5, -3, 7, 2);
-            ctx.strokeStyle = "#1a1408";
-            ctx.strokeRect(-3.5, -3, 7, 6);
-          } else if (pk === "shrine") {
-            // shrine — small cross / balance
-            ctx.strokeStyle = "#f2dea0";
-            ctx.lineWidth = 1.6;
-            ctx.beginPath();
-            ctx.moveTo(0, -4.5);
-            ctx.lineTo(0, 4.5);
-            ctx.moveTo(-3.5, -1);
-            ctx.lineTo(3.5, -1);
-            ctx.stroke();
-            ring(0, 0, 1.4, "#d4a84088");
-          } else {
-            // marker stone — tall tick
-            ctx.fillStyle = "#d9cfae";
-            ctx.fillRect(-1.4, -4.5, 2.8, 9);
-            ctx.fillStyle = "#c9a227";
-            ctx.fillRect(-2.2, -4.5, 4.4, 2);
-          }
-          ctx.restore();
-          if (!on) this.rimChevron(ctx, sx, sy, "#e8c86a");
-        } else {
-          ring(sx, sy, 3.2, "#d9cfae", "#8a7030");
-        }
+        if (!on) continue;
+        ring(sx, sy, 3.2, "#d9cfae", "#8a7030");
       }
     }
 
-    const facing = Math.atan2(opts.aimX, -opts.aimY);
+    // Objective blip: pulsing gold halo (on the rim with a chevron when off-map)
+    if (objFound) {
+      const pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 214, 106, ${0.55 + 0.45 * pulse})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(objX, objY, 9 + pulse * 3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      if (!objOn) this.rimChevron(ctx, objX, objY, "#ffd46a");
+    }
+
+    // Hero pip: aim turned into the rotated map frame
+    const sx = opts.aimX * rx + opts.aimY * rz;
+    const sy = -(opts.aimX * fx + opts.aimY * fz);
+    const facing = Math.atan2(sx, -sy);
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(facing);
@@ -369,151 +309,193 @@ export class Radar {
     ctx.restore();
   }
 
-  private drawArrows(opts: {
-    you: Vec2;
-    entities: any[];
-    camera: PerspectiveCamera;
-    compact: boolean;
-    cantoId?: string;
-    firstClears?: string[];
-    bellCd?: number;
-    dailyWritOpen?: boolean;
-    spokeToGuide?: boolean;
-  }) {
-    const wanted: { id: string; dest: string; label: string; e: any }[] = [];
-    const portal = this.portalPreferred(opts.entities, opts.cantoId || "", opts.firstClears);
-    const guideEnt = opts.entities.find(
-      (e: any) => e.poiKind === "npc" || (e.kind === "poi" && (e.label === "Guide" || e.name === "Guide"))
-    );
-    // Hub: daily writ path → Guide chevron (beats portal spam when writ is open)
-    const hubWrit =
-      (opts.cantoId === "inferno_01" || !opts.cantoId) &&
-      opts.dailyWritOpen &&
-      guideEnt &&
-      (opts.spokeToGuide || opts.dailyWritOpen);
-    if (hubWrit && guideEnt) {
-      wanted.push({
-        id: "guide",
-        dest: "wood",
-        label: "Daily writ",
-        e: guideEnt,
-      });
-    }
-    if (portal && !hubWrit) {
-      const clears = opts.firstClears || [];
-      const locked = Boolean(portal.requireClear && !clears.includes(portal.requireClear));
-      wanted.push({
-        id: "portal",
-        dest: locked ? "locked" : destClass(portal.toCanto),
-        label: locked
-          ? portal.requireClear === "inferno_05"
-            ? "Clear Judge"
-            : portal.requireClear === "inferno_06"
-              ? "Clear Maw"
-              : "Sealed"
-          : destLabel(portal),
-        e: portal,
-      });
-    }
-    let bestFoe: any = null;
-    let bestD = Infinity;
-    for (const e of opts.entities) {
-      if (e.kind !== "mob" && e.kind !== "boss") continue;
-      const d = Math.hypot(e.x - opts.you.x, e.y - opts.you.y);
-      if (d < bestD) {
-        bestD = d;
-        bestFoe = e;
-      }
-    }
-    // Avarice: Counterweight → Crush handoff beats nearest warden/pack
-    if (opts.cantoId === "inferno_07") {
-      const measure = pickAvaMeasureFoe(opts.you, opts.entities);
-      if (measure) {
-        bestFoe = measure;
-        bestD = Math.hypot(measure.x - opts.you.x, measure.y - opts.you.y);
-      }
-    }
-    const clears = opts.firstClears || [];
-    const avaCleared = opts.cantoId === "inferno_07" && clears.includes("inferno_07");
-    // After Crush: compass is return/bank only — skip foe spam in the gold haze
-    if (bestFoe && !avaCleared) {
-      const bossDest =
-        opts.cantoId === "inferno_07"
-          ? "avarice"
-          : opts.cantoId === "inferno_06"
-            ? "gluttony"
-            : bestFoe.kind === "boss"
-              ? "lust"
-              : "wood";
-      // Avarice: hide common weight arrows when a portal is already guiding
-      const skipCommonWeight =
-        opts.cantoId === "inferno_07" &&
-        portal &&
-        bestFoe.kind !== "boss" &&
-        !bestFoe.champion &&
-        bestD > 22;
-      if (!skipCommonWeight) {
-        wanted.push({
-          id: "foe",
-          dest:
-            bestFoe.kind === "boss"
-              ? bossDest
-              : opts.cantoId === "inferno_07"
-                ? "avarice"
-                : opts.cantoId === "inferno_06"
-                  ? "gluttony"
-                  : "wood",
-          label: destLabel(bestFoe),
-          e: bestFoe,
-        });
-      }
-    }
+  private arrow(id: string): ArrowEl {
+    let a = this.arrows.get(id);
+    if (a) return a;
+    const el = document.createElement("div");
+    el.className = "compass-arrow";
+    el.innerHTML = `<i class="compass-chevron"></i><span class="compass-label"></span><span class="compass-dist"></span>`;
+    this.compass.appendChild(el);
+    a = {
+      el,
+      chev: el.querySelector(".compass-chevron") as HTMLElement,
+      lab: el.querySelector(".compass-label") as HTMLElement,
+      dist: el.querySelector(".compass-dist") as HTMLElement,
+      x: NaN,
+      y: NaN,
+      ang: NaN,
+      shown: true,
+      label: "",
+      distTxt: "",
+      dest: "",
+    };
+    this.arrows.set(id, a);
+    return a;
+  }
 
-    const seen = new Set<string>();
+  private place(a: ArrowEl, show: boolean, x: number, y: number, ang: number, dest: string, label: string, distTxt: string) {
+    if (a.shown !== show) {
+      a.shown = show;
+      a.el.style.opacity = show ? "1" : "0";
+      // Re-shown for a new target: write the rotation afresh
+      if (!show) a.ang = NaN;
+    }
+    if (!show) return;
+    if (a.dest !== dest) {
+      a.dest = dest;
+      a.el.dataset.dest = dest;
+    }
+    if (a.label !== label) {
+      a.label = label;
+      a.lab.textContent = label;
+    }
+    if (a.distTxt !== distTxt) {
+      a.distTxt = distTxt;
+      a.dist.textContent = distTxt;
+    }
+    const rx = Math.round(x);
+    const ry = Math.round(y);
+    if (rx !== a.x || ry !== a.y) {
+      a.x = rx;
+      a.y = ry;
+      a.el.style.transform = `translate3d(${rx}px, ${ry}px, 0)`;
+    }
+    const ra = Math.round(ang);
+    if (ra !== a.ang) {
+      a.ang = ra;
+      // (the chevron is a notched dart — styles.css — so every angle reads one way)
+      a.chev.style.transform = `rotate(${ra}deg)`;
+    }
+  }
+
+  private drawArrows(opts: RadarTick) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     // Phone HUD v2: keep arrows in the open band between the vitals strip and
     // the stick / thumb arc (see styles.css "HUD v2").
     const landscape = document.body.classList.contains("hud-landscape");
-    const padL = opts.compact ? 16 : 24;
-    const padR = opts.compact ? 16 : 24;
-    const padT = opts.compact ? (landscape ? 48 : 72) : 72;
-    const padB = opts.compact ? (landscape ? 236 : 284) : 84;
+    // Landscape: right pad clears the minimap column, bottom pad the thumb arc.
+    // Desktop: right pad clears the minimap disc, top/bottom the plates + bar.
+    // (side pads keep half a label on screen: labels are centred on the chevron)
+    const padL = opts.compact ? 48 : 64;
+    const padR = opts.compact ? (landscape ? 150 : 48) : 200;
+    // (portrait: below the minimap column + menu seals)
+    const padT = opts.compact ? (landscape ? 44 : 240) : 96;
+    const padB = opts.compact ? (landscape ? 190 : 300) : 100;
 
-    for (const w of wanted) {
-      seen.add(w.id);
-      const d = Math.hypot(w.e.x - opts.you.x, w.e.y - opts.you.y);
-      const onScreen = this.projectEdge(opts.camera, w.e.x, w.e.y, vw, vh, padL, padT, padR, padB);
-      let el = this.arrows.get(w.id);
-      if (!el) {
-        el = document.createElement("div");
-        el.className = "compass-arrow";
-        el.innerHTML = `<i class="compass-chevron"></i><span class="compass-label"></span><span class="compass-dist"></span>`;
-        this.compass.appendChild(el);
-        this.arrows.set(w.id, el);
+    const obj = opts.objective?.target ?? null;
+    const oa = this.arrow("objective");
+    let objShown = false;
+    let bossFight = false;
+    this.objArrowFor = null;
+    if (obj) {
+      const d = Math.hypot(obj.x - opts.you.x, obj.y - opts.you.y);
+      const p = this.projectEdge(opts.camera, obj.x, obj.y, vw, vh, padL, padT, padR, padB);
+      // On screen and close: the world label / beacon carries it
+      // (gate labels show name + distance to GATE_LABEL_RANGE; past that the arrow is the label)
+      // Only when the target is on screen below the top HUD band, with room above it for
+      // its label — whether or not it sits in the arrow band (on a landscape phone the
+      // band ends above the hero, and a target beside you was never "inside" it: the
+      // arrow was clamped onto its own plate). A gate that just opened shows its "Open"
+      // label at any range.
+      const labelClear = p.visible && p.sy > padT + 40 && p.sx > 24 && p.sx < vw - (opts.compact ? 118 : 24);
+      const hide = labelClear && (obj.open || d <= (obj.kind === "gate" ? GATE_LABEL_RANGE : 16));
+      objShown = !hide;
+      if (objShown) this.objArrowFor = obj.id;
+      bossFight = obj.entity?.kind === "boss" && d < 24;
+      // (a boss's fight is a boss fight whatever the objective points at — the bell…)
+      if (!bossFight) {
+        for (const e of opts.entities) {
+          if (e.kind !== "boss" || (e.hp != null && e.hp <= 0)) continue;
+          if (Math.hypot(e.x - opts.you.x, e.y - opts.you.y) < 20) {
+            bossFight = true;
+            break;
+          }
+        }
       }
-      el.dataset.dest = w.dest;
-      const lab = el.querySelector(".compass-label") as HTMLElement;
-      const dist = el.querySelector(".compass-dist") as HTMLElement;
-      const distTxt = `${Math.round(d)}m`;
-      if (lab.textContent !== w.label) lab.textContent = w.label;
-      if (dist.textContent !== distTxt) dist.textContent = distTxt;
-      const hideNear = opts.cantoId === "inferno_07" ? 18 : 14;
-      const hide = onScreen.inside && d < hideNear;
-      el.style.opacity = hide ? "0" : "1";
-      el.style.left = `${onScreen.x}px`;
-      el.style.top = `${onScreen.y}px`;
-      const chev = el.querySelector(".compass-chevron") as HTMLElement;
-      chev.style.setProperty("--ang", `${onScreen.ang}deg`);
+      let ay = p.y;
+      if (objShown) ay = this.clearOf(p.x, ay, vh);
+      this.place(oa, objShown, p.x, ay, p.ang, "objective", obj.label, `${Math.round(d)}m`);
+    } else {
+      this.place(oa, false, 0, 0, 0, "", "", "");
     }
-    for (const [id, el] of this.arrows) {
-      if (!seen.has(id)) {
-        el.remove();
-        this.arrows.delete(id);
+
+    let foe: any = null;
+    let foeD = FOE_ARROW_RANGE;
+    // (in a boss fight the boss is the news: no "Elite 18m" arrow printed on its plate)
+    if (!bossFight) {
+      for (const e of opts.entities) {
+        if (e.kind !== "mob" && e.kind !== "boss") continue;
+        if (e.hp != null && e.hp <= 0) continue;
+        if (obj && String(e.id) === obj.id) continue;
+        const d = Math.hypot(e.x - opts.you.x, e.y - opts.you.y);
+        if (d < foeD) {
+          foeD = d;
+          foe = e;
+        }
       }
+    }
+    const fa = this.arrow("foe");
+    if (foe) {
+      const p = this.projectEdge(opts.camera, foe.x, foe.y, vw, vh, padL, padT, padR, padB);
+      const label = foe.kind === "boss" ? "Boss" : foe.champion ? "Elite" : "Foe";
+      let fx = p.x;
+      let fy = p.y;
+      // Two arrows clamped to the same stretch of edge: slide the foe's along it
+      if (objShown && Math.abs(fx - oa.x) < ARROW_SEP && Math.abs(fy - oa.y) < ARROW_SEP) {
+        const alongX = Math.abs(fy - padT) < 2 || Math.abs(fy - Math.max(padT + 40, vh - padB)) < 2;
+        if (alongX) fx = oa.x + (fx >= oa.x ? ARROW_SEP : -ARROW_SEP);
+        else fy = oa.y + (fy >= oa.y ? ARROW_SEP : -ARROW_SEP);
+      }
+      fy = this.clearOf(fx, fy, vh);
+      // A foe you can already see needs no arrow
+      this.place(fa, !p.visible, fx, fy, p.ang, "foe", label, `${Math.round(foeD)}m`);
+    } else {
+      this.place(fa, false, 0, 0, 0, "", "", "");
     }
   }
 
+  /** Id of the target the gold objective arrow points at right now (null = hidden). */
+  objArrowFor: string | null = null;
+  private plateRect: DOMRect | null = null;
+  private plateAt = -1e9;
+
+  /**
+   * An arrow landing on the bottom target plate climbs above it. (The plate's box is
+   * read at most every PLATE_EVERY_MS — it only moves on resize / show / hide.)
+   */
+  private clearOf(x: number, y: number, vh: number): number {
+    const now = performance.now();
+    if (now - this.plateAt > PLATE_EVERY_MS) {
+      this.plateAt = now;
+      const el = document.getElementById("target-plate");
+      const r = el && !el.classList.contains("hidden") ? el.getBoundingClientRect() : null;
+      this.plateRect = r && r.height > 0 && r.top > vh * 0.5 ? r : null;
+    }
+    // (the arrival title card, while it shows: an arrow on it steps below it)
+    if (now - this.cardAt > CARD_EVERY_MS) {
+      this.cardAt = now;
+      const el = document.getElementById("canto-card");
+      // (from its show until its fade-out has all but ended)
+      const on = el && (el.classList.contains("cc-show") || Number(getComputedStyle(el).opacity) > 0.05);
+      const r = on ? el.getBoundingClientRect() : null;
+      this.cardRect = r && r.height > 0 ? r : null;
+    }
+    const c = this.cardRect;
+    if (c && x > c.left - 40 && x < c.right + 40 && y > c.top - 22 && y < c.bottom + 22) y = c.bottom + 22;
+    const r = this.plateRect;
+    if (!r) return y;
+    if (x > r.left - 30 && x < r.right + 30 && y > r.top - 26) return r.top - 26;
+    return y;
+  }
+  private cardRect: DOMRect | null = null;
+  private cardAt = -1e9;
+
+  /**
+   * Screen point of (x, y) clamped into the arrow band. The band's own centre
+   * is the clamp origin (the viewport centre sits on the hero, which on phones
+   * is outside the band's middle and pinned arrows onto the hero).
+   */
   private projectEdge(
     camera: PerspectiveCamera,
     x: number,
@@ -524,198 +506,42 @@ export class Radar {
     padT: number,
     padR: number,
     padB: number
-  ): { x: number; y: number; ang: number; inside: boolean } {
+  ): { x: number; y: number; sx: number; sy: number; ang: number; inside: boolean; visible: boolean } {
     _ndc.set(x, 1.2, y).project(camera);
     let nx = _ndc.x;
     let ny = _ndc.y;
-    if (_ndc.z > 1) {
+    const behind = _ndc.z > 1;
+    if (behind) {
       nx = -nx;
       ny = -ny;
     }
     const sx = (nx * 0.5 + 0.5) * vw;
     const sy = (-ny * 0.5 + 0.5) * vh;
-    const inside =
-      sx > padL && sx < vw - padR && sy > padT && sy < vh - padB && _ndc.z <= 1;
-    const cx = vw * 0.5;
-    const cy = vh * 0.5;
+    const left = padL;
+    const right = Math.max(left + 40, vw - padR);
+    const top = padT;
+    const bot = Math.max(top + 40, vh - padB);
+    const inside = !behind && sx > left && sx < right && sy > top && sy < bot;
+    // On screen at all (the thing itself can be seen), band or not
+    const visible = !behind && sx > 12 && sx < vw - 12 && sy > 12 && sy < vh - 12;
+    const cx = (left + right) * 0.5;
+    const cy = (top + bot) * 0.5;
     let dx = sx - cx;
     let dy = sy - cy;
     if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) dy = -1;
     const ang = (Math.atan2(dx, -dy) * 180) / Math.PI;
-    const left = padL;
-    const right = vw - padR;
-    const top = padT;
-    const bot = vh - padB;
+    if (inside) return { x: sx, y: sy, sx, sy, ang, inside, visible };
     const hw = (right - left) * 0.5;
     const hh = (bot - top) * 0.5;
-    const px = dx / (hw || 1);
-    const py = dy / (hh || 1);
-    const m = Math.max(Math.abs(px), Math.abs(py), 1);
-    return {
-      x: cx + dx / m,
-      y: cy + dy / m,
-      ang,
-      inside,
-    };
-  }
-
-  private writeHint(opts: {
-    you: Vec2;
-    entities: any[];
-    cantoId: string;
-    firstClears?: string[];
-    bellCd?: number;
-    dailyWritOpen?: boolean;
-    spokeToGuide?: boolean;
-    stashBankTip?: boolean;
-  }) {
-    const portal = this.portalPreferred(opts.entities, opts.cantoId, opts.firstClears);
-    const guide = opts.entities.find(
-      (e) => e.poiKind === "npc" || (e.kind === "poi" && (e.label === "Guide" || e.name === "Guide"))
-    );
-    let foe: any = null;
-    let foeD = Infinity;
-    for (const e of opts.entities) {
-      if (e.kind !== "mob" && e.kind !== "boss") continue;
-      const d = Math.hypot(e.x - opts.you.x, e.y - opts.you.y);
-      if (d < foeD) {
-        foeD = d;
-        foe = e;
-      }
+    const m = Math.max(Math.abs(dx) / (hw || 1), Math.abs(dy) / (hh || 1), 1);
+    let ex = cx + dx / m;
+    const ey = cy + dy / m;
+    // Behind-you targets clamp onto the band's bottom edge, which on phones is
+    // just over the hero's head — slide them aside so they never sit on the hero.
+    const heroX = vw * 0.5;
+    if (ey >= bot - 1 && Math.abs(ex - heroX) < HERO_CLEAR_PX) {
+      ex = heroX + (ex >= heroX ? HERO_CLEAR_PX : -HERO_CLEAR_PX);
     }
-    const clears = opts.firstClears || [];
-    let text = "Explore the wood";
-    if (opts.cantoId === "inferno_05" || opts.cantoId === "inferno_06" || opts.cantoId === "inferno_07") {
-      const bossLabel =
-        opts.cantoId === "inferno_07"
-          ? "Slay Hoard Crush"
-          : opts.cantoId === "inferno_06"
-            ? "Slay the Triple Maw"
-            : "Slay the Judge";
-      const portalLocked = portal && portal.requireClear && !clears.includes(portal.requireClear);
-      if (opts.cantoId === "inferno_07") {
-        const heart = opts.entities.find(
-          (e: any) => e.archetype === "hoard_heart" && (e.hp == null || e.hp > 0)
-        );
-        const cw = opts.entities.find(
-          (e: any) => /^counterweight$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
-        );
-        const bell = opts.entities.find((e: any) => e.poiKind === "bell");
-        const roadW = opts.entities.find(
-          (e: any) => /^road weights$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
-        );
-        // Gluttony-portal approach: first weights before mid-lane
-        if (
-          roadW &&
-          opts.you.x < 40 &&
-          Math.hypot(roadW.x - opts.you.x, roadW.y - opts.you.y) < 18
-        ) {
-          text = "Weigh the road";
-        } else if (opts.you.x < 42 && opts.you.y > 82) {
-          const sw = opts.entities.find(
-            (e: any) =>
-              /^southwest spill$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
-          );
-          text = sw ? "Sweep Southwest Spill" : "Scorched SW flats";
-        } else if (heart && Math.hypot(heart.x - opts.you.x, heart.y - opts.you.y) < 34) {
-          text = "Break Hoard Heart";
-        } else if (
-          bell &&
-          opts.you.x > 55 &&
-          opts.you.x < 100 &&
-          Math.hypot(bell.x - opts.you.x, bell.y - opts.you.y) < 22 &&
-          !heart
-        ) {
-          // Bell quiet: point the measure onward (CW/Crush) — daily writ waits with the Guide
-          if ((opts.bellCd || 0) > 0.4) {
-            if (cw) text = "Bell quiet — Tip Counterweight";
-            else if (opts.entities.some((e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)))
-              text = "Bell quiet — Press Hoard Crush";
-            else if (opts.dailyWritOpen)
-              text = "Bell quiet — Guide for daily writ (Dark Wood)";
-            else text = "Bell quiet — measure holds";
-          } else {
-            text = "Ring Ledger Bell";
-          }
-        } else if (cw && Math.hypot(cw.x - opts.you.x, cw.y - opts.you.y) < 28) {
-          this.avaSawCw = true;
-          text = "Tip Counterweight";
-        } else if (
-          !cw &&
-          opts.entities.some((e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)) &&
-          (opts.you.x > 100 || this.avaSawCw)
-        ) {
-          const crush = opts.entities.find(
-            (e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)
-          );
-          const now = performance.now();
-          if (this.avaSawCw && this.avaHandoffUntil === 0) this.avaHandoffUntil = now + 4200;
-          if (this.avaHandoffUntil > now) text = "The measure tips — Crush";
-          else text = bossLabel;
-          // Keep compass target as Crush even if a warden is nearer
-          if (crush) {
-            foe = crush;
-            foeD = Math.hypot(crush.x - opts.you.x, crush.y - opts.you.y);
-          }
-        } else if (foe && foe.kind === "boss" && opts.you.x > 108) {
-          text = bossLabel;
-        } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
-        else if (clears.includes("inferno_07") && portal) {
-          text = `Return — ${cantoShort(portal.toCanto) || "Gluttony"} (bank weighed drops)`;
-        } else if (portal) text = `Travel — ${cantoShort(portal.toCanto) || "portal"}`;
-      } else if (foe) text = foe.kind === "boss" ? bossLabel : `Hunt ${destLabel(foe)}`;
-      else if (portal && portalLocked) {
-        text =
-          portal.requireClear === "inferno_06"
-            ? "Clear Triple Maw — then Avarice opens"
-            : "Clear the Judge — then Gluttony opens";
-      } else if (portal) {
-        const dest = cantoShort(portal.toCanto) || "portal";
-        text = `Travel — ${dest}`;
-      }
-    } else if (foe && foeD < 28) {
-      text = `Hunt ${destLabel(foe)}`;
-    } else if (clears.includes("inferno_07")) {
-      const stash = opts.entities.find((e: any) => e.poiKind === "stash");
-      if (opts.dailyWritOpen && guide) {
-        const gd = Math.hypot(guide.x - opts.you.x, guide.y - opts.you.y);
-        text =
-          gd < 10
-            ? "Guide — claim the daily writ"
-            : "Daily writ — follow the Guide (Avarice is clear)";
-      } else if (guide) {
-        const gd = Math.hypot(guide.x - opts.you.x, guide.y - opts.you.y);
-        text = gd < 10 ? "Guide — counsel after Avarice" : "Speak with the Guide (Avarice is clear)";
-      } else if (stash) {
-        text = "Bank weighed drops at the stash";
-      } else if (portal) {
-        const dest = cantoShort(portal.toCanto) || "Lust";
-        text = `Hunt again — ${dest}`;
-      } else text = "Avarice is clear — writ, stash, or hunt again";
-    } else if (opts.stashBankTip) {
-      const stash = opts.entities.find((e: any) => e.poiKind === "stash");
-      if (stash) {
-        const sd = Math.hypot(stash.x - opts.you.x, stash.y - opts.you.y);
-        text = sd < 12 ? "Hold E — bank at the stash" : "Bank drops at the Dark Wood stash";
-      } else if (opts.dailyWritOpen && guide) {
-        text = "Daily writ — speak with the Guide";
-      } else if (portal) {
-        const dest = cantoShort(portal.toCanto) || "Lust";
-        text = `Follow the gold arrow to ${dest}`;
-      } else text = "Bank drops, then hunt again";
-    } else if (opts.dailyWritOpen && guide) {
-      const gd = Math.hypot(guide.x - opts.you.x, guide.y - opts.you.y);
-      text = gd < 10 ? "Guide — claim the daily writ" : "Daily writ — speak with the Guide";
-    } else if (portal) {
-      const d = Math.hypot(portal.x - opts.you.x, portal.y - opts.you.y);
-      const dest = cantoShort(portal.toCanto) || "Lust";
-      text = d < 8 ? `Hold E — enter ${dest}` : `Follow the gold arrow to ${dest}`;
-    } else if (guide) {
-      text = "Speak with the Guide";
-    }
-    if (text !== this.lastHint) {
-      this.lastHint = text;
-      this.hint.textContent = text;
-    }
+    return { x: ex, y: ey, sx, sy, ang, inside, visible };
   }
 }

@@ -7,6 +7,7 @@ import {
 } from "../items/icons";
 import { formatItemStats, itemStatBonus, itemStatsHtml, slotLabelForItem, vendorAsh } from "../items/stats";
 import { SPELLS, SPELL_HOTBAR, type SpellId } from "../spells";
+import { placeToastLayer, pushToast } from "./toasts";
 
 let selectedItemId: string | null = null;
 let lastBagItems: any[] = [];
@@ -16,12 +17,14 @@ let lastStashItems: any[] = [];
 const STASH_MAX_SLOTS = 60;
 let invWeighedOnly = false;
 let meltArmTimer: number | null = null;
-let toastTimer: number | null = null;
 let lastHpShown: number | null = null;
 let lastManaShown: number | null = null;
 let lastPendingAsh = 0;
 let pendingPulseTimer: number | null = null;
 let helpFadeTimer: number | null = null;
+let lastAshHtml = "";
+let inventoryWasOpen = false;
+let panelOpenHook: ((id: string) => void) | null = null;
 
 /** Instructional overlay fades out after this long (any input re-arms nothing; it's a one-shot). */
 const HELP_FADE_MS = 10_000;
@@ -84,101 +87,12 @@ function rarityClass(r: string | undefined): string {
   return `r-${k in RARITY_LABEL ? k : "normal"}`;
 }
 
-/** Toast with brief fade; level → gold (loot), bright gold (emit), crimson (warn), bone (info). */
-let lastToastText = "";
-let lastToastAt = 0;
-let lastToastFamily = "";
-let toastFadeTimer: number | null = null;
-
-/** Collapse spammy combat/approach lines into a family for longer dedupe. */
-function toastFamily(text: string): string {
-  const t = text.trim();
-  if (/^Closing on /i.test(t)) return "closing";
-  if (/^Approaching /i.test(t)) return "approach";
-  if (/^Picking up /i.test(t)) return "pickup";
-  if (/^Interact:/i.test(t)) return "interact";
-  if (/out of (range|mana)|not enough mana|nothing to strike|no foe/i.test(t)) return "oor";
-  return t;
-}
-
-export function showToast(text: string, level = "info") {
-  const el = document.getElementById("toast");
-  if (!el) return;
-  const now = Date.now();
-  const family = toastFamily(text);
-  // Exact repeat: 900ms. Same spam family (closing/approach/pickup): 1600ms.
-  const windowMs = family === text.trim() ? 900 : 1600;
-  if (
-    (text === lastToastText && now - lastToastAt < 900) ||
-    (family === lastToastFamily && family !== text.trim() && now - lastToastAt < windowMs)
-  ) {
-    return;
-  }
-  lastToastText = text;
-  lastToastFamily = family;
-  lastToastAt = now;
-  placeToastLayer();
-  el.textContent = text;
-  el.className = "";
-  // Restart CSS animation even if the same class is re-applied
-  void el.offsetWidth;
-  el.classList.add("toast-show", `toast-${level}`);
-  if (toastTimer != null) window.clearTimeout(toastTimer);
-  if (toastFadeTimer != null) window.clearTimeout(toastFadeTimer);
-  const hold = level === "warn" ? 2600 : level === "emit" ? 3600 : 3000;
-  toastTimer = window.setTimeout(() => {
-    el.classList.remove("toast-show");
-    el.classList.add("toast-fade");
-    // Drop text after fade so detached nodes / long strings don't linger for GC
-    toastFadeTimer = window.setTimeout(() => {
-      if (!el.classList.contains("toast-show")) el.textContent = "";
-      toastFadeTimer = null;
-    }, 420);
-  }, hold);
-}
-
-/** #toast-layer is fixed (above modals).
- *  Desktop / wide: pin under HUD plates.
- *  Narrow / short phones: raise above the two-row action bar so combat toasts stay readable.
+/**
+ * Toast: level → gold (loot), bright gold (emit), crimson (warn), bone (info).
+ * Queued with priorities and family collapse — see ui/toasts.ts.
  */
-function placeToastLayer() {
-  const layer = document.getElementById("toast-layer");
-  const top = document.getElementById("hud-top");
-  if (!layer || !top) return;
-  // Phone HUD: toasts stack in the left column under vitals + objective line.
-  if (document.body.classList.contains("hud-compact")) {
-    layer.classList.remove("toast-above-actions");
-    layer.style.bottom = "";
-    let y = top.getBoundingClientRect().bottom;
-    const quest = document.getElementById("quest-track");
-    // (fixed elements have no offsetParent — test the box instead)
-    const qr = quest?.getBoundingClientRect();
-    if (qr && qr.height > 0 && quest?.textContent?.trim()) y = Math.max(y, qr.bottom);
-    // Portrait: the foe plate shares this column — stack toasts beneath it
-    const tp = document.getElementById("target-plate");
-    if (tp && !document.body.classList.contains("hud-landscape")) {
-      const tr = tp.getBoundingClientRect();
-      if (tr.height > 0) y = Math.max(y, tr.bottom);
-    }
-    layer.style.top = `${Math.round(y + 6)}px`;
-    return;
-  }
-  const narrow =
-    window.matchMedia("(max-width: 400px)").matches ||
-    window.matchMedia("(max-height: 520px) and (max-width: 900px)").matches;
-  if (narrow) {
-    layer.classList.add("toast-above-actions");
-    layer.style.top = "";
-    const bar = document.getElementById("action-bar");
-    const barH = bar ? bar.getBoundingClientRect().height : 0;
-    const gap = 10;
-    layer.style.bottom = `${Math.round(barH + gap)}px`;
-  } else {
-    layer.classList.remove("toast-above-actions");
-    layer.style.bottom = "";
-    const r = top.getBoundingClientRect();
-    layer.style.top = `${Math.round(r.bottom + 6)}px`;
-  }
+export function showToast(text: string, level = "info") {
+  pushToast(text, level);
 }
 
 /** Fade the "how to play" tip overlay after a short grace period; call once on boot. */
@@ -190,6 +104,33 @@ export function armHelpFade(ms = HELP_FADE_MS) {
       document.getElementById(id)?.classList.add("help-fade");
     }
   }, ms);
+}
+
+/**
+ * Replay the HP-plate hurt pulse. The class comes off on `animationend`, so a hit after
+ * the pulse finished starts it fresh; a hit during the pulse rewinds the running
+ * animation. (Removing and re-adding the class in one task, or across a rAF, is
+ * coalesced into no change unless something forces a style flush in between.)
+ */
+function pulseHurt(el: HTMLElement) {
+  if (!el.dataset.hurtBound) {
+    el.dataset.hurtBound = "1";
+    el.addEventListener("animationend", (e) => {
+      if (e.target === el && e.animationName === "hp-hurt") el.classList.remove("hp-hurt");
+    });
+  }
+  if (el.classList.contains("hp-hurt")) {
+    for (const a of el.getAnimations()) {
+      if ((a as CSSAnimation).animationName === "hp-hurt") {
+        a.currentTime = 0;
+        a.play();
+        return;
+      }
+    }
+    // Class stuck on without a running pulse (e.g. reduced motion): nothing to replay
+    return;
+  }
+  el.classList.add("hp-hurt");
 }
 
 export function updateStats(you: any, title: string, subtitleIt?: string | null) {
@@ -209,7 +150,8 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
   const maxHp = Number(you.maxHp) || 1;
   const cur = Math.max(0, Number(you.hp) || 0);
   const ratio = Math.max(0, Math.min(1, cur / maxHp));
-  if (hp) hp.textContent = `${cur} / ${maxHp}`;
+  const hpTxt = `${cur} / ${maxHp}`;
+  if (hp && hp.textContent !== hpTxt) hp.textContent = hpTxt;
   if (hpFill) {
     hpFill.style.width = `${(ratio * 100).toFixed(1)}%`;
     hpFill.classList.toggle("low", ratio <= 0.3);
@@ -223,16 +165,17 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
   if (hpPlate) {
     hpPlate.setAttribute("aria-valuenow", String(cur));
     hpPlate.setAttribute("aria-valuemax", String(maxHp));
-    // Pulse the frame on damage
-    if (lastHpShown != null && cur < lastHpShown) {
-      hpPlate.classList.remove("hp-hurt");
-      void hpPlate.offsetWidth;
-      hpPlate.classList.add("hp-hurt");
-    }
+    // Pulse the frame on damage (restarted without forcing a reflow)
+    if (lastHpShown != null && cur < lastHpShown) pulseHurt(hpPlate);
     lastHpShown = cur;
   }
   if (ash) {
-    ash.innerHTML = `<b>${formatAsh(you.ash)}</b> <i>Ash</i> <em>${ashToStelleDisplay(you.ash)} STELLE</em>`;
+    // Snapshots arrive ~12Hz: only touch the DOM when the balance changed
+    const html = `<b>${formatAsh(you.ash)}</b> <i>Ash</i> <em>${ashToStelleDisplay(you.ash)} STELLE</em>`;
+    if (html !== lastAshHtml || !ash.firstChild) {
+      lastAshHtml = html;
+      ash.innerHTML = html;
+    }
   }
   const maxMp = Number(you.maxMana) || 100;
   const curMp = Math.max(0, Number(you.mana) || 0);
@@ -240,7 +183,8 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
   const mp = document.getElementById("mp");
   const mpFill = document.getElementById("mp-fill");
   const mpPlate = document.getElementById("mp-plate");
-  if (mp) mp.textContent = `${Math.floor(curMp)} / ${maxMp}`;
+  const mpTxt = `${Math.floor(curMp)} / ${maxMp}`;
+  if (mp && mp.textContent !== mpTxt) mp.textContent = mpTxt;
   if (mpFill) {
     mpFill.style.width = `${(mpRatio * 100).toFixed(1)}%`;
     mpFill.classList.toggle("low", mpRatio <= 0.25);
@@ -539,17 +483,56 @@ export function setStashMode(on: boolean) {
   if (on) setPanelOpen("inventory", true);
 }
 
-export function setQuestLine(text: string) {
+let questMain: HTMLElement | null = null;
+let questSub: HTMLElement | null = null;
+
+/** Objective line + an optional secondary hint beneath it (never replaces it). */
+let questRo: ResizeObserver | null = null;
+let questBottom = "";
+
+export function setQuestLine(text: string, sub = "") {
   const el = document.getElementById("quest-track");
-  if (!el || el.textContent === text) return;
-  el.textContent = text;
+  if (!el) return;
+  if (!questMain || !el.contains(questMain)) {
+    el.textContent = "";
+    questMain = document.createElement("span");
+    questMain.className = "qt-main";
+    questSub = document.createElement("span");
+    questSub.className = "qt-sub";
+    el.append(questMain, questSub);
+    // Portrait stacks the target plate under this block (styles.css --qt-bottom): follow
+    // its height as the objective wraps (a ResizeObserver: no layout read per text change)
+    if (!questRo && typeof ResizeObserver !== "undefined") {
+      questRo = new ResizeObserver(() => {
+        const r = el.getBoundingClientRect();
+        const v = r.height > 0 ? `${Math.round(r.bottom)}px` : "0px";
+        if (v !== questBottom) {
+          questBottom = v;
+          document.documentElement.style.setProperty("--qt-bottom", v);
+        }
+      });
+      questRo.observe(el);
+    }
+  }
+  if (questMain.textContent !== text) questMain.textContent = text;
+  if (questSub && questSub.textContent !== sub) {
+    questSub.textContent = sub;
+    questSub.hidden = !sub;
+  }
 }
+
+/** Last painted target plate — the plate is rewritten only when this changes. */
+let plateKey = "";
 
 export function setTargetPlate(
   name: string | null,
   ratio: number,
   opts?: { boss?: boolean; avarice?: boolean }
 ) {
+  const pctNum = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  const key = name ? `${name}|${pctNum}|${opts?.boss ? 1 : 0}|${opts?.avarice ? 1 : 0}` : "";
+  if (key === plateKey) return;
+  plateKey = key;
   const el = document.getElementById("target-plate");
   if (!el) return;
   if (!name) {
@@ -563,12 +546,12 @@ export function setTargetPlate(
   const n = el.querySelector("#target-name");
   if (n && n.textContent !== name) n.textContent = name;
   const bar = el.querySelector("#target-hp") as HTMLElement | null;
-  if (bar) bar.style.width = `${Math.max(0, Math.min(100, Math.round(ratio * 100)))}%`;
+  if (bar) bar.style.width = `${pctNum}%`;
   const pct = el.querySelector("#target-hp-pct") as HTMLElement | null;
   if (pct) {
     const show = Boolean(opts?.boss);
     pct.hidden = !show;
-    if (show) pct.textContent = `${Math.max(0, Math.min(100, Math.round(ratio * 100)))}%`;
+    if (show) pct.textContent = `${pctNum}%`;
   }
 }
 
@@ -640,11 +623,27 @@ export function renderAh(
   }
 }
 
+/** Is a panel (e.g. "inventory") currently shown? */
+export function isPanelOpen(id: string): boolean {
+  const el = document.getElementById(id);
+  return Boolean(el && !el.classList.contains("hidden"));
+}
+
+/** Called when a panel opens (WorldApp renders a deferred inventory change then). */
+export function onPanelOpen(cb: (id: string) => void) {
+  panelOpenHook = cb;
+}
+
 function syncModalState() {
   // Any path that hides the bag (✕, backdrop, opening AH) also leaves stash mode
   if (stashMode && document.getElementById("inventory")?.classList.contains("hidden")) {
     setStashMode(false);
   }
+  const invOpen = isPanelOpen("inventory");
+  if (invOpen && !inventoryWasOpen) {
+    inventoryWasOpen = true;
+    panelOpenHook?.("inventory");
+  } else if (!invOpen) inventoryWasOpen = false;
   const anyOpen = !!document.querySelector(".panel.modal:not(.hidden)");
   document.getElementById("modal-backdrop")?.classList.toggle("hidden", !anyOpen);
   document.body.classList.toggle("has-modal", anyOpen);
@@ -676,22 +675,46 @@ export function setPanelOpen(id: string, open: boolean) {
   syncModalState();
 }
 
+/**
+ * Layout heuristics are read dozens of times per frame (world, radar, labels) and each
+ * matchMedia() call is a style query, so cache them until the viewport or pointer
+ * changes. The listeners register at module load, before WorldApp's own resize handler
+ * reads the fresh values.
+ */
+let compactCache: boolean | null = null;
+let landscapeCache: boolean | null = null;
+const dropLayoutCache = () => {
+  compactCache = null;
+  landscapeCache = null;
+};
+if (typeof window !== "undefined") {
+  window.addEventListener("resize", dropLayoutCache);
+  window.addEventListener("orientationchange", dropLayoutCache);
+  window.visualViewport?.addEventListener("resize", dropLayoutCache);
+  for (const q of ["(pointer: coarse)", "(max-width: 640px)", "(orientation: landscape)"]) {
+    window.matchMedia(q).addEventListener?.("change", dropLayoutCache);
+  }
+}
+
 /** Narrow / touch-first UI (phones and compact tablets). */
 export function isCompactUi(): boolean {
   if (typeof window === "undefined") return false;
+  if (compactCache != null) return compactCache;
   const w = window.innerWidth;
   const h = window.innerHeight;
-  if (h <= 520 && w <= 1100) return true;
-  return (
+  if (h <= 520 && w <= 1100) return (compactCache = true);
+  compactCache =
     window.matchMedia("(max-width: 640px)").matches ||
-    (window.matchMedia("(pointer: coarse)").matches && Math.min(w, h) < 900)
-  );
+    (window.matchMedia("(pointer: coarse)").matches && Math.min(w, h) < 900);
+  return compactCache;
 }
 
 /** Phone/tablet held sideways — HUD must stay a single short row. */
 export function isLandscapeCompact(): boolean {
   if (typeof window === "undefined") return false;
-  return isCompactUi() && window.matchMedia("(orientation: landscape)").matches;
+  if (landscapeCache != null) return landscapeCache;
+  landscapeCache = isCompactUi() && window.matchMedia("(orientation: landscape)").matches;
+  return landscapeCache;
 }
 
 /** Optional device vibrate — no-op when Vibration API is missing. */
@@ -706,7 +729,7 @@ function hapticLight(pattern: number | number[] = 10) {
 }
 
 /** Distinct patterns: soak (soft double), slam (heavy thud), mana deny (stutter). */
-export type HapticKind = "tap" | "soak" | "slam" | "mana" | "ready" | "portal" | "sticky";
+export type HapticKind = "tap" | "soak" | "slam" | "mana" | "ready" | "portal" | "sticky" | "kill" | "heavy" | "hurt";
 function haptic(kind: HapticKind = "tap") {
   switch (kind) {
     case "soak":
@@ -733,9 +756,26 @@ function haptic(kind: HapticKind = "tap") {
       // Soft triple micro-pulse — sticky retarget / threat cycle (distinct from interact-ready)
       hapticLight([5, 22, 5, 22, 8]);
       break;
+    case "kill":
+      // Firm tick + short tail — a foe falls to your blow
+      hapticLight([18, 30, 8]);
+      break;
+    case "heavy":
+      // One solid knock — your finisher / a heavy blow lands
+      hapticLight(22);
+      break;
+    case "hurt":
+      // Short dull buzz — a blow lands on you
+      hapticLight(14);
+      break;
     default:
       hapticLight(10);
   }
+}
+
+/** Combat haptics (phones): a kill, a heavy blow of yours, a blow on you. */
+export function hapticCombat(kind: "kill" | "heavy" | "hurt") {
+  haptic(kind);
 }
 
 /** Light haptic when Interact becomes ready (no-op if vibrate unavailable). */
@@ -754,13 +794,15 @@ export function hapticPortalComplete() {
 }
 
 /** D4-style hold-to-travel: radial fill on Interact + bottom prompt. `frac` null hides. */
-export function setPortalHoldUi(frac: number | null, dest = "portal") {
+export function setPortalHoldUi(frac: number | null, dest = "portal", title = "Hold to enter") {
   const btn = document.getElementById("btn-interact");
   const cd = btn?.querySelector<HTMLElement>(".interact-cd");
   const label = btn?.querySelector<HTMLElement>(".action-label");
   const prompt = document.getElementById("portal-hold-prompt");
   const bar = prompt?.querySelector<HTMLElement>(".php-bar i");
   const destEl = prompt?.querySelector<HTMLElement>(".php-dest");
+  const titleEl = prompt?.querySelector<HTMLElement>(".php-title");
+  if (titleEl && frac != null && titleEl.textContent !== title) titleEl.textContent = title;
   if (frac == null) {
     btn?.classList.remove("charging");
     btn?.style.removeProperty("--portal-charge-deg");
@@ -1195,14 +1237,16 @@ export function playDeathRevive() {
   document.body.classList.remove("respawn-fade");
   document.body.classList.add("death-flash");
   el.setAttribute("aria-hidden", "false");
+  // (the veil darkens over the held fall and is darkest when the hero is moved to the
+  // entrance, ~720 ms in — heroMotor DEATH_POSE_MS — so the cut happens under it)
   window.setTimeout(() => {
     document.body.classList.remove("death-flash");
     document.body.classList.add("respawn-fade");
     window.setTimeout(() => {
       document.body.classList.remove("respawn-fade");
       el.setAttribute("aria-hidden", "true");
-    }, 740);
-  }, 280);
+    }, 940);
+  }, 440);
 }
 
 /** Brief Inv bag glow matching loot rarity when a new item lands. */
@@ -1641,6 +1685,12 @@ export function wireHud(api: {
     };
     attackBtn.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      // Capture: a thumb sliding off the button keeps the hold (ends on lift only)
+      try {
+        attackBtn.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
       holdArmed = true;
       attackBtn.classList.add("pressed");
       hapticLight();
@@ -1648,8 +1698,8 @@ export function wireHud(api: {
       else api.attackNearest();
     });
     attackBtn.addEventListener("pointerup", endHold);
-    attackBtn.addEventListener("pointerleave", endHold);
     attackBtn.addEventListener("pointercancel", endHold);
+    attackBtn.addEventListener("lostpointercapture", endHold);
     // Avoid duplicate click after pointerup
     attackBtn.addEventListener("click", (e) => e.preventDefault());
   }

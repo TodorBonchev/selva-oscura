@@ -15,6 +15,8 @@ import {
   wireHud,
   isCompactUi,
   isLandscapeCompact,
+  isPanelOpen,
+  onPanelOpen,
   noteSpellCast,
   flashManaDeny,
   noteWardBuff,
@@ -44,11 +46,13 @@ import {
   pulseAbyssChroma,
   pulseRiftShear,
   pulseHorizonFold,
+  hapticCombat,
 } from "../ui/hud";
+import { flushStaleToasts, showCantoCard } from "../ui/toasts";
 import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
 import { VirtualJoystick } from "../ui/virtualJoystick";
 import {
-  SmoothStore,
+  InterpStore,
   MOVE_SEND_MS,
   CAM_LERP_MOBILE,
   CAM_LERP_DESKTOP,
@@ -56,7 +60,8 @@ import {
   expAlpha,
   type Vec2,
 } from "../render/smoothing";
-import { isPortraitCompact, camPlanarBasis, placeFollowCamera, setPlanar, yawFromPlanar, UP } from "./frames";
+import { LabelDeclutter } from "./labelDeclutter";
+import { CAM_BACK_PORTRAIT, CAM_HEIGHT_PORTRAIT, isPortraitCompact, camPlanarBasis, camRel, placeFollowCamera, setPlanar, tickCamLead, yawFromPlanar, UP } from "./frames";
 import { loadMatKit, RARITY_HEX, type MatKit } from "./materials";
 import {
   makeByKind,
@@ -80,48 +85,66 @@ import {
   makeWeightShade,
   modelFrontWorld,
   resolveKind,
-  setPortalGateVisual,
   tintMireEnemy,
   type KindKey,
 } from "./meshes";
 import { applyEquippedLook, equipLookKey } from "./gearLook";
-import { buildGround, type GroundRig, isAvaScorchFlat } from "./ground";
+import { buildGround, type GroundRig } from "./ground";
 import {
   AshField,
   makeBolt,
   makeBurst,
-  disposeObject3D,
   makeDustPuff,
   makeHitFlash,
   makeImpactRing,
   makeLootBeam,
   makePortalHoldFx,
-  makeSlashTrail,
-  tickSlashTrail,
-  makeSlamTelegraph,
   makeTelegraph,
   makeWardRing,
   placeBolt,
   releaseSparkBurst,
+  releaseFx,
+  acquireFxRing,
+  acquireFxMote,
   spawnSparks,
   spawnGoldDustSplash,
   spawnSludgeSplash,
   tickImpact,
   tickPortalHoldFx,
-  tickSlamTelegraph,
   tickSparks,
   type Bolt,
   type ImpactRing,
   type PortalHoldFx,
-  type SlamTele,
   type SparkBurst,
 } from "./fx";
 import { tickCounterweight, tickHoardHeart, tickHumanoid, tickHoardCrush, tickLedgerWarden, tickTripleMaw, tickWhirl } from "./anim";
-import { makeComposer } from "./post";
+import { makeComposer, type GradeOutputPass } from "./post";
+import {
+  FrameGovernor,
+  FramePacer,
+  flagsFor,
+  pickInitialTier,
+  type Tier,
+  type TierFlags,
+} from "./quality";
+import { LightPool, VirtualLight, isVirtualLight } from "./lightPool";
+import { applyTextureTier } from "./materials";
+import { disposeNode3D, markShared, sharedGeo } from "./dispose";
+import { HeroMotor, SWING_MS } from "./heroMotor";
+import { humanoidCast, humanoidFlinch, humanoidSwing } from "./heroAnim";
+import { disposeHero, setHeroGhost } from "./hero";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
+import { Guidance } from "./guidance";
+import { PointerInput } from "./pointerInput";
+import { PickupFx } from "./pickupFx";
+import { forwardGate, gateState, gateTitle, lockReason, visibleGates } from "./gates";
+import { CombatView, isMobKind } from "./combatView";
+import { teleWeight, type TelegraphLand, type TelegraphMsg } from "./telegraphs";
+import { PlayerForces } from "./forces";
+import { mechFor, type CantoMech, type MoveFeelOut } from "./cantoMech";
+import { bodyRadius } from "./mobBodies";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import type { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
 type RoomSnap = any;
 
@@ -133,7 +156,6 @@ const SOFT_SNAP_PULL_RANGE = 3.1;
 const SOFT_SNAP_PORTAL_PULL_RANGE = 5.8;
 const SOFT_SNAP_USE_RANGE = 7.4;
 const STICKY_INTERACT_MS = 480;
-const EXIT_HINT_RANGE = 7;
 const EXIT_TRAVEL_RANGE = 6.2;
 const GALE_STICKY_MS = 1600;
 /** Must stay inside the server melee check (3.5) or swings toast "Out of range". */
@@ -142,14 +164,28 @@ const CHASE_RANGE = 26;
 const AUTO_PICKUP_RANGE = 4.0;
 const MAGNET_RANGE = 5.5;
 const AUTO_PICKUP_RETRY_MS = 900;
+/** Server bag cap (room.mjs handlePickup). */
+const BAG_CAP = 40;
 const PREDICT_SPEED = 8.0;
+/** Portrait phones: ground half-width (m) the lens widens to show beside the hero, and its cap (°). */
+const PORTRAIT_HALF_W = 5.8;
+const PORTRAIT_FOV_MAX = 72;
+/** Phones: foes farther than this (m) are not drawn (4 m hysteresis). */
+const FOE_CULL_R = 58;
+/** A POI hint longer than this is cut on a phone's toast (two landscape lines). */
+const HINT_MAX = 110;
+/** Client dash cooldown: the server's 4 s plus a margin for its tick and jitter. */
+const DASH_CD_MS = 4060;
 const MOVE_ACCEL = 28;
-const MOVE_FRICTION = 18;
+/** Coasting stop (no input): a planted stop, not a skid. */
+const MOVE_FRICTION = 24;
+/** Braking against the input on a reversal: plant, then push off (no moonwalk). */
+const MOVE_BRAKE = 52;
+/** Sideways slip decay (1/s) when steering: turns carve instead of drifting. */
+const MOVE_SLIP = 9;
 const TAP_ARRIVE = 0.35;
-const ATTACK_WINDUP_MS = 70;
-const ATTACK_RECOVERY_MS = 240;
-/** Client slash/attackU duration — matches windup+recovery so anim hits with send. */
-const ATTACK_ANIM_MS = ATTACK_WINDUP_MS + ATTACK_RECOVERY_MS;
+/** One swing (busy time) — heroMotor.SWING_MS, paced to the server's PLAYER_ATK_CD. */
+const ATTACK_ANIM_MS = SWING_MS;
 const SPELL_TELEGRAPH_MS: Record<string, number> = {
   gale_bolt: 180,
   whirl_ward: 260,
@@ -159,9 +195,14 @@ const SPELL_HOLD_CONFIRM_MS = 200;
 const GALE_DRAG_AIM_PX = 26;
 const PORTAL_HOLD_MS = 680;
 const DEATH_FX_LOCK_MS = 1600;
-const ATTACK_HOLD_MS = 720;
 const GALE_HOLD_TOAST_MS = 90;
 const HIT_STOP_MS = 58;
+/** Sun / rim offsets from the follow point, turned with the camera yaw. */
+const SUN_OFF = camRel(14, 8);
+const RIM_OFF = camRel(-10, -12);
+
+/** Hold-to-attack source: the F key, the #btn-attack button, or a canvas pointer id. */
+type AttackHoldSource = "key" | "button" | number;
 
 type NodeRec = {
   id: string;
@@ -169,7 +210,79 @@ type NodeRec = {
   group: THREE.Group;
   label: CSS2DObject;
   hpEl: HTMLElement;
+  /** Label parts, looked up once at spawn (updateLabel runs per node per frame). */
+  nameEl: HTMLElement;
+  hpBar: HTMLElement;
+  hpFill: HTMLElement;
+  /** syncEntities pass that last saw this node (frame stamp instead of a per-frame Set). */
+  seenAt: number;
+  /** labelDeclutter state */
+  dcCull?: boolean;
+  dcCullShown?: boolean;
+  dcFade?: boolean;
+  dcNoName?: boolean;
+  dcShift?: number;
+  dcShiftX?: number;
 };
+
+/** Named parts tickFx/syncEntities animate — resolved once per node, not per frame. */
+type NodeFx = {
+  ribbon?: THREE.Object3D;
+  galeDisc?: THREE.Object3D;
+  galeRibbon?: THREE.Object3D;
+  galeRing?: THREE.Object3D;
+  portalInner?: THREE.Object3D;
+  portalSparks?: THREE.Object3D;
+  lootBeam?: THREE.Object3D;
+  gem?: THREE.Object3D;
+  judgeAura?: THREE.Object3D;
+  crushBody?: THREE.Object3D;
+  cwTelegraph?: THREE.Object3D;
+  wardRing?: THREE.Object3D;
+  stillRing?: THREE.Mesh;
+  remoteRim?: VirtualLight;
+};
+
+const NODE_FX_NAMES: Record<string, keyof NodeFx> = {
+  ribbon: "ribbon",
+  galeDisc: "galeDisc",
+  galeRibbon: "galeRibbon",
+  galeRing: "galeRing",
+  portalInner: "portalInner",
+  portalSparks: "portalSparks",
+  lootBeam: "lootBeam",
+  gem: "gem",
+  judgeAura: "judgeAura",
+  crushBody: "crushBody",
+  cwTelegraph: "cwTelegraph",
+  wardRing: "wardRing",
+  stillRing: "stillRing",
+  avaRemoteRim: "remoteRim",
+};
+
+/** Fingerprint of everything renderInventory draws (bag, stash, worn gear, gear stats). */
+function inventorySignature(you: any): string {
+  const list = (items: any[] | undefined) => {
+    let s = "";
+    if (Array.isArray(items)) for (const it of items) s += `${it?.id}:${it?.name}:${it?.rarity},`;
+    return s;
+  };
+  let worn = "";
+  const eq = you.equipped || {};
+  for (const slot in eq) worn += `${slot}=${eq[slot]?.id ?? ""};`;
+  const gs = you.gearStats || {};
+  return `${list(you.inventory)}|${list(you.stash)}|${worn}|${gs.dmg ?? 0},${gs.maxHp ?? 0},${gs.armor ?? 0}`;
+}
+
+/** First object per name in traversal order — same pick as getObjectByName. */
+function collectNodeFx(root: THREE.Object3D): NodeFx {
+  const fx: NodeFx = {};
+  root.traverse((o) => {
+    const key = NODE_FX_NAMES[o.name];
+    if (key && !fx[key]) (fx as Record<string, THREE.Object3D>)[key] = o;
+  });
+  return fx;
+}
 
 export class WorldApp {
   socket: GameSocket;
@@ -187,34 +300,85 @@ export class WorldApp {
   sun: THREE.DirectionalLight;
   fill!: THREE.DirectionalLight;
   rim = new THREE.DirectionalLight(0xffe0b0, 1.7);
-  portalLight = new THREE.PointLight(0xff6633, 0, 18, 2);
+  /** Target-portal fill — a pooled light marker (see lightPool.ts). */
+  portalLight = new VirtualLight(0xff6633, 0, 18, 2, 1.1);
   heroLight = new THREE.PointLight(0xffc878, 4.2, 12, 1.6);
+  ambient = new THREE.AmbientLight(0x8a7a62, 0.48);
   clickMark: THREE.Group | null = null;
   composer: EffectComposer | null = null;
-  gradePass: ShaderPass | null = null;
+  gradePass: GradeOutputPass | null = null;
   bloom: UnrealBloomPass | null = null;
   hitLight = makeHitFlash();
   sky: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> | null = null;
   /** Last requested sky colours (a canto can load before the dome exists). */
   skyColors: [number, number, number] | null = null;
   radar: Radar | null = null;
+  /** Objective model + gates + compass/minimap/beacon (world/guidance.ts). */
+  guidance: Guidance | null = null;
   frameN = 0;
   combatUntil = 0;
   lastChaseToast = 0;
   dashReadyAt = 0;
   lockedId: string | null = null;
+  /** The hero's own foot ring (unshared material, tinted per canto). */
+  selfRing: THREE.Mesh | null = null;
+  /** Foe the bottom target plate shows (paintChrome): its world plate outranks the rest. */
+  plateTargetId: string | null = null;
+  declutter = new LabelDeclutter();
   lockRing: THREE.Mesh | null = null;
-  wardMat = new THREE.MeshBasicMaterial({
-    color: 0xff5533,
-    transparent: true,
-    opacity: 0.5,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-  slowFrames = 0;
-  gfxDropped = false;
+  wardMat = markShared(
+    new THREE.MeshBasicMaterial({
+      color: 0xff5533,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      forceSinglePass: true,
+      depthWrite: false,
+    })
+  );
+  /** Quality tier flags (quality.ts). */
+  gfx: TierFlags;
+  governor: FrameGovernor;
+  pacer = new FramePacer();
+  lightPool: LightPool;
+  lastFrameAt = 0;
+  /** Executed frames per wall-clock second, over ~1s windows (DEV render-info hook). */
+  fps = 0;
+  fpsFrames = 0;
+  fpsSince = 0;
+  /** syncEntities pass counter (NodeRec.seenAt). */
+  syncStamp = 0;
+  /** Throttled UTC day string for the radar's daily-writ check (no Date per frame). */
+  utcDay = "";
+  utcDayAt = 0;
+  lastInvSig = "";
+  prewarmPending = false;
+  _packCounts = new Map<string, number>();
+  fxWarm: THREE.Group | null = null;
+  /** GPU counters of the last complete draw() (shadow + scene + post); DEV render-info hook. */
+  frameInfo = { calls: 0, triangles: 0, points: 0, shadowPass: false };
+  invDirty = true;
+  lastLookKey = "";
   propAnims: THREE.Object3D[] = [];
   treeFadeTick = 0;
+  /** paintChrome throttle (ms, performance.now) and last attack-button hint. */
+  lastChromeAt = 0;
+  lastFoeNear = false;
+  /** Last sealed-gate warning (dedupes tap / Use / soft-snap). */
+  lastDeny: { id: string; at: number } | null = null;
+  /** scanNearestInteract throttle + the node currently wearing the prompt. */
+  lastScanAt = 0;
+  promptRecId = "";
+  /** Canvas taps / hover / hold-to-move (pointerInput.ts). */
+  pointer: PointerInput | null = null;
+  _ndc = new THREE.Vector2();
+  /** Reused walk-in target for soft snap (identity tells us when something else took over). */
+  softSnapMove: Vec2 = { x: 0, y: 0 };
+  /** Pooled fly-to-hero loot motes + the pickups we are waiting on (id → ms). */
+  pickupFx: PickupFx | null = null;
+  pickupFlyIds = new Map<string, number>();
+  bagFullWarned = false;
+  hubPortalToastShown = false;
 
   room: RoomSnap | null = null;
   joystick: VirtualJoystick;
@@ -224,7 +388,30 @@ export class WorldApp {
   serverYou: Vec2 = { x: 0, y: 0 };
   renderYou: Vec2 = { x: 0, y: 0 };
   predicting = false;
-  remoteSmooth = new SmoothStore();
+  /** Mobs + remote pilgrims: snapshot interpolation on the server clock (smoothing.ts). */
+  interp = new InterpStore();
+  /** Telegraphs, mob poses/flinch/death, hit flashes, combat numbers (combatView.ts). */
+  combat: CombatView | null = null;
+  /** Shoves / slow / root on the local pilgrim's prediction (forces.ts). */
+  forces = new PlayerForces();
+  /** Current canto's mechanic hooks (cantoMech/). */
+  mech: CantoMech = mechFor(null);
+  /** This frame's canto move feel (mech.moveFeel fills it once per frame). */
+  moveFeel: MoveFeelOut = { speedMul: 1, accelMul: 1, driftX: 0, driftY: 0 };
+  /** shove displacement not yet applied (forces.displacement), consumed by integrateVelocity */
+  _fv: Vec2 = { x: 0, y: 0 };
+  _fd: Vec2 = { x: 0, y: 0 };
+  /** Canto mechanic collide() scratch (no allocation per move substep). */
+  _mechP: Vec2 = { x: 0, y: 0 };
+  /** Canvas CSS size (resize()), for screen-space overlays without a layout read. */
+  viewW = 1;
+  viewH = 1;
+  /** performance.now() of the last death (no heal number for the respawn refill). */
+  lastDeathAt = -1e9;
+  /** Smooth directional camera shake: phase clock + the hit direction (planar). */
+  shakeT = 0;
+  shakeDirX = 1;
+  shakeDirY = 0;
   velX = 0;
   velY = 0;
   aimX = 1;
@@ -236,6 +423,8 @@ export class WorldApp {
   youGroup: THREE.Group | null = null;
   camTarget = new THREE.Vector3();
   camFollow = new THREE.Vector3();
+  /** Smoothed camera look-ahead along the hero's velocity (planar x, z). */
+  camLead = { x: 0, z: 0 };
   camPunch = 0;
   camShake = 0;
   camFovKick = 0;
@@ -250,13 +439,24 @@ export class WorldApp {
   lustReturnGlutNudgeShown = false;
   glutAvaGateApproachShown = false;
   glutReturnAvaNudgeShown = false;
-  nearExitToastAt = 0;
   seenLootIds = new Set<string>();
   seenInvItemIds = new Set<string>();
   autoPickupSent = new Map<string, number>();
   lastAutoPickupScan = 0;
   attackBusyUntil = 0;
-  attackHoldTimer: number | null = null;
+  /** Hold-to-attack (button, F key, mouse held on a foe): swing whenever ready. */
+  attackHeld = false;
+  /**
+   * Who is holding attack: "key" (F), "button" (#btn-attack) or a canvas pointer id
+   * (mouse / finger held on a foe). One source lifting never ends another's hold —
+   * a thumb on the button while a second finger taps a foe keeps swinging.
+   */
+  attackHolds = new Set<AttackHoldSource>();
+  heroMotor: HeroMotor | null = null;
+  /** Real (unclamped, un-hit-stopped) step of the current frame; null outside loop(). */
+  frameRawDt: number | null = null;
+  _pin: Vec2 = { x: 0, y: 0 };
+  _step: Vec2 = { x: 0, y: 0 };
   lastHitFoe: { id: string; until: number } | null = null;
   deathFxUntil = 0;
   pendingCast: { spellId: SpellId; aimX: number; aimY: number; until: number } | null = null;
@@ -275,6 +475,8 @@ export class WorldApp {
   portalHold: {
     target: any;
     fromKey: boolean;
+    /** Started by arriving at a tapped gate: completes on its own, steering cancels. */
+    auto: boolean;
     pointerId: number | null;
     startMs: number;
     completed: boolean;
@@ -292,22 +494,6 @@ export class WorldApp {
   mireHeartDownToastShown = false;
   mireHeartSeenAlive = false;
   counterweightApproachShown = false;
-  ledgerMidApproachShown = false;
-  northMeasureApproachShown = false;
-  crushApproachShown = false;
-  southSpillApproachShown = false;
-  weightChampApproachShown = false;
-  nwDriftApproachShown = false;
-  swSpillApproachShown = false;
-  seDriftApproachShown = false;
-  roadWeightsApproachShown = false;
-  goldChorusApproachShown = false;
-  crushFlankApproachShown = false;
-  strayCoinApproachShown = false;
-  northLedgerApproachShown = false;
-  southBalanceApproachShown = false;
-  coinWispsApproachShown = false;
-  ledgerWardenApproachShown = false;
   hoardHeartDownToastShown = false;
   hoardHeartSeenAlive = false;
   stormHeartDownToastShown = false;
@@ -340,15 +526,13 @@ export class WorldApp {
   wardMesh: THREE.Mesh | null = null;
   bursts: { mesh: THREE.Mesh; start: number; dur: number; r: number }[] = [];
   teles: { mesh: THREE.Mesh; until: number; r: number }[] = [];
-  slams: SlamTele[] = [];
-  slash: THREE.Group | null = null;
-  slashUntil = 0;
   sparks: SparkBurst[] = [];
-  dust: { mesh: THREE.Mesh; start: number }[] = [];
-  lastDustAt = 0;
   impacts: ImpactRing[] = [];
   hitStopUntil = 0;
   raycaster = new THREE.Raycaster();
+  /** fadeTreeOccluders scratch (reused, not reallocated every other frame). */
+  treeRayHits: THREE.Intersection[] = [];
+  treeRayHidden = new Set<THREE.Object3D>();
   groundPlane = new THREE.Plane(UP, 0);
   tmp = new THREE.Vector3();
   tmp2 = new THREE.Vector3();
@@ -358,8 +542,15 @@ export class WorldApp {
     this.root = root;
     this.socket = socket;
     this.camera = new THREE.PerspectiveCamera(this.camFov(), 1, 0.2, isCompactUi() ? 170 : 240);
+    const compact = isCompactUi();
+    const pick = pickInitialTier(compact);
+    this.gfx = flagsFor(pick.tier, compact);
+    const dpr = window.devicePixelRatio || 1;
+    this.governor = new FrameGovernor(this.gfx, Math.min(this.gfx.maxRatio, dpr), dpr, pick.pinned);
     this.renderer = new THREE.WebGLRenderer({
-      antialias: !isCompactUi(),
+      // The scene renders into the composer's (non-MSAA) target, so canvas MSAA only
+      // ever smoothed the final full-screen quad (~8% of a desktop frame for nothing).
+      antialias: false,
       alpha: false,
       powerPreference: "high-performance",
     });
@@ -368,10 +559,15 @@ export class WorldApp {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.22;
-    this.renderer.shadowMap.enabled = !isCompactUi();
+    this.renderer.shadowMap.enabled = this.gfx.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
+    // draw() resets per frame so composer passes add up; the totals of each finished
+    // frame are copied to frameInfo (see __selvaRenderInfo)
+    this.renderer.info.autoReset = false;
     root.appendChild(this.renderer.domElement);
+    this.lightPool = new LightPool(this.scene, this.gfx.pointLights);
+    this.applyGfxClasses();
 
     this.labelRenderer = new CSS2DRenderer();
     this.labelRenderer.domElement.style.position = "absolute";
@@ -390,22 +586,31 @@ export class WorldApp {
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xffe6c0, 1.85);
     this.sun.castShadow = this.renderer.shadowMap.enabled;
-    this.sun.shadow.mapSize.set(256, 256);
-    this.sun.shadow.camera.near = 2;
-    this.sun.shadow.camera.far = 90;
-    this.sun.shadow.camera.left = -40;
-    this.sun.shadow.camera.right = 40;
-    this.sun.shadow.camera.top = 40;
-    this.sun.shadow.camera.bottom = -40;
+    // Tight box around the camera focus: only the hero and nearby foes/props cast (the
+    // frustum culls the rest), and 512² over 36u is ~5× sharper than 256² over 80u.
+    this.sun.shadow.mapSize.set(512, 512);
+    this.sun.shadow.camera.near = 4;
+    this.sun.shadow.camera.far = 56;
+    this.sun.shadow.camera.left = -18;
+    this.sun.shadow.camera.right = 18;
+    this.sun.shadow.camera.top = 18;
+    this.sun.shadow.camera.bottom = -18;
+    this.sun.shadow.bias = -0.0006;
+    this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
     this.scene.add(this.portalLight);
     this.scene.add(this.hitLight);
 
-    const amb = new THREE.AmbientLight(0x8a7a62, 0.48);
-    this.scene.add(amb);
+    // The old PMREM "environment" was a solid clear-colour cube (0x1c1812 — the env
+    // scene had a light but no meshes), i.e. a dim constant ambient that cost two cube
+    // lookups per pixel. This bump reproduces it: PI × env × ~0.75 envMapIntensity.
+    this.ambient.intensity = 0.59;
+    this.scene.add(this.ambient);
     this.fill = new THREE.DirectionalLight(0x88aacc, 0.55);
-    this.fill.position.set(-12, 10, -8);
+    // Light rig offsets are authored for the legacy camera side; camRel turns them with the camera yaw.
+    const fillOff = camRel(-12, -8);
+    this.fill.position.set(fillOff.x, 10, fillOff.z);
     this.scene.add(this.fill);
     this.rim.position.set(-10, 8, -12);
     this.scene.add(this.rim);
@@ -429,16 +634,21 @@ export class WorldApp {
 
   async start() {
     this.mats = await loadMatKit(this.renderer);
-    {
-      const pmrem = new THREE.PMREMGenerator(this.renderer);
-      const env = new THREE.Scene();
-      env.add(new THREE.HemisphereLight(0xf0e0c0, 0x22180c, 1.35));
-      this.scene.environment = pmrem.fromScene(env, 0.04).texture;
-      pmrem.dispose();
-    }
+    applyTextureTier(this.mats, this.gfx);
     this.youGroup = makeByKind("player", this.mats);
     this.youGroup.userData.entityId = "you";
     this.youGroup.scale.setScalar(1.42);
+    {
+      // Your own foot ring: its own (unshared) material and a bolder band than the
+      // remotes' — on a phone the hero is ~35 px tall and must be found at a glance
+      const ring = this.youGroup.getObjectByName("heroRing") as THREE.Mesh | undefined;
+      if (ring) {
+        const mat = (ring.material as THREE.MeshBasicMaterial).clone();
+        ring.material = mat;
+        ring.geometry = new THREE.RingGeometry(0.33, 0.47, 32);
+        this.selfRing = ring;
+      }
+    }
     applyEquippedLook(this.youGroup, {});
     this.heroLight.position.set(0.08, 1.15, -0.42);
     this.heroLight.intensity = 3.4;
@@ -452,6 +662,7 @@ export class WorldApp {
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,
+        forceSinglePass: true,
         depthWrite: false,
       });
       const outer = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.62, 28), ringMat);
@@ -463,6 +674,7 @@ export class WorldApp {
           transparent: true,
           opacity: 0.9,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
         })
       );
@@ -484,6 +696,7 @@ export class WorldApp {
           transparent: true,
           opacity: 0.85,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
         })
       );
@@ -492,23 +705,43 @@ export class WorldApp {
       this.lockRing = lock;
       this.scene.add(lock);
     }
-    this.slash = makeSlashTrail();
-    this.slash.visible = false;
+    // Swing arcs, dash, death pose, blade trail and foot dust for your pilgrim
+    this.heroMotor = new HeroMotor(this);
     {
-      const anchor =
-        this.youGroup.getObjectByName("slashAnchor") ||
-        this.youGroup.getObjectByName("handR") ||
-        this.youGroup;
-      anchor.add(this.slash);
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const app = this;
+      this.combat = new CombatView({
+        scene: this.scene,
+        camera: this.camera,
+        root: this.root,
+        interp: this.interp,
+        get renderYou() {
+          return app.renderYou;
+        },
+        nodes: this.nodes,
+        standY: (x, y, lift) => this.standY(x, y, lift),
+        surfaceY: (x, y) => this.surfaceY(x, y),
+        cantoId: () => this.room?.cantoId,
+        bounds: () => this.room?.bounds ?? null,
+        rttMs: () => this.socket.rttMs,
+        disposeNode: (rec) => this.disposeNode(rec as NodeRec),
+        onTelegraphLand: (l) => this.onTelegraphLand(l),
+      });
     }
     this.portalHoldFx = makePortalHoldFx();
     this.scene.add(this.portalHoldFx.group);
+    this.pickupFx = new PickupFx(this.scene, isCompactUi());
 
     this.ash = new AshField(isCompactUi() ? 48 : 90, 0xe8d4b0);
     this.scene.add(this.ash.points);
     this.radar = new Radar();
+    this.guidance = new Guidance(this);
 
     this.bindInput();
+    // Inventory rebuilds are deferred while the bag is closed — catch up when it opens
+    onPanelOpen((id) => {
+      if (id === "inventory") this.refreshInventoryUi();
+    });
     this.socket.on((msg) => this.onNet(msg));
     if (this.socket.lastSnapshot) this.onNet(this.socket.lastSnapshot);
 
@@ -529,8 +762,8 @@ export class WorldApp {
       },
       interactNearest: () => this.interactNearest(),
       attackNearest: () => this.attackNearest(),
-      onAttackHoldStart: () => this.startAttackHold(),
-      onAttackHoldEnd: () => this.stopAttackHold(),
+      onAttackHoldStart: () => this.startAttackHold("button"),
+      onAttackHoldEnd: () => this.stopAttackHold("button"),
       equipSelected: () => {
         const id = getSelectedItemId();
         if (!id) {
@@ -610,36 +843,167 @@ export class WorldApp {
         fog: false,
       });
       this.sky = new THREE.Mesh(new THREE.SphereGeometry(150, 24, 16), skyMat);
-      this.sky.renderOrder = -10;
+      // Drawn after the opaque world (depth-tested, no depth write): only the pixels the
+      // floor and props leave uncovered run the sky shader, instead of the whole screen
+      this.sky.renderOrder = 10;
       this.scene.add(this.sky);
       if (this.skyColors) this.setSky(...this.skyColors);
     }
-    {
-      const rig = makeComposer(this.renderer, this.scene, this.camera, { bloom: !isCompactUi() });
-      this.composer = rig.composer;
-      this.gradePass = rig.grade;
-      // Heavier edge falloff on phones frames the hero and lifts HUD legibility
-      if (isCompactUi()) this.gradePass.uniforms.darkness.value = 0.58;
-      this.bloom = rig.bloom;
-      const bw = this.root.clientWidth || window.innerWidth;
-      const bh = this.root.clientHeight || window.innerHeight;
-      this.composer.setSize(bw, bh);
-      this.bloom?.setSize(Math.max(2, bw >> 1), Math.max(2, bh >> 1));
-    }
+    this.buildComposer();
+    if (import.meta.env.DEV) this.exposeRenderInfo();
     this.running = true;
     this.clock.start();
     this.loop();
     document.getElementById("boot-veil")?.classList.add("out");
   }
 
+  /** Render resolution: the governor's adaptive ratio (never above the tier cap or DPR). */
   pixelRatio(): number {
     const dpr = window.devicePixelRatio || 1;
-    return Math.min(isCompactUi() ? 1.2 : 1.5, dpr);
+    return Math.min(dpr, this.governor ? this.governor.ratio : Math.min(1.2, dpr));
+  }
+
+  /** Tier cap for the ratio (benches pin this to compare like with like). */
+  maxPixelRatio(): number {
+    return this.governor.maxFor(this.gfx);
+  }
+
+  /** Apply a render ratio to the canvas, the composer targets and bloom together. */
+  applyPixelRatio(pr: number) {
+    this.governor.ratio = pr;
+    const w = this.root.clientWidth || window.innerWidth;
+    const h = this.root.clientHeight || window.innerHeight;
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(w, h, false);
+    if (this.composer) {
+      this.composer.setPixelRatio(pr);
+      this.composer.setSize(w, h);
+    }
+    // Bloom runs at half the scene resolution (EffectComposer resets it to full)
+    this.bloom?.setSize(Math.max(2, Math.round((w * pr) / 2)), Math.max(2, Math.round((h * pr) / 2)));
+  }
+
+  /** (Re)build the post chain for the current tier (bloom only on high). */
+  buildComposer() {
+    if (this.composer) {
+      this.composer.dispose();
+      for (const p of this.composer.passes) (p as { dispose?: () => void }).dispose?.();
+      this.composer = null;
+      this.gradePass = null;
+      this.bloom = null;
+    }
+    const rig = makeComposer(this.renderer, this.scene, this.camera, { bloom: this.gfx.bloom });
+    this.composer = rig.composer;
+    this.gradePass = rig.grade;
+    this.bloom = rig.bloom;
+    this.applyPixelRatio(this.pixelRatio());
+  }
+
+  /** Scene → screen for the current tier (benches call this directly). */
+  renderFrame() {
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Step down one quality tier (FrameGovernor asks; never steps back up). */
+  setTier(tier: Tier) {
+    if (tier === this.gfx.tier) return;
+    const flags = flagsFor(tier, isCompactUi());
+    this.gfx = flags;
+    this.governor.setFlags(flags);
+    this.renderer.shadowMap.enabled = flags.shadows;
+    this.sun.castShadow = flags.shadows;
+    this.lightPool.setCount(flags.pointLights);
+    if (this.mats) applyTextureTier(this.mats, flags);
+    this.buildComposer();
+    this.applyGfxClasses();
+    this.prewarmShaders();
+    if (import.meta.env.DEV) console.info(`[gfx] tier → ${tier}`);
+  }
+
+  applyGfxClasses() {
+    const b = document.body.classList;
+    b.toggle("gfx-low", this.gfx.tier === "low");
+    b.toggle("gfx-mid", this.gfx.tier === "mid");
+    b.toggle("gfx-high", this.gfx.tier === "high");
+  }
+
+  /**
+   * Compile every material in the scene for the current lights/target now, so the first
+   * slam / portal hold / boss approach does not stall on a shader build mid-fight.
+   */
+  prewarmShaders() {
+    if (!this.mats) return;
+    if (!this.fxWarm) {
+      // One hidden instance of each on-demand effect so its program exists before the
+      // first slam / hit (compile() walks invisible objects too; hidden ones never draw)
+      const g = new THREE.Group();
+      g.name = "fxWarm";
+      g.visible = false;
+      g.add(makeImpactRing(0xffffff), makeDustPuff(), makeLootBeam(0xffffff));
+      g.add(spawnSparks(0, 0, 0, 0xffffff, 0).points);
+      g.add(makeBurst(this.mats));
+      this.fxWarm = g;
+      this.scene.add(g);
+    }
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    // Composer tiers draw the scene into renderTarget1: compile for that program key
+    if (this.composer) r.setRenderTarget(this.composer.renderTarget1);
+    try {
+      // compile(), not compileAsync(): both start every program build now (the driver
+      // links in parallel; the first draw only waits if one is still linking), but
+      // compileAsync then polls each material's program from a timer — and throws an
+      // uncaught TypeError if a transient effect (impact ring, gate burst, loot beam)
+      // is disposed before its program reports ready, e.g. a tier step mid-fight.
+      r.compile(this.scene, this.camera);
+    } catch {
+      /* compile errors surface on the real draw too */
+    }
+    r.setRenderTarget(prev);
+    this.governor.hold(2.5);
+  }
+
+  exposeRenderInfo() {
+    (window as unknown as { __selvaRenderInfo?: () => unknown }).__selvaRenderInfo = () => {
+      const info = this.renderer.info;
+      const fi = this.frameInfo;
+      const composerPR = this.composer ? (this.composer as unknown as { _pixelRatio: number })._pixelRatio : null;
+      return {
+        // Exactly one drawn frame; shadowPass says whether it included the (every Nth frame) shadow map
+        calls: fi.calls,
+        triangles: fi.triangles,
+        points: fi.points,
+        shadowPass: fi.shadowPass,
+        programs: info.programs?.length ?? 0,
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+        pixelRatio: +this.renderer.getPixelRatio().toFixed(3),
+        composer: Boolean(this.composer),
+        composerPR,
+        tier: this.gfx.tier,
+        // Counted frames per second (averaging 1000/ms overstates it when intervals vary)
+        fps: +(this.fps || 1000 / this.governor.ema).toFixed(1),
+        frameMsEma: +this.governor.ema.toFixed(2),
+        pointLights: this.lightPool.slots.length + 1,
+      };
+    };
   }
 
   camFov(): number {
-    if (isLandscapeCompact()) return 56;
-    if (isCompactUi()) return 54;
+    // (landscape phones: a touch tighter than before so the hero reads bigger than 31 px)
+    if (isLandscapeCompact()) return 50;
+    if (isCompactUi()) {
+      if (isPortraitCompact()) {
+        // Portrait is narrow: widen the lens until ±PORTRAIT_HALF_W m of ground show
+        // beside the hero (a 54° lens showed ±4 m — packs struck from off-screen)
+        const aspect = this.viewW > 1 && this.viewH > 1 ? this.viewW / this.viewH : window.innerWidth / Math.max(1, window.innerHeight);
+        const dist = Math.hypot(CAM_BACK_PORTRAIT, CAM_HEIGHT_PORTRAIT);
+        const v = (2 * Math.atan(PORTRAIT_HALF_W / (dist * Math.max(0.3, aspect))) * 180) / Math.PI;
+        return Math.max(54, Math.min(PORTRAIT_FOV_MAX, v));
+      }
+      return 54;
+    }
     return 52;
   }
 
@@ -658,6 +1022,19 @@ export class WorldApp {
     this.combatUntil = Date.now() + 2800;
   }
 
+  /** Shake the camera along planar (dirX, dirY) — the way the blow travels. */
+  kickShake(amount: number, dirX = 0, dirY = 0) {
+    if (amount > this.camShake) {
+      this.camShake = amount;
+      this.shakeT = 0;
+    }
+    const l = Math.hypot(dirX, dirY);
+    if (l > 1e-4) {
+      this.shakeDirX = dirX / l;
+      this.shakeDirY = dirY / l;
+    }
+  }
+
   resize() {
     const vv = window.visualViewport;
     // Prefer the fixed #game-root box; fall back to visualViewport on compact
@@ -668,15 +1045,22 @@ export class WorldApp {
       w = Math.round(vv.width) || w;
       h = Math.round(vv.height) || h;
     }
+    this.viewW = w;
+    this.viewH = h;
     this.camera.fov = this.camFov();
     this.camera.far = isCompactUi() ? 170 : 240;
     this.camera.aspect = w / Math.max(1, h);
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(this.pixelRatio());
+    this.governor?.setDpr(window.devicePixelRatio || 1);
+    const pr = this.pixelRatio();
+    this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.labelRenderer.setSize(w, h);
-    this.composer?.setSize(w, h);
-    this.bloom?.setSize(Math.max(2, w >> 1), Math.max(2, h >> 1));
+    if (this.composer) {
+      this.composer.setPixelRatio(pr);
+      this.composer.setSize(w, h);
+    }
+    this.bloom?.setSize(Math.max(2, Math.round((w * pr) / 2)), Math.max(2, Math.round((h * pr) / 2)));
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
     document.body.classList.toggle("hud-compact", isCompactUi());
@@ -701,12 +1085,13 @@ export class WorldApp {
         this.cancelPortalHold();
       }
       if (e.code === "KeyQ") this.sip();
+      if (e.code === "KeyF") this.startAttackHold("key");
       if (e.code === "Space") {
         e.preventDefault();
         this.dash();
       }
       if (e.code === "KeyE") {
-        const portal = this.nearestIsPortalTravel();
+        const portal = this.portalForUse();
         if (portal) this.beginPortalHold(portal, { fromKey: true });
         else this.interactNearest();
       }
@@ -716,8 +1101,27 @@ export class WorldApp {
       if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
         this.releaseSpellHold(true);
       }
+      if (e.code === "KeyF") this.stopAttackHold("key");
     });
+    // Focus lost with F / WASD / a mouse button down never sees the keyup: drop
+    // the held keys and the attack hold, or the hero would fight (and chase) alone
+    const dropHeld = () => {
+      this.stopAttackHold();
+      this.keys.clear();
+    };
+    window.addEventListener("blur", dropHeld);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) dropHeld();
+    });
+    // A mouse / finger held on a foe (pointerInput.tapAt) lets go of attack when it lifts
+    const liftAttack = (e: PointerEvent) => {
+      if (this.attackHolds.has(e.pointerId)) this.stopAttackHold(e.pointerId);
+    };
+    // (capture: a HUD element that stops the event's propagation can't strand the hold)
+    window.addEventListener("pointerup", liftAttack, true);
+    window.addEventListener("pointercancel", liftAttack, true);
 
+    this.pointer = new PointerInput(this, this.renderer.domElement);
     this.renderer.domElement.addEventListener("pointerdown", (ev) => {
       if (!this.room) return;
       const t = ev.target as HTMLElement | null;
@@ -725,43 +1129,61 @@ export class WorldApp {
         return;
       }
       if (this.joystick.isVisible() && this.joystick.containsClientPoint(ev.clientX, ev.clientY)) return;
-
-      const hit = this.pickEntity(ev);
-      if (hit) {
-        if (hit.kind === "mob" || hit.kind === "boss") {
-          this.lockedId = String(hit.id);
-          this.attackNearest();
-          return;
-        }
-        if (hit.kind === "loot") {
-          this.socket.pickup(hit.id);
-          return;
-        }
-        if (hit.kind === "poi" || hit.kind === "exit") {
-          if (hit.kind === "exit" || hit.poiKind === "portal") {
-            this.beginPortalHold(hit, { fromKey: false, pointerId: ev.pointerId });
-          } else {
-            this.doInteract(hit);
-          }
-          return;
-        }
-      }
-      if (this.joystick.isActive()) return;
-      const g = this.pickGround(ev);
-      if (g) this.setClickMove(g);
+      // Taps on loot / POIs / gates walk in; ground taps walk; foes attack
+      this.pointer?.down(ev);
     });
+    // A quick tap inside the floating-stick zone still counts as a world tap
+    this.joystick.onTap = (x, y) => {
+      if (this.room) this.pointer?.tapAt(x, y);
+    };
   }
 
-  ndcFromEvent(ev: PointerEvent): THREE.Vector2 {
+  ndcFromEvent(ev: { clientX: number; clientY: number }): THREE.Vector2 {
     const r = this.renderer.domElement.getBoundingClientRect();
-    return new THREE.Vector2(
+    return this._ndc.set(
       ((ev.clientX - r.left) / r.width) * 2 - 1,
       -((ev.clientY - r.top) / r.height) * 2 + 1
     );
   }
 
+  /**
+   * Tap/click on loot, a POI or a gate: walk there (no distance cap) and use it
+   * on arrival — gates start the travel channel by themselves. Never stops the
+   * hero without saying why.
+   */
+  walkToInteract(ent: any) {
+    if (!this.room || !ent) return;
+    const isPortal = ent.kind === "exit" || ent.poiKind === "portal";
+    const you = this.youPos();
+    const pos = ent.kind === "loot" ? this.lootRenderPos(ent) : this.entityRenderPos(ent);
+    const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+    const reach = isPortal ? EXIT_TRAVEL_RANGE * 0.92 : INTERACT_RANGE * 0.92;
+    if (isPortal && this.portalIsLocked(ent)) {
+      // Sealed: say so, and still walk up to it if asked from afar
+      this.denyLockedPortal(ent);
+      this.softSnapTargetId = null;
+      if (d > reach) this.setClickMove(this.clampToBounds(pos.x, pos.y));
+      return;
+    }
+    if (d <= reach) {
+      this.softSnapTargetId = null;
+      this.fireInteract(ent);
+      return;
+    }
+    if (this.portalHold) this.cancelPortalHold();
+    this.softSnapTargetId = String(ent.id);
+    // Walk-in budget scales with distance (a far gate is a long walk, not a 1.6 s glide)
+    this.softSnapUntil = this.animT + Math.min(24000, (d / PREDICT_SPEED) * 1600 + 1500);
+    this.softSnapMove.x = pos.x;
+    this.softSnapMove.y = pos.y;
+    this.moveTarget = this.softSnapMove;
+    this.aimX = (pos.x - you.x) / (d || 1);
+    this.aimY = (pos.y - you.y) / (d || 1);
+  }
+
   /** Click-to-move: walk locally toward dest and stream predicted steps (never the far dest). */
   setClickMove(g: Vec2) {
+    this.softSnapTargetId = null;
     const you = this.youPos();
     let dx = g.x - you.x;
     let dy = g.y - you.y;
@@ -801,7 +1223,7 @@ export class WorldApp {
     return this.clampToBounds(out.x, out.z);
   }
 
-  pickEntity(ev: PointerEvent): any | null {
+  pickEntity(ev: { clientX: number; clientY: number }): any | null {
     if (!this.room) return null;
     this.raycaster.setFromCamera(this.ndcFromEvent(ev), this.camera);
     this.raycaster.far = Infinity;
@@ -821,7 +1243,8 @@ export class WorldApp {
   }
 
   entityRenderPos(e: { id: string; x: number; y: number }): Vec2 {
-    return this.remoteSmooth.pos(e.id, { x: e.x, y: e.y });
+    // (the entity itself is the fallback: no allocation; callers only read it)
+    return this.interp.pos(String(e.id), e);
   }
 
   clampToBounds(x: number, y: number): Vec2 {
@@ -838,6 +1261,11 @@ export class WorldApp {
     return (this.ground?.heightAt(x, y) ?? 0) + lift;
   }
 
+  /** Top of what is drawn at (x, y) — floor triangles or the boss dais (ground decals). */
+  surfaceY(x: number, y: number, lift = 0): number {
+    return (this.ground?.surfaceAt(x, y) ?? 0) + lift;
+  }
+
   sendMoveThrottled(x: number, y: number) {
     const now = Date.now();
     if (now - this.lastMoveSend < MOVE_SEND_MS) return;
@@ -845,33 +1273,62 @@ export class WorldApp {
     this.socket.move(x, y);
   }
 
-  loop = () => {
+  loop = (now: number = performance.now()) => {
     if (!this.running) return;
     requestAnimationFrame(this.loop);
     // Tab hidden: drain clock, skip sim/draw (rain + gold-dust CSS pause via .tab-hidden).
     if (document.hidden) {
       this.clock.getDelta();
+      this.lastFrameAt = 0;
+      this.fpsSince = 0;
       if (this.ash?.points) this.ash.points.visible = false;
       return;
     }
+    // 60fps cap: 120Hz+ displays skip alternate vsyncs (accumulated, so no 40fps judder)
+    if (!this.pacer.shouldRun(now)) return;
     if (this.ash?.points && !this.ash.points.visible) this.ash.points.visible = true;
+    if (this.lastFrameAt > 0) this.noteFrameTime(now - this.lastFrameAt);
+    this.lastFrameAt = now;
+    this.countFrame(now);
     let dt = this.clock.getDelta();
+    // (the hero's combat clock runs on real frame time: no clamp, no hit-stop)
+    this.frameRawDt = dt;
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
-    dt = Math.min(0.05, dt);
-    if (dt > 0.034) this.slowFrames++;
-    else this.slowFrames = Math.max(0, this.slowFrames - 1);
-    if (!this.gfxDropped && this.slowFrames > 40) {
-      this.gfxDropped = true;
-      this.renderer.setPixelRatio(1);
-      this.resize();
-    }
+    // Below 20fps the game no longer runs in slow motion: movement catches up in ≤50ms
+    // substeps (tick), bounded so one long stall can't spiral
+    dt = Math.min(0.25, dt);
     this.animT += dt * 1000;
     this.tick(dt);
-    this.draw(dt);
+    this.draw(Math.min(0.1, dt));
+    this.frameRawDt = null;
   };
+
+  countFrame(now: number) {
+    if (this.fpsSince <= 0) {
+      this.fpsSince = now;
+      this.fpsFrames = 0;
+      return;
+    }
+    this.fpsFrames++;
+    const span = now - this.fpsSince;
+    if (span >= 1000) {
+      this.fps = (this.fpsFrames * 1000) / span;
+      this.fpsSince = now;
+      this.fpsFrames = 0;
+    }
+  }
+
+  /** Feed the resolution/tier governor with the interval between drawn frames. */
+  noteFrameTime(ms: number) {
+    const ev = this.governor.sample(ms);
+    if (!ev) return;
+    if (ev.tier) this.setTier(ev.tier);
+    else if (ev.ratio != null) this.applyPixelRatio(ev.ratio);
+  }
 
   tick(dt: number) {
     if (!this.room) return;
+    this.heroMotor?.advance(this.frameRawDt ?? dt);
     const { fwd, right } = camPlanarBasis(this.camera);
     let fx = 0;
     let sx = 0;
@@ -888,25 +1345,50 @@ export class WorldApp {
     const ix = fwd.x * fx + right.x * sx;
     const iy = fwd.z * fx + right.z * sx;
     this.predicting = false;
+    // Canto mechanic: this frame's move feel (speed/accel multipliers, drift), then its tick
+    const mf = this.moveFeel;
+    mf.speedMul = 1;
+    mf.accelMul = 1;
+    mf.driftX = 0;
+    mf.driftY = 0;
+    this.mech.moveFeel?.(this, mf);
+    this.mech.tick?.(this, dt);
 
-    if (ix !== 0 || iy !== 0) this.applyContinuousMove(ix, iy, dt);
-    else if (this.moveTarget) this.advanceTapMove(dt);
-    else this.integrateVelocity(dt, false);
+    // Hold-to-attack: swing the moment the last one ends, re-targeting live foes
+    if (this.attackHeld && this.heroMotor?.canSwing()) this.attackNearest({ silent: true });
+    // Shoves: this frame's share of the displacement on wall-clock time (hit-stop can't
+    // shorten it); the next integrateVelocity substep applies it
+    const shove = this.forces.displacement(this._fd, performance.now());
+    this._fv.x += shove.x;
+    this._fv.y += shove.y;
+    for (let rem = dt; rem > 1e-6; ) {
+      const h = Math.min(0.05, rem);
+      rem -= h;
+      // Dash tween / death collapse pin the hero: no steering or move packets meanwhile
+      const pinned = this.heroMotor ? this.heroMotor.pinnedPos(this._pin) : null;
+      if (pinned) {
+        // held by the motor (a dash outruns any shove)
+        this._fv.x = 0;
+        this._fv.y = 0;
+      } else if (ix !== 0 || iy !== 0) this.applyContinuousMove(ix, iy, h);
+      else if (this.moveTarget) this.advanceTapMove(h);
+      else this.integrateVelocity(h, false);
 
-    this.renderYou = reconcileLocal(this.renderYou, this.serverYou, dt, this.predicting, {
-      x: this.velX,
-      y: this.velY,
-    });
-
-    const targets = new Map<string, Vec2>();
-    for (const e of this.room.entities) targets.set(e.id, { x: e.x, y: e.y });
-    for (const pl of this.room.players) {
-      if (pl.id === this.room.you.id) continue;
-      targets.set(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+      this.renderYou = reconcileLocal(this.renderYou, this.serverYou, h, this.predicting, {
+        x: this.velX,
+        y: this.velY,
+      });
+      if (pinned) this.renderYou = { x: pinned.x, y: pinned.y };
     }
-    this.remoteSmooth.tick(targets, dt);
+
+    // Mobs + remote pilgrims: interpolated ~one snapshot behind the server clock
+    const interpNow = performance.now();
+    this.interp.update(interpNow);
+    // (darting wisps follow their telegraph instead of the delayed samples)
+    this.combat?.applyMotion(interpNow);
 
     this.autoPickupScan();
+    this.pointer?.tick();
     this.tickSoftSnap();
     this.updateEmptyPackCells();
     this.scanNearestInteract();
@@ -960,30 +1442,19 @@ export class WorldApp {
     }
   }
 
-  /** Avarice gold-road move constants — WASD + click share the same accel/cap. */
-  avaMoveFeel(): { accel: number; maxSp: number; arrive: number } {
-    if (this.room?.cantoId !== "inferno_07") {
-      return { accel: MOVE_ACCEL, maxSp: PREDICT_SPEED, arrive: TAP_ARRIVE };
-    }
-    // Slightly snappier stride on the measure; click arrive softer so it matches keyboard stop
-    return { accel: MOVE_ACCEL * 1.12, maxSp: PREDICT_SPEED * 1.04, arrive: 0.55 };
+  /** Speed multiplier from the canto mechanic's feel and any slow / root on you. */
+  externalSpeedMul(): number {
+    return this.moveFeel.speedMul * this.forces.speedMul(performance.now());
   }
 
   applyContinuousMove(dx: number, dy: number, dtSec: number) {
     const len = Math.hypot(dx, dy);
     if (len > 0.001) {
-      const feel = this.avaMoveFeel();
       const nx = dx / len;
       const ny = dy / len;
-      this.velX += nx * feel.accel * dtSec;
-      this.velY += ny * feel.accel * dtSec;
       const mag = Math.min(1, len);
-      const maxSp = feel.maxSp * Math.max(0.35, mag);
-      const sp = Math.hypot(this.velX, this.velY);
-      if (sp > maxSp) {
-        this.velX = (this.velX / sp) * maxSp;
-        this.velY = (this.velY / sp) * maxSp;
-      }
+      const maxSp = PREDICT_SPEED * Math.max(0.35, mag) * (this.heroMotor?.moveScale() ?? 1) * this.externalSpeedMul();
+      this.steerVelocity(nx, ny, MOVE_ACCEL * this.moveFeel.accelMul, maxSp, dtSec);
       if (mag > 0.2) {
         this.aimX = nx;
         this.aimY = ny;
@@ -1014,36 +1485,40 @@ export class WorldApp {
 
   advanceTapMove(dtSec: number) {
     if (!this.moveTarget) return;
-    const feel = this.avaMoveFeel();
     const dx = this.moveTarget.x - this.renderYou.x;
     const dy = this.moveTarget.y - this.renderYou.y;
     const d = Math.hypot(dx, dy);
-    if (d < feel.arrive) {
+    if (d < TAP_ARRIVE) {
       this.moveTarget = null;
-      // Soft settle — match WASD friction stop instead of hard zero (gold-road feel)
-      if (this.room?.cantoId === "inferno_07") {
-        this.velX *= 0.35;
-        this.velY *= 0.35;
-      } else {
-        this.velX = 0;
-        this.velY = 0;
-      }
+      this.velX = 0;
+      this.velY = 0;
       this.predicting = false;
       return;
     }
     // Near target: cap speed so click doesn't overshoot relative to WASD stride
     const nearMag = d < 2.2 ? Math.max(0.4, d / 2.2) : 1;
-    this.velX += (dx / d) * feel.accel * dtSec;
-    this.velY += (dy / d) * feel.accel * dtSec;
-    const maxSp = feel.maxSp * nearMag;
-    const sp = Math.hypot(this.velX, this.velY);
-    if (sp > maxSp) {
-      this.velX = (this.velX / sp) * maxSp;
-      this.velY = (this.velY / sp) * maxSp;
-    }
+    const maxSp = PREDICT_SPEED * nearMag * (this.heroMotor?.moveScale() ?? 1) * this.externalSpeedMul();
+    this.steerVelocity(dx / d, dy / d, MOVE_ACCEL * this.moveFeel.accelMul, maxSp, dtSec);
     this.aimX = dx / d;
     this.aimY = dy / d;
     this.integrateVelocity(dtSec, true);
+  }
+
+  /**
+   * Steer toward a unit heading: speed along it accelerates to maxSp (or eases
+   * down to it), sideways slip decays so turns carve, and a reversal brakes hard
+   * first — the body plants and pivots instead of moonwalking backwards.
+   */
+  steerVelocity(nx: number, ny: number, accel: number, maxSp: number, dtSec: number) {
+    let along = this.velX * nx + this.velY * ny;
+    const slip = Math.exp(-MOVE_SLIP * dtSec);
+    const px = (this.velX - nx * along) * slip;
+    const py = (this.velY - ny * along) * slip;
+    if (along < 0) along = Math.min(0, along + MOVE_BRAKE * dtSec);
+    else if (along > maxSp) along = Math.max(maxSp, along - MOVE_BRAKE * dtSec);
+    else along = Math.min(maxSp, along + accel * dtSec);
+    this.velX = nx * along + px;
+    this.velY = ny * along + py;
   }
 
   integrateVelocity(dtSec: number, driven: boolean) {
@@ -1053,22 +1528,57 @@ export class WorldApp {
         this.velX = 0;
         this.velY = 0;
       } else {
-        // Avarice scorched flats: longer slide (greed slips off the measure)
-        let friction = MOVE_FRICTION;
-        if (this.room?.cantoId === "inferno_07" && isAvaScorchFlat(this.renderYou.x, this.renderYou.y)) {
-          friction = MOVE_FRICTION * 0.42;
-        }
-        const cut = Math.max(0, sp - friction * dtSec);
+        const cut = Math.max(0, sp - MOVE_FRICTION * dtSec);
         this.velX = (this.velX / sp) * cut;
         this.velY = (this.velY / sp) * cut;
       }
     }
-    if (this.velX === 0 && this.velY === 0) {
+    const nowMs = performance.now();
+    if (this.forces.rooted(nowMs)) {
+      this.velX = 0;
+      this.velY = 0;
+    }
+    // Root step into a sword cut (small, only with room to the target)
+    const step = this.heroMotor ? this.heroMotor.stepVelocity(this._step) : this._step;
+    // The canto's drift rides on top of the walk; a shove's displacement (taken in tick)
+    // lands once, on the frame's first substep
+    const ex = step.x + this.moveFeel.driftX;
+    const ey = step.y + this.moveFeel.driftY;
+    const shX = this._fv.x;
+    const shY = this._fv.y;
+    this._fv.x = 0;
+    this._fv.y = 0;
+    if (this.velX === 0 && this.velY === 0 && ex === 0 && ey === 0 && shX === 0 && shY === 0) {
       if (!driven) this.predicting = false;
       return;
     }
-    const nx = this.renderYou.x + this.velX * dtSec;
-    const ny = this.renderYou.y + this.velY * dtSec;
+    let nx = this.renderYou.x + (this.velX + ex) * dtSec + shX;
+    let ny = this.renderYou.y + (this.velY + ey) * dtSec + shY;
+    // Bodies: slide around foes the way the server does (room.handleMove)
+    if (this.room) {
+      const canto = this.room.cantoId;
+      for (const e of this.room.entities) {
+        if ((e.kind !== "mob" && e.kind !== "boss") || !(e.hp > 0) || (Number(e.stunLeft) || 0) > 0.05) continue;
+        const p = this.entityRenderPos(e);
+        const rad = bodyRadius(e, canto);
+        const ox = nx - p.x;
+        const oy = ny - p.y;
+        if (Math.abs(ox) >= rad || Math.abs(oy) >= rad) continue;
+        const d = Math.hypot(ox, oy);
+        if (d >= rad || d < 0.001) continue;
+        nx = p.x + (ox / d) * rad;
+        ny = p.y + (oy / d) * rad;
+      }
+    }
+    // Canto props that are solid on the server (Lust windbreaks) push you out the same way
+    if (this.mech.collide) {
+      const cp = this._mechP;
+      cp.x = nx;
+      cp.y = ny;
+      this.mech.collide(this, cp);
+      nx = cp.x;
+      ny = cp.y;
+    }
     this.renderYou = this.clampToBounds(nx, ny);
     this.predicting = true;
     this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
@@ -1076,40 +1586,29 @@ export class WorldApp {
 
   draw(dt: number) {
     const compact = isCompactUi();
-    if (this.youGroup) {
-      setPlanar(this.youGroup.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
-      this.youGroup.rotation.y = yawFromPlanar(this.aimX, this.aimY);
-      const moving = Math.hypot(this.velX, this.velY) > 0.4;
-      const attacking = this.animT < this.slashUntil;
-      tickHumanoid(this.youGroup, {
-        moving,
-        tMs: this.animT,
-        attacking,
-        attackU: attacking ? 1 - (this.slashUntil - this.animT) / ATTACK_ANIM_MS : 0,
-        speed: Math.hypot(this.velX, this.velY),
+    this.renderer.info.reset();
+    if (this.youGroup && this.heroMotor) {
+      // Facing, swing/dash/death poses, blade trail and foot dust (heroMotor.ts)
+      this.heroMotor.update(dt, {
         channeling: Boolean(this.portalHold && !this.portalHold.completed),
+        dtRaw: this.frameRawDt ?? dt,
       });
-      if (moving && this.animT - this.lastDustAt > 160 && this.dust.length < 8) {
-        this.lastDustAt = this.animT;
-        const puff = makeDustPuff();
-        setPlanar(puff.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.05));
-        this.scene.add(puff);
-        this.dust.push({ mesh: puff, start: this.animT });
-      }
-      if (this.netOffline) {
-        this.youGroup.traverse((o) => {
-          const m = o as THREE.Mesh;
-          if (m.isMesh && m.material && "opacity" in m.material) {
-            const mm = m.material as THREE.MeshStandardMaterial;
-            if (!mm.transparent) mm.needsUpdate = true; // OPAQUE variant ignores opacity
-            mm.transparent = true;
-            (m.material as THREE.MeshStandardMaterial).opacity = 0.45;
-          }
-        });
-      }
+      // Net-offline ghost swaps in translucent twins; shared hero materials stay opaque
+      setHeroGhost(this.youGroup, this.netOffline);
     }
 
     this.syncEntities();
+    // Foe plates: trash names off on phones, overlaps hidden, none over the hero (~10 Hz)
+    this.declutter.tick(this, compact, performance.now());
+    if (this.prewarmPending) {
+      // New canto: ground + first entity wave exist now — build their programs up front
+      this.prewarmPending = false;
+      this.prewarmShaders();
+    }
+    if (this.pickupFx && this.youGroup) {
+      const hp = this.youGroup.position;
+      this.pickupFx.tick(performance.now(), hp.x, hp.y + 1.25, hp.z);
+    }
     if (this.lockRing) {
       const lock = this.lockedId ? this.foeById(this.lockedId, 80) : null;
       this.lockRing.visible = Boolean(lock);
@@ -1120,6 +1619,10 @@ export class WorldApp {
     }
 
     setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
+    // Look-ahead along the walk so the road in front gets the screen
+    tickCamLead(this.camLead, this.velX, this.velY, dt, compact);
+    this.camTarget.x += this.camLead.x;
+    this.camTarget.z += this.camLead.z;
     const rate = compact ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
     this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
     // Crush dais: lift look + floor so the camera clears the raised measure
@@ -1149,8 +1652,15 @@ export class WorldApp {
     const camFloor = this.standY(this.camera.position.x, this.camera.position.z, floorLift);
     this.camera.position.y = Math.max(this.camera.position.y, camFloor);
     if (this.camShake > 0.001) {
-      this.camera.position.x += (Math.random() - 0.5) * this.camShake;
-      this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.45;
+      // Smooth shake along the hit direction (a few detuned sines, not white noise)
+      this.shakeT += dt;
+      const a = this.camShake * 0.5;
+      const t = this.shakeT;
+      const along = Math.sin(t * 47) * 0.8 + Math.sin(t * 73 + 0.7) * 0.2;
+      const side = Math.sin(t * 31 + 1.9) * 0.35;
+      this.camera.position.x += (this.shakeDirX * along - this.shakeDirY * side) * a;
+      this.camera.position.z += (this.shakeDirY * along + this.shakeDirX * side) * a;
+      this.camera.position.y += Math.sin(t * 59 + 0.4) * a * 0.35;
       this.camShake *= Math.exp(-dt * 10);
     }
     const baseFov = this.camFov();
@@ -1163,22 +1673,16 @@ export class WorldApp {
       this.camera.updateProjectionMatrix();
       this.camFovKick = 0;
     }
-    if (this.gradePass) {
-      this.gradePass.uniforms.hitFlash.value = this.hitFlashAmt;
-      this.hitFlashAmt *= Math.exp(-dt * 8.5);
-    }
+    if (this.gradePass) this.gradePass.flash.value = this.hitFlashAmt;
+    this.hitFlashAmt = this.hitFlashAmt > 0.004 ? this.hitFlashAmt * Math.exp(-dt * 8.5) : 0;
 
     this.sky?.position.set(this.camFollow.x, 0, this.camFollow.z);
-    this.sun.position.set(this.camFollow.x + 14, 22, this.camFollow.z + 8);
+    this.sun.position.set(this.camFollow.x + SUN_OFF.x, 22, this.camFollow.z + SUN_OFF.z);
     this.sun.target.position.copy(this.camFollow);
-    this.rim.position.set(this.camFollow.x - 10, 9, this.camFollow.z - 12);
+    this.rim.position.set(this.camFollow.x + RIM_OFF.x, 9, this.camFollow.z + RIM_OFF.z);
     this.rim.target.position.copy(this.camFollow);
 
-    if (this.slash && this.slashUntil > this.animT) {
-      this.slash.visible = true;
-      const u = 1 - (this.slashUntil - this.animT) / ATTACK_ANIM_MS;
-      tickSlashTrail(this.slash, u, { gold: this.room?.cantoId === "inferno_07", compact });
-    } else if (this.slash) this.slash.visible = false;
+    this.heroMotor?.setPalette(this.room?.cantoId === "inferno_07");
 
     this.frameN++;
     const inCombatRoom =
@@ -1188,13 +1692,7 @@ export class WorldApp {
     const inGlut = this.room?.cantoId === "inferno_06";
     const inAva = this.room?.cantoId === "inferno_07";
     const fighting = this.inCombat();
-    // Compact combat: ease pixel ratio slightly when still at the soft cap (skip if already gfx-dropped).
-    if (compact && !this.gfxDropped && this.frameN % 30 === 0) {
-      const want = Math.min(fighting ? 1.05 : 1.2, window.devicePixelRatio || 1);
-      if (Math.abs(this.renderer.getPixelRatio() - want) > 0.04) {
-        this.renderer.setPixelRatio(want);
-      }
-    }
+    // Resolution is owned by the FrameGovernor (noteFrameTime → applyPixelRatio)
     const shadowEvery = compact && inCombatRoom ? (inAva ? 5 : 3) : 2;
     const remoteN = this.room?.players ? this.room.players.length - 1 : 0;
     // Compact combat cantos share Ava label cadence (Lust/Glut parity)
@@ -1212,42 +1710,29 @@ export class WorldApp {
             ? 4
             : 3
           : 2;
-    if (this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0) {
-      this.renderer.shadowMap.needsUpdate = true;
-    }
+    const shadowPass = this.renderer.shadowMap.enabled && this.frameN % shadowEvery === 0;
+    if (shadowPass) this.renderer.shadowMap.needsUpdate = true;
     if (inGlut && this.frameN % 4 === 0) this.tickMawPressure();
-    if (inAva && this.frameN % (compact ? 5 : 4) === 0) this.tickCrushPressure();
     this.tickAtmosphere();
     this.fadeTreeOccluders();
     this.tickFx(dt);
-    if (this.composer) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
+    // Telegraphs, flashes, ash, corpses, combat numbers (after the camera is placed)
+    this.combat?.tick(performance.now(), this.viewW, this.viewH);
+    this.lightPool.update(this.camFollow, dt);
+    this.renderFrame();
+    // One finished frame: readers between frames (or mid-bench) never see a partial sum
+    const fi = this.frameInfo;
+    const ri = this.renderer.info.render;
+    fi.calls = ri.calls;
+    fi.triangles = ri.triangles;
+    fi.points = ri.points;
+    fi.shadowPass = shadowPass;
     if (this.frameN % labelEvery === 0) {
       this.labelRenderer.render(this.scene, this.camera);
     }
     this.paintChrome();
-    if (this.radar && this.room) {
-      {
-        const yu = this.room.you;
-        const day = new Date().toISOString().slice(0, 10);
-        const dailyWritOpen = Boolean(yu?.spokeToGuide) && yu?.dailyQuestDoneUtc !== day;
-        this.radar.tick({
-          you: this.renderYou,
-          aimX: this.aimX,
-          aimY: this.aimY,
-          bounds: this.room.bounds,
-          entities: this.room.entities,
-          cantoId: this.room.cantoId,
-          camera: this.camera,
-          compact: compact,
-          firstClears: Array.isArray(yu?.firstClears) ? yu.firstClears : [],
-          bellCd: Number(yu?.bellCd) || 0,
-          dailyWritOpen,
-          spokeToGuide: Boolean(yu?.spokeToGuide),
-          stashBankTip: this.avaClearStashTipShown || this.glutClearStashTipShown,
-        });
-      }
-    }
+    // Objective line + compass + minimap + beacon (self-throttled)
+    this.guidance?.tick();
   }
 
   /** Stand still: slowly face the nearest shade so idle does not look frozen. */
@@ -1298,9 +1783,12 @@ export class WorldApp {
     this.tmp2.multiplyScalar(1 / dist);
     this.raycaster.set(this.camera.position, this.tmp2);
     this.raycaster.far = dist - 0.35;
-    const hits = this.raycaster.intersectObjects(this.trees, true);
+    const hits = this.treeRayHits;
+    hits.length = 0;
+    this.raycaster.intersectObjects(this.trees, true, hits);
     this.raycaster.far = Infinity;
-    const hidden = new Set<THREE.Object3D>();
+    const hidden = this.treeRayHidden;
+    hidden.clear();
     for (const h of hits) {
       let o: THREE.Object3D | null = h.object;
       while (o && o.name !== "tree") o = o.parent;
@@ -1369,100 +1857,88 @@ export class WorldApp {
   }
 
   tickFx(dt: number) {
-    for (const b of this.bolts) {
-      placeBolt(b, this.animT);
+    // Every list is compacted in place (write index + length): no per-frame arrays
+    const t = this.animT;
+    const nowMs = performance.now();
+    const combat = this.combat;
+    const bolts = this.bolts;
+    let w = 0;
+    for (let i = 0; i < bolts.length; i++) {
+      const b = bolts[i];
+      placeBolt(b, t);
       b.mesh.position.y += this.standY(b.mesh.position.x, b.mesh.position.z);
+      if (t > b.start + b.dur) this.scene.remove(b.mesh);
+      else bolts[w++] = b;
     }
-    this.bolts = this.bolts.filter((b) => {
-      if (this.animT > b.start + b.dur) {
-        this.scene.remove(b.mesh);
-        return false;
-      }
-      return true;
-    });
+    bolts.length = w;
     if (this.wardMesh) {
-      this.wardMesh.visible = this.animT < this.wardUntil;
-      this.wardMesh.rotation.z = this.animT * 0.004;
+      this.wardMesh.visible = t < this.wardUntil;
+      this.wardMesh.rotation.z = t * 0.004;
       if (this.youGroup) this.wardMesh.position.copy(this.youGroup.position).setY(this.youGroup.position.y + 0.15);
     }
-    for (const b of this.bursts) {
-      const u = (this.animT - b.start) / b.dur;
-      const s = b.r * (0.3 + u * 1.4);
-      b.mesh.scale.setScalar(s);
-      const mat = b.mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = Math.max(0, 0.4 * (1 - u));
-    }
-    this.bursts = this.bursts.filter((b) => {
-      if (this.animT - b.start > b.dur) {
+    const bursts = this.bursts;
+    w = 0;
+    for (let i = 0; i < bursts.length; i++) {
+      const b = bursts[i];
+      if (t - b.start > b.dur) {
         this.scene.remove(b.mesh);
-        return false;
+        (b.mesh.material as THREE.Material).dispose(); // per-burst material (shared sphere)
+        continue;
       }
-      return true;
-    });
-    this.sparks = this.sparks.filter((s) => {
-      tickSparks(s, this.animT);
-      if (this.animT - s.start > s.dur) {
-        this.scene.remove(s.points);
-        releaseSparkBurst(s);
-        return false;
-      }
-      return true;
-    });
-    this.dust = this.dust.filter((d) => {
-      const u = (this.animT - d.start) / 380;
-      d.mesh.scale.setScalar(1 + u * 2.4);
-      const mat = d.mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = Math.max(0, 0.4 * (1 - u));
-      if (u >= 1) {
-        this.scene.remove(d.mesh);
-        d.mesh.geometry.dispose();
-        mat.dispose();
-        return false;
-      }
-      return true;
-    });
-    this.impacts = this.impacts.filter((r) => {
-      tickImpact(r, this.animT);
-      if (this.animT - r.start > r.dur) {
+      const u = (t - b.start) / b.dur;
+      b.mesh.scale.setScalar(b.r * (0.3 + u * 1.4));
+      (b.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.4 * (1 - u));
+      bursts[w++] = b;
+    }
+    bursts.length = w;
+    const sparks = this.sparks;
+    w = 0;
+    for (let i = 0; i < sparks.length; i++) {
+      const sp = sparks[i];
+      tickSparks(sp, t);
+      if (t - sp.start > sp.dur) {
+        this.scene.remove(sp.points);
+        releaseSparkBurst(sp);
+      } else sparks[w++] = sp;
+    }
+    sparks.length = w;
+    const impacts = this.impacts;
+    w = 0;
+    for (let i = 0; i < impacts.length; i++) {
+      const r = impacts[i];
+      tickImpact(r, t);
+      if (t - r.start > r.dur) {
         this.scene.remove(r.mesh);
-        r.mesh.geometry.dispose();
-        (r.mesh.material as THREE.Material).dispose();
-        return false;
-      }
-      return true;
-    });
+        releaseFx(r.mesh);
+      } else impacts[w++] = r;
+    }
+    impacts.length = w;
     if (this.hitLight.intensity > 0.05) this.hitLight.intensity *= Math.exp(-dt * 14);
     else this.hitLight.intensity = 0;
-    this.teles = this.teles.filter((t) => {
-      const left = t.until - this.animT;
-      const mat = t.mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.25 + 0.55 * Math.abs(Math.sin(this.animT * 0.012));
-      t.mesh.scale.setScalar(t.r * (0.85 + 0.15 * Math.sin(this.animT * 0.02)));
-      if (left <= 0) {
-        this.scene.remove(t.mesh);
-        return false;
-      }
-      return true;
-    });
-    this.slams = this.slams.filter((s) => {
-      tickSlamTelegraph(s, this.animT);
-      if (this.animT >= s.start + s.dur) {
-        this.resolveSlam(s);
-        this.scene.remove(s.group);
-        disposeObject3D(s.group);
-        return false;
-      }
-      return true;
-    });
+    const teles = this.teles;
+    w = 0;
+    const teleOp = 0.25 + 0.55 * Math.abs(Math.sin(t * 0.012));
+    const teleScale = 0.85 + 0.15 * Math.sin(t * 0.02);
+    for (let i = 0; i < teles.length; i++) {
+      const tl = teles[i];
+      (tl.mesh.material as THREE.MeshBasicMaterial).opacity = teleOp;
+      tl.mesh.scale.setScalar(tl.r * teleScale);
+      if (tl.until - t <= 0) {
+        this.scene.remove(tl.mesh);
+        releaseFx(tl.mesh);
+      } else teles[w++] = tl;
+    }
+    teles.length = w;
 
     for (const n of this.nodes.values()) {
-      const ribbon = n.group.getObjectByName("ribbon");
+      const fx = n.group.userData.fx as NodeFx;
+      const ribbon = fx.ribbon;
       if (ribbon) {
         const rdx = n.group.position.x - this.camFollow.x;
         const rdz = n.group.position.z - this.camFollow.z;
         if (rdx * rdx + rdz * rdz < 48 * 48) ribbon.rotation.y = this.animT * 0.003;
       }
-      const disc = n.group.getObjectByName("galeDisc");
+      const disc = fx.galeDisc;
       if (disc) {
         (disc as THREE.Mesh).rotation.z = this.animT * 0.0015;
         let s = 1 + Math.sin(this.animT * 0.004) * 0.04;
@@ -1472,11 +1948,11 @@ export class WorldApp {
         }
         disc.scale.set(s, s, 1);
       }
-      const galeRibbon = n.group.getObjectByName("galeRibbon");
+      const galeRibbon = fx.galeRibbon;
       if (galeRibbon) galeRibbon.rotation.y += 0.0008;
-      const galeRing = n.group.getObjectByName("galeRing");
+      const galeRing = fx.galeRing;
       if (galeRing) galeRing.rotation.z = -this.animT * 0.0022;
-      const inner = n.group.getObjectByName("portalInner");
+      const inner = fx.portalInner;
       if (inner) {
         const hubGlow =
           this.room?.cantoId === "inferno_07" &&
@@ -1489,7 +1965,7 @@ export class WorldApp {
           inner.scale.set(s, s, 1);
         }
       }
-      const ps = n.group.getObjectByName("portalSparks") as THREE.Points | undefined;
+      const ps = fx.portalSparks as THREE.Points | undefined;
       if (ps && this.frameN % 2 === 0) {
         const px = n.group.position.x - this.camFollow.x;
         const pz = n.group.position.z - this.camFollow.z;
@@ -1511,18 +1987,8 @@ export class WorldApp {
           }
         }
       }
-      // Avarice: kill far portal PointLights (each gate ships one fill)
-      if (n.kind === "portal" && this.room?.cantoId === "inferno_07" && this.frameN % 4 === 0) {
-        const pdx = n.group.position.x - this.camFollow.x;
-        const pdz = n.group.position.z - this.camFollow.z;
-        const nearPortal = pdx * pdx + pdz * pdz < 36 * 36;
-        n.group.traverse((o) => {
-          if ((o as THREE.PointLight).isPointLight) {
-            (o as THREE.PointLight).visible = nearPortal || Boolean(n.group.userData.avaHubHomeGlow);
-          }
-        });
-      }
-      const beam = n.group.getObjectByName("lootBeam");
+      // (Far portal glows need no culling: the LightPool only lights markers near the camera)
+      const beam = fx.lootBeam;
       if (beam) {
         const avaLoot = this.room?.cantoId === "inferno_07";
         const crushPile = Boolean((n.label?.element as HTMLElement | undefined)?.classList.contains("ava-crush-pile"));
@@ -1551,7 +2017,7 @@ export class WorldApp {
           n.label.position.y = 1.55 + phase * 0.55 + Math.sin(this.animT * 0.004 + phase * 6) * 0.08;
         }
       }
-      const gem = n.group.getObjectByName("gem");
+      const gem = fx.gem;
       if (gem) {
         const gx = n.group.position.x - this.camFollow.x;
         const gz = n.group.position.z - this.camFollow.z;
@@ -1570,6 +2036,8 @@ export class WorldApp {
           // Remote pilgrims walk/run at their tracked speed (see syncEntities)
           const gait = n.kind === "player" ? Number(n.group.userData.gaitSpeed) || 0 : 0;
           tickHumanoid(n.group, { moving: gait > 0.6, tMs: this.animT, attacking: false, speed: gait });
+          // a swinging pilgrim draws its blade trail (pooled, see heroMotor)
+          if (n.kind === "player") this.heroMotor?.remoteTick(n.group, dt);
         }
         // The Guide turns to meet an approaching pilgrim (it would otherwise show
         // the phone camera its back)
@@ -1598,13 +2066,13 @@ export class WorldApp {
         if (wx * wx + wz * wz > cullR * cullR) {
           /* skip far idle */
         } else if (stunned) {
-          const bob = n.group.getObjectByName("ribbon");
+          const bob = fx.ribbon;
           if (bob) bob.position.y = 0.95 + Math.sin(this.animT * 0.0012) * 0.03;
         } else if (n.group.userData.isHoardHeart) {
           tickHoardHeart(n.group, this.animT);
         } else if (n.group.userData.isCounterweight) {
           tickCounterweight(n.group, this.animT);
-          const cwTele = n.group.getObjectByName("cwTelegraph") as THREE.Mesh | undefined;
+          const cwTele = fx.cwTelegraph as THREE.Mesh | undefined;
           if (cwTele) {
             const mat = cwTele.material as THREE.MeshBasicMaterial;
             mat.opacity = 0.22 + Math.sin(this.animT * 0.004) * 0.1;
@@ -1645,10 +2113,11 @@ export class WorldApp {
         if (d2 < crushIdleR * crushIdleR) {
           tickHoardCrush(n.group, this.animT);
         }
-        let glow = n.group.userData.crushGlow as THREE.PointLight | undefined;
+        let glow = n.group.userData.crushGlow as VirtualLight | null | undefined;
         if (glow === undefined) {
-          glow = n.group.getObjectByName("crushGlow") as THREE.PointLight | undefined;
-          n.group.userData.crushGlow = glow || null;
+          const found = n.group.getObjectByName("crushGlow");
+          glow = isVirtualLight(found) ? found : null;
+          n.group.userData.crushGlow = glow;
         }
         if (glow) {
           const compact = isCompactUi();
@@ -1662,7 +2131,7 @@ export class WorldApp {
         // Windup / phase-2: hot iron emissive telegraph (capped on compact light budget)
         const wind = Number(n.group.userData.windupLeft || 0);
         const phase = Number(n.group.userData.bossPhase || 1);
-        const body = n.group.getObjectByName("crushBody") as THREE.Mesh | undefined;
+        const body = fx.crushBody as THREE.Mesh | undefined;
         if (body && body.material && !Array.isArray(body.material)) {
           const mat = body.material as THREE.MeshStandardMaterial;
           const compact = isCompactUi();
@@ -1681,18 +2150,13 @@ export class WorldApp {
           }
         }
       }
-      const pulse = Number(n.group.userData.hitPulse) || 0;
-      if (pulse > 0.04) {
-        const base = Number(n.group.userData.baseScale) || 1;
-        const avaWeight = this.room?.cantoId === "inferno_07" && n.kind !== "player";
-        n.group.userData.hitPulse = pulse * (avaWeight ? 0.88 : 0.82);
-        n.group.scale.setScalar(base * (1 + n.group.userData.hitPulse * (avaWeight ? 0.1 : 0.08)));
-      } else if (pulse > 0) {
-        n.group.userData.hitPulse = 0;
-        const base = Number(n.group.userData.baseScale) || 1;
-        n.group.scale.setScalar(base);
+      // Foes: facing, lean, bob, attack windup/strike, flinch (after their idle anim above)
+      if (combat && isMobKind(n.kind)) {
+        const mx = n.group.position.x - this.camFollow.x;
+        const mz = n.group.position.z - this.camFollow.z;
+        combat.tickMob(n, dt, nowMs, mx * mx + mz * mz < 48 * 48);
       }
-      const aura = n.group.getObjectByName("judgeAura");
+      const aura = fx.judgeAura;
       if (aura && this.frameN % 2 === 0) {
         const ax = n.group.position.x - this.camFollow.x;
         const az = n.group.position.z - this.camFollow.z;
@@ -1759,40 +2223,47 @@ export class WorldApp {
     }
   }
 
-  /**
-   * Content often pairs an exit with a portal POI to the same canto a couple of
-   * units apart; drawing both stacks two gates and two overlapping labels.
-   * The portal POI is the one we show / target (the server accepts either).
-   */
-  isTwinExit(e: any): boolean {
-    if (e?.kind !== "exit" || !e.toCanto || !this.room) return false;
-    for (const o of this.room.entities) {
-      if (o.kind !== "poi" || o.poiKind !== "portal" || o.toCanto !== e.toCanto) continue;
-      if (Math.hypot(o.x - e.x, o.y - e.y) < 5) return true;
-    }
-    return false;
-  }
-
   syncEntities() {
     if (!this.room || !this.mats) return;
-    const seen = new Set<string>();
+    const stamp = ++this.syncStamp;
+    // Live ward heart (storm/mire/hoard), found once per frame instead of once per mob
+    let heart: any = null;
+    for (const h of this.room.entities) {
+      const a = h.archetype;
+      if ((a === "storm_heart" || a === "mire_heart" || a === "hoard_heart") && (h.hp == null || h.hp > 0)) {
+        heart = h;
+        break;
+      }
+    }
+    const you = this.renderYou;
+    const cullR2 = isCompactUi() && this.room.cantoId !== "inferno_01" ? FOE_CULL_R * FOE_CULL_R : 0;
+    const cullIn2 = (FOE_CULL_R - 4) * (FOE_CULL_R - 4);
     try {
     for (const e of this.room.entities) {
       const id = String(e.id);
-      if (this.isTwinExit(e)) continue;
-      seen.add(id);
       const kind = resolveKind(e);
       let rec = this.nodes.get(id);
       if (!rec || rec.kind !== kind) {
         if (rec) this.disposeNode(rec);
         rec = this.spawnNode(id, kind, e);
       }
+      rec.seenAt = stamp;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
-      if (e.kind === "mob" || e.kind === "boss" || e.kind === "player") {
-        const you = this.youPos();
-        rec.group.rotation.y = yawFromPlanar(you.x - pos.x, you.y - pos.y);
+      if (cullR2 > 0 && e.kind === "mob") {
+        // Phones: foes far across the canto (a speck at the top of the frame, deep in
+        // fog) are not drawn — ~11 draws each, and Avarice's ring put 19 of them in view
+        const dx = pos.x - you.x;
+        const dy = pos.y - you.y;
+        const d2 = dx * dx + dy * dy;
+        const ud = rec.group.userData;
+        const culled = ud.distCulled ? d2 > cullIn2 : d2 > cullR2;
+        if (culled !== Boolean(ud.distCulled)) {
+          ud.distCulled = culled;
+          rec.group.visible = !culled;
+        }
       }
+      // (foes face their travel / attack / melee target in combatView.tickMob)
       if (e.kind === "mob" && (e.champion || e.archetype === "weight_champion")) {
         rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
       }
@@ -1807,7 +2278,6 @@ export class WorldApp {
             window.setTimeout(() => document.body.classList.remove("crush-enrage"), 1400);
             this.camPunch = Math.max(this.camPunch, 0.95);
             this.camShake = Math.max(this.camShake, 0.55);
-            showToast("il peso cresce — Crush enrages (no sound — watch the fringe)", "warn");
           }
           document.body.classList.toggle("crush-phase2", ph >= 2);
         }
@@ -1815,18 +2285,20 @@ export class WorldApp {
       if (e.kind === "mob") {
         const stun = Number(e.stunLeft) || 0;
         rec.group.userData.stunLeft = stun;
-        let still = rec.group.getObjectByName("stillRing") as THREE.Mesh | undefined;
+        const fx = rec.group.userData.fx as NodeFx;
+        let still = fx.stillRing;
         if (stun > 0.05) {
           if (!still && this.room.cantoId === "inferno_07") {
             // Compact: fewer segs — still rings can spike after Ledger Bell
             const segs = isCompactUi() ? 12 : 18;
             still = new THREE.Mesh(
-              new THREE.RingGeometry(0.55, 0.78, segs),
+              sharedGeo(`stillRing${segs}`, () => new THREE.RingGeometry(0.55, 0.78, segs)),
               new THREE.MeshBasicMaterial({
                 color: 0xd4a840,
                 transparent: true,
                 opacity: 0.55,
                 side: THREE.DoubleSide,
+                forceSinglePass: true,
                 depthWrite: false,
                 blending: THREE.AdditiveBlending,
               })
@@ -1835,6 +2307,7 @@ export class WorldApp {
             still.position.y = 0.12;
             still.name = "stillRing";
             rec.group.add(still);
+            fx.stillRing = still;
           }
           if (still) {
             const dx = rec.group.position.x - this.camFollow.x;
@@ -1854,24 +2327,20 @@ export class WorldApp {
           still.visible = false;
         }
       }
-      const ward = rec.group.getObjectByName("wardRing");
+      const ward = (rec.group.userData.fx as NodeFx).wardRing;
       if (ward) {
-        const isHeart = (a: string | undefined) =>
-          a === "storm_heart" || a === "mire_heart" || a === "hoard_heart";
-        const heart = this.room.entities.find(
-          (h: any) => isHeart(h.archetype) && (h.hp == null || h.hp > 0)
-        );
+        const a = e.archetype;
         const near =
           heart &&
           e.kind === "mob" &&
-          !isHeart(e.archetype) &&
+          a !== "storm_heart" &&
+          a !== "mire_heart" &&
+          a !== "hoard_heart" &&
           Math.hypot(heart.x - e.x, heart.y - e.y) <= 14;
         ward.visible = Boolean(near);
       }
       if (rec.kind === "portal") {
-        const locked = this.portalIsLocked(e);
-        setPortalGateVisual(rec.group, locked, this.portalOpenTint(e));
-        rec.hpEl.classList.toggle("portal-locked", locked);
+        this.guidance?.syncGate(rec, e);
         const hubHome =
           this.room?.cantoId === "inferno_07" &&
           e?.toCanto === "inferno_01" &&
@@ -1918,10 +2387,10 @@ export class WorldApp {
     for (const pl of this.room.players) {
       if (pl.id === this.room.you.id) continue;
       const id = `pl:${pl.id}`;
-      seen.add(id);
       let rec = this.nodes.get(id);
       if (!rec) rec = this.spawnNode(id, "player", { kind: "player", name: pl.name });
-      const pos = this.remoteSmooth.pos(id, { x: pl.x, y: pl.y });
+      rec.seenAt = stamp;
+      const pos = this.interp.pos(id, pl);
       setPlanar(rec.group.position, pos.x, pos.y, this.standY(pos.x, pos.y));
       // Remote gait from the smoothed track: tickFx strides at this speed; the
       // body turns toward where they walk and keeps that heading when they stop
@@ -1948,7 +2417,7 @@ export class WorldApp {
       const turn = Math.atan2(Math.sin(ud.gaitYaw - rec.group.rotation.y), Math.cos(ud.gaitYaw - rec.group.rotation.y));
       rec.group.rotation.y += turn * Math.min(1, stepS * 10);
       // 2+ remotes / gold haze: dim far rim lights (perf + declutter)
-      const rim = rec.group.getObjectByName("avaRemoteRim") as THREE.PointLight | undefined;
+      const rim = rec.group.userData.fx?.remoteRim as VirtualLight | undefined;
       if (rim) {
         const rd = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
         const many = (this.room?.players?.length || 1) >= 3;
@@ -1964,13 +2433,33 @@ export class WorldApp {
       this.updateLabel(rec, { name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp }, pos);
     }
     } finally {
-      for (const [id, rec] of this.nodes) {
-        if (!seen.has(id)) {
+      for (const rec of this.nodes.values()) {
+        if (rec.seenAt !== stamp) {
+          if (rec.kind === "loot") this.flyPickedLoot(rec);
           this.disposeNode(rec);
-          this.nodes.delete(id);
+          this.nodes.delete(rec.id);
         }
       }
     }
+  }
+
+  /** We asked for this drop and it vanished: motes fly from it into the hero. */
+  flyPickedLoot(rec: NodeRec) {
+    const sent = this.pickupFlyIds.get(rec.id);
+    if (sent == null) return;
+    this.pickupFlyIds.delete(rec.id);
+    if (performance.now() - sent > 4000 || !this.pickupFx) return;
+    const p = rec.group.position;
+    this.pickupFx.spawn(p.x, p.y + 0.6, p.z, String(rec.group.userData.rarity || "normal"), performance.now());
+  }
+
+  /** Remember a pickup request so its disappearance plays the fly-to-hero motes. */
+  notePickupSent(id: string) {
+    const now = performance.now();
+    if (this.pickupFlyIds.size > 24) {
+      for (const [k, t] of this.pickupFlyIds) if (now - t > 4000) this.pickupFlyIds.delete(k);
+    }
+    this.pickupFlyIds.set(id, now);
   }
 
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
@@ -1982,7 +2471,11 @@ export class WorldApp {
       arch.startsWith("weight_") || arch === "coin_wisp" || arch === "ledger_warden" || arch === "hoard_heart";
     const nm = String(e.name || "");
     let group: THREE.Group;
-    if (arch === "hoard_heart") {
+    // A canto mechanic builds the entities it owns (its own POI kinds)
+    const own = this.mech.nodeMesh?.(this, e, kind) ?? null;
+    if (own) {
+      group = own;
+    } else if (arch === "hoard_heart") {
       group = makeHoardHeart(this.mats!);
       group.userData.isHoardHeart = true;
     } else if (isHeartArch) {
@@ -2035,7 +2528,7 @@ export class WorldApp {
         if (canto === "inferno_07" || canto === "inferno_05" || canto === "inferno_06") {
           const col =
             canto === "inferno_07" ? 0xe8c86a : canto === "inferno_06" ? 0xc8d080 : 0xf0c8a0;
-          const rim = new THREE.PointLight(col, canto === "inferno_07" ? 0.4 : 0.34, 5.5, 2);
+          const rim = new VirtualLight(col, canto === "inferno_07" ? 0.4 : 0.34, 5.5, 2, 0.8);
           rim.name = "avaRemoteRim";
           rim.position.set(0, 1.6, 0);
           group.add(rim);
@@ -2069,7 +2562,7 @@ export class WorldApp {
     }
     if (kind === "whirl" || kind === "champion") {
       const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.62, 0.74, 18),
+        sharedGeo("wardRing", () => new THREE.RingGeometry(0.62, 0.74, 18)),
         this.wardMat
       );
       ring.name = "wardRing";
@@ -2078,8 +2571,9 @@ export class WorldApp {
       ring.visible = false;
       group.add(ring);
     }
+    // Foes get a posable body (lean/bob/attack/flinch/death) before the label goes on
+    this.combat?.rig(group, kind, e);
     if (kind === "portal") {
-      setPortalGateVisual(group, this.portalIsLocked(e), this.portalOpenTint(e));
       const hubHome =
         this.room?.cantoId === "inferno_07" &&
         e?.toCanto === "inferno_01" &&
@@ -2088,8 +2582,11 @@ export class WorldApp {
       group.userData.avaHubHomeGlow = hubHome;
     }
     group.userData.entityId = id.replace(/^pl:/, "");
+    if (e?.packId) group.userData.packId = String(e.packId);
     const wrap = document.createElement("div");
-    wrap.className = "world-label";
+    // (born hidden: the label declutter shows it on its next pass, once it is known to
+    // sit clear of the HUD and the title card — no first-frame flash over either)
+    wrap.className = "world-label wl-cull";
     wrap.innerHTML = `<div class="wl-name"></div><div class="wl-hp"><i></i></div><div class="interact-prompt" hidden></div>`;
     if (kind === "player") {
       wrap.classList.add("ally", "remote");
@@ -2103,8 +2600,20 @@ export class WorldApp {
       kind === "triple_maw" || kind === "hoard_crush" ? 5.9 : kind === "judge" ? 5.6 : 2.05;
     label.position.set(0, kind === "portal" ? 4.1 : kind === "loot" ? 1.35 : bossY, 0);
     if (kind === "loot") {
+      // Drops of one kill land on top of each other: stack their names, don't overprint
+      const lx = Number(e?.x) || 0;
+      const ly = Number(e?.y) || 0;
+      let under = 0;
+      for (const r of this.nodes.values()) {
+        const at = r.kind === "loot" ? (r.group.userData.lootAt as [number, number] | undefined) : undefined;
+        if (at && Math.abs(at[0] - lx) < 1.6 && Math.abs(at[1] - ly) < 1.6) under++;
+      }
+      group.userData.lootAt = [lx, ly];
+      // (screen-space step: the phone camera's steep pitch squashes a world-height offset)
+      if (under > 0) wrap.style.marginTop = `${-1.3 * Math.min(under, 4)}em`;
       const rarity = String(e?.item?.rarity || "normal");
       const beam = makeLootBeam(RARITY_HEX[rarity] || 0xe8c86a);
+      group.userData.rarity = rarity;
       // Avarice: slightly stronger weighed-drop read (still no neon)
       if (this.room?.cantoId === "inferno_07") {
         const mat = beam.material as THREE.MeshBasicMaterial;
@@ -2122,7 +2631,8 @@ export class WorldApp {
         if (nearCrush) wrap.classList.add("ava-crush-pile");
       }
       group.add(beam);
-      wrap.classList.add("loot-label");
+      // Name coloured by rarity (styles: .loot-label.r-*)
+      wrap.classList.add("loot-label", `r-${rarity in RARITY_HEX ? rarity : "normal"}`);
     }
     if (
       kind === "whirl" ||
@@ -2140,6 +2650,8 @@ export class WorldApp {
     }
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
+      // Face the camera, colour by state (forward gold / return blue / locked grey)
+      this.guidance?.setupGate(group, wrap, e);
       if (this.portalIsLocked(e)) wrap.classList.add("portal-locked");
       if (group.userData.avaHubHomeGlow) wrap.classList.add("ava-hub-home");
       // Avarice weighed gate — bone ledger plate (Glut→Ava approach + Ava return)
@@ -2166,10 +2678,30 @@ export class WorldApp {
     if (kind === "guide") label.position.set(0, 2.6, 0);
     group.add(label);
     group.userData.baseScale = group.scale.x;
+    group.userData.fx = collectNodeFx(group);
     this.scene.add(group);
-    const rec: NodeRec = { id, kind, group, label, hpEl: wrap };
+    const rec: NodeRec = {
+      id,
+      kind,
+      group,
+      label,
+      hpEl: wrap,
+      nameEl: wrap.querySelector(".wl-name") as HTMLElement,
+      hpBar: wrap.querySelector(".wl-hp") as HTMLElement,
+      hpFill: wrap.querySelector(".wl-hp i") as HTMLElement,
+      seenAt: this.syncStamp,
+      dcCull: true,
+      dcCullShown: true,
+    };
     this.nodes.set(id, rec);
     return rec;
+  }
+
+  /** Leave the old canto's mechanic, enter the new one's (after its ground is built). */
+  switchMech(cantoId: string) {
+    this.mech.exit?.(this);
+    this.mech = mechFor(cantoId);
+    this.mech.enter?.(this);
   }
 
   /** Immediate wipe of entity meshes/labels (canto travel). */
@@ -2179,19 +2711,34 @@ export class WorldApp {
   }
 
 
-  disposeNode(rec: NodeRec) {
-    // Avarice pack death: brief coin burst, hard-capped so dense packs don't spam lights
+  /** Avarice pack death: brief coin burst, hard-capped so dense packs don't spam lights. */
+  avaPackDeathCoins(rec: NodeRec) {
+    const ud = rec.group.userData;
+    if (ud.coinsDone) return;
+    ud.coinsDone = true;
     if (
       this.room?.cantoId === "inferno_07" &&
       (rec.kind === "whirl" || rec.kind === "champion") &&
       this.avaDeathBurstActive < (isCompactUi() ? 1 : 2)
     ) {
-      const x = rec.group.position.x;
-      const z = rec.group.position.z;
-      this.spawnAvaPackDeathCoins(x, z);
+      this.spawnAvaPackDeathCoins(rec.group.position.x, rec.group.position.z);
     }
+  }
+
+  disposeNode(rec: NodeRec) {
+    // (a foe pruned without a death collapse still bursts here; a corpse already did)
+    this.avaPackDeathCoins(rec);
     this.scene.remove(rec.group);
+    // A hit-flash shell riding on this foe goes back to its pool first
+    this.combat?.release(rec.group);
+    // Pilgrims / the Guide share geometry + materials; free only the bone texture
+    if (rec.kind === "player" || rec.kind === "guide") {
+      disposeHero(rec.group);
+      this.heroMotor?.releaseRemote(rec.group);
+    }
     rec.label.element.remove();
+    // Free the node's own buffers/materials (shared kit + cached parts are marked shared)
+    disposeNode3D(rec.group);
   }
 
   /** Sparse bone-gold coin motes on pack death — budgeted, SFX-less. */
@@ -2200,19 +2747,10 @@ export class WorldApp {
     const y = this.standY(x, z, 0.2);
     const n = isCompactUi() ? 3 : 5;
     for (let i = 0; i < n; i++) {
-      const mote = new THREE.Mesh(
-        (this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8))),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xf2dea0 : 0xd4a840,
-          transparent: true,
-          opacity: 0.9,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
+      // (pooled additive motes — no material per coin)
+      const mote = acquireFxMote(0.07, 6, i % 2 ? 0xf2dea0 : 0xd4a840, 0.9);
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.4;
       const r = 0.2 + Math.random() * 0.55;
-      mote.rotation.x = Math.PI / 2;
       setPlanar(mote.position, x + Math.cos(ang) * r, z + Math.sin(ang) * r, y + 0.15);
       this.scene.add(mote);
       this.impacts.push({
@@ -2232,9 +2770,14 @@ export class WorldApp {
   updateLabel(rec: NodeRec, e: any, pos: Vec2) {
     const you = this.youPos();
     const d = Math.hypot(pos.x - you.x, pos.y - you.y);
-    const nameEl = rec.hpEl.querySelector(".wl-name") as HTMLElement;
-    const hp = rec.hpEl.querySelector(".wl-hp") as HTMLElement;
-    const fill = rec.hpEl.querySelector(".wl-hp i") as HTMLElement;
+    // Gates: name + distance up to ~30 m on every screen (guidance.ts)
+    if (rec.kind === "portal" && this.guidance) {
+      this.guidance.gateLabel(rec, e, d);
+      return;
+    }
+    const nameEl = rec.nameEl;
+    const hp = rec.hpBar;
+    const fill = rec.hpFill;
     const name = e.item?.name || e.label || e.name || "";
     const foe =
       rec.kind === "whirl" ||
@@ -2331,18 +2874,7 @@ export class WorldApp {
   /** Brief bone-gold claim ring at a POI (shrine/cache) — no audio required. */
   spawnAvaClaimRing(ent: any, color: number, from: number, to: number, dur: number) {
     const pos = this.entityRenderPos(ent);
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.7, 1.05, isCompactUi() ? 22 : 32),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.78,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    ring.rotation.x = -Math.PI / 2;
+    const ring = acquireFxRing(0.7, 1.05, isCompactUi() ? 22 : 32, color, 0.78);
     setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.14));
     this.scene.add(ring);
     this.impacts.push({ mesh: ring, start: this.animT, dur, from, to });
@@ -2356,34 +2888,14 @@ export class WorldApp {
     // Inner quick measure
     this.spawnAvaClaimRing(ent, 0xf2dea0, 1.2, 4.2, 720);
     // Outer slow ledger wash
-    const outer = new THREE.Mesh(
-      new THREE.RingGeometry(1.1, 1.45, isCompactUi() ? 24 : 36),
-      new THREE.MeshBasicMaterial({
-        color: 0xe8c86a,
-        transparent: true,
-        opacity: 0.7,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    outer.rotation.x = -Math.PI / 2;
+    const outer = acquireFxRing(1.1, 1.45, isCompactUi() ? 24 : 36, 0xe8c86a, 0.7);
     setPlanar(outer.position, pos.x, pos.y, y0);
     this.scene.add(outer);
     this.impacts.push({ mesh: outer, start: this.animT, dur: 1400, from: 1.4, to: 7.2 });
     // Rising ash motes (bone dust, no neon)
     const n = isCompactUi() ? 8 : 14;
     for (let i = 0; i < n; i++) {
-      const mote = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06 + Math.random() * 0.05, 6, 6),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xf2dea0 : 0xd4a840,
-          transparent: true,
-          opacity: 0.85,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
+      const mote = acquireFxMote(0.06 + Math.random() * 0.05, 6, i % 2 ? 0xf2dea0 : 0xd4a840, 0.85);
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.4;
       const r = 0.6 + Math.random() * 1.4;
       setPlanar(mote.position, pos.x + Math.cos(ang) * r, pos.y + Math.sin(ang) * r, y0 + 0.2);
@@ -2404,18 +2916,7 @@ export class WorldApp {
 
   /** Soft entrance keep-out pulse — bone-gold, no neon (spawn / death wake). */
   spawnAvaEntrancePulse(x: number, y: number) {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(1.15, 1.55, isCompactUi() ? 20 : 28),
-      new THREE.MeshBasicMaterial({
-        color: 0xe8d4a8,
-        transparent: true,
-        opacity: 0.55,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    ring.rotation.x = -Math.PI / 2;
+    const ring = acquireFxRing(1.15, 1.55, isCompactUi() ? 20 : 28, 0xe8d4a8, 0.55);
     setPlanar(ring.position, x, y, this.standY(x, y, 0.12));
     this.scene.add(ring);
     this.impacts.push({ mesh: ring, start: this.animT, dur: 900, from: 1.2, to: 4.2 });
@@ -2426,16 +2927,7 @@ export class WorldApp {
     const y0 = this.standY(x, y, 0.4);
     const n = isCompactUi() ? 6 : 9;
     for (let i = 0; i < n; i++) {
-      const mote = new THREE.Mesh(
-        new THREE.SphereGeometry(0.05 + Math.random() * 0.04, 5, 5),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xfff0c8 : 0xe8c86a,
-          transparent: true,
-          opacity: 0.92,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
+      const mote = acquireFxMote(0.05 + Math.random() * 0.04, 5, i % 2 ? 0xfff0c8 : 0xe8c86a, 0.92);
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.35;
       const r = 0.15 + Math.random() * 0.45;
       setPlanar(mote.position, x + Math.cos(ang) * r, y + Math.sin(ang) * r, y0 + 0.6);
@@ -2456,16 +2948,7 @@ export class WorldApp {
     const y0 = this.standY(x, y, 0.18);
     const n = isCompactUi() ? (rich ? 6 : 4) : rich ? 10 : 7;
     for (let i = 0; i < n; i++) {
-      const mote = new THREE.Mesh(
-        new THREE.SphereGeometry(0.045 + Math.random() * 0.04, 5, 5),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0xf2dea0 : 0xd4a840,
-          transparent: true,
-          opacity: 0.9,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
+      const mote = acquireFxMote(0.045 + Math.random() * 0.04, 5, i % 2 ? 0xf2dea0 : 0xd4a840, 0.9);
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.5;
       const r = 0.25 + Math.random() * (rich ? 0.9 : 0.55);
       setPlanar(mote.position, x + Math.cos(ang) * r, y + Math.sin(ang) * r, y0);
@@ -2488,35 +2971,14 @@ export class WorldApp {
     return !(Array.isArray(clears) && clears.includes(need));
   }
 
-  portalOpenTint(e: any): number {
-    if (e?.toCanto === "inferno_07") return 0xd4a840;
-    if (e?.toCanto === "inferno_06") return 0xa8c050;
-    if (e?.toCanto === "inferno_05") return 0x66ffaa;
-    // Post-Crush: Dark Wood stash road reads hotter bone-gold (bank weighed drops)
-    if (
-      e?.toCanto === "inferno_01" &&
-      this.room?.cantoId === "inferno_07" &&
-      Array.isArray(this.room?.you?.firstClears) &&
-      this.room.you.firstClears.includes("inferno_07")
-    ) {
-      return 0xf2dea0;
-    }
-    if (this.room?.cantoId === "inferno_07") return 0xc8a040;
-    if (this.room?.cantoId === "inferno_06") return 0x88aa44;
-    if (this.room?.cantoId === "inferno_05") return 0xff8844;
-    return 0xff6633;
-  }
-
   denyLockedPortal(e: any) {
-    const need =
-      e?.requireClear === "inferno_05"
-        ? "the Judge"
-        : e?.requireClear === "inferno_06"
-          ? "Triple Maw"
-          : "the prior circle";
-    showToast(`Sealed — clear ${need} first`, "warn");
+    const now = performance.now();
+    // One seal line per gate per few seconds (taps, Use and soft-snap all land here)
+    if (this.lastDeny && this.lastDeny.id === String(e?.id) && now - this.lastDeny.at < 2500) return;
+    this.lastDeny = { id: String(e?.id), at: now };
+    const why = lockReason(e);
+    showToast(`The ${gateTitle(e)} is sealed — ${why.charAt(0).toLowerCase()}${why.slice(1)} first`, "warn");
   }
-
 
   /** Audio-free boss pressure: denser fog + CSS fringe within Maw range. */
   tickMawPressure() {
@@ -2540,30 +3002,6 @@ export class WorldApp {
     this.fogTargetDensity = near ? this.glutFogBase * 1.45 : this.glutFogBase;
   }
 
-  /** Audio-free Crush pressure: denser fog + gold haze fringe near Hoard Crush. */
-  tickCrushPressure() {
-    if (!this.room || this.room.cantoId !== "inferno_07") {
-      if (this.crushPressureOn) {
-        this.crushPressureOn = false;
-        document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
-        this.crushEnrageShown = false;
-      }
-      return;
-    }
-    const boss = this.room.entities.find(
-      (e: any) => e.kind === "boss" && (e.hp == null || e.hp > 0)
-    );
-    const near = Boolean(
-      boss && Math.hypot(boss.x - this.renderYou.x, boss.y - this.renderYou.y) < 26
-    );
-    if (near !== this.crushPressureOn) {
-      this.crushPressureOn = near;
-      document.body.classList.toggle("crush-pressure", near);
-    }
-    // Near Crush: denser gold haze; far road stays thin so measure reads
-    this.fogTargetDensity = near ? Math.max(this.avaFogBase * 1.55, 0.019) : this.avaFogBase;
-  }
-
   /** Soft fog/clear lerp on canto change — avoids hard pop. */
   tickAtmosphere() {
     const fog = this.scene.fog;
@@ -2580,17 +3018,8 @@ export class WorldApp {
     if (!this.room || !this.mats) return;
     if (this.ground) {
       this.scene.remove(this.ground.group);
-      this.ground.group.traverse((o) => {
-        // Light-shaft sprites own their material (texture is shared — keep it)
-        if ((o as THREE.Sprite).isSprite) {
-          ((o as THREE.Sprite).material as THREE.Material).dispose();
-          return;
-        }
-        const m = o as THREE.Mesh;
-        if (!m.isMesh) return;
-        m.geometry?.dispose();
-        // Shared MatKit materials must not be disposed
-      });
+      // Per-build geometry/materials go; kit materials, cached prop parts and textures stay
+      disposeNode3D(this.ground.group);
     }
     const keepouts = [
       { x: this.room.you.x, y: this.room.you.y, r: 4.2 },
@@ -2624,6 +3053,13 @@ export class WorldApp {
     document.body.classList.toggle("in-lust", lust);
     document.body.classList.toggle("in-gluttony", glut);
     document.body.classList.toggle("in-avarice", ava);
+    if (this.selfRing) {
+      // pale bone where the ground is red (Lust) or gold (Avarice): the ring must not
+      // melt into the floor; gold elsewhere
+      const m = this.selfRing.material as THREE.MeshBasicMaterial;
+      m.color.setHex(lust || ava ? 0xf4ecd6 : 0xe4c060);
+      m.opacity = lust || ava ? 0.88 : 0.78;
+    }
     if (!ava) document.body.classList.remove("ava-idle");
     if (this.ash) {
       if (ava) this.ash.setColor(0xd4a840, isCompactUi() ? 0.32 : 0.4);
@@ -2711,45 +3147,23 @@ export class WorldApp {
       this._clearScratch.copy(this.clearTargetColor);
       this.renderer.setClearColor(this._clearScratch, 1);
     }
-    const portals = this.room.entities.filter((e: any) => e.kind === "exit" || e.poiKind === "portal");
+    this.placePortalLight();
+  }
+
+  /**
+   * The one scene-level gate light sits on the forward gate (gold once open,
+   * dim while sealed). Re-run when a gate opens.
+   */
+  placePortalLight() {
+    if (!this.room) return;
+    const cantoId = this.room.cantoId;
     const clears = this.room.you?.firstClears;
-    const lustCleared = Array.isArray(clears) && clears.includes("inferno_05");
-    const glutCleared = Array.isArray(clears) && clears.includes("inferno_06");
-    const avaCleared = Array.isArray(clears) && clears.includes("inferno_07");
-    const portal =
-      // After Hoard Crush: pull portalLight onto Dark Wood stash road
-      (ava && avaCleared && portals.find((e: any) => e.toCanto === "inferno_01")) ||
-      (glut &&
-        glutCleared &&
-        portals.find((e: any) => e.toCanto === "inferno_07" && !this.portalIsLocked(e))) ||
-      (lust && lustCleared && portals.find((e: any) => e.toCanto === "inferno_06" && !this.portalIsLocked(e))) ||
-      portals.find((e: any) => e.toCanto && e.toCanto !== "inferno_01") ||
-      portals[0];
-    if (portal) {
-      const locked = this.portalIsLocked(portal);
-      const hubHome = ava && avaCleared && portal.toCanto === "inferno_01";
-      this.portalLight.intensity = locked ? 1.2 : hubHome ? 6.2 : 4.5;
-      this.portalLight.color.set(
-        portal.toCanto === "inferno_07"
-          ? locked
-            ? 0x5a5040
-            : 0xd4a840
-          : portal.toCanto === "inferno_06"
-            ? locked
-              ? 0x5a5040
-              : 0xa8c050
-            : hubHome
-              ? 0xf2dea0
-              : lust
-                ? 0x66ffaa
-                : ava
-                  ? 0xc8a040
-                  : glut
-                    ? 0x88aa44
-                    : 0xff6633
-      );
-      setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
-    }
+    const portal = forwardGate(this.room.entities, cantoId) || visibleGates(this.room.entities)[0];
+    if (!portal) return;
+    const st = gateState(portal, cantoId, clears);
+    this.portalLight.intensity = st === "locked" ? 1.2 : st === "forward" ? 5.2 : 3.2;
+    this.portalLight.color.set(st === "locked" ? 0x5a5040 : st === "forward" ? 0xffc050 : 0x8fb4e8);
+    setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
   }
 
   setSky(top: number, horizon: number, bottom: number) {
@@ -2765,6 +3179,7 @@ export class WorldApp {
     switch (msg.type) {
       case "snapshot": {
         const prevCanto = this.lastCantoId;
+        const prevYou = this.lastYouSnapshot;
         this.room = msg.room;
         updateStats(msg.room.you, msg.room.title, msg.room.subtitleIt || msg.room.subtitle_it);
         this.lastYouSnapshot = msg.room.you;
@@ -2788,7 +3203,11 @@ export class WorldApp {
             }
           }
           this.renderYou = { x: sx, y: sy };
-          this.remoteSmooth.clear();
+          this.interp.clear();
+          this.combat?.clear();
+          this.forces.clear();
+          this._fv.x = 0;
+          this._fv.y = 0;
           this.moveTarget = null;
           this.autoPickupSent.clear();
           this.lastHitFoe = null;
@@ -2798,41 +3217,52 @@ export class WorldApp {
           // if spawn throws mid-loop (HUD/title already updated from this snapshot).
           this.disposeAllNodes();
           this.rebuildGround();
+          this.switchMech(msg.room.cantoId);
+          this.prewarmPending = true;
           this.camFollow.set(sx, this.standY(sx, sy), sy);
           this.cancelPortalHold();
           if (cantoChanged) this.camPunch = 1.2;
+          this.camLead.x = 0;
+          this.camLead.z = 0;
+          // Arrival title card replaces the old "Entered X." / intro toast pile-up
+          flushStaleToasts();
+          showCantoCard(
+            String(msg.room.title || ""),
+            String(msg.room.subtitleIt || msg.room.subtitle_it || "").trim(),
+            this.guidance?.arrivalGoal(msg.room.cantoId, msg.room.you) ?? ""
+          );
         } else if (this.ground && this.ground.cantoId !== msg.room.cantoId) {
           // Recover desync: title/you.cantoId moved but ground rebuild was skipped/raced.
           this.disposeAllNodes();
+          this.combat?.clear();
           this.rebuildGround();
+          this.switchMech(msg.room.cantoId);
+          this.prewarmPending = true;
           this.camFollow.set(sx, this.standY(sx, sy), sy);
         }
-        const targets = new Map<string, Vec2>();
-        for (const e of msg.room.entities) targets.set(e.id, { x: e.x, y: e.y });
+        // Server-clock samples for interpolation (render runs ~one snapshot behind)
+        this.interp.beginSnapshot(Number(msg.room.st), performance.now());
+        for (const e of msg.room.entities) this.interp.push(String(e.id), e.x, e.y);
         for (const pl of msg.room.players) {
           if (pl.id === msg.room.you.id) continue;
-          targets.set(`pl:${pl.id}`, { x: pl.x, y: pl.y });
+          this.interp.push(`pl:${pl.id}`, pl.x, pl.y);
         }
-        for (const [id, t] of targets) {
-          if (!this.remoteSmooth.get(id)) this.remoteSmooth.set(id, t);
+        this.interp.endSnapshot();
+        this.mech.onSnapshot?.(this, msg.room.mech);
+        // Flask / shrine / pyre: a green number when life comes back (not the respawn refill)
+        if (
+          prevYou &&
+          !first &&
+          !cantoChanged &&
+          performance.now() - this.lastDeathAt > 3000 &&
+          Number(msg.room.you.hp) - Number(prevYou.hp) >= 4
+        ) {
+          const gy = this.standY(this.renderYou.x, this.renderYou.y);
+          this.combat?.number(this.renderYou.x, gy + 2.3, this.renderYou.y, Number(msg.room.you.hp) - Number(prevYou.hp), "heal", "you+", performance.now());
         }
         const isHub = msg.room.role === "hub" || msg.room.cantoId === "inferno_01";
-        if (isHub && !this.hubTipShown) {
-          this.hubTipShown = true;
-          const clears0: string[] = Array.isArray(msg.room.you?.firstClears)
-            ? msg.room.you.firstClears
-            : [];
-          showToast(
-            clears0.includes("inferno_07")
-              ? "Avarice is clear — Guide, writ, stash, or hunt the circles again."
-              : clears0.includes("inferno_06")
-                ? "Gluttony is clear — Guide, writ, stash, then Avarice past the Maw."
-                : clears0.includes("inferno_05")
-                  ? "Lust is clear — Guide, writ, stash, then Gluttony past the Judge."
-                  : "No foes here — speak with the Guide, then take Toward Lust.",
-            "info"
-          );
-        }
+        // (hub arrival counsel rides the canto title card now)
+        if (isHub && !this.hubTipShown) this.hubTipShown = true;
         const clears: string[] = Array.isArray(msg.room.you?.firstClears)
           ? msg.room.you.firstClears
           : [];
@@ -2846,7 +3276,7 @@ export class WorldApp {
               if (c === "inferno_05" && !this.lustClearRevelShown) {
                 this.lustClearRevelShown = true;
                 this.camPunch = Math.max(this.camPunch, 1.45);
-                showToast("Lust falls — the Gluttony gate past the dais opens", "emit");
+                // (the server's gate line is the toast; the gate itself flares open)
                 const judge = this.room?.entities?.find(
                   (e: any) => e.kind === "boss" || /judge/i.test(String(e.name || e.id || ""))
                 );
@@ -2854,7 +3284,6 @@ export class WorldApp {
               }
               if (c === "inferno_06") {
                 this.camPunch = Math.max(this.camPunch, 1.2);
-                showToast("Triple Maw broken — the Avarice gate past the Maw opens", "emit");
                 const maw = this.room?.entities?.find(
                   (e: any) => e.kind === "boss" || /maw|cerbero/i.test(String(e.name || e.id || ""))
                 );
@@ -2869,7 +3298,6 @@ export class WorldApp {
                 document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
         this.crushEnrageShown = false;
                 window.setTimeout(() => document.body.classList.remove("ava-first-clear"), 1200);
-                showToast("misura spezzata — Hoard Crush yields; peso e contrapeso is paid", "emit");
                 const bossEnt = this.room?.entities?.find(
                   (e: any) => e.id === "hoard_crush" || e.kind === "boss"
                 );
@@ -2895,7 +3323,6 @@ export class WorldApp {
           this.stormHeartDownToastShown = false;
           this.stormHeartSeenAlive = false;
           this.poiHintsShown.clear();
-          showToast("la bufera — break the Storm Heart, then the Judge", "info");
         }
         if (msg.room.cantoId === "inferno_06" && (first || cantoChanged) && !this.glutEnterTipShown) {
           this.glutEnterTipShown = true;
@@ -2904,7 +3331,6 @@ export class WorldApp {
           this.mireHeartDownToastShown = false;
           this.mireHeartSeenAlive = false;
           this.poiHintsShown.clear();
-          showToast("piova etterna — clear the mire, then the Triple Maw", "info");
         }
         if (msg.room.cantoId === "inferno_07" && (first || cantoChanged)) {
           const epi = String(msg.room.subtitleIt || msg.room.subtitle_it || "").trim();
@@ -2921,31 +3347,9 @@ export class WorldApp {
         if (msg.room.cantoId === "inferno_07" && (first || cantoChanged) && !this.avaEnterTipShown) {
           this.avaEnterTipShown = true;
           this.counterweightApproachShown = false;
-          this.ledgerMidApproachShown = false;
-          this.northMeasureApproachShown = false;
-          this.crushApproachShown = false;
-          this.southSpillApproachShown = false;
-          this.weightChampApproachShown = false;
-          this.nwDriftApproachShown = false;
-          this.swSpillApproachShown = false;
-          this.seDriftApproachShown = false;
-          this.roadWeightsApproachShown = false;
-          this.goldChorusApproachShown = false;
-          this.crushFlankApproachShown = false;
-          this.strayCoinApproachShown = false;
-          this.northLedgerApproachShown = false;
-          this.southBalanceApproachShown = false;
-          this.coinWispsApproachShown = false;
-          this.ledgerWardenApproachShown = false;
           this.hoardHeartDownToastShown = false;
           this.hoardHeartSeenAlive = false;
           this.poiHintsShown.clear();
-          // Gluttony-portal side: weigh the first road; hub/DEV travel keeps the classic line
-          if (prevCanto === "inferno_06") {
-            showToast("di qua dal peso — Road Weights measure the gate road", "info");
-          } else {
-            showToast("peso e contrapeso — measure the road, then break Hoard Crush", "info");
-          }
           // Entrance keep-out read — quiet bone-gold pulse under the wake stone
           const you = msg.room.you;
           if (you) this.spawnAvaEntrancePulse(you.x, you.y);
@@ -2956,8 +3360,8 @@ export class WorldApp {
           clears.includes("inferno_05") &&
           !this.lustReturnGlutNudgeShown
         ) {
+          // Title card + the gold gate's beacon carry this now
           this.lustReturnGlutNudgeShown = true;
-          showToast("The Gluttony portal waits past the Judge's dais", "info");
         }
         if (
           cantoChanged &&
@@ -2967,7 +3371,6 @@ export class WorldApp {
         ) {
           this.glutReturnAvaNudgeShown = true;
           this.glutAvaGateApproachShown = false;
-          showToast("The Avarice gate (peso e contrapeso) waits past the Maw", "info");
         }
         const lootIds = new Set<string>();
         for (const e of msg.room.entities) {
@@ -2980,19 +3383,23 @@ export class WorldApp {
         }
         break;
       }
+      case "dash_denied": {
+        // the server still had cooldown left: the button follows its clock
+        const ms = Math.max(0, Number(msg.ms) || 0);
+        this.dashReadyAt = Date.now() + ms + 60;
+        break;
+      }
       case "net":
         if (msg.state === "disconnected") {
           this.netOffline = true;
           showToast("Connection lost — reconnecting…", "warn");
         } else if (msg.state === "reconnected") {
+          // (draw() swaps the hero's shared materials back: setHeroGhost)
           this.netOffline = false;
           showToast("Reconnected", "info");
-          this.youGroup?.traverse((o) => {
-            const m = o as THREE.Mesh;
-            if (m.isMesh && m.material && "opacity" in m.material) {
-              (m.material as THREE.MeshStandardMaterial).opacity = 1;
-            }
-          });
+        } else if (msg.state === "replaced") {
+          this.netOffline = true;
+          showToast("This pilgrim walks on in another tab — reload here to take it back", "warn");
         }
         break;
       case "toast": {
@@ -3028,9 +3435,7 @@ export class WorldApp {
           );
           document.body.classList.add("ava-loot-flash");
           window.setTimeout(() => document.body.classList.remove("ava-loot-flash"), isCache ? 380 : 220);
-          if (/^Picked up /i.test(text)) {
-            this.spawnAvaPickupMotes(this.renderYou.x, this.renderYou.y, false);
-          }
+          // (pickup motes: the shared fly-to-hero PickupFx covers every canto)
           if (isCache) {
             document.body.classList.add("ava-claim-flash");
             window.setTimeout(() => document.body.classList.remove("ava-claim-flash"), 420);
@@ -3044,14 +3449,22 @@ export class WorldApp {
             }
           }
         }
-        // Ledger Shrine kneel — bone-gold claim feel (audio-free)
-        if (this.room?.cantoId === "inferno_07" && /rebalance — the Ledger Shrine/i.test(text)) {
+        // Ledger / Tally Shrine kneel — bone-gold claim feel (audio-free)
+        if (this.room?.cantoId === "inferno_07" && /rebalance — the \w+ Shrine/i.test(text)) {
           this.camPunch = Math.max(this.camPunch, 0.42);
           document.body.classList.add("ava-claim-flash");
           window.setTimeout(() => document.body.classList.remove("ava-claim-flash"), 480);
-          const shrine = this.room.entities.find(
-            (e: any) => e.poiKind === "shrine" || e.id === "ledger_shrine"
-          );
+          // (the shrine knelt at: the one beside you)
+          let shrine: any = null;
+          let sd = Infinity;
+          for (const e of this.room.entities) {
+            if (e.poiKind !== "shrine") continue;
+            const d = Math.hypot(e.x - this.renderYou.x, e.y - this.renderYou.y);
+            if (d < sd) {
+              sd = d;
+              shrine = e;
+            }
+          }
           if (shrine) {
             this.spawnAvaClaimRing(shrine, 0xf2dea0, 0.9, 2.8, 820);
             const sp = this.entityRenderPos(shrine);
@@ -3076,18 +3489,7 @@ export class WorldApp {
           const bell = this.room.entities.find((e: any) => e.poiKind === "bell" || e.id === "ledger_bell");
           if (bell) {
             const pos = this.entityRenderPos(bell);
-            const ring = new THREE.Mesh(
-              new THREE.RingGeometry(0.8, 1.15, 36),
-              new THREE.MeshBasicMaterial({
-                color: 0xe8c86a,
-                transparent: true,
-                opacity: 0.78,
-                side: THREE.DoubleSide,
-                depthWrite: false,
-                blending: THREE.AdditiveBlending,
-              })
-            );
-            ring.rotation.x = -Math.PI / 2;
+            const ring = acquireFxRing(0.8, 1.15, 36, 0xe8c86a, 0.78);
             setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.14));
             this.scene.add(ring);
             this.impacts.push({ mesh: ring, start: this.animT, dur: 1180, from: 1.15, to: 5.4 });
@@ -3100,7 +3502,7 @@ export class WorldApp {
       }
       case "stash_open":
         setStashMode(true);
-        this.refreshInventoryUi();
+        this.refreshInventoryUi(true);
         break;
       case "ah_listings":
         renderAh(
@@ -3122,101 +3524,235 @@ export class WorldApp {
       case "combat":
         this.onCombat(msg);
         break;
+      case "pong":
+        // (GameSocket keeps the round-trip estimate)
+        break;
       case "spell_fx":
         this.onSpellFx(msg);
         break;
-      case "champ_telegraph": {
-        // Weight champions: short bone-gold raise — distinct from shade swipe + Crush slam
-        const x = Number(msg.x) || 0;
-        const y = Number(msg.y) || 0;
-        const radius = Number(msg.radius) || 2.35;
-        const dur = Number(msg.duration) || 0.6;
-        this.spawnJudgeSlam(x, y, radius, dur);
-        this.camPunch = Math.max(this.camPunch, 0.14);
-        this.camShake = Math.max(this.camShake, 0.06);
-        if (this.room?.cantoId === "inferno_07") {
-          document.body.classList.add("champ-windup");
-          window.setTimeout(
-            () => document.body.classList.remove("champ-windup"),
-            Math.max(280, dur * 1000)
-          );
-        }
+      case "telegraph":
+        this.onTelegraph(msg as TelegraphMsg);
         break;
-      }
-      case "boss_telegraph": {
-        const x = Number(msg.x) || 0;
-        const y = Number(msg.y) || 0;
-        const radius = Number(msg.radius) || 3.2;
-        const dur = Number(msg.duration) || 1.4;
-        const phase = Number(msg.phase) || 1;
-        this.spawnJudgeSlam(x, y, radius, dur);
-        this.flashDodge(dur);
-        if (this.room?.cantoId === "inferno_07") {
-          // Audio-free Crush windup: screen fringe + punch so mute players still tip the measure
-          document.body.classList.add("crush-windup");
-          window.setTimeout(
-            () => document.body.classList.remove("crush-windup"),
-            Math.max(420, dur * 1000)
-          );
-          this.camPunch = Math.max(this.camPunch, phase >= 2 ? 0.36 : 0.26);
-          this.camShake = Math.max(this.camShake, 0.12);
-          this.camFovKick = Math.max(this.camFovKick, phase >= 2 ? 1.6 : 1.05);
-          for (const n of this.nodes.values()) {
-            if (n.kind !== "hoard_crush") continue;
-            const tele = n.group.getObjectByName("mawTelegraph") as THREE.Mesh | undefined;
-            if (tele) {
-              const mat = tele.material as THREE.MeshBasicMaterial;
-              mat.opacity = Math.max(mat.opacity, 0.55);
-              tele.scale.setScalar(1.08);
-            }
-          }
-        }
+      case "telegraph_cancel":
+        this.combat?.onTelegraphCancel(String(msg.id), performance.now());
         break;
-      }
+      // Older servers: the slam messages, drawn as circle telegraphs
+      case "champ_telegraph":
+      case "boss_telegraph":
+        this.onTelegraph({
+          id: `legacy:${msg.id}:${Date.now()}`,
+          attackerId: msg.attackerId ?? msg.id,
+          shape: "circle",
+          x: Number(msg.x) || 0,
+          y: Number(msg.y) || 0,
+          radius: Number(msg.radius) || (msg.type === "boss_telegraph" ? 3.2 : 2.35),
+          duration: (Number(msg.duration) || (msg.type === "boss_telegraph" ? 1.4 : 0.6)) * 1000,
+          kind: msg.type === "boss_telegraph" ? "boss_slam" : "champ_slam",
+        });
+        break;
+      case "shove":
+        this.forces.shove(Number(msg.dx) || 0, Number(msg.dy) || 0, Number(msg.dur) || 220, performance.now());
+        break;
+      case "status":
+        this.forces.status(Number(msg.slow) || 1, Boolean(msg.root), Number(msg.dur) || 0, performance.now());
+        break;
       case "entity_removed": {
         const rid = String(msg.id);
-        const ent = this.room?.entities?.find((e: any) => e.id === rid);
+        const list = this.room?.entities;
+        const idx = Array.isArray(list) ? list.findIndex((e: any) => String(e.id) === rid) : -1;
+        const ent = idx >= 0 ? list[idx] : null;
         if (ent && (ent.kind === "mob" || ent.kind === "boss")) {
           const heavy = ent.kind === "boss";
-          this.camShake = Math.max(this.camShake, heavy ? 0.55 : 0.24);
-          this.camPunch = Math.max(this.camPunch, heavy ? 0.85 : 0.42);
-          this.camFovKick = Math.max(this.camFovKick, heavy ? 3.6 : 2.1);
           const pos = this.entityRenderPos(ent);
+          // Your kill (you hit it last) gets the full beat; someone else's, a far echo
+          const mine = this.lastHitFoe?.id === rid;
+          const near = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) < 16;
+          const k = mine ? 1 : near ? 0.4 : 0;
+          if (k > 0) {
+            this.kickShake((heavy ? 0.55 : 0.24) * k, pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+            this.camPunch = Math.max(this.camPunch, (heavy ? 0.85 : 0.42) * k);
+            this.camFovKick = Math.max(this.camFovKick, (heavy ? 3.6 : 2.1) * k);
+          }
           this.spawnHitFx(pos, heavy ? 0xffd078 : 0xff8844, heavy);
+          // Collapse instead of vanishing: the corpse leaves the live node map now and
+          // the entity list too (the next snapshot drops it anyway), so nothing respawns it.
+          // It falls away from whoever landed the killing blow.
+          const rec = this.nodes.get(rid);
+          const killer = this.lastAttackerOf.get(rid);
+          this.lastAttackerOf.delete(rid);
+          const from = killer ? this.attackerPos(killer, this.renderYou) : this.renderYou;
+          if (rec && this.combat?.startDeath(rec, from.x, from.y, performance.now())) {
+            this.nodes.delete(rid);
+            // Avarice coin burst on the killing blow, not when the corpse is disposed
+            this.avaPackDeathCoins(rec);
+          }
+          list.splice(idx, 1);
         }
         break;
+      }
+      default:
+        // A canto mechanic's own messages (cantoMech/*)
+        this.mech.onMessage?.(this, msg);
+    }
+  }
+
+  /** A foe (or a canto hazard) starts a windup: ground shape + attacker pose + cues. */
+  onTelegraph(msg: TelegraphMsg) {
+    const now = performance.now();
+    this.combat?.onTelegraph(msg, now);
+    const kind = String(msg.kind || "");
+    const dur = Math.max(0.1, (Number(msg.duration) || 500) / 1000);
+    if (kind === "boss_slam") {
+      const phase = Number(this.room?.entities?.find((e: any) => String(e.id) === String(msg.attackerId))?.phase) || 1;
+      this.flashDodge(dur);
+      this.camPunch = Math.max(this.camPunch, this.room?.cantoId === "inferno_07" ? 0.22 : 0.14);
+      if (this.room?.cantoId === "inferno_07") {
+        // Audio-free Crush windup: screen fringe + punch so mute players still tip the measure
+        document.body.classList.add("crush-windup");
+        window.setTimeout(() => document.body.classList.remove("crush-windup"), Math.max(420, dur * 1000));
+        this.camPunch = Math.max(this.camPunch, phase >= 2 ? 0.36 : 0.26);
+        this.camShake = Math.max(this.camShake, 0.12);
+        this.camFovKick = Math.max(this.camFovKick, phase >= 2 ? 1.6 : 1.05);
+        for (const n of this.nodes.values()) {
+          if (n.kind !== "hoard_crush") continue;
+          const tele = n.group.getObjectByName("mawTelegraph") as THREE.Mesh | undefined;
+          if (tele) {
+            const mat = tele.material as THREE.MeshBasicMaterial;
+            mat.opacity = Math.max(mat.opacity, 0.55);
+            tele.scale.setScalar(1.08);
+          }
+        }
+      }
+    } else if (kind === "champ_slam" || kind === "champ_cleave") {
+      this.camPunch = Math.max(this.camPunch, 0.14);
+      this.camShake = Math.max(this.camShake, 0.06);
+      if (this.room?.cantoId === "inferno_07") {
+        document.body.classList.add("champ-windup");
+        window.setTimeout(() => document.body.classList.remove("champ-windup"), Math.max(280, dur * 1000));
+      }
+    } else {
+      // A canto mechanic's heavy kind (registerTeleWeight): the windup punch (its dodge
+      // callout is the mechanic's own)
+      const weight = teleWeight(kind);
+      if (weight) {
+        this.camPunch = Math.max(this.camPunch, weight === "boss" ? 0.16 : 0.1);
+        this.camShake = Math.max(this.camShake, weight === "boss" ? 0.08 : 0.05);
       }
     }
   }
 
+  /** A telegraph finished filling: slams crack the ground (the hit itself is the server's). */
+  onTelegraphLand(l: TelegraphLand) {
+    // (a canto mechanic's own heavy kinds land the same way — registerTeleWeight)
+    const weight = teleWeight(l.kind);
+    const slam = l.kind === "boss_slam" || l.kind === "champ_slam" || l.kind === "champ_cleave" || weight != null;
+    if (!slam) return;
+    const ava = this.room?.cantoId === "inferno_07";
+    const glut = this.room?.cantoId === "inferno_06";
+    const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
+    const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
+    const boss = l.kind === "boss_slam" || weight === "boss";
+    // (on the drawn surface: a boss slam lands on its dais, not inside it)
+    const lift = 0.09;
+    // a line lands along its length: the shock rides its far half
+    const line = l.shape === "line";
+    const lx = line ? l.x + Math.cos(l.dir) * l.r * 0.62 : l.x;
+    const ly = line ? l.y + Math.sin(l.dir) * l.r * 0.62 : l.y;
+    const r = l.shape === "cone" ? l.r * 0.6 : line ? Math.min(2.6, l.r * 0.3) : l.r;
+    // Boss slams throw a shock ring past the edge; a champion's just cracks its circle
+    if (boss) {
+      const shock = acquireFxRing(0.9, 1.08, 48, shockHex, 0.95);
+      setPlanar(shock.position, lx, ly, this.surfaceY(lx, ly, lift));
+      this.scene.add(shock);
+      this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: r * 0.96, to: r * 1.55 });
+    }
+    const core = acquireFxRing(0.72, 1.0, 48, coreHex, boss ? 0.9 : 0.55);
+    setPlanar(core.position, lx, ly, this.surfaceY(lx, ly, lift + 0.02));
+    this.scene.add(core);
+    this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: r * 0.2, to: r * 1.05 });
+    // (a mechanic's lighter kinds — lines landing in a fan — crack without sparks)
+    if (this.sparks.length < 3 && weight !== "champ") {
+      const burst = spawnSparks(lx, ly, this.surfaceY(lx, ly, 1.55), coreHex, this.animT);
+      burst.dur = 640;
+      this.scene.add(burst.points);
+      this.sparks.push(burst);
+    }
+    this.noteCombat();
+    this.hitLight.color.setHex(coreHex);
+    this.hitLight.intensity = ava ? 12 : 16;
+    setPlanar(this.hitLight.position, lx, ly, this.standY(lx, ly, 1.4));
+    const d = Math.hypot(this.renderYou.x - lx, this.renderYou.y - ly);
+    const k = boss ? 1 : 0.55;
+    const near = d < l.r + 8 ? 1 : 0.35;
+    this.kickShake(0.5 * k * near, this.renderYou.x - lx, this.renderYou.y - ly);
+    this.camPunch = Math.max(this.camPunch, 0.78 * k * near);
+    this.camFovKick = Math.max(this.camFovKick, 3.4 * k * near);
+    // Just outside the ring: the gold "safe" rim (a hit reads from the server's blow)
+    // (not for a mechanic's kinds: a cascade's next ring may still be coming)
+    if (l.shape === "circle" && !weight && d > l.r && d <= l.r + 1.25) flashSlamSafeRim();
+  }
+
   onCombat(msg: any) {
+    const now = performance.now();
     const tid = String(msg.targetId ?? "");
     const youId = this.room?.you?.id != null ? String(this.room.you.id) : "";
     const sockId = this.socket.playerId != null ? String(this.socket.playerId) : "";
     const hitSelf = Boolean(tid) && (tid === youId || tid === sockId);
+    this.remoteHeroCombatPose(msg, tid);
+    const heroY = this.standY(this.renderYou.x, this.renderYou.y);
     if (hitSelf) {
+      const src = msg.attackerId != null ? this.room?.entities?.find((e: any) => String(e.id) === String(msg.attackerId)) : null;
+      const sp = src ? this.entityRenderPos(src) : null;
+      const awayX = sp ? this.renderYou.x - sp.x : -this.aimX;
+      const awayY = sp ? this.renderYou.y - sp.y : -this.aimY;
       // Crush/champ slam resolved while dashed/respawn-iframed — gold safe rim, not a sting
       if (msg.iframeBlocked) {
         flashSlamSafeRim();
         this.camPunch = Math.max(this.camPunch, 0.18);
-        this.camShake = Math.max(this.camShake, 0.08);
+        this.kickShake(0.08, awayX, awayY);
+        this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, 0, "block", "you", now);
         return;
       }
-      this.camShake = Math.max(this.camShake, 0.38);
+      // Damage over time (a burning zone's tick): the number and a faint edge only —
+      // no hit-stop, shake or flinch every second
+      if (msg.dot) {
+        this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.06);
+        this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, msg.damage, "self", "you", now);
+        if (msg.targetHp != null && msg.targetHp <= 0) this.triggerDeathRevive();
+        return;
+      }
+      const slam = msg.teleKind === "boss_slam" || msg.teleKind === "champ_slam" || msg.teleKind === "champ_cleave" || msg.champTele;
+      // (a canto mechanic's heavy kinds sting the same — registerTeleWeight)
+      const heavy = slam || teleWeight(msg.teleKind) != null;
+      this.kickShake(heavy ? 0.5 : 0.38, awayX, awayY);
       this.camPunch = Math.max(this.camPunch, 0.58);
       this.camFovKick = Math.min(this.camFovKick, -3.2);
-      this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.38);
-      this.hitStopUntil = performance.now() + HIT_STOP_MS + 20;
+      // (a red edge, not a white-out: the number and the flinch carry the blow)
+      this.hitFlashAmt = Math.max(this.hitFlashAmt, heavy ? 0.24 : 0.14);
+      this.hitStopUntil = now + HIT_STOP_MS + 20;
+      this.heroFlinchFrom(String(msg.attackerId ?? ""));
       this.spawnHitFx(this.renderYou, 0xff6644, true);
-      this.floatDmg(this.renderYou, msg.damage, true);
+      this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, msg.damage, "self", "you", now);
+      if (heavy) flashSlamSting();
+      else hapticCombat("hurt");
       const soaked = Number(msg.soaked) || 0;
       if (soaked > 0 && msg.wardActive) flashWardSoak();
       if (msg.targetHp != null && msg.targetHp <= 0) this.triggerDeathRevive();
       return;
     }
     const ent = this.room?.entities?.find((e: any) => String(e.id) === tid);
+    // The server no longer pushes a full snapshot per hit: apply the new HP right away so
+    // plates/bars move on the hit frame (the next ~12Hz snapshot confirms it)
+    if (ent && msg.targetHp != null && Number.isFinite(Number(msg.targetHp))) ent.hp = Number(msg.targetHp);
     const attacker = String(msg.attackerId ?? "");
     const weHit = Boolean(attacker) && (attacker === youId || attacker === sockId);
+    // A canto hazard's blow (a rolling weight…) carries where it struck from: fx/fy
+    const env = msg.fx != null && msg.fy != null;
+    if (ent && attacker && !env) {
+      // whoever struck last topples it (entity_removed follows the killing blow)
+      if (this.lastAttackerOf.size > 96) this.lastAttackerOf.clear();
+      this.lastAttackerOf.set(tid, attacker);
+    }
     let comboBoost = 0;
     if (weHit && ent && (ent.kind === "mob" || ent.kind === "boss")) {
       this.lastHitFoe = { id: String(ent.id), until: this.animT + GALE_STICKY_MS };
@@ -3230,33 +3766,40 @@ export class WorldApp {
       if (isComboRiftShearMax(streak)) pulseRiftShear(true);
       if (isComboHorizonFold(streak)) pulseHorizonFold();
     }
-    if (ent) {
-      const heavy = ent.kind === "boss";
-      const ava = this.room?.cantoId === "inferno_07";
-      const weightHit =
-        ava &&
-        (String(ent.archetype || "").startsWith("weight_") ||
-          ent.archetype === "ledger_warden" ||
-          ent.archetype === "hoard_heart" ||
-          ent.archetype === "coin_wisp");
-      this.camShake = Math.max(this.camShake, 0.2 + comboBoost + (weightHit ? 0.04 : 0));
-      this.camPunch = Math.max(
-        this.camPunch,
-        (weHit ? 0.36 : 0.22) + comboBoost + (heavy ? 0.2 : 0) + (weightHit ? 0.08 : 0)
-      );
-      this.camFovKick = Math.max(this.camFovKick, (weHit ? 2.4 : 1.2) + comboBoost * 4);
-      if (weHit) this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.16 + comboBoost);
-      // Weight packs: slightly longer iron hit-stop (Gluttony Cerbero parity feel)
-      const stopMs = HIT_STOP_MS + (weightHit && (ent.champion || heavy) ? 22 : weightHit ? 10 : 0);
-      this.hitStopUntil = performance.now() + stopMs;
-      const pos = this.entityRenderPos(ent);
-      this.floatDmg(pos, msg.damage, false);
-      const rec = this.nodes.get(String(ent.id));
-      if (rec) {
-        const base = Number(rec.group.userData.baseScale) || rec.group.scale.x || 1;
-        rec.group.userData.baseScale = base;
-        rec.group.userData.hitPulse = weightHit ? 1.25 : 1;
-        rec.group.scale.setScalar(base * (heavy ? 1.1 : weightHit ? 1.09 : 1.06));
+    if (!ent) return;
+    if (msg.evade) {
+      // a boss walking home off its leash: the blow glances off (no heal waits there)
+      const ep = this.entityRenderPos(ent);
+      if (weHit) this.combat?.number(ep.x, this.standY(ep.x, ep.y) + 4.2, ep.y, 0, "block", tid, now, "unmoved");
+      return;
+    }
+    const heavy = ent.kind === "boss";
+    const spell = String(msg.spellId || "");
+    const pos = this.entityRenderPos(ent);
+    const rec = this.nodes.get(String(ent.id));
+    // Our own swing already sparked, flinched and hit-stopped on the blade's frame
+    // (onSwingContact): the server's message only brings the number. Other foes the
+    // same swing cleaved get their own spark + flinch, but no second freeze / shake.
+    const match = weHit && !spell ? (this.combat?.matchSwing(tid, now) ?? "none") : "none";
+    const predicted = match === "primary";
+    const cleaved = match === "cleave";
+    const ava = this.room?.cantoId === "inferno_07";
+    const weightHit =
+      ava &&
+      (String(ent.archetype || "").startsWith("weight_") ||
+        ent.archetype === "ledger_warden" ||
+        ent.archetype === "hoard_heart" ||
+        ent.archetype === "coin_wisp");
+    if (!predicted) {
+      if (weHit && !cleaved) {
+        // Your blow: camera punch + hit-stop (someone else's never freezes your screen)
+        this.kickShake(0.2 + comboBoost + (weightHit ? 0.04 : 0), pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+        this.camPunch = Math.max(this.camPunch, 0.36 + comboBoost + (heavy ? 0.2 : 0) + (weightHit ? 0.08 : 0));
+        this.camFovKick = Math.max(this.camFovKick, 2.4 + comboBoost * 4);
+        this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.08 + comboBoost);
+        // Weight packs: slightly longer iron hit-stop (Gluttony Cerbero parity feel)
+        const stopMs = HIT_STOP_MS + (weightHit && (ent.champion || heavy) ? 22 : weightHit ? 10 : 0) + (msg.heavy ? 24 : 0);
+        this.hitStopUntil = now + stopMs;
       }
       const dustElite =
         ava &&
@@ -3266,87 +3809,97 @@ export class WorldApp {
           /^counterweight$/i.test(String(ent.name || "")) ||
           // Regular weights: light coin dust every other hit for measure read
           (ent.archetype === "weight_shade" && (this.frameN & 1) === 0));
-      this.spawnHitFx(pos, heavy ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, heavy || comboBoost > 0.2, dustElite);
+      this.spawnHitFx(pos, heavy ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, heavy || comboBoost > 0.2 || Boolean(msg.heavy), dustElite);
+      if (rec && this.combat) {
+        // flinch away from whoever struck (the burst / heart: from its centre)
+        let from = this._atkPos;
+        if (env) {
+          from.x = Number(msg.fx);
+          from.y = Number(msg.fy);
+        } else from = this.attackerPos(attacker, pos);
+        this.combat.hitMob(rec, from.x, from.y, Boolean(msg.heavy), now);
+      }
+    }
+    if ((predicted || cleaved) && comboBoost > 0) {
+      this.camPunch = Math.max(this.camPunch, 0.36 + comboBoost);
+      this.hitFlashAmt = Math.max(this.hitFlashAmt, 0.16 + comboBoost);
+    }
+    const style =
+      spell === "dash"
+        ? "dash"
+        : spell
+          ? "spell"
+          : msg.heavy
+            ? "heavy"
+            : weHit
+              ? "melee"
+              : "other";
+    const gy = this.standY(pos.x, pos.y);
+    const h = rec ? Number((rec.group.userData.mob as { height?: number } | undefined)?.height) || 2 : 2;
+    this.combat?.number(pos.x, gy + Math.min(5.6, h + 0.3), pos.y, msg.damage, weHit || style === "other" ? style : "other", tid, now);
+    if (weHit) {
+      if (msg.targetHp != null && Number(msg.targetHp) <= 0) hapticCombat("kill");
+      // (a finisher already buzzed on the blade's frame)
+      else if (msg.heavy && !spell && match === "none") hapticCombat("heavy");
     }
   }
 
-  spawnJudgeSlam(x: number, y: number, radius = 3.2, durationSec = 1.4) {
-    const pal =
-      this.room?.cantoId === "inferno_07"
-        ? "avarice"
-        : this.room?.cantoId === "inferno_06"
-          ? "gluttony"
-          : "lust";
-    const built = makeSlamTelegraph(pal);
-    // Sit above the Lust dais (top ~0.34) so the disc isn't buried in stone.
-    setPlanar(built.group.position, x, y, this.standY(x, y, 0.38));
-    built.group.scale.setScalar(Math.max(0.6, radius));
-    this.scene.add(built.group);
-    this.slams.push({
-      ...built,
-      x,
-      y,
-      r: radius,
-      start: this.animT,
-      dur: Math.max(0.2, durationSec) * 1000,
-    });
-    this.camPunch = Math.max(this.camPunch, pal === "avarice" ? 0.22 : 0.14);
-    if (pal === "avarice") built.group.scale.setScalar(Math.max(0.7, radius) * 1.06);
+  /** Foe id → the last attacker whose blow landed on it (the killer, on removal). */
+  lastAttackerOf = new Map<string, string>();
+
+  /** Planar position of a combat message's attacker (a pilgrim, you, or a foe). */
+  attackerPos(attackerId: string, fallback: Vec2): Vec2 {
+    if (!attackerId) return fallback;
+    const youId = this.room?.you?.id != null ? String(this.room.you.id) : "";
+    if (attackerId === youId || attackerId === String(this.socket.playerId ?? "")) return this.renderYou;
+    const pl = this.nodes.get(`pl:${attackerId}`);
+    if (pl) {
+      this._atkPos.x = pl.group.position.x;
+      this._atkPos.y = pl.group.position.z;
+      return this._atkPos;
+    }
+    const e = this.room?.entities?.find((x: any) => String(x.id) === attackerId);
+    return e ? this.entityRenderPos(e) : fallback;
+  }
+  _atkPos: Vec2 = { x: 0, y: 0 };
+
+  /** Your pilgrim recoils away from whoever struck (the aim side when unknown). */
+  heroFlinchFrom(attackerId: string) {
+    const src = attackerId ? this.room?.entities?.find((e: any) => String(e.id) === attackerId) : null;
+    if (src) {
+      const p = this.entityRenderPos(src);
+      this.heroMotor?.flinch(p.x - this.renderYou.x, p.y - this.renderYou.y);
+    } else this.heroMotor?.flinch(this.aimX, this.aimY);
   }
 
-  resolveSlam(s: SlamTele) {
-    const pal = s.group.userData.slamPalette as string | undefined;
-    const ava = pal === "avarice";
-    const glut = pal === "gluttony";
-    const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
-    const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
-    const sparkHex = coreHex;
-    const shock = new THREE.Mesh(
-      new THREE.RingGeometry(0.9, 1.08, 48),
-      new THREE.MeshBasicMaterial({
-        color: shockHex,
-        transparent: true,
-        opacity: 0.95,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    shock.rotation.x = -Math.PI / 2;
-    setPlanar(shock.position, s.x, s.y, this.standY(s.x, s.y, 0.4));
-    this.scene.add(shock);
-    this.impacts.push({ mesh: shock, start: this.animT, dur: 680, from: s.r * 0.96, to: s.r * 1.55 });
-    const core = new THREE.Mesh(
-      new THREE.RingGeometry(0.72, 1.0, 48),
-      new THREE.MeshBasicMaterial({
-        color: coreHex,
-        transparent: true,
-        opacity: 0.9,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    core.rotation.x = -Math.PI / 2;
-    setPlanar(core.position, s.x, s.y, this.standY(s.x, s.y, 0.42));
-    this.scene.add(core);
-    this.impacts.push({ mesh: core, start: this.animT, dur: 420, from: s.r * 0.2, to: s.r * 1.05 });
-    if (this.sparks.length < 3) {
-      const burst = spawnSparks(s.x, s.y, this.standY(s.x, s.y, 1.55), sparkHex, this.animT);
-      burst.dur = 640;
-      this.scene.add(burst.points);
-      this.sparks.push(burst);
+  /** Remote pilgrims: swing at whoever they hit (melee only), flinch when struck. */
+  remoteHeroCombatPose(msg: any, tid: string) {
+    const attacker = String(msg.attackerId ?? "");
+    const atk = attacker ? this.nodes.get(`pl:${attacker}`) : undefined;
+    if (atk && !msg.spellId) {
+      const ud = atk.group.userData;
+      // one swing per blow, not per cleave victim
+      if (!(this.animT - (Number(ud.lastSwingAt) || -1e9) < 250)) {
+        const chain = this.animT - (Number(ud.lastSwingAt) || -1e9) < SWING_MS + 320;
+        ud.swingKind = chain ? ((Number(ud.swingKind) || 0) + 1) % 3 : 0;
+        ud.lastSwingAt = this.animT;
+        // the packet marks contact: skip most of the anticipation
+        humanoidSwing(atk.group, this.animT, ud.swingKind, SWING_MS, 0.22);
+        this.heroMotor?.remoteSwing(atk.group, ud.swingKind);
+        const tgt = this.room?.entities?.find((e: any) => String(e.id) === tid);
+        if (tgt) {
+          const p = this.entityRenderPos(tgt);
+          ud.gaitYaw = yawFromPlanar(p.x - atk.group.position.x, p.y - atk.group.position.z);
+        }
+      }
     }
-    this.noteCombat();
-    this.hitLight.color.setHex(coreHex);
-    this.hitLight.intensity = ava ? 12 : 16;
-    setPlanar(this.hitLight.position, s.x, s.y, this.standY(s.x, s.y, 1.4));
-    this.camShake = Math.max(this.camShake, 0.5);
-    this.camPunch = Math.max(this.camPunch, 0.78);
-    this.camFovKick = Math.max(this.camFovKick, 3.4);
-    const d = Math.hypot(this.renderYou.x - s.x, this.renderYou.y - s.y);
-    if (d <= s.r + 0.2) flashSlamSting();
-    else if (d <= s.r + 1.25) flashSlamSafeRim();
+    const hurt = msg.targetIsPlayer && tid ? this.nodes.get(`pl:${tid}`) : undefined;
+    if (hurt) {
+      const src = this.room?.entities?.find((e: any) => String(e.id) === attacker);
+      const p = src ? this.entityRenderPos(src) : null;
+      const g = hurt.group;
+      if (p) humanoidFlinch(g, p.x - g.position.x, p.y - g.position.z, this.animT);
+    }
   }
 
   spawnHitFx(pos: Vec2, color: number, heavy = false, dustElite = false) {
@@ -3390,9 +3943,15 @@ export class WorldApp {
 
   onSpellFx(msg: any) {
     const id = String(msg.spellId || "");
+    // Remote pilgrims strike the matching cast pose (release frame: short wind)
+    const caster = msg.casterId != null ? this.nodes.get(`pl:${msg.casterId}`) : undefined;
+    if (caster && (id === "gale_bolt" || id === "whirl_ward" || id === "infernal_burst")) {
+      humanoidCast(caster.group, id === "gale_bolt" ? "gale" : id === "whirl_ward" ? "ward" : "burst", this.animT, 70);
+    }
     if (id === "gale_bolt") {
       const bolt: Bolt = {
-        mesh: makeBolt(this.mats!),
+        // Avarice: gold bolt (a cached tinted copy — the ember kit material is shared)
+        mesh: makeBolt(this.mats!, this.room?.cantoId === "inferno_07" ? 0xd4a840 : undefined),
         x0: Number(msg.x) || this.renderYou.x,
         y0: Number(msg.y) || this.renderYou.y,
         x1: Number(msg.tx ?? msg.x) || this.renderYou.x + this.aimX * 6,
@@ -3402,17 +3961,19 @@ export class WorldApp {
       };
       this.scene.add(bolt.mesh);
       this.bolts.push(bolt);
-      if (this.room?.cantoId === "inferno_07") {
-        const mat = bolt.mesh.material as THREE.MeshBasicMaterial;
-        if (mat && mat.color) mat.color.setHex(0xd4a840);
-      }
     } else if (id === "whirl_ward") {
-      if (!this.wardMesh && this.mats) {
-        this.wardMesh = makeWardRing(this.mats);
-        this.scene.add(this.wardMesh);
+      // Only your own ward rings you (another pilgrim's cast just poses them), for the
+      // server's duration (4.5 s of armor, not 8)
+      const youId = String(this.room?.you?.id ?? this.socket.playerId ?? "");
+      if (String(msg.casterId ?? "") === youId) {
+        if (!this.wardMesh && this.mats) {
+          this.wardMesh = makeWardRing(this.mats);
+          this.scene.add(this.wardMesh);
+        }
+        const dur = Number(msg.duration) > 0 ? Number(msg.duration) : 4.5;
+        this.wardUntil = this.animT + dur * 1000;
+        noteWardBuff(dur);
       }
-      this.wardUntil = this.animT + 8000;
-      noteWardBuff(8);
     } else if (id === "infernal_burst") {
       const mesh = makeBurst(this.mats!);
       const bx = Number(msg.x) || this.renderYou.x;
@@ -3431,37 +3992,43 @@ export class WorldApp {
         dur: 520,
         r: Number(msg.radius) || BURST_RADIUS,
       });
-      this.camPunch = Math.max(this.camPunch, 0.62);
-      this.camFovKick = Math.max(this.camFovKick, 3.1);
+      // Punch only for your own burst
+      if (String(msg.casterId ?? "") === String(this.room?.you?.id ?? this.socket.playerId ?? "")) {
+        this.camPunch = Math.max(this.camPunch, 0.62);
+        this.camFovKick = Math.max(this.camFovKick, 3.1);
+      }
       this.spawnHitFx({ x: bx, y: by }, 0xff5533, true);
     }
   }
 
-  floatDmg(pos: Vec2, amount: number, self: boolean) {
-    const el = document.createElement("div");
-    el.className = `float-dmg${self ? " self" : ""}`;
-    el.textContent = `−${Math.round(Number(amount) || 0)}`;
-    const obj = new CSS2DObject(el);
-    const gy = this.standY(pos.x, pos.y);
-    setPlanar(obj.position, pos.x, pos.y, gy + 1.8);
-    this.scene.add(obj);
-    const t0 = this.animT;
-    const tick = () => {
-      const u = (this.animT - t0) / 700;
-      obj.position.y = gy + 1.8 + u * 1.1;
-      el.style.opacity = String(Math.max(0, 1 - u));
-      if (u < 1) requestAnimationFrame(tick);
-      else {
-        this.scene.remove(obj);
-        el.remove();
-      }
-    };
-    requestAnimationFrame(tick);
-  }
-
-  refreshInventoryUi() {
+  /**
+   * Snapshots arrive ~12Hz (plus kills/casts): rebuild the inventory grid only when bag,
+   * stash, equipped or gear stats changed, and only while the panel is open (opening it
+   * renders a pending change — see onInventoryOpen). The hero look re-applies only when
+   * the equipped set changes.
+   */
+  refreshInventoryUi(force = false) {
     const you = this.lastYouSnapshot;
     if (!you) return;
+    const sig = inventorySignature(you);
+    if (sig !== this.lastInvSig) {
+      this.lastInvSig = sig;
+      this.invDirty = true;
+    }
+    const lookKey = equipLookKey(you.equipped || {});
+    if (this.youGroup && lookKey !== this.lastLookKey) {
+      this.lastLookKey = lookKey;
+      applyEquippedLook(this.youGroup, you.equipped || {});
+    }
+    if (!force && (!this.invDirty || !isPanelOpen("inventory"))) {
+      // The HUD bag button's "crowded" cue is the one grid-derived bit visible while closed
+      if (this.invDirty) {
+        const n = Array.isArray(you.inventory) ? you.inventory.length : 0;
+        document.getElementById("btn-inv")?.classList.toggle("bag-crowded", n >= 32);
+      }
+      return;
+    }
+    this.invDirty = false;
     renderInventory(you.inventory || [], () => {}, {
       equipped: you.equipped || {},
       gearStats: you.gearStats || {},
@@ -3515,18 +4082,7 @@ export class WorldApp {
         hit.poiKind === "marker")
     ) {
       const pos = this.entityRenderPos(hit);
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.35, 0.72, 28),
-        new THREE.MeshBasicMaterial({
-          color: 0xd4a840,
-          transparent: true,
-          opacity: 0.78,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        })
-      );
-      ring.rotation.x = -Math.PI / 2;
+      const ring = acquireFxRing(0.35, 0.72, 28, 0xd4a840, 0.78);
       setPlanar(ring.position, pos.x, pos.y, this.standY(pos.x, pos.y, 0.12));
       this.scene.add(ring);
       this.impacts.push({ mesh: ring, start: this.animT, dur: 520, from: 0.55, to: 2.4 });
@@ -3543,7 +4099,6 @@ export class WorldApp {
     let bestPos: Vec2 = { x: 0, y: 0 };
     for (const e of this.room.entities) {
       if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
-      if (this.isTwinExit(e)) continue;
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       const cap = Math.max(maxRange, EXIT_TRAVEL_RANGE);
@@ -3557,7 +4112,6 @@ export class WorldApp {
       bestD = maxRange;
       for (const e of this.room.entities) {
         if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
-        if (this.isTwinExit(e)) continue;
         const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
         const d = Math.hypot(pos.x - you.x, pos.y - you.y);
         if (d < bestD) {
@@ -3573,13 +4127,15 @@ export class WorldApp {
   /** Soft-snap walk-in: arrive then fire the real interact. */
   tickSoftSnap() {
     if (!this.softSnapTargetId || !this.room) return;
-    if (this.animT > this.softSnapUntil) {
+    // Steering, a ground tap or a foe chase replaced our walk target: the player chose otherwise
+    if (this.moveTarget !== this.softSnapMove || this.animT > this.softSnapUntil) {
       this.softSnapTargetId = null;
       return;
     }
     const ent = this.room.entities.find((e: any) => String(e.id) === this.softSnapTargetId);
     if (!ent) {
       this.softSnapTargetId = null;
+      this.moveTarget = null;
       return;
     }
     const you = this.youPos();
@@ -3593,164 +4149,62 @@ export class WorldApp {
       this.fireInteract(ent);
       return;
     }
-    this.moveTarget = { x: pos.x, y: pos.y };
+    this.softSnapMove.x = pos.x;
+    this.softSnapMove.y = pos.y;
   }
 
   fireInteract(best: any) {
     if (best.kind === "loot") {
-      showToast(`Picking up ${best.item?.name || "loot"}`, "loot");
+      // Server confirms with "Picked up …"; the fly-to-hero mote is the local feedback
+      this.notePickupSent(String(best.id));
       this.socket.pickup(best.id);
     } else if (best.kind === "exit" || best.poiKind === "portal") {
       if (this.portalIsLocked(best)) {
         this.denyLockedPortal(best);
         return;
       }
-      const dest =
-        best.toCanto === "inferno_05"
-          ? "Lust"
-          : best.toCanto === "inferno_06"
-            ? "Gluttony"
-            : best.toCanto === "inferno_07"
-              ? "Avarice"
-              : best.toCanto === "inferno_01"
-                ? "Dark Wood"
-                : best.label || best.name || "portal";
-      showToast(`Entering ${dest}…`, "emit");
-      this.doInteract(best);
-    } else if (best.poiKind === "ah") {
-      showToast("Opening Auction House", "info");
-      this.doInteract(best);
+      // Arrived by tap / Use walk-in: channel on our own (moving cancels it)
+      this.beginPortalHold(best, { fromKey: false, auto: true });
     } else {
-      showToast(`Interact: ${best.label || best.name || "object"}`, "info");
+      // The server answers every POI with its own line (or the dialogue panel)
       this.doInteract(best);
     }
   }
 
   interactNearest() {
     if (!this.room) return;
+    // What the prompt shows is what E / Use does (the scan breaks ties toward the objective)
+    const shownId = this.nearestInteract?.id;
+    const shown = shownId ? this.room.entities.find((e: any) => String(e.id) === shownId) : null;
+    if (shown) {
+      this.walkToInteract(shown);
+      return;
+    }
     const hit = this.pickInteractable(INTERACT_RANGE);
     if (hit) {
       this.softSnapTargetId = null;
       this.fireInteract(hit.ent);
       return;
     }
-    // Soft snap: just out of reach — glide in, then interact
+    // Soft snap: just out of reach — walk in, then interact
     const soft = this.pickInteractable(SOFT_SNAP_USE_RANGE);
     if (soft) {
-      this.softSnapTargetId = String(soft.ent.id);
-      this.softSnapUntil = this.animT + 1600;
-      this.moveTarget = { x: soft.pos.x, y: soft.pos.y };
-      // Locked gate: tip immediately so approach isn't "Move closer" mystery
-      if (
-        (soft.ent.kind === "exit" || soft.ent.poiKind === "portal") &&
-        this.portalIsLocked(soft.ent)
-      ) {
-        this.denyLockedPortal(soft.ent);
-        return;
-      }
-      const label = soft.ent.label || soft.ent.name || soft.ent.item?.name || "target";
-      showToast(`Approaching ${label}…`, "info");
+      this.walkToInteract(soft.ent);
       return;
     }
     showToast("Nothing nearby — walk closer to a portal, NPC, or loot", "warn");
   }
 
+  /**
+   * Target plate + attack-button hint, ~10 Hz. The objective line is owned by
+   * the objective model (guidance.ts) so it can never disagree with the
+   * compass or the minimap.
+   */
   paintChrome() {
     if (!this.room) return;
-    const you = this.room.you || {};
-    const canto = this.room.cantoId;
-    const foes = this.room.entities.filter(
-      (e: any) => (e.kind === "mob" || e.kind === "boss") && (e.hp == null || e.hp > 0)
-    );
-    let line = "Explore the wood";
-    if (canto === "inferno_05" || canto === "inferno_06" || canto === "inferno_07") {
-      const boss = foes.find((e: any) => e.kind === "boss");
-      const shades = foes.filter((e: any) => e.kind === "mob").length;
-      const heart = this.room.entities.some(
-        (e: any) =>
-          (e.archetype === "storm_heart" ||
-            e.archetype === "mire_heart" ||
-            e.archetype === "hoard_heart") &&
-          (e.hp == null || e.hp > 0)
-      );
-      const isGlut = canto === "inferno_06";
-      const isAva = canto === "inferno_07";
-      const cerberoUp =
-        isGlut &&
-        this.room.entities.some(
-          (e: any) =>
-            /^cerbero$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
-        );
-      const counterUp =
-        isAva &&
-        this.room.entities.some(
-          (e: any) =>
-            /^counterweight$/i.test(String(e.name || "")) && (e.hp == null || e.hp > 0)
-        );
-      if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.7) {
-        line = isAva
-          ? "Ledger Shrine on the road will mend you"
-          : isGlut
-            ? "Mire Shrine on the road will mend you"
-            : "Wind Shrine on the road will mend you";
-      } else if (isAva && you.x < 36 && heart) {
-        line = "peso e contrapeso — weigh the road";
-      } else if (heart) {
-        line = isAva
-          ? "Break the Hoard Heart — nearby shades are warded"
-          : isGlut
-            ? "Break the Mire Heart — nearby shades are warded"
-            : "Break the Storm Heart — nearby shades are warded";
-      } else if (isGlut && !heart && cerberoUp) {
-        line = "Cerbero stirs — then the Triple Maw";
-      } else if (isAva && !heart && counterUp) {
-        line = "Tip the Counterweight — then Hoard Crush";
-      } else if (shades >= 8 && this.room.entities.some((e: any) => e.poiKind === "bell")) {
-        line = isAva
-          ? "Ring the Ledger Bell to still a pack"
-          : isGlut
-            ? "Ring the Mire Bell to still a pack"
-            : "Ring the Gale Bell to still a pack";
-      } else if (shades > 0) {
-        line = `Clear the road — ${shades} shade${shades === 1 ? "" : "s"} left`;
-      } else if (boss) {
-        line = isAva ? "Slay Hoard Crush" : isGlut ? "Slay the Triple Maw" : "Slay the Judge of the Gate";
-      } else if (isAva) {
-        line = "Return to Gluttony — bank loot at the Dark Wood stash";
-      } else if (isGlut) {
-        const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_06");
-        line = cleared
-          ? "Hold E at the gold gate — Avarice awaits"
-          : "Return to Lust — bank loot at the Dark Wood stash";
-      } else {
-        const cleared = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
-        line = cleared
-          ? "Hold E at the gold gate — Gluttony awaits"
-          : "Defeat the Judge to open the Gluttony gate";
-      }
-    } else if ((you.hp ?? you.maxHp) < (you.maxHp || 1) * 0.85) {
-      line = "The camp pyre will mend you";
-    } else if (!you.spokeToGuide) {
-      line = "Speak with the Guide";
-    } else if (!you.visitedInferno) {
-      line = "Follow the gold arrow into Lust";
-    } else {
-      const avaOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_07");
-      const glutOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_06");
-      const lustOk = Array.isArray(you.firstClears) && you.firstClears.includes("inferno_05");
-      const day = new Date().toISOString().slice(0, 10);
-      const writOpen = you.dailyQuestDoneUtc !== day;
-      line = writOpen
-        ? "Daily writ — speak with the Guide"
-        : avaOk
-          ? "Writ claimed — hunt Lust / Gluttony / Avarice again"
-          : glutOk
-            ? "Writ claimed — hunt Lust / Gluttony / Avarice"
-            : lustOk
-              ? "Writ claimed — hunt Lust / Gluttony"
-              : "Writ claimed — hunt Lust again";
-    }
-    setQuestLine(line);
+    const now = performance.now();
+    if (now - this.lastChromeAt < 100) return;
+    this.lastChromeAt = now;
     const near = this.nearestFoe(16);
     if (near) {
       const hp = Number(near.e.hp) || 0;
@@ -3761,14 +4215,20 @@ export class WorldApp {
         near.e.archetype === "storm_heart" ||
         near.e.archetype === "mire_heart" ||
         /^counterweight$/i.test(String(near.e.name || ""));
+      this.plateTargetId = String(near.e.id);
       setTargetPlate(near.e.name || "Foe", hp / max, {
         boss: isBoss,
         avarice: this.room?.cantoId === "inferno_07",
       });
     } else {
+      this.plateTargetId = null;
       setTargetPlate(null, 0);
     }
-    document.getElementById("btn-attack")?.classList.toggle("foe-near", Boolean(this.nearestFoe(CHASE_RANGE)));
+    const foeNear = Boolean(this.nearestFoe(CHASE_RANGE));
+    if (foeNear !== this.lastFoeNear) {
+      this.lastFoeNear = foeNear;
+      document.getElementById("btn-attack")?.classList.toggle("foe-near", foeNear);
+    }
   }
 
   foeById(id: string, maxDist: number): { e: any; d: number; pos: Vec2 } | null {
@@ -3810,7 +4270,7 @@ export class WorldApp {
     const el = document.getElementById("dodge-callout");
     if (!el) return;
     if (this.room?.cantoId === "inferno_07") {
-      el.textContent = "peso — dash the Crush ring";
+      el.textContent = "Dash out of Plutus's slam";
       el.classList.add("avarice-dodge");
     } else {
       el.textContent = "Dash the slam";
@@ -3823,29 +4283,35 @@ export class WorldApp {
   dash() {
     const now = Date.now();
     if (now < this.dashReadyAt) return;
-    this.dashReadyAt = now + 4000;
+    if (this.heroMotor && !this.heroMotor.canDash()) return;
+    // (a hair over the server's 4 s: a dash the server refuses is a dodge with no iframes)
+    this.dashReadyAt = now + DASH_CD_MS;
     noteUtilityCd("btn-dash", 4);
     const len = Math.hypot(this.aimX, this.aimY) || 1;
     const nx = this.aimX / len;
     const ny = this.aimY / len;
-    const step = 5.5;
-    const nxPos = this.renderYou.x + nx * step;
-    const nyPos = this.renderYou.y + ny * step;
-    this.renderYou.x = nxPos;
-    this.renderYou.y = nyPos;
-    this.serverYou.x = nxPos;
-    this.serverYou.y = nyPos;
+    // (a canto's ground may shorten it — the server's dashScale hook agrees)
+    const step = 5.5 * (this.mech.dashScale?.(this) ?? 1);
+    // Same clamp as the server (room.handleDash): it teleports, we tween there
+    const b = this.room?.bounds;
+    const to = {
+      x: b ? Math.max(2, Math.min(b.width - 2, this.renderYou.x + nx * step)) : this.renderYou.x + nx * step,
+      y: b ? Math.max(2, Math.min(b.height - 2, this.renderYou.y + ny * step)) : this.renderYou.y + ny * step,
+    };
+    // Canto mechanic: wind / obstacles move the end (server room.handleDash mirrors it)
+    this.mech.adjustDash?.(this, this.renderYou, to, nx, ny);
+    this.moveTarget = null;
+    if (this.heroMotor) this.heroMotor.startDash(this.renderYou, to);
+    else this.renderYou = { x: to.x, y: to.y };
+    this.serverYou.x = to.x;
+    this.serverYou.y = to.y;
     this.socket.dash(nx, ny);
-    if (this.dust.length < 8) {
-      const puff = makeDustPuff();
-      setPlanar(puff.position, nxPos, nyPos, this.standY(nxPos, nyPos, 0.05));
-      this.scene.add(puff);
-      this.dust.push({ mesh: puff, start: this.animT });
-    }
   }
 
   attackNearest(opts?: { silent?: boolean }) {
     if (!this.room) return;
+    // A canto mechanic may spend the press on its own action (Gluttony: a thrown clod)
+    if (this.mech.onAttackPress?.(this)) return;
     if (this.lockedId) {
       const live = this.room.entities.find((e: any) => String(e.id) === this.lockedId);
       if (!live || (live.hp != null && live.hp <= 0)) this.lockedId = null;
@@ -3878,35 +4344,74 @@ export class WorldApp {
     }
   }
 
+  /**
+   * Start a swing. The attack packet is NOT sent here: heroMotor calls
+   * onSwingContact when the blade meets the target (~150 ms in), so the hit
+   * flash, number and server damage line up with the cut.
+   */
   sendAttack(targetId: string) {
-    const now = Date.now();
-    if (now < this.attackBusyUntil) return;
+    if (this.heroMotor && !this.heroMotor.canSwing()) return;
+    if (!this.heroMotor && Date.now() < this.attackBusyUntil) return;
     this.noteCombat();
-    this.attackBusyUntil = now + ATTACK_ANIM_MS;
+    this.attackBusyUntil = Date.now() + ATTACK_ANIM_MS;
     noteAttackCd(ATTACK_ANIM_MS / 1000);
-    this.slashUntil = this.animT + ATTACK_ANIM_MS;
-    this.camPunch = Math.max(this.camPunch, 0.22);
-    this.camFovKick = Math.max(this.camFovKick, 1.35);
-    window.setTimeout(() => {
-      const live = this.room?.entities.find((e: any) => String(e.id) === String(targetId));
-      if (!live || (live.hp != null && live.hp <= 0)) return;
-      const pos = this.entityRenderPos(live);
-      if (Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) > ATTACK_RANGE + 0.45) return;
-      this.socket.attack(targetId);
-    }, ATTACK_WINDUP_MS);
+    if (this.heroMotor) this.heroMotor.startSwing(targetId);
+    else this.onSwingContact(targetId, 0);
   }
 
-  startAttackHold() {
-    this.attackNearest({ silent: true });
-    this.stopAttackHold();
-    this.attackHoldTimer = window.setInterval(() => this.attackNearest({ silent: true }), ATTACK_HOLD_MS);
+  /** heroMotor: the blade reached the target — punch the camera and send the attack. */
+  onSwingContact(targetId: string | null, kind: number) {
+    this.camPunch = Math.max(this.camPunch, kind === 2 ? 0.3 : 0.22);
+    this.camFovKick = Math.max(this.camFovKick, kind === 2 ? 1.7 : 1.35);
+    if (!targetId) return;
+    const live = this.room?.entities.find((e: any) => String(e.id) === String(targetId));
+    if (!live || (live.hp != null && live.hp <= 0)) return;
+    const pos = this.entityRenderPos(live);
+    if (Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) > ATTACK_RANGE + 0.45) return;
+    // combo: 2 = the overhead finisher (the server counts the chain and hits ×1.3)
+    this.socket.attack(targetId, kind);
+    // Hit feedback on the blade's frame, not a round trip later: spark, flinch, hit-stop.
+    // The server's combat message then only adds the number (consumePrediction).
+    const now = performance.now();
+    const fin = kind === 2;
+    this.combat?.predictContact(String(targetId), now);
+    const rec = this.nodes.get(String(targetId));
+    if (rec) this.combat?.hitMob(rec, this.renderYou.x, this.renderYou.y, fin, now);
+    const ava = this.room?.cantoId === "inferno_07";
+    this.spawnHitFx(pos, live.kind === "boss" ? 0xffd078 : ava ? 0xf2dea0 : 0xffe8a0, fin || live.kind === "boss");
+    this.kickShake(fin ? 0.32 : 0.2, pos.x - this.renderYou.x, pos.y - this.renderYou.y);
+    this.camPunch = Math.max(this.camPunch, fin ? 0.5 : 0.36);
+    this.camFovKick = Math.max(this.camFovKick, fin ? 3.2 : 2.4);
+    this.hitFlashAmt = Math.max(this.hitFlashAmt, fin ? 0.14 : 0.08);
+    this.hitStopUntil = now + HIT_STOP_MS + (fin ? 34 : 0);
+    if (fin) hapticCombat("heavy");
   }
 
-  stopAttackHold() {
-    if (this.attackHoldTimer != null) {
-      window.clearInterval(this.attackHoldTimer);
-      this.attackHoldTimer = null;
-    }
+  /** heroMotor: live render position of a foe (null once gone or dead). */
+  foeRenderPos(id: string): Vec2 | null {
+    const e = this.room?.entities?.find((x: any) => String(x.id) === id);
+    if (!e || (e.hp != null && e.hp <= 0)) return null;
+    return this.entityRenderPos(e);
+  }
+
+  /**
+   * Hold to attack: tick() swings whenever the last swing ends (re-targeting
+   * the live nearest / locked foe, chasing when out of reach) while any source
+   * holds. A pointer id (mouse / finger held on a foe) is released by that
+   * pointer's pointerup (bindInput).
+   */
+  startAttackHold(source: AttackHoldSource) {
+    this.attackHolds.add(source);
+    this.attackHeld = true;
+    // a click on a foe still says "Closing on …" when it has to walk in
+    this.attackNearest({ silent: typeof source !== "number" });
+  }
+
+  /** Let go of one hold source, or of all of them (focus lost, death). */
+  stopAttackHold(source?: AttackHoldSource) {
+    if (source === undefined) this.attackHolds.clear();
+    else this.attackHolds.delete(source);
+    this.attackHeld = this.attackHolds.size > 0;
   }
 
   castSpell(spellId: SpellId, opts?: { aimX?: number; aimY?: number; preferNearest?: boolean }) {
@@ -3932,6 +4437,7 @@ export class WorldApp {
     this.aimY = ay / len;
     const wind = SPELL_TELEGRAPH_MS[spellId] ?? 220;
     this.pendingCast = { spellId, aimX: this.aimX, aimY: this.aimY, until: this.animT + wind };
+    this.heroMotor?.cast(spellId, wind);
     if (spellId === "gale_bolt") {
       const mesh = makeTelegraph(0xffd078);
       setPlanar(mesh.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.1));
@@ -4132,8 +4638,25 @@ export class WorldApp {
     return best;
   }
 
+  /**
+   * The gate E / Use should channel: the one the prompt shows. A nearer POI or
+   * loot wearing the prompt wins (E / Use act on what the prompt says); with
+   * no prompt up, any gate in hold range.
+   */
+  portalForUse(): any | null {
+    if (!this.room) return null;
+    const shownId = this.nearestInteract?.id;
+    const shown = shownId ? this.room.entities.find((e: any) => String(e.id) === shownId) : null;
+    if (!shown) return this.nearestIsPortalTravel();
+    if (shown.kind !== "exit" && !(shown.kind === "poi" && shown.poiKind === "portal")) return null;
+    const you = this.youPos();
+    const pos = this.entityRenderPos(shown);
+    // Held over from just outside reach: interactNearest walks in and channels on arrival
+    return Math.hypot(pos.x - you.x, pos.y - you.y) < EXIT_TRAVEL_RANGE ? shown : null;
+  }
+
   beginInteractHold(ev?: PointerEvent) {
-    const portal = this.nearestIsPortalTravel();
+    const portal = this.portalForUse();
     if (portal) {
       this.beginPortalHold(portal, { fromKey: false, pointer: ev });
       return;
@@ -4144,12 +4667,23 @@ export class WorldApp {
 
   endInteractHold(_ev: PointerEvent, completed: boolean) {
     const ph = this.portalHold;
-    if (!ph || ph.fromKey) {
+    if (!ph || ph.fromKey || ph.auto) {
       if (!ph) setPortalHoldUi(null);
       return;
     }
-    if (!completed || !ph.completed) this.cancelPortalHold();
-    else setPortalHoldUi(null);
+    if (!completed || !ph.completed) {
+      this.nudgeEarlyRelease(ph);
+      this.cancelPortalHold();
+    } else setPortalHoldUi(null);
+  }
+
+  /** Let go before the channel filled: say how, once in a while. */
+  nudgeEarlyRelease(ph: { target: any; startMs: number; completed: boolean }) {
+    if (ph.completed) return;
+    const u = (performance.now() - ph.startMs) / PORTAL_HOLD_MS;
+    if (u >= 0.97) return;
+    const key = isCompactUi() ? "Use" : "E";
+    showToast(`Keep holding ${key} to enter ${this.portalDestName(ph.target)}`, "info");
   }
 
   portalDestName(target: any): string {
@@ -4160,7 +4694,14 @@ export class WorldApp {
     return String(target?.label || target?.name || "portal");
   }
 
-  beginPortalHold(target: any, o: { fromKey: boolean; pointer?: PointerEvent; pointerId?: number }) {
+  /**
+   * Travel channel. fromKey: held E; pointer: held Use button; auto: started by
+   * arriving at a tapped gate — completes by itself, any steering cancels it.
+   */
+  beginPortalHold(
+    target: any,
+    o: { fromKey: boolean; pointer?: PointerEvent; pointerId?: number; auto?: boolean }
+  ) {
     if (!target) return;
     if (this.portalIsLocked(target)) {
       this.denyLockedPortal(target);
@@ -4168,6 +4709,7 @@ export class WorldApp {
       return;
     }
     if (this.portalHold) this.cancelPortalHold();
+    this.softSnapTargetId = null;
     this.moveTarget = null;
     this.velX = 0;
     this.velY = 0;
@@ -4175,21 +4717,22 @@ export class WorldApp {
     this.portalHold = {
       target,
       fromKey: o.fromKey,
+      auto: Boolean(o.auto),
       pointerId: o.pointer?.pointerId ?? o.pointerId ?? null,
       startMs: performance.now(),
       completed: false,
       onUp: null,
     };
-    setPortalHoldUi(0, this.portalDestName(target));
+    setPortalHoldUi(0, this.portalDestName(target), o.auto ? "Entering — move to stay" : undefined);
     if (this.portalHoldFx) {
       this.portalHoldFx.group.visible = true;
       setPlanar(this.portalHoldFx.group.position, you.x, you.y, this.standY(you.x, you.y, 0.05));
       tickPortalHoldFx(this.portalHoldFx, 0);
     }
-    if (!o.fromKey) {
+    if (!o.fromKey && !o.auto) {
       const onUp = (e: PointerEvent) => {
         const ph = this.portalHold;
-        if (!ph || ph.fromKey) return;
+        if (!ph || ph.fromKey || ph.auto) return;
         if (ph.pointerId != null && e.pointerId !== ph.pointerId) return;
         if (!ph.completed) this.cancelPortalHold();
       };
@@ -4215,13 +4758,14 @@ export class WorldApp {
       this.portalHoldFx.group.visible = false;
       this.portalHoldFx.light.intensity = 0;
     }
-    if (this.portalLight.intensity > 4.5) this.portalLight.intensity = 4.5;
+    if (this.portalLight.intensity > 5.2) this.portalLight.intensity = 5.2;
   }
 
   tickPortalHold() {
     const ph = this.portalHold;
     if (!ph || ph.completed) return;
     if (ph.fromKey && !this.keys.has("KeyE")) {
+      this.nudgeEarlyRelease(ph);
       this.cancelPortalHold();
       return;
     }
@@ -4248,18 +4792,18 @@ export class WorldApp {
     }
     const dest = this.portalDestName(ph.target);
     const u = Math.min(1, (performance.now() - ph.startMs) / PORTAL_HOLD_MS);
-    setPortalHoldUi(u, dest);
+    setPortalHoldUi(u, dest, ph.auto ? "Entering — move to stay" : undefined);
     if (this.portalHoldFx) {
       setPlanar(this.portalHoldFx.group.position, you.x, you.y, this.standY(you.x, you.y, 0.05));
       tickPortalHoldFx(this.portalHoldFx, u);
     }
-    this.portalLight.intensity = 4.5 + u * 7.5;
+    this.portalLight.intensity = 5.2 + u * 7.5;
     if (u < 1) return;
     ph.completed = true;
     hapticPortalComplete();
-    showToast(`Entering ${dest}…`, "emit");
     const target = ph.target;
     this.cancelPortalHold();
+    // No "Entering…" toast: the canto title card greets the arrival
     this.doInteract(target);
   }
 
@@ -4269,10 +4813,7 @@ export class WorldApp {
   disposeCombatEphemerals() {
     for (const r of this.impacts) {
       this.scene.remove(r.mesh);
-      if (r.mesh.geometry && r.mesh.geometry !== this.sharedCoinDiscGeo) {
-        r.mesh.geometry.dispose();
-      }
-      (r.mesh.material as THREE.Material).dispose();
+      releaseFx(r.mesh);
     }
     this.impacts = [];
   }
@@ -4281,7 +4822,6 @@ export class WorldApp {
   disposeAvaEphemerals() {
     for (const cell of this.emptyPackCells.values()) {
       this.scene.remove(cell.mesh);
-      cell.mesh.geometry?.dispose();
       (cell.mesh.material as THREE.Material).dispose();
     }
     this.emptyPackCells.clear();
@@ -4307,19 +4847,21 @@ export class WorldApp {
       return;
     }
     const lastPackPos = this.lastPackPos;
-    const counts = new Map<string, number>();
+    // Reused per frame (this runs every Avarice frame)
+    const counts = this._packCounts;
+    counts.clear();
     for (const e of this.room.entities) {
       if (e.kind !== "mob" || !e.packId) continue;
       if (e.hp != null && e.hp <= 0) continue;
       const arch = String(e.archetype || "");
       if (arch.includes("heart") || /counterweight/i.test(String(e.name || "")) || arch.includes("warden")) continue;
-      counts.set(e.packId, (counts.get(e.packId) || 0) + 1);
-      const prev = lastPackPos.get(e.packId) || { x: 0, z: 0 };
-      const n = counts.get(e.packId)!;
-      lastPackPos.set(e.packId, {
-        x: prev.x + (e.x - prev.x) / n,
-        z: prev.z + (e.y - prev.z) / n,
-      });
+      const n = (counts.get(e.packId) || 0) + 1;
+      counts.set(e.packId, n);
+      let prev = lastPackPos.get(e.packId);
+      if (!prev) lastPackPos.set(e.packId, (prev = { x: 0, z: 0 }));
+      // Running mean (n === 1 resets it to this mob)
+      prev.x += (e.x - prev.x) / n;
+      prev.z += (e.y - prev.z) / n;
     }
     for (const [packId, n] of counts) {
       this.lastPackAlive.set(packId, n);
@@ -4330,21 +4872,22 @@ export class WorldApp {
         this.emptyPackCells.delete(packId);
       }
     }
-    for (const [packId, prev] of [...this.lastPackAlive.entries()]) {
+    for (const [packId, prev] of this.lastPackAlive) {
       if (counts.has(packId) || prev <= 0) continue;
       this.lastPackAlive.set(packId, 0);
       if (this.emptyPackCells.has(packId)) continue;
       const pos = lastPackPos.get(packId);
       if (!pos) continue;
-      const geo = this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8));
+      const geo = this.sharedCoinDiscGeo || (this.sharedCoinDiscGeo = markShared(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8)));
       const mesh = new THREE.Mesh(
-        new THREE.RingGeometry(0.55, 1.15, 24),
+        sharedGeo("packCell", () => new THREE.RingGeometry(0.55, 1.15, 24)),
         new THREE.MeshBasicMaterial({
           color: 0xa89050,
           transparent: true,
           opacity: 0.28,
           depthWrite: false,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
         })
       );
       mesh.rotation.x = -Math.PI / 2;
@@ -4398,26 +4941,38 @@ export class WorldApp {
     const you = this.renderYou;
     if (!st || Math.hypot(st.x - you.x, st.y - you.y) > INTERACT_RANGE + 3) {
       setStashMode(false);
-      this.refreshInventoryUi();
+      this.refreshInventoryUi(true);
     }
   }
 
   scanNearestInteract() {
+    // ~12 Hz: prompt, Use label and one-shot hints don't need every frame
+    const nowMs = performance.now();
+    if (nowMs - this.lastScanAt < 80) return;
+    this.lastScanAt = nowMs;
     this.checkStashRange();
     if (!this.room) {
       this.nearestInteract = null;
       return;
     }
+    // Wait for the first objective so a spawn tie resolves toward it (no stray pyre hint)
+    if (this.guidance && !this.guidance.objective) return;
     const you = this.youPos();
+    const objId = this.guidance?.objective?.target?.id ?? null;
     let best: any = null;
-    let bestD = INTERACT_HIGHLIGHT_RANGE;
+    let bestScore = Infinity;
+    let fromSticky = false;
     for (const e of this.room.entities) {
       if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
-      if (this.isTwinExit(e)) continue;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
-      if (d < bestD) {
-        bestD = d;
+      // Highlight exactly where the action works: gates at hold range, the rest at interact range
+      const portal = e.kind === "exit" || e.poiKind === "portal";
+      if (d >= (portal ? EXIT_TRAVEL_RANGE : INTERACT_HIGHLIGHT_RANGE)) continue;
+      // Near-ties go to the current objective (hub spawn: the Guide, not the pyre)
+      const score = d - (objId && String(e.id) === objId ? 1.5 : 0);
+      if (score < bestScore) {
+        bestScore = score;
         best = e;
       }
     }
@@ -4432,7 +4987,10 @@ export class WorldApp {
       };
     } else if (this.stickyInteract && this.animT <= this.stickyInteract.until) {
       const still = this.room.entities.find((e: any) => String(e.id) === this.stickyInteract!.id);
-      if (still) best = still;
+      if (still) {
+        best = still;
+        fromSticky = true;
+      }
       else this.stickyInteract = null;
     } else {
       this.stickyInteract = null;
@@ -4440,62 +4998,61 @@ export class WorldApp {
     const interactBtn = document.getElementById("btn-interact");
     const labelEl = interactBtn?.querySelector<HTMLElement>(".action-label");
     const bestId = best ? String(best.id) : "";
-    for (const rec of this.nodes.values()) {
-      rec.hpEl.classList.toggle("is-nearest", rec.id === bestId);
-      const prompt = rec.hpEl.querySelector(".interact-prompt") as HTMLElement | null;
-      if (!prompt) continue;
-      const on = rec.id === bestId;
-      prompt.hidden = !on;
-      const stickyOn =
-        on &&
-        this.stickyInteract &&
-        this.stickyInteract.id === bestId &&
-        bestD > INTERACT_HIGHLIGHT_RANGE * 0.92;
-      prompt.classList.toggle("is-sticky", Boolean(stickyOn));
-      if (on) {
+    // Move the highlight + world prompt only when the nearest changes
+    if (bestId !== this.promptRecId) {
+      const old = this.nodes.get(this.promptRecId);
+      if (old) {
+        old.hpEl.classList.remove("is-nearest");
+        const p = old.hpEl.querySelector(".interact-prompt") as HTMLElement | null;
+        if (p) p.hidden = true;
+      }
+      this.promptRecId = bestId;
+    }
+    const cur = bestId ? this.nodes.get(bestId) : undefined;
+    if (cur && best) {
+      if (!cur.hpEl.classList.contains("is-nearest")) cur.hpEl.classList.add("is-nearest");
+      const prompt = cur.hpEl.querySelector(".interact-prompt") as HTMLElement | null;
+      if (prompt) {
+        if (prompt.hidden) prompt.hidden = false;
+        // Dimmed while held over from just outside reach
+        prompt.classList.toggle("is-sticky", fromSticky);
         const isPortal = best.kind === "exit" || best.poiKind === "portal";
+        let text: string;
+        let bellCd = 0;
         if (isPortal && this.portalIsLocked(best)) {
-          prompt.textContent =
-            best.requireClear === "inferno_05"
-              ? "Clear the Judge first"
-              : best.requireClear === "inferno_06"
-                ? "Clear Triple Maw first"
-                : "Sealed";
+          text = `${lockReason(best)} first`;
         } else if (isPortal) {
           const dest = this.portalDestName(best);
-          prompt.textContent = isCompactUi() ? `Hold Use — ${dest}` : `Hold E — ${dest}`;
-        } else if (best.poiKind === "shrine" || best.poiKind === "pyre") {
-          prompt.textContent = this.keyedVerb("Kneel");
-        } else if (best.poiKind === "cache") {
-          prompt.textContent = this.keyedVerb("Claim");
-        } else if (best.poiKind === "bell") {
-          const cd = Number(this.room?.you?.bellCd) || 0;
-          if (cd > 0.4) {
-            prompt.textContent = `Bell ${Math.ceil(cd)}s`;
-            prompt.classList.add("bell-cd");
-            prompt.style.setProperty("--bell-cd", String(Math.min(1, cd / 18)));
-          } else {
-            prompt.textContent = this.keyedVerb("Ring");
-            prompt.classList.remove("bell-cd");
-            prompt.style.removeProperty("--bell-cd");
-          }
+          text = isCompactUi() ? `Hold Use — ${dest}` : `Hold E — ${dest}`;
+        } else if (best.poiKind === "bell" && (bellCd = Number(this.room?.you?.bellCd) || 0) > 0.4) {
+          text = `Bell ${Math.ceil(bellCd)}s`;
         } else {
-          prompt.textContent = this.keyedVerb(this.interactVerb(best, rec.kind));
-          prompt.classList.remove("bell-cd");
+          text = this.keyedVerb(this.interactVerb(best, cur.kind));
         }
+        if (prompt.textContent !== text) prompt.textContent = text;
+        const cd = bellCd > 0.4;
+        if (prompt.classList.contains("bell-cd") !== cd) {
+          prompt.classList.toggle("bell-cd", cd);
+          if (!cd) prompt.style.removeProperty("--bell-cd");
+        }
+        if (cd) prompt.style.setProperty("--bell-cd", String(Math.min(1, bellCd / 18)));
       }
     }
     if (!best) {
       this.nearestInteract = null;
       this.lastInteractHintId = null;
-      interactBtn?.classList.remove("interact-ready", "interact-kneel", "interact-claim");
-      interactBtn?.classList.add("interact-idle");
-      if (labelEl && !this.portalHold) labelEl.textContent = "Interact";
+      if (interactBtn && !interactBtn.classList.contains("interact-idle")) {
+        interactBtn.classList.remove("interact-ready", "interact-kneel", "interact-claim");
+        interactBtn.classList.add("interact-idle");
+      }
+      if (labelEl && !this.portalHold && labelEl.textContent !== "Interact") labelEl.textContent = "Interact";
       return;
     }
     this.nearestInteract = { id: String(best.id), kind: best.kind, label: best.label || best.name };
-    interactBtn?.classList.add("interact-ready");
-    interactBtn?.classList.remove("interact-idle");
+    if (interactBtn && !interactBtn.classList.contains("interact-ready")) {
+      interactBtn.classList.add("interact-ready");
+      interactBtn.classList.remove("interact-idle");
+    }
     const avaKneel =
       best.poiKind === "shrine" && this.room?.cantoId === "inferno_07";
     const avaClaim =
@@ -4504,16 +5061,29 @@ export class WorldApp {
     interactBtn?.classList.toggle("interact-claim", Boolean(avaClaim));
     if (!this.portalHold && labelEl) {
       const isPortal = best.kind === "exit" || best.poiKind === "portal";
-      if (isPortal && this.portalIsLocked(best)) labelEl.textContent = "Sealed";
-      else if (isPortal) labelEl.textContent = "Hold";
-      else labelEl.textContent = this.interactVerb(best, best.kind);
+      const cap =
+        isPortal && this.portalIsLocked(best) ? "Sealed" : isPortal ? "Hold" : this.interactVerb(best, best.kind);
+      if (labelEl.textContent !== cap) labelEl.textContent = cap;
     }
+
     if (this.lastInteractHintId !== String(best.id)) {
       this.lastInteractHintId = String(best.id);
       if (best.kind === "poi") {
         const id = String(best.id);
         if (!this.poiHintsShown.has(id)) {
-          const hint = String(best.hint || "").trim();
+          // Content hints say "E to …" / "E — …"; on touch the key is the Use seal
+          let hint = String(best.hint || "").trim();
+          if (isCompactUi()) {
+            hint = hint
+              .replace(/\bE to\b/g, "Use to")
+              .replace(/\bHold E\b/g, "Hold Use")
+              .replace(/^E — /, "Use — ");
+          }
+          // A gate's hint explains its seal: an open road needs no "once X falls…"
+          if (best.poiKind === "portal" && !this.portalIsLocked(best)) hint = "";
+          if (import.meta.env.DEV && hint.length > HINT_MAX) {
+            console.info(`[content] POI ${id} hint is ${hint.length} chars (toast holds ~${HINT_MAX})`);
+          }
           let line = hint;
           if (!line) {
             if (best.poiKind === "cache") {
@@ -4524,12 +5094,10 @@ export class WorldApp {
                     ? "Filth Cache — one champion drop per visit"
                     : "Wind Cache — one champion drop per visit";
             } else if (best.poiKind === "shrine") {
-              line =
-                this.room?.cantoId === "inferno_07"
-                  ? "Ledger Shrine — restores life and breath"
-                  : this.room?.cantoId === "inferno_06"
-                    ? "Mire Shrine — restores life and breath"
-                    : "Wind Shrine — restores life and breath";
+              const name =
+                best.label ||
+                (this.room?.cantoId === "inferno_07" ? "Ledger Shrine" : this.room?.cantoId === "inferno_06" ? "Mire Shrine" : "Wind Shrine");
+              line = `${name} — restores life and breath`;
             } else if (best.poiKind === "bell") {
               line =
                 this.room?.cantoId === "inferno_07"
@@ -4540,7 +5108,7 @@ export class WorldApp {
             } else if (best.poiKind === "marker") {
               line =
                 this.room?.cantoId === "inferno_07"
-                  ? "Ledger Stone — measure before the Crush"
+                  ? "Ledger Stone — read how the weights clash"
                   : best.hint || "A stone on the road";
             } else if (best.poiKind === "stash") {
               line = "Stash — bank champion drops here";
@@ -4576,7 +5144,7 @@ export class WorldApp {
         )
       ) {
         this.stormHeartDownToastShown = true;
-        showToast("Storm Heart broken — the Judge waits at the gate", "emit");
+        showToast("Storm Heart broken — Minos waits at the gate", "emit");
       }
     }
 
@@ -4616,8 +5184,7 @@ export class WorldApp {
         )
       ) {
         this.hoardHeartDownToastShown = true;
-        // Soft death beat — one toast + bone-gold fringe (server emit already said peso)
-        showToast("Hoard Heart broken — Counterweight stirs; Crush waits beyond", "emit");
+        // Soft death beat — bone-gold fringe (the server's emit line carries the words)
         document.body.classList.add("hoard-heart-death");
         window.setTimeout(() => document.body.classList.remove("hoard-heart-death"), 900);
         this.camPunch = Math.max(this.camPunch, 0.72);
@@ -4634,7 +5201,7 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
           this.cerberoApproachShown = true;
-          showToast("Cerbero ahead — three maws taste the road", "warn");
+          showToast("Cerbero guards the road — one maw, then the Triple Maw", "warn");
           break;
         }
       }
@@ -4666,215 +5233,8 @@ export class WorldApp {
         const pos = this.entityRenderPos(e);
         if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
           this.counterweightApproachShown = true;
-          showToast("contrapeso — Counterweight mid-measure; tip it before the Crush", "warn");
+          showToast("The Counterweight charges down lanes like the weights — step aside", "warn");
           this.camPunch = Math.max(this.camPunch, 0.55);
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.ledgerMidApproachShown) {
-      const stone = this.room.entities.find((e: any) => e.id === "ledger_stone" || e.poiKind === "marker");
-      if (stone) {
-        const pos = this.entityRenderPos(stone);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
-          this.ledgerMidApproachShown = true;
-          showToast("The ledger stone marks mid-measure — Bell, then Crush", "info");
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.northMeasureApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^north measure$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.northMeasureApproachShown = true;
-          showToast("North Measure — unpaid tallies on the empty flats", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.crushApproachShown) {
-      const boss = this.room.entities.find(
-        (e: any) => e.kind === "boss" || /^hoard crush$/i.test(String(e.name || ""))
-      );
-      if (boss && (boss.hp == null || boss.hp > 0)) {
-        const pos = this.entityRenderPos(boss);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 16) {
-          this.crushApproachShown = true;
-          showToast("Hoard Crush — weight without rest; tip the measure", "warn");
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.southSpillApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^south spill$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.southSpillApproachShown = true;
-          showToast("South Spill — undervalued coin, still sharp", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.weightChampApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^weight champions$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 13) {
-          this.weightChampApproachShown = true;
-          showToast("peso — Weight Champions; heavy measures before the Crush", "warn");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.nwDriftApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^northwest drift$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.nwDriftApproachShown = true;
-          showToast("peso — Northwest Drift; scorched flats still hold weight", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.swSpillApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^southwest spill$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.swSpillApproachShown = true;
-          showToast("contrapeso — Southwest Spill; undervalued coin on empty flats", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.seDriftApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^southeast drift$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.seDriftApproachShown = true;
-          showToast("peso — Southeast Drift; unpaid weights off the Crush lane", "info");
-          break;
-        }
-      }
-    }
-
-    // Gluttony-portal side: first weights on the scorched ledger road
-    if (this.room?.cantoId === "inferno_07" && !this.roadWeightsApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^road weights$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.roadWeightsApproachShown = true;
-          showToast("Road Weights — first measure past the Gluttony gate", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.goldChorusApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^gold chorus$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.goldChorusApproachShown = true;
-          showToast("Gold Chorus — undervalued choir off the crush lane", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.crushFlankApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^crush approach$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.crushFlankApproachShown = true;
-          showToast("Crush Approach — north flank before the dais", "warn");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.strayCoinApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^stray coin$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
-          this.strayCoinApproachShown = true;
-          showToast("Stray Coin — loose change under the Bell", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.northLedgerApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^north ledger$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.northLedgerApproachShown = true;
-          showToast("North Ledger — unpaid tallies; the Bell stills them", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.southBalanceApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^south balance$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 12) {
-          this.southBalanceApproachShown = true;
-          showToast("South Balance — scale tipped wrong; pay or press through", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.coinWispsApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (!/^coin wisps$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 11) {
-          this.coinWispsApproachShown = true;
-          showToast("Coin Wisps — scattered greed, easy to undervalue", "info");
-          break;
-        }
-      }
-    }
-
-    if (this.room?.cantoId === "inferno_07" && !this.ledgerWardenApproachShown) {
-      for (const e of this.room.entities) {
-        if (e.kind !== "mob") continue;
-        if (e.archetype !== "ledger_warden" && !/^ledger warden$/i.test(String(e.name || ""))) continue;
-        const pos = this.entityRenderPos(e);
-        if (Math.hypot(pos.x - you.x, pos.y - you.y) < 14) {
-          this.ledgerWardenApproachShown = true;
-          showToast("Ledger Warden — tablet shield before the Crush", "warn");
           break;
         }
       }
@@ -4886,6 +5246,17 @@ export class WorldApp {
     const now = Date.now();
     if (now - this.lastAutoPickupScan < 220) return;
     this.lastAutoPickupScan = now;
+    // Full bag: stop asking (the server would answer "Inventory full." every second)
+    let bag = 0;
+    for (const it of this.room.you?.inventory || []) if (it && !it.equipSlot) bag++;
+    if (bag >= BAG_CAP) {
+      if (!this.bagFullWarned) {
+        this.bagFullWarned = true;
+        showToast("Bag full — melt it in the Inventory or bank at the stash", "warn");
+      }
+      return;
+    }
+    this.bagFullWarned = false;
     const you = this.serverYou;
     for (const e of this.room.entities) {
       if (e.kind !== "loot") continue;
@@ -4894,37 +5265,31 @@ export class WorldApp {
       const last = this.autoPickupSent.get(e.id) || 0;
       if (now - last < AUTO_PICKUP_RETRY_MS) continue;
       this.autoPickupSent.set(e.id, now);
+      this.notePickupSent(String(e.id));
       this.socket.pickup(e.id);
     }
   }
 
+  /** Hub: one reminder the first time a gate is in reach (the world prompt says the rest). */
   hintExit() {
-    if (!this.room) return;
+    if (!this.room || this.hubPortalToastShown) return;
     const isHub = this.room.role === "hub" || this.room.cantoId === "inferno_01";
     if (!isHub) return;
-    let nearD = EXIT_HINT_RANGE;
-    let near = false;
-    for (const e of this.room.entities) {
-      if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
-      const pos = this.entityRenderPos(e);
-      const d = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y);
-      if (d < nearD) {
-        nearD = d;
-        near = true;
-      }
-    }
-    if (near) {
-      const now = Date.now();
-      if (now - this.nearExitToastAt > 8000) {
-        this.nearExitToastAt = now;
-        showToast("Portal near — hold Interact to travel", "info");
-      }
-    }
+    const portal = this.nearestIsPortalTravel();
+    if (!portal) return;
+    this.hubPortalToastShown = true;
+    // Arrived by a tap: the channel is already running on its own — "Hold E" would contradict it
+    if (this.portalHold?.auto || this.softSnapTargetId === String(portal.id)) return;
+    showToast(isCompactUi() ? "Hold Use at the gate to travel" : "Hold E at the gate to travel", "info");
   }
 
   triggerDeathRevive() {
     const now = Date.now();
     if (now < this.deathFxUntil) return;
+    this.lastDeathAt = performance.now();
+    this.forces.clear();
+    this._fv.x = 0;
+    this._fv.y = 0;
     const ava = this.room?.cantoId === "inferno_07";
     this.deathFxUntil = now + (ava ? DEATH_FX_LOCK_MS + 400 : DEATH_FX_LOCK_MS);
     playDeathRevive();
@@ -4936,8 +5301,8 @@ export class WorldApp {
           window.setTimeout(() => {
             showToast(
               this.room?.cantoId === "inferno_07"
-                ? "Tip: you wake at the ledger gate — use the Shrine before pressing the Crush"
-                : "Tip: death returns you to the canto entrance with brief invulnerability",
+                ? "Tip: kneel at the Ledger Shrine before facing Plutus"
+                : "Tip: you wake at the entrance, briefly untouchable",
               "info"
             );
           }, 700);
@@ -4948,16 +5313,32 @@ export class WorldApp {
     }
     this.camShake = ava ? 0.72 : 0.6;
     if (ava) this.camPunch = Math.max(this.camPunch, 0.85);
-    window.setTimeout(() => {
-      this.renderYou = { x: this.serverYou.x, y: this.serverYou.y };
-      this.velX = 0;
-      this.velY = 0;
-      this.moveTarget = null;
-      // Avarice: bone-gold wake pulse at the entrance keep-out
-      if (ava) {
-        this.spawnAvaEntrancePulse(this.serverYou.x, this.serverYou.y);
-      }
-    }, 200);
+    this.stopAttackHold();
+    this.velX = 0;
+    this.velY = 0;
+    this.moveTarget = null;
+    // Collapse where you fell (heroMotor pins you there), then wake at the entrance
+    if (this.heroMotor) this.heroMotor.startDeath(this.renderYou);
+    else window.setTimeout(() => this.onReviveTeleport(), 200);
+  }
+
+  /** Death pose done (or no motor): jump to the server's respawn point. */
+  onReviveTeleport() {
+    this.renderYou = { x: this.serverYou.x, y: this.serverYou.y };
+    this.velX = 0;
+    this.velY = 0;
+    this.moveTarget = null;
+    // The camera cuts with the hero (under the veil) instead of whip-panning across the
+    // canto on its follow smoothing — the travel path does the same
+    const sx = this.serverYou.x;
+    const sy = this.serverYou.y;
+    this.camFollow.set(sx, this.standY(sx, sy), sy);
+    this.camLead.x = 0;
+    this.camLead.z = 0;
+    // Avarice: bone-gold wake pulse at the entrance keep-out
+    if (this.room?.cantoId === "inferno_07") {
+      this.spawnAvaEntrancePulse(this.serverYou.x, this.serverYou.y);
+    }
   }
 
   /**

@@ -3,7 +3,7 @@
   "canticle": "inferno",
   "number": 7,
   "title": "Avarice",
-  "subtitle_it": "peso e contrapeso",
+  "subtitle_it": "voltando pesi per forza di poppa",
   "role": "combat",
   "circle": 4,
   "geo": {
@@ -20,7 +20,8 @@
         "to_canto": "inferno_06",
         "x": 10,
         "y": 52,
-        "label": "Return to Gluttony ←"
+        "label": "Return to Gluttony ←",
+        "hint": "di qua dal peso — return through the weighed gate; bank loot at the Dark Wood stash"
       },
       {
         "to_canto": "inferno_01",
@@ -33,18 +34,18 @@
       {
         "id": "ledger_bell",
         "kind": "bell",
-        "x": 86,
-        "y": 58,
+        "x": 124,
+        "y": 50,
         "label": "Ledger Bell",
-        "hint": "peso e contrapeso — stills nearby weights; measure, then press the Crush"
+        "hint": "When Plutus holds two coin, ring it between clashes"
       },
       {
         "id": "ledger_cache",
         "kind": "cache",
         "x": 54,
-        "y": 68,
+        "y": 67.5,
         "label": "Ledger Cache",
-        "hint": "One weighed drop per visit — E to claim (Doré bone-gold irony)"
+        "hint": "One weighed drop per visit — beyond the wasters' track"
       },
       {
         "id": "ledger_shrine",
@@ -55,13 +56,12 @@
         "hint": "rebalance — restores life and breath (kneel at the measure)"
       },
       {
-        "id": "avarice_portal_gluttony",
-        "kind": "portal",
-        "x": 12,
-        "y": 50,
-        "label": "Gluttony gate ←",
-        "to_canto": "inferno_06",
-        "hint": "di qua dal peso — return through the weighed gate; bank loot at the Dark Wood stash"
+        "id": "tally_shrine",
+        "kind": "shrine",
+        "x": 103,
+        "y": 52.5,
+        "label": "Tally Shrine",
+        "hint": "rebalance — inside the ring, short of Plutus: restores life and breath"
       },
       {
         "id": "avarice_portal_home",
@@ -71,15 +71,15 @@
         "label": "Dark Wood road",
         "to_canto": "inferno_01",
         "require_clear": "inferno_07",
-        "hint": "misura spezzata — once the Crush yields, the road home opens past the dais"
+        "hint": "Once Plutus falls, the road home opens past the dais"
       },
       {
         "id": "ledger_stone",
         "kind": "marker",
-        "x": 70,
-        "y": 48,
+        "x": 33,
+        "y": 53,
         "label": "Ledger Stone",
-        "hint": "peso e contrapeso — ring the Bell before the Crush"
+        "hint": "«Perché tieni?» «Perché burli?» — cross a lane behind a passing weight, between clashes"
       }
     ]
   },
@@ -96,7 +96,7 @@
         "x": 78,
         "y": 58
       },
-      "notes": "Wards nearby weights until broken — sits on the Bell–Crush measure"
+      "notes": "Wards nearby weights until broken — the heart of the ring, between the processions, where the road turns to cross the wasters' lane"
     },
     {
       "id": "ava_coin_wisps",
@@ -135,10 +135,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 52,
-        "y": 36
+        "x": 56,
+        "y": 40.5
       },
-      "notes": "Tallies unpaid — stills only when the Bell rings"
+      "notes": "Hoarders' side, just outside the north track — lure them into a rolling weight"
     },
     {
       "id": "ava_ledger_b",
@@ -150,9 +150,9 @@
       "drop_table": "inferno_pack_common",
       "anchor": {
         "x": 66,
-        "y": 80
+        "y": 73
       },
-      "notes": "Scale tipped wrong; push through or pay in blood"
+      "notes": "Wasters' side, outside the south track"
     },
     {
       "id": "ava_champion_pair",
@@ -163,10 +163,10 @@
       "champion": true,
       "drop_table": "avarice_pack_weights",
       "anchor": {
-        "x": 98,
-        "y": 38
+        "x": 100,
+        "y": 34
       },
-      "notes": "Heavy measures before the mid-lane elite — gold trim, don't undervalue"
+      "notes": "Heavy measures north of the hoarders' track — gold trim, don't undervalue"
     },
     {
       "id": "ava_strays",
@@ -177,10 +177,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 86,
-        "y": 66
+        "x": 92,
+        "y": 57
       },
-      "notes": "Loose change under the Bell — still them, then tip the Crush"
+      "notes": "Loose change inside the ring, between the processions"
     },
     {
       "id": "ava_chorus",
@@ -191,10 +191,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 112,
-        "y": 82
+        "x": 117,
+        "y": 69
       },
-      "notes": "South-east choir of weights — off the crush lane so the mid road breathes"
+      "notes": "On the road beside the wasters' last run into the east clash — the lane is a weapon"
     },
     {
       "id": "ava_approach_flank",
@@ -219,10 +219,10 @@
       "champion": true,
       "drop_table": "avarice_pack_weights",
       "anchor": {
-        "x": 126,
-        "y": 56
+        "x": 114,
+        "y": 53
       },
-      "notes": "Tablet shield; breaks the ward of the Hoard Heart"
+      "notes": "Tablet shield inside the ring before the east clash (off the road)"
     },
     {
       "id": "ava_counterweight",
@@ -233,10 +233,10 @@
       "champion": true,
       "drop_table": "avarice_pack_weights",
       "anchor": {
-        "x": 130,
-        "y": 50
+        "x": 97,
+        "y": 76
       },
-      "notes": "Mid-boss measure before Crush — larger silhouette, pulsed telegraph ring; tip it to open the dais"
+      "notes": "Mid-elite on the wasters' side, past the road's crossing of their lane: charges like a rolling weight (sidestep; break the charge with a finisher) — lure it into the lane and the weights crush it too"
     },
     {
       "id": "ava_north_measure",
@@ -312,26 +312,26 @@
   "bosses": [
     {
       "id": "hoard_crush",
-      "name": "Hoard Crush",
+      "name": "Plutus",
       "drop_table": "avarice_pack_weights",
       "anchor": {
         "x": 138,
         "y": 48
       },
       "first_clear_emit": true,
-      "notes": "Crushing iron and coin — weight without rest; Doré bone-gold rollers"
+      "notes": "«Pape Satàn, pape Satàn aleppe!» — swallows coin (Fiorini) and swells; the Ledger Bell breaks him; at half he hurls rolling weights"
     }
   ],
   "first_clear": {
     "enabled": true,
     "event": "FirstClear",
     "requires": "hoard_crush",
-    "notes": "Hoard Crush broken — Avarice yields its measure; return via Gluttony gate or bank at the Dark Wood stash"
+    "notes": "Plutus broken — Avarice yields its measure; return via Gluttony gate or bank at the Dark Wood stash"
   },
   "daily_quests": [
     {
       "id": "ava_daily_ledger",
-      "objective": "Ring the Ledger Bell to still a pack (or North Measure), then break Hoard Crush",
+      "objective": "Ring the Ledger Bell to still a pack or break a swollen Plutus",
       "emit_event": "DailyQuest",
       "notes": "Contrapasso of measure: still the weights, tip the Crush; shares UTC daily cap with Dark Wood writ"
     }
@@ -339,7 +339,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_04_avarice",
-    "notes": "Circle kit 4 of 12; rolling weights, gold-on-black irony, Doré bone-gold; contrapasso of measure; mid-path Ledger Stone beat"
+    "notes": "Circle kit 4 of 12; the two processions of rolling weights clash on the road; gold-on-black irony, Doré bone-gold"
   },
   "loot_density": "raw_d2",
   "legal": {

@@ -1,0 +1,15 @@
+{
+  "id": "avarice_fiorino",
+  "description": "A Fiorino Plutus called to him (cantoMech/avarice.mjs): a pinch of base metal at most — no loot farm beside the boss",
+  "rolls": 1,
+  "no_drop_weight": 97,
+  "entries": [
+    {
+      "weight": 3,
+      "rarity": "normal",
+      "item_pool": "inferno_bases_t1",
+      "qty_min": 1,
+      "qty_max": 1
+    }
+  ]
+}

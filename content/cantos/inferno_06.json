@@ -18,14 +18,14 @@
     "exits": [
       {
         "to_canto": "inferno_05",
-        "x": 10,
-        "y": 52,
+        "x": 9,
+        "y": 49,
         "label": "Return to Lust"
       },
       {
         "to_canto": "inferno_01",
-        "x": 14,
-        "y": 44,
+        "x": 10,
+        "y": 59,
         "label": "Return to Dark Wood"
       },
       {
@@ -49,38 +49,84 @@
       {
         "id": "filth_cache",
         "kind": "cache",
-        "x": 54,
-        "y": 68,
+        "x": 56,
+        "y": 76,
         "label": "Filth Cache",
-        "hint": "One champion drop per visit — E to claim"
+        "hint": "Out in the mire, where the buried lie — E to claim"
       },
       {
         "id": "mire_shrine",
         "kind": "shrine",
-        "x": 28,
-        "y": 56,
+        "x": 21,
+        "y": 58,
         "label": "Mire Shrine",
         "hint": "Restores life and breath — E to kneel"
       },
       {
-        "id": "gluttony_portal_lust",
-        "kind": "portal",
-        "x": 12,
-        "y": 50,
-        "label": "Lust portal",
-        "to_canto": "inferno_05"
+        "id": "causeway_shrine",
+        "kind": "shrine",
+        "x": 104.5,
+        "y": 43.9,
+        "label": "Causeway Shrine",
+        "hint": "On the old stones, short of the Maw — restores life and breath"
       },
       {
-        "id": "gluttony_portal_avarice",
-        "kind": "portal",
-        "x": 148,
-        "y": 50,
-        "label": "Avarice gate →",
-        "to_canto": "inferno_07",
-        "require_clear": "inferno_06",
-        "hint": "peso e contrapeso — clear Triple Maw, then Hold E into the weighed circle"
+        "id": "clod_c1",
+        "kind": "clod",
+        "x": 117,
+        "y": 54,
+        "label": "Pugno di terra",
+        "hint": "E — grab a fistful of mire; strike a gaping maw to throw it"
+      },
+      {
+        "id": "clod_c2",
+        "kind": "clod",
+        "x": 124,
+        "y": 43,
+        "label": "Pugno di terra",
+        "hint": "E — grab a fistful of mire; strike a gaping maw to throw it"
+      },
+      {
+        "id": "clod_m1",
+        "kind": "clod",
+        "x": 131,
+        "y": 57,
+        "label": "Pugno di terra",
+        "hint": "E — grab a fistful of mire; strike a gaping maw to throw it"
+      },
+      {
+        "id": "clod_m2",
+        "kind": "clod",
+        "x": 131,
+        "y": 39,
+        "label": "Pugno di terra",
+        "hint": "E — grab a fistful of mire; strike a gaping maw to throw it"
+      },
+      {
+        "id": "clod_m3",
+        "kind": "clod",
+        "x": 141,
+        "y": 59.5,
+        "label": "Pugno di terra",
+        "hint": "E — grab a fistful of mire; strike a gaping maw to throw it"
+      },
+      {
+        "id": "clod_m4",
+        "kind": "clod",
+        "x": 141,
+        "y": 36.5,
+        "label": "Pugno di terra",
+        "hint": "E — grab a fistful of mire; strike a gaping maw to throw it"
       }
-    ]
+    ],
+    "causeway": {
+      "notes": "The old stone causeway through the mire (Canto VI: 'pute la terra che questo riceve'). Off it pilgrims wade at mire_mul speed and dash dash_mul as far; non-native foes (champions, wardens) are slowed too. Pads are firm landings (the entrance, Cerbero's step, the Maw's plinth). Mirrored in client/src/world/gluttonyMire.ts; the server sends its copy to the client on arrival.",
+      "width": 5,
+      "mire_mul": 0.6,
+      "dash_mul": 0.6,
+      "points": [[12, 52], [26, 52], [36, 44], [50, 40], [60, 47], [66, 58], [80, 62], [92, 56], [98, 46], [110, 42], [120, 48], [130, 48], [138, 48], [150, 52]],
+      "pads": [[15, 53, 8], [125, 48, 4], [138, 48, 9.2]]
+    }
   },
   "packs": [
     {
@@ -93,8 +139,9 @@
       "drop_table": "inferno_pack_common",
       "anchor": {
         "x": 74,
-        "y": 64
-      }
+        "y": 80
+      },
+      "notes": "Deep in the south mire — the causeway does not reach it"
     },
     {
       "id": "glut_wisps",
@@ -105,8 +152,8 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 38,
-        "y": 72
+        "x": 30,
+        "y": 80
       }
     },
     {
@@ -118,9 +165,10 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 28,
-        "y": 50
-      }
+        "x": 40,
+        "y": 43
+      },
+      "notes": "Watch the first causeway bend"
     },
     {
       "id": "glut_mire_a",
@@ -131,8 +179,8 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 52,
-        "y": 36
+        "x": 62,
+        "y": 30
       }
     },
     {
@@ -144,8 +192,8 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 66,
-        "y": 80
+        "x": 86,
+        "y": 86
       }
     },
     {
@@ -157,9 +205,10 @@
       "champion": true,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 96,
-        "y": 42
-      }
+        "x": 99,
+        "y": 46
+      },
+      "notes": "Stand on the causeway; heavy — the mire slows them"
     },
     {
       "id": "glut_strays",
@@ -170,8 +219,8 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 88,
-        "y": 74
+        "x": 96,
+        "y": 72
       }
     },
     {
@@ -183,7 +232,7 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 110,
+        "x": 114,
         "y": 68
       }
     },
@@ -196,8 +245,8 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 122,
-        "y": 42
+        "x": 124,
+        "y": 34
       }
     },
     {
@@ -209,8 +258,8 @@
       "champion": true,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 126,
-        "y": 56
+        "x": 111,
+        "y": 41
       }
     },
     {
@@ -222,10 +271,137 @@
       "champion": true,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 130,
-        "y": 50
+        "x": 121,
+        "y": 49
       },
-      "notes": "Mid-lane elite telegraph before Triple Maw"
+      "notes": "Mid-lane elite: one waking head that bites; a clod in its open jaw silences it (teaches the Maw)"
+    },
+    {
+      "id": "glut_sunk_cache",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 4,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 56,
+        "y": 76
+      },
+      "buried": true,
+      "spots": [[53.95, 73.95], [58.05, 73.95], [58.05, 78.05], [53.95, 78.05]],
+      "notes": "Four buried hard against the Filth Cache: whoever comes for it wakes them, and two grabs cover the chest from any side"
+    },
+    {
+      "id": "glut_sunk_road",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 79,
+        "y": 64
+      },
+      "buried": true,
+      "spots": [[71, 64.5], [88.5, 62]],
+      "notes": "Buried just off the causeway's south edge"
+    },
+    {
+      "id": "glut_sunk_heart",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 75,
+        "y": 73
+      },
+      "buried": true,
+      "spots": [[69, 73], [80, 74.5]],
+      "notes": "Buried on the wade to the Mire Heart"
+    },
+    {
+      "id": "glut_sunk_north",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 62,
+        "y": 36
+      },
+      "buried": true,
+      "spots": [[57, 36.5], [67, 35]]
+    },
+    {
+      "id": "glut_sunk_east",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 110,
+        "y": 51
+      },
+      "buried": true,
+      "spots": [[104, 49.5], [116.5, 52.5]],
+      "notes": "Buried under the stones' south lip before Cerbero"
+    },
+    {
+      "id": "glut_sunk_mid",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 96,
+        "y": 64
+      },
+      "buried": true,
+      "spots": [[93, 66], [100.5, 61.5]],
+      "notes": "Buried between the Mire Bell and the strays"
+    },
+    {
+      "id": "glut_sunk_south",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 73,
+        "y": 89
+      },
+      "buried": true,
+      "spots": [[66.5, 86.5], [80, 92]],
+      "notes": "Buried around the Mire Heart's southern mud"
+    },
+    {
+      "id": "glut_sunk_west",
+      "name": "Sepolti",
+      "archetype": "mire_shade",
+      "count": 2,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": {
+        "x": 30,
+        "y": 78
+      },
+      "buried": true,
+      "spots": [[35, 74.5], [25, 84]],
+      "notes": "Buried under the Filth Wisps' slough"
     }
   ],
   "bosses": [
@@ -257,7 +433,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_03_gluttony",
-    "notes": "Circle kit 3 of 12; mud-rain filth; Doré line weight"
+    "notes": "Circle kit 3 of 12; mud-rain filth; old causeway over a sucking mire; Doré line weight"
   },
   "loot_density": "raw_d2",
   "legal": {

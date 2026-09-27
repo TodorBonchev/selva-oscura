@@ -4,6 +4,8 @@
  */
 import * as THREE from "three";
 import type { MatKit } from "./materials";
+import { distToArcs } from "./avariceProcession";
+import { buildAvariceTracks } from "./avariceGround";
 import {
   makeBrazier,
   makeFallenLog,
@@ -16,12 +18,19 @@ import {
 } from "./meshes";
 import { isCompactUi } from "../ui/hud";
 import { makeLightShaft } from "./fx";
+import { CAUSEWAY_HALF, CAUSEWAY_PADS, CAUSEWAY_PTS, mireDepth } from "./gluttonyMire";
 
 export type GroundRig = {
   group: THREE.Group;
   floor: THREE.Mesh;
   cantoId: string;
   heightAt: (x: number, z: number) => number;
+  /**
+   * Top of what is actually drawn at (x, z): the floor mesh as rendered (its coarse
+   * triangles, not the analytic heightAt) or the boss dais plinth/step. Ground decals
+   * that must never sink into either (telegraphs, slam rings) sit on this.
+   */
+  surfaceAt: (x: number, z: number) => number;
 };
 
 function hash(i: number, j: number) {
@@ -73,21 +82,21 @@ const LUST_HUNT: [number, number][] = [
   [100, 52],
   [140, 60],
 ];
-const GLUTTONY_HUNT: [number, number][] = [
-  [18, 52],
-  [44, 62],
-  [70, 48],
-  [100, 58],
-  [138, 48],
-];
+/** Gluttony's hunt path is the old stone causeway through the mire (gluttonyMire.ts). */
+const GLUTTONY_HUNT: [number, number][] = CAUSEWAY_PTS;
 const AVARICE_HUNT: [number, number][] = [
   [18, 52],
-  [28, 50],
-  [38, 56],
-  [54, 68],
-  [70, 48],
-  [86, 58],
-  [110, 52],
+  // Avarice road: into the ring of the processions through the west clash, past the Hoard
+  // Heart, across the wasters' lane mid-span to the Counterweight, then beside their last
+  // run and through the east clash onto Plutus's dais
+  [29, 52],
+  [40, 57],
+  [62, 59],
+  [82, 61],
+  [93, 70],
+  [108, 72],
+  [122, 62],
+  [133, 51],
   [138, 48],
 ];
 
@@ -97,16 +106,31 @@ export function huntPathFor(cantoId: string): [number, number][] {
   return LUST_HUNT;
 }
 
-/** Avarice scorched flats = off the gold measure lane (between weight packs). */
-export function isAvaScorchFlat(x: number, z: number): boolean {
-  return distToPoly(x, z, huntPathFor("inferno_07")) > 3.8;
-}
-
 
 function bossDaisFor(cantoId: string): { x: number; z: number } {
   if (cantoId === "inferno_07") return { x: 138, z: 48 };
   if (cantoId === "inferno_06") return { x: 138, z: 48 };
   return { x: 140, z: 60 };
+}
+
+/**
+ * Height of the boss dais top at (x, z) (−Infinity off it), matching the cylinders
+ * buildGround stacks there: Gluttony/Avarice a 7.6→8.6 plinth (top +0.53) with a
+ * 5.4→5.8 step (top +0.72); Lust a 6.5→7.2 slab (top +0.34). The thin rings and lips
+ * on top are left out: they sit over decals like paint.
+ */
+function daisTopAt(cantoId: string, base: number, cx: number, cz: number, x: number, z: number): number {
+  const r = Math.hypot(x - cx, z - cz);
+  if (cantoId === "inferno_06" || cantoId === "inferno_07") {
+    if (r <= 5.4) return base + 0.72;
+    if (r <= 5.67) return base + 0.72 - (r - 5.4) * 0.7;
+    if (r <= 7.6) return base + 0.53;
+    if (r <= 8.6) return base + 0.53 - (r - 7.6) * 0.62;
+    return -Infinity;
+  }
+  if (r <= 6.5) return base + 0.34;
+  if (r <= 7.2) return base + 0.34 - ((r - 6.5) / 0.7) * 0.4;
+  return -Infinity;
 }
 
 /** Same displacement the floor mesh uses, so feet and props sit on the dirt. */
@@ -131,14 +155,23 @@ export function terrainHeight(
       distToPoly(wx, wz, HUB_WRIT)
     );
     if (pathD < 2.6) n *= 0.22;
-  } else if (distToPoly(wx, wz, huntPathFor(cantoId)) < (isGlut || isAva ? 3.6 : 3.2)) {
-    n *= isGlut || isAva ? 0.08 : 0.15;
   } else if (isGlut) {
-    // Soft sinks between hunt lanes — mire pockets
-    n -= 0.06 * Math.abs(Math.sin(x * 0.09) * Math.cos(z * 0.11));
+    // The causeway and its landings stay flat; the mire sags into pockets beside them
+    const d = mireDepth(wx, wz, CAUSEWAY_PTS, CAUSEWAY_HALF, CAUSEWAY_PADS);
+    // (the floor's triangles are ~4.6u: the sag starts a cell out, so the drawn mud by the
+    // stones stays level with them)
+    if (d < 5) n *= 0.08;
+    else n = n * 0.6 - Math.min(0.2, (d - 5) * 0.045) * (0.6 + 0.4 * Math.abs(Math.sin(x * 0.09) * Math.cos(z * 0.11)));
+  } else if (distToPoly(wx, wz, huntPathFor(cantoId)) < (isAva ? 3.6 : 3.2)) {
+    n *= isAva ? 0.08 : 0.15;
   } else if (isAva) {
     // Hard scorched flats between weight lanes
     n *= 0.7;
+  }
+  // Avarice: the processions' tracks are beaten flat (the weights roll level)
+  if (isAva) {
+    const dt = distToArcs(wx, wz);
+    if (dt < 3.2) n *= dt < 1.9 ? 0.06 : 0.06 + ((dt - 1.9) / 1.3) * 0.94;
   }
   return n;
 }
@@ -200,6 +233,9 @@ export function buildGround(
         ? mats.groundGlut
         : mats.groundLust;
   const floor = new THREE.Mesh(geo, floorMat);
+  // The floor has the costliest pixels on screen: draw it after the other opaques (sky
+  // goes last) so depth rejects the parts hidden under the hero, foes and props
+  floor.renderOrder = 5;
   floor.receiveShadow = true;
   floor.position.set(w / 2, 0, h / 2);
   floor.name = "floor";
@@ -235,6 +271,7 @@ export function buildGround(
             ? 0.4
             : 0.28,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -361,26 +398,20 @@ export function buildGround(
             { x: 24, z: 96, r: 4 },
             { x: 148, z: 92, r: 4 },
             { x: 30, z: 52, r: 5 },
-            { x: 70, z: 48, r: 5 },
-            { x: 86, z: 58, r: 6 },
-            { x: 100, z: 26, r: 5 },
-            { x: 112, z: 82, r: 5 },
+            { x: 81, z: 58, r: 5 },
+            { x: 100, z: 76, r: 5 },
+            { x: 100, z: 34, r: 5 },
+            { x: 117, z: 69, r: 4 },
             { x: 138, z: 48, r: 9 },
           ]
-        : [
-          { x: 30, z: 48, r: 5 },
-          { x: 52, z: 38, r: 7 },
-          { x: 68, z: 78, r: 7 },
-          { x: 98, z: 44, r: 8 },
-          { x: 118, z: 54, r: 6 },
-          { x: 138, z: 48, r: 9 },
-        ]
+        : [{ x: 138, z: 48, r: 9 }]
       : [
-          { x: 32, z: 56, r: 5 },
-          { x: 48, z: 40, r: 7 },
-          { x: 72, z: 70, r: 7 },
-          { x: 100, z: 50, r: 8 },
-          { x: 122, z: 58, r: 6 },
+          // Lust: pack arenas between the windbreak rock islands (canto JSON)
+          { x: 34, z: 56, r: 5 },
+          { x: 48, z: 40, r: 6 },
+          { x: 72, z: 70, r: 6 },
+          { x: 100, z: 46, r: 7 },
+          { x: 122, z: 58, r: 5 },
           { x: 140, z: 60, r: 9 },
         ];
     const colors = new Float32Array(pos.count * 3);
@@ -396,18 +427,14 @@ export function buildGround(
         if (d < a.r) k = Math.max(k, 0.92 + (1 - d / a.r) * 0.18);
       }
       if (isGlut) {
-        // Brighter packed path vs darker off-path mire sinks
-        const onPath = pathD < 3.8;
-        const sink = pathD > 11 ? 0.72 : pathD > 6 ? 0.88 : 1;
-        if (onPath) {
-          colors[i * 3] = k * 1.05;
-          colors[i * 3 + 1] = k * 0.95;
-          colors[i * 3 + 2] = k * 0.55;
-        } else {
-          colors[i * 3] = k * 0.7 * sink;
-          colors[i * 3 + 1] = k * 0.62 * sink;
-          colors[i * 3 + 2] = k * 0.32 * sink;
-        }
+        // Dark sheen mire; a little lighter packed mud under and beside the stones
+        const md = mireDepth(wx, wz, CAUSEWAY_PTS, CAUSEWAY_HALF, CAUSEWAY_PADS);
+        const kk = 0.72 + hash((wx * 2) | 0, (wz * 2) | 0) * 0.16;
+        const near = md < 1.5 ? 1 : md > 9 ? 0 : 1 - (md - 1.5) / 7.5;
+        const sink = 0.6 + 0.3 * near;
+        colors[i * 3] = kk * 0.5 * sink;
+        colors[i * 3 + 1] = kk * 0.49 * sink;
+        colors[i * 3 + 2] = kk * 0.25 * sink;
       } else if (isAva) {
         // Stronger gold road vs pitch off-path (gold-on-black irony; slash-readable)
         const onPath = pathD < 3.9;
@@ -439,7 +466,9 @@ export function buildGround(
     geo.computeVertexNormals();
 
     const compactDecor = isCompactUi();
-    const obCap = compactDecor ? (isWeightLane ? 4 : 5) : isWeightLane ? 6 : 8;
+    // (Lust: the windbreak rock islands — built by its canto mechanic — replace the obelisks)
+    const isLust = cantoId === "inferno_05";
+    const obCap = isLust ? 0 : compactDecor ? (isWeightLane ? 4 : 5) : isWeightLane ? 6 : 8;
     let placed = 0;
     for (let i = 0; i < 70 && placed < obCap; i++) {
       const x = 8 + hash(i, 7) * (w - 16);
@@ -485,24 +514,26 @@ export function buildGround(
         group.add(brazR);
       }
     }
-    for (let i = 0; i < hunt.length - 1; i++) {
+    for (let i = 0; i < hunt.length - 1 && !isGlut; i++) {
       const a = hunt[i];
       const b = hunt[i + 1];
       const mx = (a[0] + b[0]) * 0.5;
       const mz = (a[1] + b[1]) * 0.5;
-      const rib = makeGaleRibbon(mats, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.55);
-      rib.position.set(mx, heightAt(mx, mz) + 1.8, mz);
-      rib.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
-      const mat = rib.material as THREE.MeshBasicMaterial;
-      mat.side = THREE.DoubleSide;
-      /* Lust path ribbons: match weight-lane restraint so slash reads through gale */
-      mat.opacity = isWeightLane ? 0.32 : 0.34;
-      if (isGlut && mat.color) mat.color.set(0x6a5a30);
-      if (isAva && mat.color) mat.color.set(0x8a7040);
-      group.add(rib);
+      // (Lust: its storm's wind streamers follow the real wind instead of the road)
+      if (!isLust) {
+        const rib = makeGaleRibbon(mats, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.55);
+        rib.position.set(mx, heightAt(mx, mz) + 1.8, mz);
+        rib.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
+        const mat = rib.material as THREE.MeshBasicMaterial;
+        mat.side = THREE.DoubleSide;
+        mat.opacity = 0.32;
+        if (isGlut && mat.color) mat.color.set(0x6a5a30);
+        if (isAva && mat.color) mat.color.set(0x8a7040);
+        group.add(rib);
+      }
       const crack = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.62, 0.05, 0.22), mats.ember);
       crack.position.set(mx, heightAt(mx, mz) + 0.05, mz);
-      crack.rotation.y = rib.rotation.y;
+      crack.rotation.y = Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
       crack.castShadow = false;
       crack.receiveShadow = false;
       group.add(crack);
@@ -554,6 +585,7 @@ export function buildGround(
           transparent: true,
           opacity: 0.22,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         })
@@ -565,17 +597,18 @@ export function buildGround(
       group.add(tele);
 
       // Shared puddle geo/mat + InstancedMesh (was N unique Mesh+Material)
+      // Standing black water in the mire: a dark gloss, no glow
       const puddleMat = new THREE.MeshStandardMaterial({
-        color: 0x2a2818,
-        roughness: 0.35,
-        metalness: 0.25,
-        emissive: 0x3a4018,
-        emissiveIntensity: 0.2,
+        color: 0x0e100a,
+        roughness: 0.18,
+        metalness: 0.35,
+        emissive: 0x0a0c06,
+        emissiveIntensity: 0.1,
         transparent: true,
-        opacity: 0.74,
+        opacity: 0.62,
       });
-      const puddleGeo = new THREE.CircleGeometry(1, 12);
-      const puddleN = compact ? Math.min(4, hunt.length) : hunt.length + 3;
+      const puddleGeo = new THREE.CircleGeometry(1, 20);
+      const puddleN = compact ? 8 : 14;
       const puddles = new THREE.InstancedMesh(puddleGeo, puddleMat, puddleN);
       puddles.castShadow = false;
       puddles.receiveShadow = true;
@@ -584,42 +617,36 @@ export function buildGround(
       const _p = new THREE.Vector3();
       const _q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
       const _s = new THREE.Vector3();
-      for (let i = 0; i < puddleN; i++) {
-        const [px, pz] =
-          i < hunt.length
-            ? hunt[i]
-            : ([20 + hash(i, 90) * (w - 40), 20 + hash(i, 91) * (h - 40)] as [number, number]);
-        const sc = 1.3 + hash(i, 92) * 1.2;
-        _p.set(px + (hash(i, 93) - 0.5) * 2.4, heightAt(px, pz) + 0.05, pz + (hash(i, 94) - 0.5) * 2.4);
-        _s.set(sc, sc, sc);
+      let pn = 0;
+      for (let i = 0; i < 200 && pn < puddleN; i++) {
+        const px = 14 + hash(i, 90) * (w - 28);
+        const pz = 14 + hash(i, 91) * (h - 28);
+        const md = mireDepth(px, pz, CAUSEWAY_PTS, CAUSEWAY_HALF, CAUSEWAY_PADS);
+        if (md < 3 || md > 34 || blocked(px, pz, 2)) continue;
+        const sc = 1.6 + hash(i, 92) * 2.2;
+        _p.set(px, heightAt(px, pz) + 0.05, pz);
+        _s.set(sc, sc * (0.6 + hash(i, 93) * 0.4), sc);
         _m.compose(_p, _q, _s);
-        puddles.setMatrixAt(i, _m);
+        puddles.setMatrixAt(pn++, _m);
       }
+      puddles.count = pn;
       puddles.instanceMatrix.needsUpdate = true;
       group.add(puddles);
 
-      // Instanced sludge mounds — one Icosahedron + shared moss mat
-      const moundCap = compact ? 7 : 12;
-      const moundGeo = new THREE.IcosahedronGeometry(0.7, 0);
-      const moundsMesh = new THREE.InstancedMesh(moundGeo, mats.moss, moundCap);
-      moundsMesh.castShadow = false;
-      moundsMesh.receiveShadow = true;
-      moundsMesh.frustumCulled = true;
-      let mounds = 0;
-      for (let i = 0; i < 100 && mounds < moundCap; i++) {
-        const x = 10 + hash(i, 61) * (w - 20);
-        const z = 10 + hash(i, 62) * (h - 20);
-        if (blocked(x, z, 2.2) || distToPoly(x, z, hunt) < 3.8) continue;
-        if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.2)) continue;
-        _p.set(x, heightAt(x, z) + 0.1, z);
-        _q.setFromEuler(new THREE.Euler(0, hash(i, 65) * Math.PI * 2, 0));
-        _s.set(1.35 + hash(i, 63) * 0.5, 0.32 + hash(i, 64) * 0.22, 1.15 + hash(i, 66) * 0.35);
-        _m.compose(_p, _q, _s);
-        moundsMesh.setMatrixAt(mounds++, _m);
+      // The old stone causeway: slabs over the band and landings, curbs along its lips;
+      // their tops are the drawn surface on the road (decals, telegraphs sit on them)
+      buildCauseway(group, heightAt, mats, compact);
+      group.userData.surfaceTop = (x: number, z: number) =>
+        mireDepth(x, z, CAUSEWAY_PTS, CAUSEWAY_HALF, CAUSEWAY_PADS) < 0.1 ? heightAt(x, z) + 0.05 : -Infinity;
+      // Lanterns on the stones where the road bends (a few; each is a flame sprite)
+      const lamps: [number, number][] = compact
+        ? [[23, 48.5], [63, 50], [92.5, 59.5], [115.5, 44]]
+        : [[23, 48.5], [39.5, 47], [63, 50], [92.5, 59.5], [103, 42], [115.5, 44]];
+      for (const [lx, lz] of lamps) {
+        const lamp = makeBrazier(mats);
+        lamp.position.set(lx, heightAt(lx, lz) + 0.1, lz);
+        group.add(lamp);
       }
-      moundsMesh.count = mounds;
-      moundsMesh.instanceMatrix.needsUpdate = true;
-      group.add(moundsMesh);
 
       // Olive haze ribbons — Ava gold restraint parity (slash-readable)
       const hazeN = compact ? 2 : 3;
@@ -683,6 +710,7 @@ export function buildGround(
           transparent: true,
           opacity: 0.24,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         })
@@ -695,13 +723,13 @@ export function buildGround(
 
       // Scorched coin discs along hunt (InstancedMesh)
       const coinMat = new THREE.MeshStandardMaterial({
-        color: 0x9a7840,
-        roughness: 0.38,
-        metalness: 0.58,
-        emissive: 0x4a3810,
-        emissiveIntensity: 0.32,
+        color: 0x6a5028,
+        roughness: 0.6,
+        metalness: 0.4,
+        emissive: 0x2a1c08,
+        emissiveIntensity: 0.25,
         transparent: true,
-        opacity: 0.88,
+        opacity: 0.7,
       });
       const coinGeo = new THREE.CircleGeometry(1, compact ? 8 : 10);
       const coinN = compact ? Math.min(3, hunt.length) : hunt.length + 3;
@@ -714,11 +742,13 @@ export function buildGround(
       const _q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
       const _s = new THREE.Vector3();
       for (let i = 0; i < coinN; i++) {
+        // (never on a clash point: the clash telegraph must read clean there)
+        const onClash = i < hunt.length && distToArcs(hunt[i]![0], hunt[i]![1]) < 3;
         const [px, pz] =
-          i < hunt.length
-            ? hunt[i]
+          i < hunt.length && !onClash
+            ? hunt[i]!
             : ([20 + hash(i, 90) * (w - 40), 20 + hash(i, 91) * (h - 40)] as [number, number]);
-        const sc = 1.1 + hash(i, 92) * 1.0;
+        const sc = 0.7 + hash(i, 92) * 0.6;
         _p.set(px + (hash(i, 93) - 0.5) * 2.4, heightAt(px, pz) + 0.05, pz + (hash(i, 94) - 0.5) * 2.4);
         _s.set(sc, sc, sc);
         _m.compose(_p, _q, _s);
@@ -755,28 +785,12 @@ export function buildGround(
       cracks.instanceMatrix.needsUpdate = true;
       group.add(cracks);
 
-      // Rolling weight props (short cylinders)
-      const weightCap = compact ? 4 : 10;
-      const weightGeo = new THREE.CylinderGeometry(0.55, 0.62, 0.35, compact ? 8 : 10);
-      const weightsMesh = new THREE.InstancedMesh(weightGeo, mats.bronze, weightCap);
-      weightsMesh.castShadow = false;
-      weightsMesh.receiveShadow = true;
-      weightsMesh.frustumCulled = true;
-      let weights = 0;
-      for (let i = 0; i < 100 && weights < weightCap; i++) {
-        const x = 10 + hash(i, 61) * (w - 20);
-        const z = 10 + hash(i, 62) * (h - 20);
-        if (blocked(x, z, 2.2) || distToPoly(x, z, hunt) < 3.8) continue;
-        if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.2)) continue;
-        _p.set(x, heightAt(x, z) + 0.18, z);
-        _q.setFromEuler(new THREE.Euler(0, hash(i, 65) * Math.PI * 2, Math.PI / 2));
-        _s.set(1.1 + hash(i, 63) * 0.4, 1, 1.1 + hash(i, 66) * 0.35);
-        _m.compose(_p, _q, _s);
-        weightsMesh.setMatrixAt(weights++, _m);
-      }
-      weightsMesh.count = weights;
-      weightsMesh.instanceMatrix.needsUpdate = true;
-      group.add(weightsMesh);
+      // The processions' worn tracks + scarred clash rings (the weights themselves roll
+      // in cantoMech/avarice.ts)
+      // (the tracks' east ends climb onto the dais: drape them over its plinth)
+      const onDais = (x: number, z: number) =>
+        Math.max(heightAt(x, z), daisTopAt(cantoId, hy, daisPos.x, daisPos.z, x, z));
+      buildAvariceTracks(group, onDais, compact, mats.gold);
 
       // Restrained gold haze (Lust-soften parity — keep slash readable)
       const hazeN = compact ? 1 : 2;
@@ -794,23 +808,29 @@ export function buildGround(
         group.add(ribbon);
       }
 
-      // Mid-path ledger slabs + Gluttony-gate approach plates (content beat; cheap boxes)
+      // Road ledger slabs + gate approach plates (two instanced meshes: slab + gold trim)
       const slabPts: [number, number][] = compact
-        ? [[18, 52], [28, 50], [70, 48], [86, 58]]
-        : [[14, 50], [22, 52], [28, 50], [44, 58], [70, 48], [86, 58], [100, 56], [112, 82], [124, 40]];
+        ? [[18, 52], [29, 52], [72, 60], [100, 71]]
+        : [[14, 50], [22, 52], [29, 52], [50, 58], [70, 60], [96, 70.5], [104, 71.5], [115, 67], [127, 57]];
+      const slabs = new THREE.InstancedMesh(new THREE.BoxGeometry(1.1, 0.08, 0.7), mats.bone, slabPts.length);
+      const trims = new THREE.InstancedMesh(new THREE.BoxGeometry(1.15, 0.03, 0.08), mats.gold, slabPts.length);
+      slabs.castShadow = false;
+      slabs.receiveShadow = true;
+      trims.castShadow = false;
       for (let i = 0; i < slabPts.length; i++) {
         const [sx, sz] = slabPts[i]!;
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 0.7), mats.bone);
-        slab.position.set(sx, heightAt(sx, sz) + 0.06, sz);
-        slab.rotation.y = hash(i, 77) * Math.PI;
-        slab.castShadow = false;
-        slab.receiveShadow = true;
-        const trim = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.03, 0.08), mats.gold);
-        trim.position.set(sx, heightAt(sx, sz) + 0.12, sz);
-        trim.rotation.y = slab.rotation.y;
-        trim.castShadow = false;
-        group.add(slab, trim);
+        _q.setFromEuler(new THREE.Euler(0, hash(i, 77) * Math.PI, 0));
+        _s.set(1, 1, 1);
+        _p.set(sx, heightAt(sx, sz) + 0.06, sz);
+        _m.compose(_p, _q, _s);
+        slabs.setMatrixAt(i, _m);
+        _p.y = heightAt(sx, sz) + 0.12;
+        _m.compose(_p, _q, _s);
+        trims.setMatrixAt(i, _m);
       }
+      slabs.instanceMatrix.needsUpdate = true;
+      trims.instanceMatrix.needsUpdate = true;
+      group.add(slabs, trims);
 
       // South / north edge props — unpaid tallies on the empty ledger rims (cheap instances)
       const edgeCap = compact ? 4 : 8;
@@ -873,5 +893,191 @@ export function buildGround(
     }
   }
 
-  return { group, floor, cantoId, heightAt };
+  freezeStaticProps(group);
+  // The floor as drawn: PlaneGeometry cells (x from −12 by (w+24)/segs, z likewise; vertex
+  // ix + (segs+1)·iz), each split along its (x0,z1)–(x1,z0) diagonal — read straight from
+  // the displaced vertex heights, so a decal a few cm up never sinks and a lookup is cheap
+  const cw = (w + 24) / segs;
+  const ch = (h + 24) / segs;
+  const vy = pos.array as Float32Array;
+  const row = segs + 1;
+  const floorAt = (x: number, z: number): number => {
+    const fx = (x + 12) / cw;
+    const fz = (z + 12) / ch;
+    const ix = Math.max(0, Math.min(segs - 1, Math.floor(fx)));
+    const iz = Math.max(0, Math.min(segs - 1, Math.floor(fz)));
+    const u = Math.max(0, Math.min(1, fx - ix));
+    const v = Math.max(0, Math.min(1, fz - iz));
+    const ia = ix + row * iz;
+    const ha = vy[ia * 3 + 1]!;
+    const hb = vy[(ia + row) * 3 + 1]!;
+    const hc = vy[(ia + row + 1) * 3 + 1]!;
+    const hd = vy[(ia + 1) * 3 + 1]!;
+    return u + v <= 1 ? ha + (hd - ha) * u + (hb - ha) * v : hc + (hb - hc) * (1 - u) + (hd - hc) * (1 - v);
+  };
+  const dais = isHub ? null : bossDaisFor(cantoId);
+  const daisBase = dais ? heightAt(dais.x, dais.z) : 0;
+  // a canto branch may lay its own surface over the floor (group.userData.surfaceTop)
+  const top = group.userData.surfaceTop as ((x: number, z: number) => number) | undefined;
+  const surfaceAt = (x: number, z: number): number => {
+    const f = top ? Math.max(floorAt(x, z), top(x, z)) : floorAt(x, z);
+    return dais ? Math.max(f, daisTopAt(cantoId, daisBase, dais.x, dais.z, x, z)) : f;
+  };
+  return { group, floor, cantoId, heightAt, surfaceAt };
+}
+
+/** Ground nodes WorldApp animates by name (tickFx prop animator / tree sway). */
+const ANIMATED_PROPS = new Set(["tree", "galeRibbon", "ember", "daisPulse", "daisTelegraph"]);
+
+/**
+ * Hundreds of ground props never move after build: bake their local matrices once so
+ * the per-frame scene update skips recomposing them. Animated props (and flame sprites,
+ * which rescale themselves) keep auto-update; world matrices still follow parents.
+ */
+function freezeStaticProps(group: THREE.Group) {
+  group.traverse((o) => {
+    if (o === group || ANIMATED_PROPS.has(o.name) || (o as THREE.Sprite).isSprite) return;
+    o.updateMatrix();
+    o.matrixAutoUpdate = false;
+  });
+}
+
+/**
+ * Gluttony's causeway: hexagonal slabs laid over every point of firm ground (the band
+ * within CAUSEWAY_HALF of the polyline and the landings), a few gaps where old stones
+ * sank, and taller curb stones along both lips so the edge of the mire reads from the
+ * phone camera. Two instanced draws, one shared stone program.
+ */
+function buildCauseway(
+  group: THREE.Group,
+  heightAt: (x: number, z: number) => number,
+  mats: MatKit,
+  compact: boolean
+) {
+  const pts = CAUSEWAY_PTS;
+  const half = CAUSEWAY_HALF;
+  const pads = CAUSEWAY_PADS;
+  // (the road runs up to the Maw's plinth; stones by its lip sit on its slope)
+  const dais = bossDaisFor("inferno_06");
+  const daisBase = heightAt(dais.x, dais.z);
+  const surf = (x: number, z: number) => Math.max(heightAt(x, z), daisTopAt("inferno_06", daisBase, dais.x, dais.z, x, z));
+  const step = compact ? 1.5 : 1.22;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const p of pts) {
+    minX = Math.min(minX, p[0] - half);
+    maxX = Math.max(maxX, p[0] + half);
+    minZ = Math.min(minZ, p[1] - half);
+    maxZ = Math.max(maxZ, p[1] + half);
+  }
+  for (const p of pads) {
+    minX = Math.min(minX, p[0] - p[2]);
+    maxX = Math.max(maxX, p[0] + p[2]);
+    minZ = Math.min(minZ, p[1] - p[2]);
+    maxZ = Math.max(maxZ, p[1] + p[2]);
+  }
+  const spots: number[] = [];
+  let row = 0;
+  for (let z = minZ; z <= maxZ; z += step * 0.87, row++) {
+    for (let x = minX + (row & 1 ? step * 0.5 : 0); x <= maxX; x += step) {
+      const jx = x + (hash((x * 7) | 0, (z * 7) | 0) - 0.5) * step * 0.28;
+      const jz = z + (hash((x * 5) | 0, (z * 9) | 0) - 0.5) * step * 0.28;
+      // the Maw's plinth is its own stone
+      if (Math.hypot(jx - dais.x, jz - dais.z) < 8.3) continue;
+      if (mireDepth(jx, jz, pts, half, pads) > -0.35) continue;
+      // an old stone sunk out of the road here and there
+      if (hash((jx * 3) | 0, (jz * 3) | 0) < 0.06) continue;
+      spots.push(jx, jz);
+    }
+  }
+  const n = spots.length / 2;
+  const slabGeo = new THREE.CylinderGeometry(0.62 * (step / 1.22), 0.68 * (step / 1.22), 0.26, 6);
+  const slabs = new THREE.InstancedMesh(slabGeo, mats.stone, n);
+  slabs.name = "causewayStones";
+  slabs.castShadow = false;
+  slabs.receiveShadow = true;
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const p = new THREE.Vector3();
+  const sc = new THREE.Vector3();
+  const col = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const x = spots[i * 2]!;
+    const z = spots[i * 2 + 1]!;
+    const r = hash((x * 11) | 0, (z * 13) | 0);
+    e.set((r - 0.5) * 0.06, r * Math.PI * 2, (hash((x * 17) | 0, (z * 3) | 0) - 0.5) * 0.06);
+    q.setFromEuler(e);
+    // mostly bedded in the mud: the tops stand a few cm proud (feet, decals sit on them)
+    p.set(x, surf(x, z) - 0.105 + r * 0.03, z);
+    sc.set(0.9 + r * 0.3, 1, 0.85 + hash((z * 5) | 0, (x * 3) | 0) * 0.35);
+    m.compose(p, q, sc);
+    slabs.setMatrixAt(i, m);
+    // old wet stone: grey-olive, some darker with moss
+    const v = 0.5 + r * 0.28;
+    col.setRGB(v * 0.84, v * 0.86, v * 0.8);
+    slabs.setColorAt(i, col);
+  }
+  slabs.instanceMatrix.needsUpdate = true;
+  if (slabs.instanceColor) slabs.instanceColor.needsUpdate = true;
+  group.add(slabs);
+
+  // Curbs: the lips of the road, both sides, not across the landings
+  const curbs: number[] = [];
+  const cStep = compact ? 2.3 : 1.8;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const ax = pts[i]![0];
+    const az = pts[i]![1];
+    const bx = pts[i + 1]![0];
+    const bz = pts[i + 1]![1];
+    const len = Math.hypot(bx - ax, bz - az);
+    const ux = (bx - ax) / len;
+    const uz = (bz - az) / len;
+    for (let t = cStep * 0.5; t < len; t += cStep) {
+      for (const side of [-1, 1]) {
+        const cx = ax + ux * t - uz * side * (half + 0.12);
+        const cz = az + uz * t + ux * side * (half + 0.12);
+        // inside a landing or another stretch of road: no lip there
+        let onPad = false;
+        for (const pd of pads) if (Math.hypot(cx - pd[0], cz - pd[1]) < pd[2] + 0.4) onPad = true;
+        if (onPad) continue;
+        let d = Infinity;
+        for (let j = 0; j < pts.length - 1; j++) {
+          if (j === i) continue;
+          const dx = pts[j + 1]![0] - pts[j]![0];
+          const dz = pts[j + 1]![1] - pts[j]![1];
+          const l2 = dx * dx + dz * dz || 1;
+          const tt = Math.max(0, Math.min(1, ((cx - pts[j]![0]) * dx + (cz - pts[j]![1]) * dz) / l2));
+          d = Math.min(d, Math.hypot(cx - pts[j]![0] - dx * tt, cz - pts[j]![1] - dz * tt));
+        }
+        if (d < half - 0.2) continue;
+        curbs.push(cx, cz, Math.atan2(-uz, ux));
+      }
+    }
+  }
+  const cn = curbs.length / 3;
+  const curbGeo = new THREE.BoxGeometry(0.95, 0.42, 0.42);
+  const curbMesh = new THREE.InstancedMesh(curbGeo, mats.stone, cn);
+  curbMesh.name = "causewayCurbs";
+  curbMesh.castShadow = false;
+  curbMesh.receiveShadow = true;
+  for (let i = 0; i < cn; i++) {
+    const x = curbs[i * 3]!;
+    const z = curbs[i * 3 + 1]!;
+    const r = hash((x * 13) | 0, (z * 7) | 0);
+    e.set((r - 0.5) * 0.18, curbs[i * 3 + 2]! + (r - 0.5) * 0.25, (hash((z * 3) | 0, (x * 5) | 0) - 0.5) * 0.2);
+    q.setFromEuler(e);
+    p.set(x, surf(x, z) + 0.02 + r * 0.06, z);
+    sc.set(0.85 + r * 0.4, 0.8 + r * 0.45, 1);
+    m.compose(p, q, sc);
+    curbMesh.setMatrixAt(i, m);
+    const v = 0.36 + r * 0.2;
+    col.setRGB(v, v * 0.98, v * 0.86);
+    curbMesh.setColorAt(i, col);
+  }
+  curbMesh.instanceMatrix.needsUpdate = true;
+  if (curbMesh.instanceColor) curbMesh.instanceColor.needsUpdate = true;
+  group.add(curbMesh);
 }

@@ -2242,10 +2242,12 @@ body.death-flash #death-flash {
 body.respawn-fade #death-flash {
   background:
     radial-gradient(ellipse 78% 70% at 50% 46%, #1a1208aa 0%, #0a0806dd 62%, #050403f2 100%);
-  animation: respawn-veil 0.72s ease-in forwards;
+  animation: respawn-veil 0.92s ease-in forwards;
 }
 @keyframes respawn-veil {
-  0% { opacity: 0.78; }
+  0% { opacity: 0.35; }
+  24% { opacity: 0.88; }
+  38% { opacity: 0.86; }
   100% { opacity: 0; }
 }
 
@@ -2790,14 +2792,16 @@ body.slam-sting #slam-sting {
 /* Subtle heat-haze fringe at screen edges while ×75+ */
 body.in-lust #heat-haze {
   /* Ava slash-read restraint — Lust wash was burying the trail */
-  opacity: 0.18;
+  --haze-op: 0.18;
+  opacity: var(--haze-op);
   animation: heat-haze-shimmer 4.5s ease-in-out infinite;
 }
 body.in-lust.hud-compact #heat-haze {
-  opacity: 0.14;
+  --haze-op: 0.14;
 }
 body.in-avarice #heat-haze {
-  opacity: 0.18;
+  --haze-op: 0.18;
+  opacity: var(--haze-op);
   animation: heat-haze-shimmer 5.6s ease-in-out infinite;
   background:
     radial-gradient(ellipse 80% 55% at 50% 40%, rgba(212, 168, 64, 0.09), transparent 70%),
@@ -2807,7 +2811,7 @@ body.in-avarice #heat-haze {
 
 /* Audio-free Hoard Crush pressure fringe (toggled near boss) */
 body.in-avarice.crush-pressure #heat-haze {
-  opacity: 0.32;
+  --haze-op: 0.32;
   animation-duration: 3.8s;
   background:
     radial-gradient(ellipse 80% 55% at 50% 40%, rgba(212, 168, 64, 0.11), transparent 70%),
@@ -2815,14 +2819,15 @@ body.in-avarice.crush-pressure #heat-haze {
     radial-gradient(ellipse 88% 78% at 50% 48%, transparent 52%, #1a140848 100%);
 }
 body.in-avarice.crush-pressure.hud-compact #heat-haze {
-  opacity: 0.24;
+  --haze-op: 0.24;
 }
 body.in-avarice.crush-pressure #gold-dust {
   opacity: 0.22;
 }
 body.in-gluttony #heat-haze {
   /* Parity with Ava restraint — olive fringe, slash stays readable */
-  opacity: 0.26;
+  --haze-op: 0.26;
+  opacity: var(--haze-op);
   animation: heat-haze-shimmer 5.2s ease-in-out infinite;
   background:
     radial-gradient(ellipse 110% 40% at 50% -5%, #8a7a3028 0%, transparent 55%),
@@ -2834,7 +2839,7 @@ body.in-gluttony #heat-haze {
 /* Audio-free Triple Maw pressure fringe (toggled near boss) */
 body.in-gluttony.maw-pressure #heat-haze {
   /* Maw pressure retained, but slash-readable (was 0.72 wash) */
-  opacity: 0.4;
+  --haze-op: 0.4;
   animation-duration: 3.4s;
   background:
     radial-gradient(ellipse 110% 42% at 50% -5%, #a0903830 0%, transparent 55%),
@@ -2844,7 +2849,7 @@ body.in-gluttony.maw-pressure #heat-haze {
     radial-gradient(ellipse 88% 78% at 50% 48%, transparent 52%, #1a180c38 100%);
 }
 body.in-gluttony.maw-pressure.hud-compact #heat-haze {
-  opacity: 0.3;
+  --haze-op: 0.3;
 }
 
 /* Gluttony locked-portal + mire rain atmosphere */
@@ -2876,34 +2881,38 @@ body.in-gluttony.maw-pressure.hud-compact #heat-haze {
     0 0 10px #8aa028aa;
 }
 
-/* Single animated layer + static veil — cheaper than dual animated gradients */
+/* Static veil on the element; the stripes fall on a pseudo layer via transform only */
 #mire-rain {
   position: fixed;
   inset: 0;
   z-index: 7;
   pointer-events: none;
   opacity: 0;
-  background:
-    repeating-linear-gradient(
-      108deg,
-      transparent 0 13px,
-      #c8c09018 13px 14px,
-      transparent 14px 28px
-    ),
-    radial-gradient(ellipse 90% 70% at 50% 20%, #6a783022 0%, transparent 62%);
+  overflow: hidden;
+  background: radial-gradient(ellipse 90% 70% at 50% 20%, #6a783022 0%, transparent 62%);
   mix-blend-mode: soft-light;
   transition: opacity 0.45s ease;
 }
+#mire-rain::before {
+  content: "";
+  position: absolute;
+  /* One stripe period along 108° is 28px ÷ cos(72°) ≈ 90.6px straight down */
+  inset: -91px 0 0 0;
+  background: repeating-linear-gradient(
+    108deg,
+    transparent 0 13px,
+    #c8c09018 13px 14px,
+    transparent 14px 28px
+  );
+  will-change: transform;
+}
+/* Gluttony's rain falls in the world now (gluttonyRain.ts: a streak volume around the
+   camera); the full-screen overlay would only add a compositor layer on phones */
 body.in-gluttony #mire-rain {
-  opacity: 0.52;
-  animation: mire-rain-fall 3.8s linear infinite;
+  display: none;
 }
-body.in-gluttony.hud-compact #mire-rain {
-  opacity: 0.34;
-  animation: none; /* static veil on compact — saves mobile composite cost */
-}
-body.tab-hidden #mire-rain,
-body:not(.in-gluttony) #mire-rain {
+body.tab-hidden #mire-rain::before,
+body:not(.in-gluttony) #mire-rain::before {
   animation: none !important;
 }
 body.tab-hidden.in-gluttony #mire-rain {
@@ -2913,26 +2922,36 @@ body.tab-hidden #heat-haze {
   animation: none !important;
 }
 body.in-gluttony #heat-haze {
-  opacity: 0.26;
+  --haze-op: 0.26;
 }
 body.in-gluttony.hud-compact #heat-haze {
-  opacity: 0.18;
+  --haze-op: 0.18;
 }
 
 /* Avarice gold-black irony haze (restrained — slash stays readable) */
 body.in-avarice.hud-compact #heat-haze {
-  opacity: 0.14;
+  --haze-op: 0.14;
 }
 body.tab-hidden.in-avarice #heat-haze {
   animation: none;
 }
 body.in-avarice #gold-dust {
   opacity: 0.16;
-  animation: gold-dust-drift 14s linear infinite;
+}
+body.in-avarice #gold-dust::before {
+  animation: gold-dust-drift-a 18s linear infinite;
+}
+body.in-avarice #gold-dust::after {
+  animation: gold-dust-drift-b 30s linear infinite;
 }
 body.in-avarice.hud-compact #gold-dust {
   opacity: 0.12;
-  animation-duration: 18s;
+}
+body.in-avarice.hud-compact #gold-dust::before {
+  animation-duration: 23s;
+}
+body.in-avarice.hud-compact #gold-dust::after {
+  animation-duration: 38s;
 }
 body:not(.in-avarice) #gold-dust {
   opacity: 0;
@@ -2940,24 +2959,35 @@ body:not(.in-avarice) #gold-dust {
 }
 /* Tab already/just hidden: freeze gold ash like rain — lower opacity, no drift cost */
 body.tab-hidden.in-avarice #gold-dust {
-  animation: none !important;
   opacity: 0.08;
 }
-@keyframes gold-dust-drift {
-  0% { background-position: 0 0, 40px 20px; }
-  100% { background-position: 80px -120px, -40px -80px; }
+body.tab-hidden.in-avarice #gold-dust::before,
+body.tab-hidden.in-avarice #gold-dust::after {
+  animation: none !important;
+}
+/* One tile per loop, so each layer wraps seamlessly */
+@keyframes gold-dust-drift-a {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(120px, -160px, 0); }
+}
+@keyframes gold-dust-drift-b {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-180px, -220px, 0); }
 }
 /* Idle Avarice: freeze gold-dust CSS drift — ash field already stride-culled */
 body.in-avarice.ava-idle #gold-dust {
-  animation-play-state: paused;
   opacity: 0.1;
+}
+body.in-avarice.ava-idle #gold-dust::before,
+body.in-avarice.ava-idle #gold-dust::after {
+  animation-play-state: paused;
 }
 body.in-avarice.ava-idle.hud-compact #gold-dust {
   opacity: 0.08;
 }
 body.in-avarice.ava-idle #heat-haze {
   animation-play-state: paused;
-  opacity: 0.1;
+  --haze-op: 0.1;
 }
 
 #gold-dust {
@@ -2966,17 +2996,33 @@ body.in-avarice.ava-idle #heat-haze {
   pointer-events: none;
   z-index: 2;
   opacity: 0;
-  background-image:
-    radial-gradient(1px 1px at 20% 30%, rgba(232, 200, 106, 0.55), transparent),
-    radial-gradient(1.5px 1.5px at 70% 60%, rgba(200, 160, 64, 0.4), transparent);
-  background-size: 120px 160px, 180px 220px;
+  overflow: hidden;
   mix-blend-mode: screen;
+}
+/* Two mote layers, each oversized by one tile toward where it drifts from */
+#gold-dust::before,
+#gold-dust::after {
+  content: "";
+  position: absolute;
+  will-change: transform;
+}
+#gold-dust::before {
+  inset: 0 0 -160px -120px;
+  background-image: radial-gradient(1px 1px at 20% 30%, rgba(232, 200, 106, 0.55), transparent);
+  background-size: 120px 160px;
+}
+#gold-dust::after {
+  inset: 0 -180px -220px 0;
+  background-image: radial-gradient(1.5px 1.5px at 70% 60%, rgba(200, 160, 64, 0.4), transparent);
+  background-size: 180px 220px;
 }
 @media (prefers-reduced-motion: reduce) {
   body.in-avarice #heat-haze { animation: none; }
-  body.in-avarice.crush-pressure #heat-haze { animation: none; opacity: 0.28; }
-  body.in-avarice #gold-dust { animation: none; opacity: 0.16; }
-  body.in-avarice.crush-pressure #gold-dust { animation: none; opacity: 0.22; }
+  body.in-avarice.crush-pressure #heat-haze { animation: none; --haze-op: 0.28; }
+  body.in-avarice #gold-dust::before,
+  body.in-avarice #gold-dust::after { animation: none; }
+  body.in-avarice #gold-dust { opacity: 0.16; }
+  body.in-avarice.crush-pressure #gold-dust { opacity: 0.22; }
 }
 .world-label.foe.avarice .wl-name { color: #e8c86a; }
 .world-label.foe.avarice:not(.elite):not(.boss) .wl-name { color: #d8b868; }
@@ -2994,11 +3040,12 @@ body.in-avarice.ava-idle #heat-haze {
     0 0 10px #c8a04088;
 }
 @keyframes mire-rain-fall {
-  0% { background-position: 0 0, 0 0; }
-  100% { background-position: 22px 140px, 0 0; }
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(0, 90.6px, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  body.in-gluttony #mire-rain { animation: none; opacity: 0.5; }
+  body.in-gluttony #mire-rain::before { animation: none; }
+  body.in-gluttony #mire-rain { opacity: 0.5; }
   body.in-lust #heat-haze,
   body.in-gluttony #heat-haze,
   body.in-avarice #heat-haze { animation: none; }
@@ -3020,20 +3067,38 @@ body.in-avarice.ava-idle #heat-haze {
   transition: opacity 0.35s ease;
 }
 body.combo-heat #heat-haze {
-  opacity: 1;
+  /* The ×75 cue wins over every canto / compact / pressure restraint (they set
+     --haze-op with higher specificity), as the old absolute keyframes did */
+  --haze-op: 0.85 !important;
+  opacity: var(--haze-op);
   animation: heat-haze-shimmer 1.8s ease-in-out infinite;
 }
+/*
+ * Opacity-only shimmer around each state's --haze-op. It used to animate absolute
+ * opacity 0.55–0.85 (overriding the restrained 0.14–0.4 per-canto values above) plus an
+ * animated blur + hue-rotate filter on a full-screen blend layer every frame.
+ */
 @keyframes heat-haze-shimmer {
   0%, 100% {
-    opacity: 0.55;
-    filter: blur(0.4px) hue-rotate(0deg);
-    transform: scale(1.001);
+    opacity: calc(var(--haze-op, 0.2) * 0.72);
   }
   50% {
-    opacity: 0.85;
-    filter: blur(1.1px) hue-rotate(8deg);
-    transform: scale(1.008);
+    opacity: var(--haze-op, 0.2);
   }
+}
+
+/* Low gfx tier: the canto overlays composite with plain alpha instead of blend modes /
+   filters (each is an extra full-screen compositor pass on a phone) */
+body.gfx-low #heat-haze,
+body.gfx-low #gold-dust,
+body.gfx-low #mire-rain {
+  mix-blend-mode: normal;
+  filter: none;
+}
+/* The pale rain stripes all but vanished under soft-light; with plain alpha they read as
+   bright streaks over the whole screen, so the low tier keeps only the olive veil */
+body.gfx-low #mire-rain::before {
+  display: none;
 }
 
 /* Gold “just safe” rim overlay */
@@ -3160,17 +3225,10 @@ body.combo-eclipse-heat #heat-haze {
   opacity: 1;
   animation: heat-eclipse-shimmer 1.5s ease-in-out infinite;
 }
+/* Opacity only — an animated blur/hue filter re-rasterised the full-screen layer per frame */
 @keyframes heat-eclipse-shimmer {
-  0%, 100% {
-    opacity: 0.5;
-    filter: blur(0.5px) hue-rotate(-8deg);
-    transform: scale(1.002);
-  }
-  50% {
-    opacity: 0.88;
-    filter: blur(1.3px) hue-rotate(12deg);
-    transform: scale(1.012);
-  }
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.88; }
 }
 
 /* Attack CD sweep sits over the sword glyph (icon-mode), like spell seals */
@@ -3316,8 +3374,8 @@ body.combo-void-heat #heat-haze,
   animation: heat-void-shimmer 1.35s ease-in-out infinite;
 }
 @keyframes heat-void-shimmer {
-  0%, 100% { opacity: 0.45; filter: blur(0.6px) saturate(0.7); }
-  50% { opacity: 0.82; filter: blur(1.4px) saturate(0.55); }
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.82; }
 }
 
 /* Unify Attack ready gold rim with spell ready-chime intensity */
@@ -3477,8 +3535,8 @@ body.combo-abyss-heat #heat-haze,
   animation: heat-abyss-shimmer 1.15s ease-in-out infinite;
 }
 @keyframes heat-abyss-shimmer {
-  0%, 100% { opacity: 0.5; filter: blur(0.7px) hue-rotate(-8deg) saturate(1.1); }
-  50% { opacity: 0.9; filter: blur(1.5px) hue-rotate(14deg) saturate(1.3); }
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.9; }
 }
 
 /* Death mini-compass pulse synced with corpse X fade (--corpse-fade) */
@@ -4197,6 +4255,12 @@ body.in-avarice .world-label.is-nearest:not(.foe) .wl-name {
   width: 92px;
   border-color: #e8c86a;
 }
+/* phones: a trash foe's bar is its whole plate (labelDeclutter.ts) — slimmer than the
+   hero is wide would be ideal; this keeps a pack's bars from fencing him in */
+body.hud-compact .world-label.foe:not(.elite):not(.boss):not(.midboss) .wl-hp {
+  width: 56px;
+  height: 6px;
+}
 .world-label.foe.elite .wl-name { color: #e8c86a; }
 .world-label.foe.boss .wl-hp {
   width: 128px;
@@ -4210,23 +4274,59 @@ body.in-avarice .world-label.is-nearest:not(.foe) .wl-name {
 .world-label .wl-hp i.low {
   background: linear-gradient(90deg, #6a1010, #d63a2a);
 }
-.float-dmg {
-  color: #ffe8a0;
-  font-family: var(--serif);
-  font-size: 16px;
-  font-weight: 600;
-  text-shadow: 0 1px 0 #000, 0 0 8px #000;
+/* Nameplate declutter (world/labelDeclutter.ts): trash plates wear only their HP bar,
+   overlapped plates hide, and a plate over the hero fades to a ghost */
+.world-label.wl-noname .wl-name { display: none; }
+.world-label.wl-cull { visibility: hidden; }
+.world-label.wl-fade > * { opacity: 0.16; }
+/* Combat numbers (ui/damageNumbers.ts): one pooled layer moved by transform per frame */
+.dmg-layer {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
-  white-space: nowrap;
+  overflow: hidden;
+  contain: strict;
 }
-.float-dmg.self { color: #ff8a7a; }
+.dmg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  color: #fff3d6;
+  -webkit-text-stroke: 0.8px #1a0e06;
+  text-shadow: 0 1px 0 #000, 0 0 6px #000c, 0 0 2px #000;
+}
+.dmg-melee { color: #fff1cf; }
+.dmg-heavy { color: #ffae3c; font-size: 30px; letter-spacing: 0.02em; text-shadow: 0 1px 0 #000, 0 0 10px #a03000cc, 0 0 2px #000; }
+.dmg-spell { color: #c0b0ff; font-size: 22px; text-shadow: 0 1px 0 #000, 0 0 9px #4020a0cc, 0 0 2px #000; }
+.dmg-dash { color: #8fe8ff; text-shadow: 0 1px 0 #000, 0 0 8px #0070a0cc, 0 0 2px #000; }
+.dmg-self { color: #ff8070; font-size: 23px; -webkit-text-stroke: 1.2px #1a0000; text-shadow: 0 1px 0 #000, 0 0 8px #000, 0 0 2px #000; }
+.dmg-heal { color: #8ff08a; font-size: 21px; text-shadow: 0 1px 0 #000, 0 0 8px #106010cc, 0 0 2px #000; }
+.dmg-other { color: #cfc4ae; font-size: 15px; font-weight: 600; }
+.dmg-block { color: #9fe8ff; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
+body.hud-compact .dmg { font-size: 16px; }
+body.hud-compact .dmg-heavy { font-size: 23px; }
+body.hud-compact .dmg-spell { font-size: 17px; }
+body.hud-compact .dmg-self { font-size: 18px; }
+body.hud-compact .dmg-heal { font-size: 16px; }
+body.hud-compact .dmg-block { font-size: 12px; }
+body.hud-compact .dmg-other { font-size: 12px; }
 
 #dodge-callout {
   position: fixed;
   z-index: 16;
   left: 50%;
-  top: 42%;
-  transform: translate(-50%, -50%);
+  /* (a reserved slot above the target plate, out of the world-label band round the
+     hero and the boss — at 42% it overprinted plates in every boss arena) */
+  bottom: calc(var(--action-bar-h) + 5.2rem);
+  transform: translateX(-50%);
   padding: 0.45rem 1rem;
   font-size: 1.35rem;
   letter-spacing: 0.16em;
@@ -4238,6 +4338,23 @@ body.in-avarice .world-label.is-nearest:not(.foe) .wl-name {
   text-shadow: 0 0 12px #ff6622;
 }
 #dodge-callout.hidden { display: none; }
+/* Phones: the callout keeps a reserved slot out of the world-label band round the hero —
+   landscape just above the bottom target plate, portrait under the left column */
+body.hud-landscape #dodge-callout {
+  top: auto;
+  bottom: calc(var(--safe-bottom) + 12px + 4.4rem);
+  transform: translateX(-50%);
+  font-size: 1rem;
+  padding: 0.3rem 0.8rem;
+}
+body.hud-compact:not(.hud-landscape) #dodge-callout {
+  top: 31%;
+  bottom: auto;
+  font-size: 1rem;
+  padding: 0.3rem 0.8rem;
+  max-width: calc(100vw - 24px);
+  white-space: nowrap;
+}
 #dodge-callout.avarice-dodge {
   color: #f2dea0;
   border-color: #a0782888;
@@ -4491,7 +4608,7 @@ body.in-avarice.hud-compact #btn-interact.interact-ready {
 
 /* Hoard Crush phase 2 — hotter pressure fringe (still bone-gold, no neon) */
 body.in-avarice.crush-pressure.crush-phase2 #heat-haze {
-  opacity: 0.4;
+  --haze-op: 0.4;
   animation-duration: 2.8s;
   background:
     radial-gradient(ellipse 80% 55% at 50% 40%, rgba(242, 222, 160, 0.14), transparent 70%),
@@ -4502,7 +4619,7 @@ body.in-avarice.crush-pressure.crush-phase2 #gold-dust {
   opacity: 0.3;
 }
 body.in-avarice.crush-pressure.crush-phase2.hud-compact #heat-haze {
-  opacity: 0.3;
+  --haze-op: 0.3;
 }
 body.in-avarice.crush-pressure.crush-phase2.hud-compact #gold-dust {
   opacity: 0.22;
@@ -4531,7 +4648,7 @@ body.ava-first-clear #game-root::after {
   100% { opacity: 0; filter: brightness(1); }
 }
 body.in-avarice.ava-first-clear #heat-haze {
-  opacity: 0.18;
+  --haze-op: 0.18;
 }
 body.in-avarice.ava-first-clear #gold-dust {
   opacity: 0.4;
@@ -4633,8 +4750,7 @@ body.in-avarice.hud-compact.crush-windup #game-root::before {
 
 /* Avarice Ledger Bell still — brief gold measure wash (SFX-less) */
 body.in-avarice.ava-bell-still #heat-haze {
-  opacity: 0.42;
-  filter: saturate(1.08) brightness(1.06);
+  --haze-op: 0.42;
 }
 body.in-avarice.ava-bell-still #gold-dust {
   opacity: 0.34;
@@ -4934,7 +5050,7 @@ body.in-avarice.crush-enrage #game-root::after {
   animation: crush-enrage-flash 1.4s ease-out forwards;
 }
 body.in-avarice.crush-enrage #heat-haze {
-  opacity: 0.55 !important;
+  --haze-op: 0.55 !important;
   animation-duration: 1.6s !important;
 }
 body.in-avarice.crush-enrage #boss-hp-plate {
@@ -5174,6 +5290,11 @@ body.hud-compact #target-plate {
   background: linear-gradient(180deg, #1a0e0ce6, #0e0908e6);
 }
 body.hud-compact #target-name { font-size: 0.68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Portrait: the plate stacks under the objective block (whose sub-line carries the
+   canto hints) — --qt-bottom is written by hud.ts when #quest-track resizes */
+body.hud-compact:not(.hud-landscape) #target-plate {
+  top: max(calc(var(--hv-top) + 100px), calc(var(--qt-bottom, 0px) + 6px));
+}
 
 /* ——— Stick ——— */
 body.hud-compact #virtual-joystick {
@@ -5513,3 +5634,459 @@ body.hud-landscape #inventory .inv-footer .inv-actions {
 /* Touch: the hold prompt's key cap ("E") means nothing — the Use seal is charging */
 body.hud-compact #portal-hold-prompt .php-key { display: none; }
 body.hud-compact #portal-hold-prompt { min-width: 9.5rem; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Wave 1 UX — wayfinding, gates, toasts, dialogue, phone input
+   (world/guidance.ts, world/objective.ts, ui/toasts.ts, ui/radar.ts)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ——— Objective line: main goal + secondary hint (never replaces the goal) ——— */
+#quest-track .qt-main { display: block; }
+#quest-track .qt-sub {
+  display: block;
+  margin-top: 0.12rem;
+  font-size: 0.82em;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  color: #c9d8b0;
+  opacity: 0.9;
+}
+#quest-track .qt-sub[hidden] { display: none; }
+body.hud-landscape #quest-track .qt-main,
+body.hud-landscape #quest-track .qt-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.hud-compact #quest-track { -webkit-line-clamp: 3; line-clamp: 3; }
+
+/* ——— Compass: one gold objective arrow + one red foe arrow, moved by transform ——— */
+.compass-arrow {
+  left: 0;
+  top: 0;
+  will-change: transform;
+  filter: none;
+}
+.compass-label,
+.compass-dist { white-space: nowrap; }
+/* The chevron is a notched dart, not a border triangle: a near-equilateral
+   triangle looks the same every 120°, so "rotate(32deg)" read as pointing left.
+   The <i> rotates (radar.ts writes its transform) and carries the glow; the
+   dart itself is the clipped ::before. */
+.compass-arrow .compass-chevron {
+  position: relative;
+  width: 16px;
+  height: 20px;
+  border: 0;
+  transform-origin: 50% 50%;
+  --chev: #c9a227;
+}
+.compass-arrow .compass-chevron::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--chev);
+  clip-path: polygon(50% 0, 100% 100%, 50% 70%, 0 100%);
+}
+.compass-arrow[data-dest="objective"] .compass-chevron {
+  --chev: #ffd46a;
+  filter: drop-shadow(0 0 5px #ffb838cc);
+}
+.compass-arrow[data-dest="objective"] .compass-label {
+  color: #ffe7a0;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-shadow: 0 1px 0 #000, 0 0 8px #000, 0 0 10px #ffb83866;
+}
+.compass-arrow[data-dest="objective"] .compass-dist { color: #ffe7a0; opacity: 1; font-size: 0.6rem; }
+.compass-arrow[data-dest="foe"] .compass-chevron {
+  --chev: #e0402e;
+  width: 12px;
+  height: 15px;
+  border: 0;
+  filter: drop-shadow(0 0 3px #000c);
+}
+.compass-arrow[data-dest="foe"] .compass-label { color: #ffb0a0; font-size: 0.5rem; }
+.compass-arrow[data-dest="foe"] .compass-dist { color: #e8a090; }
+@media (max-width: 640px) {
+  .compass-arrow .compass-chevron { width: 14px; height: 18px; border: 0; }
+  .compass-arrow[data-dest="foe"] .compass-chevron { width: 11px; height: 14px; }
+  .compass-arrow[data-dest="objective"] .compass-label { font-size: 0.56rem; }
+  .compass-arrow[data-dest="objective"] .compass-dist { font-size: 0.5rem; }
+}
+body.hud-compact .compass-arrow[data-dest="objective"] .compass-label { font-size: 0.56rem; }
+
+#minimap-hint.hidden { display: none !important; }
+/* Minimap caption on phones: one line under the disc, free to run left past it */
+body.hud-compact #minimap-hint {
+  position: absolute;
+  left: auto;
+  right: 0;
+  top: calc(100% + 3px);
+  bottom: auto;
+  width: max-content;
+  max-width: 60vw;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ——— Gate labels: one colour language (forward gold · return bone-blue · locked grey) ——— */
+.world-label.portal-label .wl-name {
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.world-label.portal-label .wl-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--bone-2);
+  text-shadow: 0 1px 2px #000, 0 0 6px #000;
+}
+.world-label.gate-forward .wl-name {
+  color: #ffd46a;
+  text-shadow: 0 1px 2px #000, 0 0 12px #ffb838aa;
+}
+.world-label.gate-forward .wl-sub { color: #ffe7a0; }
+.world-label.gate-return .wl-name {
+  color: #c8dcf4;
+  text-shadow: 0 1px 2px #000, 0 0 10px #6f9ad866;
+}
+.world-label.gate-return .wl-sub { color: #9cb8dc; }
+.world-label.gate-locked .wl-name { color: #a8a496; }
+.world-label.gate-locked .wl-name::before {
+  content: "";
+  display: inline-block;
+  width: 0.8em;
+  height: 0.92em;
+  margin-right: 0.35em;
+  vertical-align: -0.08em;
+  background: no-repeat center / contain
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 14'%3E%3Cpath d='M3 6.2V4.4a3 3 0 0 1 6 0v1.8' fill='none' stroke='%23c8c2b0' stroke-width='1.7'/%3E%3Crect x='1.3' y='6' width='9.4' height='7.4' rx='1.3' fill='%23c8c2b0'/%3E%3Crect x='5.3' y='8.4' width='1.4' height='2.6' rx='.6' fill='%23302c24'/%3E%3C/svg%3E");
+}
+.world-label.gate-locked .wl-sub { color: #8f8a7a; }
+/* Combat-canto declutter must not dim the way out */
+body.in-lust .world-label.portal-label .wl-name,
+body.in-gluttony .world-label.portal-label .wl-name,
+body.in-avarice .world-label.portal-label .wl-name { opacity: 1; }
+body.in-lust.hud-compact .world-label.portal-label,
+body.in-gluttony.hud-compact .world-label.portal-label,
+body.in-avarice.hud-compact .world-label.portal-label { transform: none; }
+/* The OPENED moment */
+.world-label.gate-opened .wl-name { animation: gate-opened 1.1s ease-out 3; }
+.world-label.gate-opened .wl-sub {
+  color: #fff3c0;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px #ffd46a, 0 1px 2px #000;
+}
+@keyframes gate-opened {
+  0% { transform: scale(1); text-shadow: 0 1px 2px #000, 0 0 6px #ffb83866; }
+  35% { transform: scale(1.28); text-shadow: 0 1px 2px #000, 0 0 22px #ffd46a; }
+  100% { transform: scale(1); text-shadow: 0 1px 2px #000, 0 0 12px #ffb838aa; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-label.gate-opened .wl-name { animation: none; }
+}
+
+/* ——— Loot names coloured by rarity ——— */
+.world-label.loot-label.r-normal .wl-name { color: #d8d0bc; text-shadow: 0 1px 2px #000, 0 0 6px #000a; }
+.world-label.loot-label.r-magic .wl-name { color: #7eaaf0; text-shadow: 0 1px 2px #000, 0 0 8px #4a7fd488; }
+.world-label.loot-label.r-rare .wl-name { color: #f0d860; text-shadow: 0 1px 2px #000, 0 0 8px #d4b84a88; }
+.world-label.loot-label.r-set .wl-name { color: #5ee0a0; text-shadow: 0 1px 2px #000, 0 0 8px #33cc8888; }
+.world-label.loot-label.r-unique .wl-name { color: #f0a030; text-shadow: 0 1px 2px #000, 0 0 10px #cc880099; }
+.world-label.loot-label.r-canto_unique .wl-name { color: #f590dc; text-shadow: 0 1px 2px #000, 0 0 10px #ee66cc99; }
+
+/* ——— Desktop hover: the thing under the cursor lifts its plate ——— */
+.world-label.is-hover .wl-name {
+  filter: brightness(1.25);
+  text-decoration: underline;
+  text-decoration-color: #e8c86a88;
+  text-underline-offset: 3px;
+}
+.world-label.foe.is-hover .wl-name { text-decoration-color: #d63a2a99; }
+
+/* ——— Toasts on phones: up to two lines in landscape's wide column, three in
+   portrait's ~260px one, rather than cutting off the action ——— */
+body.hud-compact #toast-layer #toast,
+body.hud-compact #toast-layer.toast-above-actions #toast {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.hud-compact:not(.hud-landscape) #toast-layer #toast,
+body.hud-compact:not(.hud-landscape) #toast-layer.toast-above-actions #toast {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+/* (landscape too: a teaching line cut to "…the weights clash where …" taught nothing;
+   two lines of the wide column hold ~110 characters — content hints stay under that) */
+body.hud-landscape #toast-layer #toast,
+body.hud-landscape #toast-layer.toast-above-actions #toast {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* ——— Dialogue panel (Guide counsel) ——— */
+#dialogue {
+  position: fixed;
+  z-index: 29;
+  left: 50%;
+  bottom: calc(var(--action-bar-h) + 4.2rem);
+  transform: translateX(-50%);
+  width: min(34rem, calc(100vw - 2rem));
+  padding: 0.6rem 0.9rem 0.5rem;
+  background:
+    linear-gradient(180deg, #ffffff0c, transparent 45%),
+    linear-gradient(180deg, #1e1b14f2 0%, #0f0e0bf2 100%);
+  border: 1px solid #6a5e3f;
+  border-left: 3px solid var(--gold);
+  box-shadow: inset 0 0 0 1px #000c, 0 6px 24px #000c;
+  border-radius: 3px;
+  pointer-events: none; /* never eats a tap — any tap dismisses it (ui/toasts.ts) */
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+#dialogue.dlg-in { opacity: 1; transform: translateX(-50%) translateY(0); }
+#dialogue.dlg-out { opacity: 0; transform: translateX(-50%) translateY(6px); }
+#dialogue .dlg-speaker {
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold-2);
+  margin-bottom: 0.2rem;
+}
+#dialogue .dlg-text {
+  font-size: 0.98rem;
+  line-height: 1.4;
+  color: var(--text);
+  text-shadow: 0 1px 0 #000;
+}
+#dialogue .dlg-close {
+  margin-top: 0.3rem;
+  text-align: right;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+body.hud-compact #dialogue {
+  bottom: auto;
+  top: calc(var(--hv-top) + 58px);
+  width: min(30rem, calc(100vw - 150px - var(--safe-left) - var(--safe-right)));
+  left: calc(50% - 40px);
+  padding: 0.45rem 0.7rem 0.4rem;
+}
+body.hud-compact #dialogue .dlg-text { font-size: 0.8rem; line-height: 1.32; }
+body.hud-compact:not(.hud-landscape) #dialogue {
+  top: auto;
+  bottom: calc(var(--action-bar-h) + 0.5rem);
+  left: 50%;
+  width: calc(100vw - 1.2rem);
+}
+
+/* ——— Canto title card (arrival) ——— */
+#canto-card {
+  position: fixed;
+  z-index: 12;
+  left: 50%;
+  top: 22%;
+  transform: translate(-50%, -6px);
+  width: min(34rem, calc(100vw - 2rem));
+  text-align: center;
+  pointer-events: none;
+  padding: 0.6rem 0;
+  /* Soft dark vignette behind the words so world labels don't fight them */
+  background: radial-gradient(ellipse 60% 55% at 50% 50%, #0a0806c0 0%, #0a080680 45%, transparent 75%);
+  opacity: 0;
+  transition: opacity 0.8s ease, transform 0.8s ease;
+}
+#canto-card.cc-show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+#canto-card .cc-rule {
+  height: 1px;
+  margin: 0.35rem auto;
+  width: 62%;
+  background: linear-gradient(90deg, transparent, #c9a227aa, transparent);
+}
+#canto-card .cc-title {
+  font-size: 2.6rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #f3e3b0;
+  text-shadow: 0 2px 0 #000, 0 0 24px #000, 0 0 18px #c9a22755;
+}
+#canto-card .cc-epi {
+  margin-top: 0.1rem;
+  font-size: 1.05rem;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  color: #d9cfae;
+  text-shadow: 0 1px 0 #000, 0 0 12px #000;
+}
+#canto-card .cc-goal {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffe7a0;
+  text-shadow: 0 1px 0 #000, 0 0 10px #000;
+}
+body.hud-compact #canto-card { top: 24%; }
+body.hud-compact #canto-card .cc-title { font-size: 1.7rem; letter-spacing: 0.24em; }
+body.hud-compact #canto-card .cc-epi { font-size: 0.82rem; }
+body.hud-compact #canto-card .cc-goal { font-size: 0.64rem; }
+
+/* ——— Phones: floating stick capture zone over the lower-left ——— */
+body.hud-compact #virtual-joystick {
+  z-index: 24; /* under the action buttons (25): a thumb on a button hits the button */
+  left: 0;
+  bottom: 0;
+  width: 44vw;
+  height: 64vh;
+  height: 64dvh;
+}
+body.hud-compact:not(.hud-landscape) #virtual-joystick {
+  width: 58vw;
+  height: 46vh;
+  height: 46dvh;
+}
+body.hud-compact #virtual-joystick .vj-base {
+  inset: auto;
+  left: calc(var(--hv-gut) + var(--safe-left) + 8px);
+  bottom: calc(14px + var(--safe-bottom) + 8px);
+  width: calc(var(--stick-size) - 16px);
+  height: calc(var(--stick-size) - 16px);
+  transition: transform 0.16s ease-out, opacity 0.2s ease;
+  opacity: 0.78;
+}
+body.hud-compact #virtual-joystick.vj-active .vj-base {
+  transition: none;
+  opacity: 1;
+}
+
+/* ——— Phones: Inv / AH / fullscreen as a small top-right menu (not above the stick) ——— */
+body.hud-compact #action-bar #btn-inv,
+body.hud-compact #action-bar #btn-ah,
+body.hud-compact #btn-fullscreen {
+  --s: 38px;
+  position: fixed;
+  left: auto;
+  bottom: auto;
+  top: calc(var(--hv-top) + 62px + 100px + 26px);
+  width: var(--s);
+  height: var(--s);
+  border-radius: 10px;
+}
+body.hud-compact #action-bar #btn-inv { right: calc(var(--hv-gut) + var(--safe-right)); }
+body.hud-compact #action-bar #btn-ah { right: calc(var(--hv-gut) + var(--safe-right) + 46px); }
+body.hud-compact #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 92px); }
+body.hud-landscape #action-bar #btn-inv,
+body.hud-landscape #action-bar #btn-ah,
+body.hud-landscape #btn-fullscreen {
+  --s: 34px;
+  top: calc(var(--hv-top) + 96px + 22px);
+}
+body.hud-landscape #action-bar #btn-ah { right: calc(var(--hv-gut) + var(--safe-right) + 42px); }
+body.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 84px); }
+/* The Auction House lives in the Dark Wood: no AH seal inside the combat circles */
+body.in-lust #btn-ah,
+body.in-gluttony #btn-ah,
+body.in-avarice #btn-ah { display: none !important; }
+body.in-lust.hud-compact #btn-fullscreen,
+body.in-gluttony.hud-compact #btn-fullscreen,
+body.in-avarice.hud-compact #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 46px); }
+body.in-lust.hud-landscape #btn-fullscreen,
+body.in-gluttony.hud-landscape #btn-fullscreen,
+body.in-avarice.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 42px); }
+
+/* Fullscreen re-enter seal (phones, only while windowed) */
+#btn-fullscreen {
+  position: fixed;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--gold-2);
+  background: radial-gradient(circle at 50% 32%, #3a3322 0%, #1b1811 55%, #0c0b08 100%);
+  border: 2px solid #8a7440;
+  box-shadow: inset 0 0 0 2px #000, 0 3px 10px #000c;
+  cursor: pointer;
+  pointer-events: auto;
+}
+#btn-fullscreen svg { width: 58%; height: 58%; }
+body.has-modal #btn-fullscreen { visibility: hidden; }
+
+/* ——— Avarice: the processions' cries and Plutus's lines (cantoMech/avarice.ts) ——— */
+body.in-avarice .ava-shout,
+body.in-avarice .ava-plutus-line {
+  font-family: var(--serif);
+  font-style: italic;
+  white-space: nowrap;
+  pointer-events: none;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 6px #000, 0 2px 3px #000, 0 0 14px #3a1c04;
+  display: inline-block;
+  opacity: 0;
+}
+body.in-avarice .ava-shout {
+  font-size: 17px;
+  font-weight: 700;
+}
+body.in-avarice .ava-shout-n { color: #ffe39a; }
+body.in-avarice .ava-shout-s { color: #ffb070; }
+/* (two identical animations: switching the name restarts it without a forced layout) */
+body.in-avarice .ava-shout.ava-shout-go { animation: ava-shout 1.7s ease-out forwards; }
+body.in-avarice .ava-shout.ava-shout-go2 { animation: ava-shout2 1.7s ease-out forwards; }
+body.in-avarice .ava-plutus-line {
+  font-size: 19px;
+  font-weight: 700;
+  color: #ffd98a;
+}
+body.in-avarice .ava-plutus-line.ava-line-go { animation: ava-line 3.2s ease-out forwards; }
+body.in-avarice .ava-plutus-line.ava-line-go2 { animation: ava-line2 3.2s ease-out forwards; }
+/* hangs under his feet (clear of his plate and the gate label above him) */
+body.in-avarice .ava-plutus-wrap { padding-top: 22px; }
+body.in-avarice.hud-compact .ava-plutus-wrap { padding-top: 14px; }
+body.in-avarice.hud-compact .ava-shout { font-size: 13px; }
+body.in-avarice.hud-compact .ava-plutus-line { font-size: 14px; }
+@keyframes ava-shout {
+  0% { opacity: 0; transform: translateY(8px) scale(0.86); }
+  12% { opacity: 1; transform: translateY(0) scale(1.06); }
+  70% { opacity: 1; transform: translateY(-10px) scale(1); }
+  100% { opacity: 0; transform: translateY(-22px) scale(0.98); }
+}
+@keyframes ava-shout2 {
+  0% { opacity: 0; transform: translateY(8px) scale(0.86); }
+  12% { opacity: 1; transform: translateY(0) scale(1.06); }
+  70% { opacity: 1; transform: translateY(-10px) scale(1); }
+  100% { opacity: 0; transform: translateY(-22px) scale(0.98); }
+}
+@keyframes ava-line {
+  0% { opacity: 0; transform: translateY(6px); }
+  10% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-14px); }
+}
+@keyframes ava-line2 {
+  0% { opacity: 0; transform: translateY(6px); }
+  10% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-14px); }
+}

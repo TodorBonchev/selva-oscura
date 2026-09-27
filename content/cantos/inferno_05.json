@@ -37,7 +37,7 @@
         "x": 90,
         "y": 62,
         "label": "Gale Bell",
-        "hint": "Stills nearby shades — then press the Judge"
+        "hint": "Stills nearby shades — then press on to Minos"
       },
       {
         "id": "wind_cache",
@@ -56,21 +56,94 @@
         "hint": "Restores life and breath — E to kneel"
       },
       {
-        "id": "lust_portal_home",
-        "kind": "portal",
-        "x": 14,
-        "y": 58,
-        "label": "Hub portal",
-        "to_canto": "inferno_01"
+        "id": "lee_shrine",
+        "kind": "shrine",
+        "x": 106,
+        "y": 52.5,
+        "label": "Lee Shrine",
+        "hint": "In the rock's lee, short of the Judge — restores life and breath"
+      }
+    ],
+    "windbreaks": [
+      {
+        "x": 29,
+        "y": 52,
+        "r": 1.5
       },
       {
-        "id": "lust_portal_gluttony",
-        "kind": "portal",
-        "x": 148,
-        "y": 58,
-        "label": "Gluttony portal",
-        "to_canto": "inferno_06",
-        "require_clear": "inferno_05"
+        "x": 38.5,
+        "y": 60,
+        "r": 1.6
+      },
+      {
+        "x": 45.5,
+        "y": 69.5,
+        "r": 1.5
+      },
+      {
+        "x": 34.5,
+        "y": 73.5,
+        "r": 1.4
+      },
+      {
+        "x": 43.5,
+        "y": 43.5,
+        "r": 1.7
+      },
+      {
+        "x": 53.5,
+        "y": 38,
+        "r": 1.6
+      },
+      {
+        "x": 63,
+        "y": 50,
+        "r": 1.6
+      },
+      {
+        "x": 73.5,
+        "y": 53.5,
+        "r": 1.7
+      },
+      {
+        "x": 82.5,
+        "y": 41.5,
+        "r": 1.6
+      },
+      {
+        "x": 77.5,
+        "y": 72.5,
+        "r": 1.5
+      },
+      {
+        "x": 94.5,
+        "y": 43.5,
+        "r": 1.6
+      },
+      {
+        "x": 106,
+        "y": 48.5,
+        "r": 1.7
+      },
+      {
+        "x": 115.5,
+        "y": 70,
+        "r": 1.5
+      },
+      {
+        "x": 120,
+        "y": 52,
+        "r": 1.6
+      },
+      {
+        "x": 132.5,
+        "y": 66,
+        "r": 1.6
+      },
+      {
+        "x": 132.5,
+        "y": 54.5,
+        "r": 1.5
       }
     ]
   },
@@ -110,7 +183,7 @@
       "champion": false,
       "drop_table": "inferno_pack_common",
       "anchor": {
-        "x": 32,
+        "x": 34,
         "y": 56
       }
     },
@@ -147,8 +220,9 @@
       "drop_table": "inferno_pack_common",
       "anchor": {
         "x": 100,
-        "y": 50
-      }
+        "y": 46
+      },
+      "name": "Paolo & Francesca"
     },
     {
       "id": "lust_strays",
@@ -206,7 +280,7 @@
   "bosses": [
     {
       "id": "minos_gate",
-      "name": "Judge of the Gate",
+      "name": "Minos",
       "drop_table": "inferno_pack_common",
       "anchor": {
         "x": 140,
@@ -224,7 +298,7 @@
   "style_kit": {
     "palette": "inferno_red_black",
     "kit_id": "circle_02_lust",
-    "notes": "Circle kit 2 of 12; red-black gale; Doré line weight"
+    "notes": "Circle kit 2 of 12; red-black gale; Doré line weight; storm-swept plain of rock islands (windbreaks)"
   },
   "loot_density": "raw_d2",
   "legal": {

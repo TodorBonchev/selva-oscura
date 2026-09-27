@@ -11,6 +11,8 @@ import { applyEquippedLook } from "./gearLook";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { MatKit } from "./materials";
 import { isCompactUi } from "../ui/hud";
+import { VirtualLight, isVirtualLight } from "./lightPool";
+import { markShared, sharedGeo, sharedMat } from "./dispose";
 
 const _eul = new THREE.Euler();
 const _quat = new THREE.Quaternion();
@@ -61,15 +63,28 @@ function shadow(obj: THREE.Object3D) {
   });
 }
 
-function nose(mats: MatKit, y: number, z: number) {
-  const n = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), mats.gold);
+/**
+ * Heading cue for modelFrontWorld. An empty marker, not a mesh: the 3.5cm gold bead was
+ * invisible at play distance but cost one draw call per mob / POI.
+ */
+function nose(_mats: MatKit, y: number, z: number) {
+  const n = new THREE.Object3D();
   n.name = "nose";
   n.position.set(0, y, z);
   return n;
 }
 
+/**
+ * Builders run once per spawned entity; geometry that only depends on constants (and the
+ * compact flag) is built once per session and shared by every instance (marked shared so
+ * node disposal keeps it). Scale/position live on the meshes, never in the buffers.
+ */
+function geo<T extends THREE.BufferGeometry>(key: string, make: () => T): T {
+  return sharedGeo(`mesh:${key}`, make);
+}
+
 function discShadow(mats: MatKit, r: number) {
-  const s = new THREE.Mesh(new THREE.CircleGeometry(r, 16), mats.shadowCatch);
+  const s = new THREE.Mesh(geo(`disc:${r}`, () => new THREE.CircleGeometry(r, 16)), mats.shadowCatch);
   // Shared material: occluder fades must skip it (see WorldApp.fadeTreeOccluders)
   s.name = "discShadow";
   s.rotation.x = -Math.PI / 2;
@@ -81,7 +96,8 @@ function discShadow(mats: MatKit, r: number) {
 
 function std(map: THREE.Texture | null, color: number, extra: THREE.MeshStandardMaterialParameters = {}) {
   return new THREE.MeshStandardMaterial({
-    map: map ?? undefined,
+    // (passing map: undefined made three warn "parameter 'map' has value of undefined")
+    ...(map ? { map } : {}),
     color,
     roughness: 0.72,
     metalness: 0.08,
@@ -147,9 +163,9 @@ const shadeMats: { plain?: THREE.Material; gold?: THREE.Material } = {};
 function shadeMat(mats: MatKit, goldTrim: boolean): THREE.Material {
   const key = goldTrim ? "gold" : "plain";
   if (!shadeMats[key]) {
-    shadeMats[key] = goldTrim
+    shadeMats[key] = markShared(goldTrim
       ? std(mats.leather.map, 0x5a3020, { roughness: 0.62, metalness: 0.2, emissive: 0x6a2010, emissiveIntensity: 0.35 })
-      : std(mats.leather.map, 0x3a2824, { roughness: 0.74, metalness: 0.08, emissive: 0x4a180c, emissiveIntensity: 0.28 });
+      : std(mats.leather.map, 0x3a2824, { roughness: 0.74, metalness: 0.08, emissive: 0x4a180c, emissiveIntensity: 0.28 }));
   }
   return shadeMats[key]!;
 }
@@ -159,9 +175,9 @@ const mireShadeMats: { plain?: THREE.Material; gold?: THREE.Material } = {};
 function mireShadeMat(mats: MatKit, goldTrim: boolean): THREE.Material {
   const key = goldTrim ? "gold" : "plain";
   if (!mireShadeMats[key]) {
-    mireShadeMats[key] = goldTrim
+    mireShadeMats[key] = markShared(goldTrim
       ? std(mats.leather.map, 0x5a4a28, { roughness: 0.7, metalness: 0.14, emissive: 0x3a4020, emissiveIntensity: 0.4 })
-      : std(mats.leather.map, 0x3a3420, { roughness: 0.82, metalness: 0.06, emissive: 0x2a3010, emissiveIntensity: 0.3 });
+      : std(mats.leather.map, 0x3a3420, { roughness: 0.82, metalness: 0.06, emissive: 0x2a3010, emissiveIntensity: 0.3 }));
   }
   return mireShadeMats[key]!;
 }
@@ -179,58 +195,61 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = fa
     new THREE.Vector2(0.12, 1.55),
     new THREE.Vector2(0.04, 1.85),
   ];
-  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, cheapPlume ? 10 : 12), wraith);
-  body.position.y = 0.2;
-  const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.26, cheapPlume ? 10 : 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
-    goldTrim ? mats.gold : wraith
+  const segs = cheapPlume ? 10 : 12;
+  const hoodSegs = cheapPlume ? 10 : 14;
+  const hoodGeo = () =>
+    new THREE.SphereGeometry(0.26, hoodSegs, 10, 0, Math.PI * 2, 0, Math.PI * 0.72)
+      .rotateX(-0.35)
+      .translate(0, 1.78, 0.04);
+  // Plain shades: robe + hood share the wraith material and never move apart → one draw
+  const body = new THREE.Mesh(
+    goldTrim
+      ? geo(`shadeBody:${segs}`, () => new THREE.LatheGeometry(pts, segs).translate(0, 0.2, 0))
+      : geo(`shadeBodyHood:${segs}:${hoodSegs}`, () =>
+          mergeGeometries([new THREE.LatheGeometry(pts, segs).translate(0, 0.2, 0), hoodGeo()], false)!
+        ),
+    wraith
   );
-  hood.position.set(0, 1.78, 0.04);
-  hood.rotation.x = -0.35;
-  const voidFace = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), mats.ember);
+  body.name = "shadeBody";
+  const hood = goldTrim ? new THREE.Mesh(geo(`shadeHood:${hoodSegs}`, hoodGeo), mats.gold) : null;
+  const voidFace = new THREE.Mesh(geo("sphere:0.11:8", () => new THREE.SphereGeometry(0.11, 8, 8)), mats.ember);
   voidFace.position.set(0, 1.68, -0.14);
   voidFace.name = "ember";
-  const rib = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 6, 14), goldTrim ? mats.gold : mire ? mats.mire : mats.bronze);
+  const rib = new THREE.Mesh(
+    geo("shadeRib", () => new THREE.TorusGeometry(0.2, 0.025, 6, 14)),
+    goldTrim ? mats.gold : mire ? mats.mire : mats.bronze
+  );
   rib.position.set(0, 1.15, 0.04);
   rib.rotation.x = 0.4;
-  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.045, 0.85, 6), wraith);
-  armL.position.set(-0.38, 1.15, -0.15);
-  armL.rotation.z = 0.55;
-  armL.rotation.x = 0.35;
-  const armR = armL.clone();
-  armR.position.x = 0.38;
-  armR.rotation.z = -0.55;
-  const clawL = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.18, 5), mats.bone);
-  clawL.position.set(-0.62, 0.72, -0.32);
-  clawL.rotation.x = 0.9;
-  const clawR = clawL.clone();
-  clawR.position.x = 0.62;
+  // Arms hang from shoulder pivots (mobAnim raises and rakes them); claw at the hand
+  const armGeo = geo("shadeArm", () => new THREE.CylinderGeometry(0.02, 0.045, 0.85, 6));
+  const clawGeo = geo("shadeClaw", () => new THREE.ConeGeometry(0.04, 0.18, 5));
+  const armL = shadeArm(-1, armGeo, wraith, clawGeo, mats.bone);
+  const armR = shadeArm(1, armGeo, wraith, clawGeo, mats.bone);
   const ribbon = new THREE.Mesh(
     cheapPlume
-      ? new THREE.TorusGeometry(0.48, 0.045, 6, 16)
-      : new THREE.TorusKnotGeometry(0.48, 0.04, 18, 5, 2, 3),
+      ? geo("shadeRibbonT", () => new THREE.TorusGeometry(0.48, 0.045, 6, 16))
+      : geo("shadeRibbonK", () => new THREE.TorusKnotGeometry(0.48, 0.04, 18, 5, 2, 3)),
     mire ? mats.mire : mats.gale
   );
   ribbon.position.y = 0.95;
   ribbon.name = "ribbon";
   const ribbon2 = new THREE.Mesh(
     cheapPlume
-      ? new THREE.TorusGeometry(0.62, 0.032, 5, 14)
-      : new THREE.TorusKnotGeometry(0.62, 0.028, 14, 4, 2, 3),
+      ? geo("shadeRibbon2T", () => new THREE.TorusGeometry(0.62, 0.032, 5, 14))
+      : geo("shadeRibbon2K", () => new THREE.TorusKnotGeometry(0.62, 0.028, 14, 4, 2, 3)),
     mire ? mats.mire : mats.gale
   );
   ribbon2.position.y = 0.7;
   ribbon2.name = "ribbon2";
+  if (hood) g.add(hood);
   g.add(
     discShadow(mats, 0.55),
     body,
-    hood,
     voidFace,
     rib,
     armL,
     armR,
-    clawL,
-    clawR,
     ribbon,
     ribbon2,
     nose(mats, 1.68, -0.22)
@@ -238,6 +257,35 @@ function makeShadeBody(mats: MatKit, scale: number, goldTrim: boolean, mire = fa
   g.scale.setScalar(scale);
   shadow(g);
   return g;
+}
+
+/**
+ * A shade arm on a shoulder pivot ("armPivotL/R"): the sleeve hangs down from the
+ * pivot, the claw (optional) at its end. Rest pose: hands forward and a little out.
+ */
+function shadeArm(
+  side: -1 | 1,
+  armGeo: THREE.BufferGeometry,
+  armMat: THREE.Material,
+  clawGeo: THREE.BufferGeometry | null,
+  clawMat: THREE.Material | null,
+  shoulderX = 0.24,
+  len = 0.85
+): THREE.Group {
+  const pivot = new THREE.Group();
+  pivot.name = side < 0 ? "armPivotL" : "armPivotR";
+  pivot.position.set(shoulderX * side, 1.42, -0.04);
+  pivot.rotation.set(0.45, 0, 0.35 * side);
+  const arm = new THREE.Mesh(armGeo, armMat);
+  arm.position.y = -len / 2;
+  pivot.add(arm);
+  if (clawGeo && clawMat) {
+    const claw = new THREE.Mesh(clawGeo, clawMat);
+    claw.position.y = -len - 0.06;
+    claw.rotation.x = Math.PI;
+    pivot.add(claw);
+  }
+  return pivot;
 }
 
 export function makeWhirlShade(mats: MatKit): THREE.Group {
@@ -249,11 +297,11 @@ export function makeWhirlShade(mats: MatKit): THREE.Group {
 export function makeChampion(mats: MatKit): THREE.Group {
   const g = makeShadeBody(mats, 1.72, true);
   g.name = "champion";
-  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.42, 6), mats.gold);
+  const crown = new THREE.Mesh(geo("champCrown", () => new THREE.ConeGeometry(0.14, 0.42, 6)), mats.gold);
   crown.position.set(0, 2.15, 0);
   const plumeGeo = isCompactUi()
-    ? new THREE.TorusGeometry(0.22, 0.032, 5, 12)
-    : new THREE.TorusKnotGeometry(0.22, 0.03, 14, 5, 2, 3);
+    ? geo("champPlumeT", () => new THREE.TorusGeometry(0.22, 0.032, 5, 12))
+    : geo("champPlumeK", () => new THREE.TorusKnotGeometry(0.22, 0.03, 14, 5, 2, 3));
   const plume = new THREE.Mesh(plumeGeo, mats.gale);
   plume.position.set(0, 2.05, 0);
   plume.name = "ribbon";
@@ -270,9 +318,9 @@ export function makeMireShade(mats: MatKit): THREE.Group {
 export function makeMireChampion(mats: MatKit): THREE.Group {
   const g = makeShadeBody(mats, 1.72, true, true);
   g.name = "champion";
-  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.48, 6), mats.gold);
+  const crown = new THREE.Mesh(geo("crown:0.16", () => new THREE.ConeGeometry(0.16, 0.48, 6)), mats.gold);
   crown.position.set(0, 2.18, 0);
-  const plume = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 5, 12), mats.mire);
+  const plume = new THREE.Mesh(geo("plume:0.24", () => new THREE.TorusGeometry(0.24, 0.035, 5, 12)), mats.mire);
   plume.position.set(0, 2.08, 0);
   plume.name = "ribbon";
   g.add(crown, plume);
@@ -284,20 +332,22 @@ export function makeMudWisp(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "whirl";
   const core = new THREE.Mesh(
-    new THREE.SphereGeometry(0.32, 10, 8),
-    std(null, 0x3a4020, { roughness: 0.55, metalness: 0.08, emissive: 0x4a5820, emissiveIntensity: 0.55 })
+    geo("mudCore", () => new THREE.SphereGeometry(0.32, 10, 8)),
+    sharedMat("mudWispCore", () =>
+      std(null, 0x3a4020, { roughness: 0.55, metalness: 0.08, emissive: 0x4a5820, emissiveIntensity: 0.55 })
+    )
   );
   core.position.y = 0.55;
   core.scale.set(1.15, 0.85, 1.15);
-  const drip = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.42, 6), mats.moss);
+  const drip = new THREE.Mesh(geo("mudDrip", () => new THREE.ConeGeometry(0.18, 0.42, 6)), mats.moss);
   drip.position.set(0, 0.22, 0);
   drip.rotation.x = Math.PI;
-  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 6), mats.ember);
+  const eyeL = new THREE.Mesh(geo("eye:0.055", () => new THREE.SphereGeometry(0.055, 6, 6)), mats.ember);
   eyeL.position.set(-0.1, 0.62, -0.28);
   eyeL.name = "ember";
   const eyeR = eyeL.clone();
   eyeR.position.x = 0.1;
-  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.04, 5, 14), mats.mire);
+  const halo = new THREE.Mesh(geo("mudHalo", () => new THREE.TorusGeometry(0.42, 0.04, 5, 14)), mats.mire);
   halo.position.y = 0.55;
   halo.rotation.x = Math.PI / 2.2;
   halo.name = "ribbon";
@@ -332,57 +382,100 @@ export function makeMireWarden(mats: MatKit): THREE.Group {
   return g;
 }
 
-/** Cerbero — broader three-headed silhouette foreshadowing the Triple Maw. */
+/**
+ * Cerbero — the mid-lane hound. Three skulls like the Maw it foreshadows, but only the
+ * centre one is awake: its neck ("cerbNeck"), jaw ("cerbGape"), eyes ("cerbEye") and the
+ * mire plug a clod leaves ("cerbPlug") are posed by the Gluttony mechanic (bite windup,
+ * choke). The side heads hang asleep, eyes shut.
+ */
 export function makeCerbero(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "champion";
-  const hide = std(null, 0x4a3a28, { roughness: 0.8, metalness: 0.1, emissive: 0x2a3010, emissiveIntensity: 0.35 });
-  const body = new THREE.Mesh(new THREE.LatheGeometry([
-    new THREE.Vector2(0.18, 0),
-    new THREE.Vector2(0.82, 0.28),
-    new THREE.Vector2(0.92, 0.95),
-    new THREE.Vector2(0.55, 1.75),
-    new THREE.Vector2(0.3, 2.15),
-  ], 14), hide);
+  const hide = sharedMat("cerbHide", () =>
+    std(null, 0x4a3a28, { roughness: 0.8, metalness: 0.1, emissive: 0x2a3010, emissiveIntensity: 0.35 })
+  );
+  const body = new THREE.Mesh(
+    geo("cerbBody", () =>
+      new THREE.LatheGeometry(
+        [
+          new THREE.Vector2(0.18, 0),
+          new THREE.Vector2(0.82, 0.28),
+          new THREE.Vector2(0.92, 0.95),
+          new THREE.Vector2(0.55, 1.75),
+          new THREE.Vector2(0.3, 2.15),
+        ],
+        14
+      )
+    ),
+    hide
+  );
   // Stub legs for a grounded quadruped read at distance
-  const legGeo = new THREE.CylinderGeometry(0.12, 0.16, 0.7, 6);
+  const legGeo = geo("cerbLeg", () => new THREE.CylinderGeometry(0.12, 0.16, 0.7, 6));
   for (const [lx, lz] of [[-0.38, 0.28], [0.38, 0.28], [-0.32, -0.35], [0.32, -0.35]] as [number, number][]) {
     const leg = new THREE.Mesh(legGeo, hide);
     leg.position.set(lx, 0.35, lz);
     g.add(leg);
   }
-  const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), hide);
+  const shoulder = new THREE.Mesh(geo("cerbShoulder", () => new THREE.SphereGeometry(0.55, 10, 8)), hide);
   shoulder.position.set(0, 1.85, 0.05);
   shoulder.scale.set(1.55, 0.55, 1.05);
-  const mkHead = (ox: number, oy: number, oz: number, yaw: number, s: number) => {
+  const skullGeo = geo("cerbSkull", () => new THREE.SphereGeometry(0.24, 10, 8));
+  const jawGeo = geo("cerbJaw", () => new THREE.ConeGeometry(0.15, 0.34, 6));
+  const eyeGeo = geo("cerbEye", () => new THREE.SphereGeometry(0.035, 6, 6));
+  const earGeo = geo("cerbEar", () => new THREE.ConeGeometry(0.05, 0.22, 5));
+  const mkHead = (ox: number, oy: number, oz: number, yaw: number, s: number, awake: boolean) => {
     const h = new THREE.Group();
     h.position.set(ox, oy, oz);
     h.rotation.y = yaw;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.24 * s, 10, 8), mats.bone);
-    skull.scale.set(1, 0.9, 1.2);
-    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.15 * s, 0.34 * s, 6), mats.bronze);
-    jaw.position.set(0, -0.15 * s, -0.2 * s);
+    const neck = new THREE.Group();
+    if (awake) neck.name = "cerbNeck";
+    else neck.rotation.x = 0.55; // hangs asleep
+    h.add(neck);
+    const skull = new THREE.Mesh(skullGeo, mats.bone);
+    skull.scale.set(s, 0.9 * s, 1.2 * s);
+    const gape = new THREE.Group();
+    gape.position.set(0, -0.08 * s, -0.08 * s);
+    if (awake) gape.name = "cerbGape";
+    const jaw = new THREE.Mesh(jawGeo, mats.bronze);
+    jaw.scale.setScalar(s);
+    jaw.position.set(0, -0.07 * s, -0.12 * s);
     jaw.rotation.x = 1.8;
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.035 * s, 6, 6), mats.ember);
+    gape.add(jaw);
+    const eyeMat = awake ? mats.ember : mats.moss;
+    const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeL.scale.setScalar(s);
     eyeL.position.set(-0.07 * s, 0.05 * s, -0.22 * s);
-    eyeL.name = "ember";
     const eyeR = eyeL.clone();
     eyeR.position.x = 0.07 * s;
-    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.05 * s, 0.22 * s, 5), mats.bronze);
+    if (awake) {
+      eyeL.name = "cerbEye";
+      eyeR.name = "cerbEye";
+    }
+    const ear = new THREE.Mesh(earGeo, mats.bronze);
+    ear.scale.setScalar(s);
     ear.position.set(0, 0.22 * s, 0.02 * s);
     ear.rotation.x = -0.4;
-    h.add(skull, jaw, eyeL, eyeR, ear);
+    neck.add(skull, gape, eyeL, eyeR, ear);
+    if (awake) {
+      const plug = new THREE.Mesh(geo("mirePlug", () => new THREE.IcosahedronGeometry(0.16, 0)), mats.moss);
+      plug.name = "cerbPlug";
+      plug.position.set(0, -0.1 * s, -0.3 * s);
+      plug.scale.setScalar(s);
+      plug.visible = false;
+      neck.add(plug);
+    }
     return h;
   };
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.06, 6, 18), mats.gold);
+  const sash = new THREE.Mesh(geo("cerbSash", () => new THREE.TorusGeometry(0.62, 0.06, 6, 18)), mats.gold);
   sash.position.y = 1.45;
   sash.rotation.x = Math.PI / 2;
-  const sludge = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.05, 5, 16), mats.mire);
+  const sludge = new THREE.Mesh(geo("cerbSludge", () => new THREE.TorusGeometry(0.78, 0.05, 5, 16)), mats.mire);
   sludge.position.y = 0.95;
   sludge.name = "ribbon";
   // Cheap drip cones (static) for sludge read without particle cost
+  const dripGeo = geo("cerbDrip", () => new THREE.ConeGeometry(0.06, 0.28, 5));
   for (const [dx, dy] of [[-0.35, 0.55], [0.4, 0.42], [0.05, 0.7]] as [number, number][]) {
-    const drip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.28, 5), mats.moss);
+    const drip = new THREE.Mesh(dripGeo, mats.moss);
     drip.position.set(dx, dy, 0.45);
     drip.rotation.x = Math.PI;
     g.add(drip);
@@ -391,9 +484,9 @@ export function makeCerbero(mats: MatKit): THREE.Group {
     discShadow(mats, 0.95),
     body,
     shoulder,
-    mkHead(0, 2.55, -0.15, 0, 1.2),
-    mkHead(-0.62, 2.32, 0.1, 0.55, 0.98),
-    mkHead(0.62, 2.32, 0.1, -0.55, 0.98),
+    mkHead(0, 2.55, -0.15, 0, 1.35, true),
+    mkHead(-0.62, 2.28, 0.1, 0.55, 0.95, false),
+    mkHead(0.62, 2.28, 0.1, -0.55, 0.95, false),
     sash,
     sludge,
     nose(mats, 2.7, -0.38)
@@ -449,6 +542,8 @@ export function makeJudge(mats: MatKit): THREE.Group {
     new THREE.Vector3(-0.55, 1.2, 0.85),
   ]);
   const tail = new THREE.Mesh(new THREE.TubeGeometry(curve, 56, 0.2, 10, false), mats.bronze);
+  // (Lust mechanic: the tail coils while Minos passes judgement)
+  tail.name = "judgeTail";
   const sash = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.07, 8, 28), mats.gold);
   sash.position.y = 2.85;
   sash.rotation.x = Math.PI / 2;
@@ -459,6 +554,7 @@ export function makeJudge(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.35,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -466,7 +562,7 @@ export function makeJudge(mats: MatKit): THREE.Group {
   aura.rotation.x = -Math.PI / 2;
   aura.position.y = 0.08;
   aura.name = "judgeAura";
-  const glow = new THREE.PointLight(0xff6622, 5.5, 16, 1.5);
+  const glow = new VirtualLight(0xff6622, 5.5, 16, 1.5, 1.2);
   glow.position.set(0, 3.4, 0.4);
 
   g.add(
@@ -492,7 +588,14 @@ export function makeJudge(mats: MatKit): THREE.Group {
 }
 
 
-/** Triple Maw — three-headed cerberine mass; telegraph ring + sludge tori (no TorusKnot). */
+/**
+ * Triple Maw — Cerberus, "il gran vermo". Three heads on thick stalks; each head is a
+ * "mawHead" (mobAnim bobs it idly) holding a neck pivot "mawNeck0/1/2" (0 = the model's
+ * left, −x) that the Gluttony mechanic rears and snaps through that head's own bite, a
+ * jaw pivot "mawGape0/1/2", eyes "mawEye0/1/2" (dimmed while the throat is choked) and
+ * the plug of mire a clod leaves ("mawPlug0/1/2"). No ground ring: the bites draw their
+ * own cone telegraphs.
+ */
 export function makeTripleMaw(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "triple_maw";
@@ -528,42 +631,64 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
   stalkR.rotation.z = -0.55;
   stalkR.rotation.x = 0.15;
 
-  const makeHead = (ox: number, oy: number, oz: number, yaw: number, s = 1) => {
+  const skullGeo = new THREE.SphereGeometry(0.42, 10, 8);
+  const jawGeo = new THREE.ConeGeometry(0.32, 0.62, 6);
+  const fangGeo = new THREE.ConeGeometry(0.055, 0.26, 5);
+  const eyeGeo = new THREE.SphereGeometry(0.07, 8, 8);
+  const hornGeo = new THREE.ConeGeometry(0.08, 0.62, 6);
+  const plugGeo = new THREE.IcosahedronGeometry(0.28, 0);
+  const makeHead = (i: number, ox: number, oy: number, oz: number, yaw: number, s = 1) => {
     const head = new THREE.Group();
     head.name = "mawHead";
     head.position.set(ox, oy, oz);
     head.rotation.y = yaw;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.42 * s, 10, 8), mats.bone);
-    skull.scale.set(1.1, 0.95, 1.25);
-    const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.32 * s, 0.62 * s, 6), mats.bronze);
-    jaw.name = "mawJaw";
-    jaw.position.set(0, -0.32 * s, -0.36 * s);
+    const neck = new THREE.Group();
+    neck.name = `mawNeck${i}`;
+    head.add(neck);
+    const skull = new THREE.Mesh(skullGeo, mats.bone);
+    skull.scale.set(1.1 * s, 0.95 * s, 1.25 * s);
+    const gape = new THREE.Group();
+    gape.name = `mawGape${i}`;
+    gape.position.set(0, -0.2 * s, -0.08 * s);
+    const jaw = new THREE.Mesh(jawGeo, mats.bronze);
+    jaw.scale.setScalar(s);
+    jaw.position.set(0, -0.12 * s, -0.28 * s);
     jaw.rotation.x = 1.85;
-    const fangL = new THREE.Mesh(new THREE.ConeGeometry(0.055 * s, 0.26 * s, 5), mats.bone);
+    gape.add(jaw);
+    const fangL = new THREE.Mesh(fangGeo, mats.bone);
+    fangL.scale.setScalar(s);
     fangL.position.set(-0.14 * s, -0.2 * s, -0.55 * s);
     fangL.rotation.x = 0.9;
     const fangR = fangL.clone();
     fangR.position.x = 0.14 * s;
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.07 * s, 8, 8), mats.ember);
+    const eyeL = new THREE.Mesh(eyeGeo, mats.ember);
+    eyeL.scale.setScalar(s);
     eyeL.position.set(-0.15 * s, 0.1 * s, -0.38 * s);
-    eyeL.name = "ember";
+    eyeL.name = `mawEye${i}`;
     const eyeR = eyeL.clone();
     eyeR.position.x = 0.15 * s;
-    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.08 * s, 0.62 * s, 6), mats.gold);
+    const horn = new THREE.Mesh(hornGeo, mats.gold);
+    horn.scale.setScalar(s);
     horn.position.set(0, 0.48 * s, -0.05 * s);
     horn.rotation.x = -0.45;
-    head.add(skull, jaw, fangL, fangR, eyeL, eyeR, horn);
+    const plug = new THREE.Mesh(plugGeo, mats.moss);
+    plug.name = `mawPlug${i}`;
+    plug.position.set(0, -0.22 * s, -0.5 * s);
+    plug.scale.setScalar(s);
+    plug.visible = false;
+    neck.add(skull, gape, fangL, fangR, eyeL, eyeR, horn, plug);
     return head;
   };
 
-  const headC = makeHead(0, 4.15, -0.22, 0, 1.12);
-  const headL = makeHead(-1.15, 3.75, 0.18, 0.58, 1);
-  const headR = makeHead(1.15, 3.75, 0.18, -0.58, 1);
+  // i: 0 = the model's left (−x), 1 = centre, 2 = right — the server's head order
+  const headL = makeHead(0, -1.15, 3.75, 0.18, 0.58, 1);
+  const headC = makeHead(1, 0, 4.15, -0.22, 0, 1.12);
+  const headR = makeHead(2, 1.15, 3.75, 0.18, -0.58, 1);
 
   const sash = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.09, 5, 16), mats.gold);
   sash.position.y = 2.35;
   sash.rotation.x = Math.PI / 2;
-  // Cheap sludge rings (readable telegraph, no TorusKnot)
+  // Cheap sludge rings (no TorusKnot)
   const sludge = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.08, 5, 14), mats.mire);
   sludge.position.y = 1.55;
   sludge.rotation.x = Math.PI / 2.4;
@@ -579,6 +704,7 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.48,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -586,20 +712,7 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
   aura.rotation.x = -Math.PI / 2;
   aura.position.y = 0.1;
   aura.name = "judgeAura";
-  const telegraph = new THREE.Mesh(
-    new THREE.RingGeometry(3.1, 3.35, 22),
-    new THREE.MeshBasicMaterial({
-      color: 0xa8b040,
-      transparent: true,
-      opacity: 0.28,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    })
-  );
-  telegraph.rotation.x = -Math.PI / 2;
-  telegraph.position.y = 0.06;
-  telegraph.name = "mawTelegraph";
-  const glow = new THREE.PointLight(0xaabb44, 5.2, 20, 1.5);
+  const glow = new VirtualLight(0xaabb44, 5.2, 20, 1.5, 1.2);
   glow.position.set(0, 3.4, 0.5);
 
   g.add(
@@ -616,7 +729,6 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
     sludge,
     sludge2,
     aura,
-    telegraph,
     glow,
     nose(mats, 4.35, -0.6)
   );
@@ -624,30 +736,124 @@ export function makeTripleMaw(mats: MatKit): THREE.Group {
   return g;
 }
 
+/**
+ * Mire Heart — a bloated heart of filth half sunk in the mud, bound in bone ribs, a
+ * dull ember at its crown. Built for Gluttony's mechanic (its tint pass keeps the bone,
+ * gold and ember; the sack "heartSack" is pulsed by the mechanic).
+ */
+export function makeMireHeart(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "mire_heart";
+  const hide = sharedMat("mireHeartHide", () =>
+    std(null, 0x4a3a22, { roughness: 0.62, metalness: 0.12, emissive: 0x3a4214, emissiveIntensity: 0.45 })
+  );
+  const sack = new THREE.Mesh(geo("heartSack", () => new THREE.SphereGeometry(0.62, 14, 12)), hide);
+  sack.name = "heartSack";
+  sack.position.y = 0.72;
+  sack.scale.set(1.15, 1.25, 1.05);
+  const lobe = new THREE.Mesh(geo("heartLobe", () => new THREE.SphereGeometry(0.38, 10, 8)), hide);
+  lobe.position.set(0.32, 1.28, 0.08);
+  const lobe2 = new THREE.Mesh(geo("heartLobe", () => new THREE.SphereGeometry(0.38, 10, 8)), hide);
+  lobe2.position.set(-0.3, 1.22, -0.05);
+  lobe2.scale.setScalar(0.85);
+  const ribGeo = geo("heartRib", () => new THREE.TorusGeometry(0.78, 0.045, 5, 18, Math.PI * 1.15));
+  for (let i = 0; i < 4; i++) {
+    const rib = new THREE.Mesh(ribGeo, mats.bone);
+    rib.position.y = 0.75;
+    rib.rotation.set(0, (i / 4) * Math.PI, Math.PI * 0.43);
+    g.add(rib);
+  }
+  const vein = new THREE.Mesh(geo("heartVein", () => new THREE.TorusGeometry(0.95, 0.06, 5, 20)), mats.mire);
+  vein.position.y = 0.55;
+  vein.rotation.x = Math.PI / 2.3;
+  vein.name = "ribbon";
+  const core = new THREE.Mesh(geo("heartCore", () => new THREE.SphereGeometry(0.16, 8, 8)), mats.ember);
+  core.position.set(0, 1.62, 0);
+  core.name = "ember";
+  const pool = new THREE.Mesh(geo("heartPool", () => new THREE.CircleGeometry(1.5, 18)), mats.moss);
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = 0.04;
+  pool.receiveShadow = true;
+  g.add(pool, sack, lobe, lobe2, vein, core, nose(mats, 1.2, -0.7));
+  shadow(g);
+  pool.castShadow = false;
+  return g;
+}
+
+
+/**
+ * Fango — the mire's own filth crawling out to feed the Triple Maw (his phase 2): a low
+ * dripping slug of mud with a sick green glow and two ember eyes. Two draws (one merged
+ * body, one merged pair of eyes) — up to four crawl at once.
+ */
+export function makeFango(mats: MatKit): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "whirl";
+  const body = new THREE.Mesh(
+    geo("fangoBody", () => {
+      const parts = [
+        xform(new THREE.SphereGeometry(0.42, 10, 7), 0, 0.28, 0.05, 0, 0, 0, 1.2, 0.6, 1.55),
+        xform(new THREE.SphereGeometry(0.27, 9, 6), 0, 0.5, -0.36, 0.3, 0, 0, 1, 0.85, 1.05),
+        xform(new THREE.ConeGeometry(0.13, 0.32, 6), 0.26, 0.12, 0.34, Math.PI, 0, 0),
+        xform(new THREE.ConeGeometry(0.11, 0.26, 6), -0.28, 0.12, 0.12, Math.PI, 0, 0),
+        xform(new THREE.ConeGeometry(0.1, 0.24, 6), 0.05, 0.1, 0.62, Math.PI, 0, 0),
+      ];
+      const merged = mergeGeometries(parts, false)!;
+      for (const q of parts) q.dispose();
+      merged.computeVertexNormals();
+      return merged;
+    }),
+    sharedMat("fangoBody", () =>
+      std(null, 0x2a3014, { roughness: 0.38, metalness: 0.12, emissive: 0x56701a, emissiveIntensity: 0.62 })
+    )
+  );
+  body.castShadow = false;
+  const eyes = new THREE.Mesh(
+    geo("fangoEyes", () => {
+      const parts = [
+        xform(new THREE.SphereGeometry(0.06, 6, 5), -0.11, 0.6, -0.58, 0, 0, 0),
+        xform(new THREE.SphereGeometry(0.06, 6, 5), 0.11, 0.6, -0.58, 0, 0, 0),
+      ];
+      const merged = mergeGeometries(parts, false)!;
+      for (const q of parts) q.dispose();
+      return merged;
+    }),
+    mats.ember
+  );
+  eyes.name = "ember";
+  eyes.castShadow = false;
+  g.add(body, eyes, nose(mats, 0.55, -0.62));
+  // (a touch larger than a wisp: the thing to cut down reads from the phone camera)
+  g.scale.setScalar(1.2);
+  return g;
+}
 
 /** Shared ledger plate geos — one draw-friendly buffer for every weight shade plate. */
 let SHARED_LEDGER_PLATE_GEO: THREE.BoxGeometry | null = null;
 let SHARED_LEDGER_LINE_GEO: THREE.BoxGeometry | null = null;
 function ledgerPlateGeo() {
   if (!SHARED_LEDGER_PLATE_GEO) {
-    SHARED_LEDGER_PLATE_GEO = new THREE.BoxGeometry(0.48, 0.36, 0.06);
+    SHARED_LEDGER_PLATE_GEO = markShared(new THREE.BoxGeometry(0.48, 0.36, 0.06));
     SHARED_LEDGER_PLATE_GEO.userData.sharedLedger = true;
   }
   return SHARED_LEDGER_PLATE_GEO;
 }
 function ledgerLineGeo() {
   if (!SHARED_LEDGER_LINE_GEO) {
-    SHARED_LEDGER_LINE_GEO = new THREE.BoxGeometry(0.32, 0.03, 0.02);
+    SHARED_LEDGER_LINE_GEO = markShared(new THREE.BoxGeometry(0.32, 0.03, 0.02));
     SHARED_LEDGER_LINE_GEO.userData.sharedLedger = true;
   }
   return SHARED_LEDGER_LINE_GEO;
 }
 
 /** Weight shade — Doré silhouette with rolling coin-weight rings (gold-on-black). */
+/** One hide material per trim for every weight shade (was two new materials per mob). */
 function weightShadeMat(mats: MatKit, goldTrim: boolean): THREE.MeshStandardMaterial {
-  return goldTrim
-    ? std(mats.leather.map, 0x6a5530, { roughness: 0.58, metalness: 0.34, emissive: 0x3a2a10, emissiveIntensity: 0.48 })
-    : std(mats.leather.map, 0x322818, { roughness: 0.72, metalness: 0.24, emissive: 0x2a1c08, emissiveIntensity: 0.38 });
+  return sharedMat(goldTrim ? "weightHideGold" : "weightHide", () =>
+    goldTrim
+      ? std(mats.leather.map, 0x6a5530, { roughness: 0.58, metalness: 0.34, emissive: 0x3a2a10, emissiveIntensity: 0.48 })
+      : std(mats.leather.map, 0x322818, { roughness: 0.72, metalness: 0.24, emissive: 0x2a1c08, emissiveIntensity: 0.38 })
+  );
 }
 
 function makeWeightShadeBody(mats: MatKit, scale: number, goldTrim: boolean): THREE.Group {
@@ -663,15 +869,15 @@ function makeWeightShadeBody(mats: MatKit, scale: number, goldTrim: boolean): TH
     new THREE.Vector2(0.16, 1.5),
     new THREE.Vector2(0.05, 1.85),
   ];
-  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, cheap ? 10 : 12), hide);
+  const body = new THREE.Mesh(geo(`weightBody:${cheap ? 10 : 12}`, () => new THREE.LatheGeometry(pts, cheap ? 10 : 12)), hide);
   body.position.y = 0.2;
   const hood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.28, cheap ? 10 : 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.72),
+    geo(`weightHood:${cheap ? 10 : 12}`, () => new THREE.SphereGeometry(0.28, cheap ? 10 : 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.72)),
     goldTrim ? mats.gold : mats.bone
   );
   hood.position.set(0, 1.78, 0.04);
   hood.rotation.x = -0.35;
-  const voidFace = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), mats.ember);
+  const voidFace = new THREE.Mesh(geo("sphere:0.11:8", () => new THREE.SphereGeometry(0.11, 8, 8)), mats.ember);
   voidFace.position.set(0, 1.68, -0.14);
   voidFace.name = "ember";
   // Chest ledger plate — readable measure motif at distance
@@ -682,25 +888,21 @@ function makeWeightShadeBody(mats: MatKit, scale: number, goldTrim: boolean): TH
   plate.position.set(0, 1.15, -0.28);
   const plateLine = new THREE.Mesh(ledgerLineGeo(), mats.bone);
   plateLine.position.set(0, 1.18, -0.32);
-  const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.2, 10), mats.gold);
+  const weight = new THREE.Mesh(geo("weightDisc", () => new THREE.CylinderGeometry(0.3, 0.34, 0.2, 10)), mats.gold);
   weight.position.set(0, 1.02, 0.12);
   weight.rotation.x = Math.PI / 2;
   weight.name = "weightDisc";
   // Hanging counterweight under one arm (contrapasso measure)
-  const hang = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.28, 8), mats.bronze);
+  const hang = new THREE.Mesh(geo("weightHang", () => new THREE.CylinderGeometry(0.12, 0.14, 0.28, 8)), mats.bronze);
   hang.position.set(0.42, 0.55, -0.05);
   hang.name = "weightDisc";
-  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.05, 0.9, 6), hide);
-  armL.position.set(-0.42, 1.12, -0.12);
-  armL.rotation.z = 0.62;
-  armL.rotation.x = 0.32;
-  const armR = armL.clone();
-  armR.position.x = 0.42;
-  armR.rotation.z = -0.62;
-  const ribbon = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.048, 5, 14), mats.gold);
+  const armGeo = geo("weightArm", () => new THREE.CylinderGeometry(0.025, 0.05, 0.9, 6));
+  const armL = shadeArm(-1, armGeo, hide, null, null, 0.3, 0.9);
+  const armR = shadeArm(1, armGeo, hide, null, null, 0.3, 0.9);
+  const ribbon = new THREE.Mesh(geo("weightRibbon", () => new THREE.TorusGeometry(0.52, 0.048, 5, 14)), mats.gold);
   ribbon.position.y = 0.95;
   ribbon.name = "ribbon";
-  const ribbon2 = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.032, 5, 12), mats.bronze);
+  const ribbon2 = new THREE.Mesh(geo("weightRibbon2", () => new THREE.TorusGeometry(0.68, 0.032, 5, 12)), mats.bronze);
   ribbon2.position.y = 0.68;
   ribbon2.name = "ribbon2";
   g.add(
@@ -732,9 +934,9 @@ export function makeWeightShade(mats: MatKit): THREE.Group {
 export function makeWeightChampion(mats: MatKit): THREE.Group {
   const g = makeWeightShadeBody(mats, 1.72, true);
   g.name = "champion";
-  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.48, 6), mats.gold);
+  const crown = new THREE.Mesh(geo("crown:0.16", () => new THREE.ConeGeometry(0.16, 0.48, 6)), mats.gold);
   crown.position.set(0, 2.18, 0);
-  const plume = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 5, 12), mats.gold);
+  const plume = new THREE.Mesh(geo("plume:0.24", () => new THREE.TorusGeometry(0.24, 0.035, 5, 12)), mats.gold);
   plume.position.set(0, 2.08, 0);
   plume.name = "ribbon";
   g.add(crown, plume);
@@ -746,42 +948,47 @@ export function makeCoinWisp(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "whirl";
   g.userData.coinWisp = true;
-  const coinMat = std(mats.gold.map, 0xd4a840, {
-    roughness: 0.38,
-    metalness: 0.68,
-    emissive: 0x5a3a0c,
-    emissiveIntensity: 0.48,
-  });
-  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.1, 12), coinMat);
+  const coinMat = sharedMat("coinWisp", () =>
+    std(mats.gold.map, 0xd4a840, {
+      roughness: 0.38,
+      metalness: 0.68,
+      emissive: 0x5a3a0c,
+      emissiveIntensity: 0.48,
+    })
+  );
+  const core = new THREE.Mesh(geo("coinCore", () => new THREE.CylinderGeometry(0.36, 0.36, 0.1, 12)), coinMat);
   core.position.y = 0.55;
   core.rotation.x = Math.PI / 2;
   core.name = "weightDisc";
-  const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.08, 10), mats.bronze);
+  const stack = new THREE.Mesh(geo("coinStack", () => new THREE.CylinderGeometry(0.28, 0.28, 0.08, 10)), mats.bronze);
   stack.position.y = 0.68;
   stack.rotation.x = Math.PI / 2;
   stack.name = "weightDisc";
-  const stack2 = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.06, 8), mats.gold);
+  const stack2 = new THREE.Mesh(geo("coinStack2", () => new THREE.CylinderGeometry(0.22, 0.22, 0.06, 8)), mats.gold);
   stack2.position.y = 0.78;
   stack2.rotation.x = Math.PI / 2;
   stack2.name = "weightDisc";
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 5, 12), mats.bronze);
+  const rim = new THREE.Mesh(geo("coinRim", () => new THREE.TorusGeometry(0.4, 0.035, 5, 12)), mats.bronze);
   rim.position.y = 0.55;
   rim.rotation.x = Math.PI / 2;
   rim.name = "ribbon";
   const halo = new THREE.Mesh(
-    new THREE.RingGeometry(0.48, 0.58, 12),
-    new THREE.MeshBasicMaterial({
-      color: 0xd4a840,
-      transparent: true,
-      opacity: 0.28,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    })
+    geo("coinHalo", () => new THREE.RingGeometry(0.48, 0.58, 12)),
+    sharedMat("coinHalo", () =>
+      new THREE.MeshBasicMaterial({
+        color: 0xd4a840,
+        transparent: true,
+        opacity: 0.28,
+        side: THREE.DoubleSide,
+        forceSinglePass: true,
+        depthWrite: false,
+      })
+    )
   );
   halo.rotation.x = -Math.PI / 2;
   halo.position.y = 0.08;
   halo.name = "ribbon2";
-  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), mats.ember);
+  const eyeL = new THREE.Mesh(geo("eye:0.05", () => new THREE.SphereGeometry(0.05, 6, 6)), mats.ember);
   eyeL.position.set(-0.1, 0.62, -0.22);
   eyeL.name = "ember";
   const eyeR = eyeL.clone();
@@ -877,6 +1084,7 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.35,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -889,6 +1097,7 @@ export function makeCounterweight(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.28,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
@@ -980,6 +1189,7 @@ export function makeHoardCrush(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.38,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -994,13 +1204,14 @@ export function makeHoardCrush(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.24,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
     })
   );
   telegraph.rotation.x = -Math.PI / 2;
   telegraph.position.y = 0.06;
   telegraph.name = "mawTelegraph";
-  const glow = new THREE.PointLight(0xd4a840, 3.2, 14, 1.6);
+  const glow = new VirtualLight(0xd4a840, 3.2, 14, 1.6, 1.2);
   glow.name = "crushGlow";
   glow.position.set(0, 3.2, 0.5);
   g.add(
@@ -1083,6 +1294,7 @@ export function makeHoardHeart(mats: MatKit): THREE.Group {
       transparent: true,
       opacity: 0.22,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -1168,9 +1380,163 @@ export function makeWrit(mats: MatKit): THREE.Group {
   return g;
 }
 
+export type PortalVisualState = "forward" | "return" | "locked";
+
+/**
+ * Gate palette. forward = gold (the next objective), return = cool bone/blue,
+ * locked = grey. Each state owns ONE clone of the gale disc/ring material and one
+ * beacon/ground material shared by every gate in that state — portals never
+ * recolour the shared `mats.gale` (whirl ribbons, champion plumes and shrine
+ * rings use it too).
+ */
+const PORTAL_STYLE: Record<
+  PortalVisualState,
+  {
+    disc: number;
+    discOp: number;
+    ring: number;
+    ringOp: number;
+    beacon: number;
+    beaconOp: number;
+    ground: number;
+    groundOp: number;
+    spark: number;
+    light: number;
+    lightI: number;
+  }
+> = {
+  forward: {
+    disc: 0xffb838,
+    discOp: 0.78,
+    ring: 0xffe7a0,
+    ringOp: 0.7,
+    beacon: 0xffcf5a,
+    beaconOp: 0.62,
+    ground: 0xffd46a,
+    groundOp: 0.62,
+    spark: 0xffe08a,
+    light: 0xffc050,
+    lightI: 1.9,
+  },
+  return: {
+    disc: 0x6f9ad8,
+    discOp: 0.55,
+    ring: 0xdce6f2,
+    ringOp: 0.5,
+    beacon: 0x9cc0ee,
+    beaconOp: 0.3,
+    ground: 0x7fa6e0,
+    groundOp: 0.3,
+    spark: 0xc8dcf4,
+    light: 0x8fb4e8,
+    lightI: 1.2,
+  },
+  locked: {
+    disc: 0x2e2c26,
+    discOp: 0.22,
+    ring: 0x55524a,
+    ringOp: 0.2,
+    beacon: 0x6a6658,
+    beaconOp: 0,
+    ground: 0x6a6658,
+    groundOp: 0.24,
+    spark: 0x5a5648,
+    light: 0x6a6040,
+    lightI: 0.35,
+  },
+};
+
+type PortalMatSet = {
+  disc: THREE.MeshBasicMaterial;
+  ring: THREE.MeshBasicMaterial;
+  beacon: THREE.MeshBasicMaterial;
+  ground: THREE.MeshBasicMaterial;
+};
+
+let portalMatCache: { gale: THREE.Material; sets: Record<PortalVisualState, PortalMatSet> } | null = null;
+let beaconGradTex: THREE.DataTexture | null = null;
+
+/** Vertical luminance ramp (bright foot → clear top) for additive light pillars. */
+export function beaconGradient(): THREE.DataTexture {
+  if (beaconGradTex) return beaconGradTex;
+  const n = 64;
+  const data = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const v = i / (n - 1);
+    // Hot at the foot, long soft tail upward
+    const a = Math.pow(1 - v, 1.7) * (0.55 + 0.45 * Math.min(1, v * 10));
+    const c = Math.round(255 * a);
+    data[i * 4] = c;
+    data[i * 4 + 1] = c;
+    data[i * 4 + 2] = c;
+    data[i * 4 + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, 1, n, THREE.RGBAFormat);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  beaconGradTex = t;
+  return t;
+}
+
+/** Additive, fog-free pillar material (reads through canto haze like a lighthouse). */
+export function makeBeaconMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({
+    map: beaconGradient(),
+    color,
+    transparent: true,
+    opacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false,
+  });
+  m.userData.baseOpacity = opacity;
+  return m;
+}
+
+function portalMats(mats: MatKit): Record<PortalVisualState, PortalMatSet> {
+  if (portalMatCache && portalMatCache.gale === mats.gale) return portalMatCache.sets;
+  const make = (st: PortalVisualState): PortalMatSet => {
+    const k = PORTAL_STYLE[st];
+    const disc = mats.gale.clone();
+    disc.color.setHex(k.disc);
+    disc.opacity = k.discOp;
+    const ring = mats.gale.clone();
+    ring.color.setHex(k.ring);
+    ring.opacity = k.ringOp;
+    const beacon = makeBeaconMaterial(k.beacon, k.beaconOp);
+    const ground = new THREE.MeshBasicMaterial({
+      color: k.ground,
+      transparent: true,
+      opacity: k.groundOp,
+      side: THREE.DoubleSide,
+      forceSinglePass: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    ground.userData.baseOpacity = k.groundOp;
+    // Every gate of a state wears these: a despawned gate (canto travel) must not free them
+    return { disc: markShared(disc), ring: markShared(ring), beacon: markShared(beacon), ground: markShared(ground) };
+  };
+  const sets = { forward: make("forward"), return: make("return"), locked: make("locked") };
+  portalMatCache = { gale: mats.gale, sets };
+  return sets;
+}
+
+/** Breathe the shared gate beacons once per frame (all gates of a state pulse together). */
+export function tickPortalMaterials(tMs: number) {
+  if (!portalMatCache) return;
+  const { forward, return: back } = portalMatCache.sets;
+  const f = 0.5 + 0.5 * Math.sin(tMs * 0.0024);
+  forward.beacon.opacity = Number(forward.beacon.userData.baseOpacity) * (0.78 + 0.22 * f);
+  forward.ground.opacity = Number(forward.ground.userData.baseOpacity) * (0.7 + 0.3 * f);
+  back.ground.opacity = Number(back.ground.userData.baseOpacity) * (0.8 + 0.2 * f);
+}
+
 export function makePortal(mats: MatKit): THREE.Group {
   const g = new THREE.Group();
   g.name = "portal";
+  const pm = portalMats(mats);
   const colL = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 3.6, 12), mats.stone);
   colL.position.set(-1.15, 1.8, 0);
   const colR = colL.clone();
@@ -1182,10 +1548,11 @@ export function makePortal(mats: MatKit): THREE.Group {
   const arch = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.14, 10, 28, Math.PI), mats.stone);
   arch.position.y = 3.55;
   arch.rotation.z = Math.PI;
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(1.05, 32), mats.gale);
+  // Disc + swirl ring wear the per-state gate materials (setPortalGateVisual swaps them)
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(1.05, 32), pm.locked.disc);
   disc.position.set(0, 2.05, 0);
   disc.name = "galeDisc";
-  const disc2 = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.95, 28), mats.gale);
+  const disc2 = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.95, 28), pm.locked.ring);
   disc2.position.set(0, 2.05, 0.02);
   disc2.name = "galeRing";
   const trim = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.05, 8, 32), mats.gold);
@@ -1193,7 +1560,7 @@ export function makePortal(mats: MatKit): THREE.Group {
   const inner = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.03, 8, 24), mats.gold);
   inner.position.y = 2.05;
   inner.name = "portalInner";
-  const glow = new THREE.PointLight(0xff6633, 1.6, 8, 2);
+  const glow = new VirtualLight(0xff6633, 1.6, 8, 2);
   glow.position.set(0, 2.1, 0.2);
   const n = isCompactUi() ? 28 : 40;
   const pos = new Float32Array(n * 3);
@@ -1217,47 +1584,65 @@ export function makePortal(mats: MatKit): THREE.Group {
     })
   );
   sparks.name = "portalSparks";
+  // Light pillar + ground ring read from across the canto (geometry shared, no extra lights)
+  const beacon = new THREE.Mesh(
+    geo("gateBeacon", () => new THREE.CylinderGeometry(0.62, 1.05, 18, 18, 1, true)),
+    pm.locked.beacon
+  );
+  beacon.name = "gateBeacon";
+  beacon.position.y = 9;
+  beacon.renderOrder = 2;
+  beacon.visible = false;
+  const ground = new THREE.Mesh(
+    geo("gateGround", () => new THREE.RingGeometry(1.75, 2.35, 44)),
+    pm.locked.ground
+  );
+  ground.name = "gateGround";
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = 0.07;
+  ground.renderOrder = 1;
   g.add(discShadow(mats, 1.45), colL, colR, capL, capR, arch, disc, disc2, trim, inner, glow, sparks, nose(mats, 2.0, -0.2));
   shadow(g);
+  // Added after shadow(): light never casts or receives
+  g.add(beacon, ground);
   return g;
 }
 
 
-/** Dim / brighten a portal group for require_clear lock state. */
-export function setPortalGateVisual(root: THREE.Object3D, locked: boolean, openTint = 0xff6633) {
-  root.userData.portalLocked = locked;
+/** Swap a gate onto its state's shared materials (no-op when unchanged). */
+export function setPortalGateVisual(root: THREE.Object3D, state: PortalVisualState, mats: MatKit) {
+  if (root.userData.portalState === state) return;
+  root.userData.portalState = state;
+  root.userData.portalLocked = state === "locked";
+  const set = portalMats(mats)[state];
+  const k = PORTAL_STYLE[state];
   const disc = root.getObjectByName("galeDisc") as THREE.Mesh | undefined;
   const ring = root.getObjectByName("galeRing") as THREE.Mesh | undefined;
+  const beacon = root.getObjectByName("gateBeacon") as THREE.Mesh | undefined;
+  const ground = root.getObjectByName("gateGround") as THREE.Mesh | undefined;
   const sparks = root.getObjectByName("portalSparks") as THREE.Points | undefined;
-  const apply = (m: THREE.Material | THREE.Material[] | undefined, fn: (mat: any) => void) => {
-    if (!m) return;
-    if (Array.isArray(m)) m.forEach(fn);
-    else fn(m);
-  };
-  if (disc) {
-    apply(disc.material, (mat) => {
-      if (mat.color) mat.color.setHex(locked ? 0x3a3428 : openTint);
-      if ("opacity" in mat) mat.opacity = locked ? 0.22 : 0.62;
-    });
-  }
-  if (ring) {
-    apply(ring.material, (mat) => {
-      if (mat.color) mat.color.setHex(locked ? 0x2a2818 : openTint);
-      if ("opacity" in mat) mat.opacity = locked ? 0.18 : 0.55;
-    });
+  if (disc) disc.material = set.disc;
+  if (ring) ring.material = set.ring;
+  if (ground) ground.material = set.ground;
+  if (beacon) {
+    beacon.material = set.beacon;
+    beacon.visible = state !== "locked";
+    // Return roads get a shorter, quieter pillar than the way forward
+    const fw = state === "forward";
+    beacon.userData.baseW = fw ? 1 : 0.7;
+    beacon.scale.set(fw ? 1 : 0.7, fw ? 1 : 0.5, fw ? 1 : 0.7);
+    beacon.position.y = 9 * beacon.scale.y;
   }
   if (sparks) {
-    apply(sparks.material, (mat) => {
-      if (mat.color) mat.color.setHex(locked ? 0x5a5040 : 0xff8844);
-      if ("opacity" in mat) mat.opacity = locked ? 0.25 : 0.85;
-      if ("size" in mat) mat.size = locked ? 0.05 : 0.11;
-    });
+    const mat = sparks.material as THREE.PointsMaterial;
+    mat.color.setHex(k.spark);
+    mat.opacity = state === "locked" ? 0.25 : 0.85;
+    mat.size = state === "locked" ? 0.05 : state === "forward" ? 0.13 : 0.1;
   }
   root.traverse((o) => {
-    if ((o as THREE.PointLight).isPointLight) {
-      const L = o as THREE.PointLight;
-      L.intensity = locked ? 0.35 : 1.6;
-      L.color.setHex(locked ? 0x6a6040 : openTint);
+    if (isVirtualLight(o)) {
+      o.intensity = k.lightI;
+      o.color.setHex(k.light);
     }
   });
 }
@@ -1273,13 +1658,15 @@ const mireTintShared: {
 function mireSharedHide(heavy: boolean): THREE.MeshStandardMaterial {
   const key = heavy ? "hideH" : "hideL";
   if (!mireTintShared[key]) {
-    mireTintShared[key] = new THREE.MeshStandardMaterial({
-      color: heavy ? 0x5a4a28 : 0x3a3420,
-      roughness: 0.8,
-      metalness: 0.08,
-      emissive: heavy ? 0x4a5020 : 0x2a3010,
-      emissiveIntensity: heavy ? 0.42 : 0.3,
-    });
+    mireTintShared[key] = markShared(
+      new THREE.MeshStandardMaterial({
+        color: heavy ? 0x5a4a28 : 0x3a3420,
+        roughness: 0.8,
+        metalness: 0.08,
+        emissive: heavy ? 0x4a5020 : 0x2a3010,
+        emissiveIntensity: heavy ? 0.42 : 0.3,
+      })
+    );
   }
   return mireTintShared[key]!;
 }
@@ -1289,7 +1676,7 @@ function mireSharedRibbon(mats: MatKit, heavy: boolean): THREE.MeshBasicMaterial
   if (!mireTintShared[key]) {
     const c = mats.mire.clone();
     c.color.setHex(heavy ? 0xb0c050 : 0x8a9a44);
-    mireTintShared[key] = c;
+    mireTintShared[key] = markShared(c);
   }
   return mireTintShared[key]!;
 }
@@ -1548,7 +1935,7 @@ function galePlaneGeo(len: number): THREE.PlaneGeometry {
   const key = Math.round(len * 10);
   let g = _galePlaneCache.get(key);
   if (!g) {
-    g = new THREE.PlaneGeometry(len, 2.6, 1, 1);
+    g = markShared(new THREE.PlaneGeometry(len, 2.6, 1, 1));
     _galePlaneCache.set(key, g);
   }
   return g;
@@ -1612,7 +1999,16 @@ export type KindKey =
   | "shrine"
   | "pyre"
   | "portal"
-  | "loot";
+  | "loot"
+  /** an inert POI a canto mechanic draws itself (registerPropPoi) */
+  | "prop";
+
+/** POI kinds a canto mechanic draws itself (instanced, say): their nodes are empty props. */
+const PROP_POI = new Set<string>();
+
+export function registerPropPoi(poiKind: string) {
+  PROP_POI.add(poiKind);
+}
 
 
 /** Filth Cache — chest with olive sludge band (Gluttony-readable vs Wind Cache). */
@@ -1853,6 +2249,8 @@ export function makeByKind(kind: KindKey, mats: MatKit, rarity?: string): THREE.
       return makePortal(mats);
     case "loot":
       return makeLootGem(mats, rarity);
+    case "prop":
+      return new THREE.Group();
   }
 }
 
@@ -1880,6 +2278,7 @@ export function resolveKind(ent: {
     if (ent.poiKind === "quest") return "quest";
     if (ent.poiKind === "shrine" || ent.poiKind === "bell") return "shrine";
     if (ent.poiKind === "pyre") return "pyre";
+    if (ent.poiKind && PROP_POI.has(ent.poiKind)) return "prop";
     return "guide";
   }
   if (ent.kind === "mob") return ent.champion ? "champion" : "whirl";
