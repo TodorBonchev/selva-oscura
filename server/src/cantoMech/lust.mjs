@@ -20,7 +20,7 @@
  *    messa"): coils his tail N times — a cascade of N rings, inner to outer (the disc
  *    at his feet light, the wider coils harder) — and for N ≥ 2 casts the sentence
  *    while the last coil still spreads (a fan of N lines at his target, each soul
- *    judged once: step in behind the ring *and* off the gold), after which a judging
+ *    judged once: step in behind the ring *and* off the lines), after which a judging
  *    gust throws the damned toward the edge — the more coils, the harsher the
  *    sentence. The judging gust interrupts the storm's own cycle, which resumes where
  *    it stood once it passes. Wounded (≤50%): the storm quickens and a flock of shades
@@ -371,7 +371,7 @@ const STRIKE = {
   windup: [0.7, 0.52],
   width: [1.6, 2.9],
   len: 16,
-  dmg: 4,
+  dmg: 3,
   back: 9,
   turn: 0.38,
 };
@@ -661,8 +661,8 @@ const MINOS = {
   /** the first coil (the disc at his feet) is light; the wider coils sweep harder */
   ringDmgInner: 3,
   ringDmgInnerP2: 4,
-  ringDmg: 12,
-  ringDmgP2: 14,
+  ringDmg: 14,
+  ringDmgP2: 17,
   sentenceLen: 13,
   sentenceW: 3.2,
   sentenceWind: 0.62,
@@ -742,7 +742,7 @@ function startCoil(room, L, e, ms) {
   ms.t = 0;
   ms.until = first + (n - 1) * gap + 0.22;
   // For N ≥ 2 the sentence comes while the last coil still spreads: step in behind the
-  // ring *and* off the gold lines (his flank or his back)
+  // ring *and* off the sentence lines (his flank or his back)
   ms.sentAt =
     n >= 2 ? Math.max(first + 0.1, first + (n - 1) * gap - (p2 ? MINOS.sentenceLeadP2 : MINOS.sentenceLead)) : Infinity;
   e.windupLeft = ms.until;

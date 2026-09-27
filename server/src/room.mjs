@@ -79,6 +79,8 @@ const PLAYER_WALK_SPEED = 8;
  */
 const MOVE_SLACK = 1.3;
 const MOVE_BANK = 3.2;
+/** Dev probes only (never in production): moves skip the budget (scripted screenshot tours). */
+const FREE_MOVE = process.env.SELVA_FREE_MOVE === "1" && process.env.NODE_ENV !== "production";
 /** Dash cooldown (s); one may arrive this early (ms: jitter) — carried as debt. */
 const DASH_CD = 4;
 const DASH_GRACE_MS = 150;
@@ -141,11 +143,31 @@ function tierOf(cantoId) {
   return CANTO_TIER[cantoId] || { hp: 1, dmg: 1 };
 }
 
+/**
+ * A pack's members wear a creature's name on their plates ("Coin Wisp", not the pack's
+ * "Coin Wisps" / "South Spill" on each of four wisps); named characters (single foes,
+ * the lovers, Cerbero…) keep their own. Pack names still head the content.
+ */
+const MEMBER_NAME = {
+  coin_wisp: "Coin Wisp",
+  weight_shade: "Weight Shade",
+  weight_champion: "Weight Champion",
+  mire_champion: "Mire Champion",
+  mire_shade: "Mire Shade",
+  mud_wisp: "Filth Wisp",
+};
+function memberName(pack) {
+  if ((pack.count || 1) > 1 && MEMBER_NAME[pack.archetype]) {
+    return /^sepolti$/i.test(String(pack.name || "")) ? "Sepolto" : MEMBER_NAME[pack.archetype];
+  }
+  return pack.name || (pack.champion ? "Gale Champion" : "Whirl Shade");
+}
+
 /** Boss pools sized so a fight spans a few telegraphed slams, not one burst. */
 const BOSS_HP = {
   minos_gate: 520,
   triple_maw: 680,
-  hoard_crush: 1400,
+  hoard_crush: 1825,
 };
 
 /**
@@ -502,7 +524,7 @@ class CantoRoom {
       this.entities.set(id, {
         id,
         kind: "mob",
-        name: pack.name || (pack.champion ? "Gale Champion" : "Whirl Shade"),
+        name: memberName(pack),
         x: pack.anchor.x + ox,
         y: pack.anchor.y + oy,
         hp: maxHp,
@@ -547,7 +569,7 @@ class CantoRoom {
   deathWakeToast(ws) {
     const line =
       this.cantoId === "inferno_07"
-        ? "misura spezzata — you fall under the weight… and wake at the ledger gate."
+        ? "misura spezzata — you fall, and wake at the ledger gate."
         : this.cantoId === "inferno_06"
           ? "You are slain… and wake at the canto entrance."
           : this.cantoId === "inferno_05"
@@ -675,7 +697,7 @@ class CantoRoom {
     const dx = x - s.x;
     const dy = y - s.y;
     const d = Math.hypot(dx, dy);
-    const allow = Math.min(MOVE_SPEED, budget + credit);
+    const allow = FREE_MOVE ? MOVE_SPEED : Math.min(MOVE_SPEED, budget + credit);
     if (d > allow) {
       const k = allow / d;
       x = s.x + dx * k;
@@ -2162,7 +2184,7 @@ export class World {
     // (no "Entered X." toast: the client shows a canto title card on arrival)
     if (room.canto.role === "hub" || room.cantoId === "inferno_01") {
       const hubLine = hasCleared(playerId, "inferno_07")
-        ? "Dark Wood rest — writ, stash, or hunt Lust / Gluttony / Avarice again."
+        ? "Dark Wood rest — writ, stash, or hunt the circles again."
         : hasCleared(playerId, "inferno_06")
           ? "Dark Wood rest — bank loot, then Avarice past the Maw (or Lust again)."
           : hasCleared(playerId, "inferno_05")

@@ -85,7 +85,7 @@ const SINK = { stillS: 1.3, anchorR: 2.2, minDepth: 0.8, radius: 1.15, windupMs:
 const HAIL = {
   first: [7, 10],
   every: [6, 8],
-  bossEvery: [5.5, 7],
+  bossEvery: [6.5, 8],
   windupMs: 1000,
   dmg: 15,
   mobDmg: 15,
@@ -112,7 +112,7 @@ const HAIL = {
   /** the clock's pace: a pilgrim on the road (on the move, no foe close) / at close
    * quarters with a foe (whose own blows are enough to read) */
   roadRate: 1.4,
-  engagedRate: 0.65,
+  engagedRate: 0.8,
   engagedR: 6,
   /** co-op: pilgrims this close share one hail clock (a volley per knot per gap) */
   knotR: 6.5,

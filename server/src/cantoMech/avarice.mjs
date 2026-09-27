@@ -13,6 +13,10 @@
  *    "ava_roll", one procession blow per target per HIT_CD) and throws it out of the
  *    lane — luring a pack into a lane is a real tactic (the blow is the procession's:
  *    combat attackerId "mech:procession", the nearest pilgrim keeps the kill credit).
+ *    A pilgrim's blow scales with the drum's speed (a creeping drum only nudges you off
+ *    its lane) and a second roll-over within ROLL_REPEAT_S lands lighter. Plutus is no
+ *    foe to crush: a drum that rolls into him breaks his windup, chips him and shoves
+ *    him off the rails (railPlutus), so his fight is not fought standing on a lane.
  *    Contact is lag-fair: a pilgrim is judged against the weights where they stood
  *    when their last move was made (half their round trip earlier, capped).
  *    Positions are a pure function of the procession clock; the snapshot carries
@@ -23,8 +27,8 @@
  *    stream to him through the clash — biting (a wisp dart) whoever stands in
  *    their way; each one he swallows swells him (damage taken −6% a stack, up to 4; a wider
  *    slam, a bigger body) and, swollen, the hoard pulses around him ("plutus_pulse",
- *    radius and frequency grow with the coin) and its ring burns whoever stands in it
- *    (a tick a second, combat { dot: true }). Ringing the Ledger Bell while he is
+ *    radius and frequency grow with the coin); from BELL_BREAK_MIN coins (ripe for the
+ *    bell) its ring burns whoever stands in it (a tick a second, combat { dot: true }). Ringing the Ledger Bell while he is
  *    swollen and near it breaks him like a sail when the mast snaps: a 4 s collapse,
  *    ×2 damage taken, the coin gone («Taci, maledetto lupo!») — and he falls toward
  *    the bell ("plutus_fall" cone): step aside after ringing. At ≤50% he hurls a great
@@ -61,18 +65,35 @@ import {
   untilClash,
   rollingAt,
 } from "./avariceProcession.mjs";
-import { brake, chase, unstick, walkTo, startAttack, bodyRadius } from "../mobAi.mjs";
+import { brake, chase, unstick, walkTo, startAttack, bodyRadius, interruptAttack } from "../mobAi.mjs";
 import { dodgeGrace } from "../telegraph.mjs";
 
 export const PLUTUS_ID = "hoard_crush";
 
 /** Procession damage to pilgrims (× canto tier) and to foes (flat). */
-const ROLL_DMG = 36;
+const ROLL_DMG = 40;
 const CLASH_DMG = 20;
 const MOB_ROLL_DMG = 70;
 const MOB_CLASH_DMG = 90;
 /** A weight only crushes while it rolls with some speed (not in its rest / recoil). */
 const ROLL_MIN_SPEED = 2.2;
+/**
+ * The blow scales with the drum's speed: a creeping weight (under ROLL_SOFT_SPEED, just
+ * after a recoil) only nudges you out of the lane; full weight from ROLL_FULL_SPEED.
+ */
+const ROLL_SOFT_SPEED = 4.0;
+const ROLL_FULL_SPEED = 7.2;
+const ROLL_MIN_SHARE = 0.4;
+/** A second roll-over within this many seconds lands at ROLL_REPEAT_MUL (no pile-ons). */
+const ROLL_REPEAT_S = 12;
+const ROLL_REPEAT_MUL = 0.4;
+/**
+ * Plutus is no weight: a drum that rolls into him staggers him (his windup broken), chips
+ * him and shoves him off the rails — his fight is not fought standing on a lane.
+ */
+const PLUTUS_RAIL_STAGGER = 1.2;
+const PLUTUS_RAIL_DMG = 45;
+const PLUTUS_RAIL_CD = 2.5;
 /** Weight footprint seen from above: half length along its roll, half thickness. */
 const ROLL_HALF_L = PROC.R;
 const ROLL_HALF_W = 0.72;
@@ -105,11 +126,16 @@ const FALL_ARC = 1.45;
 const FALL_MS = 650;
 const FALL_DMG = 18;
 const CALL_EVERY = 6.5;
+/** His first call comes this soon after a pilgrim engages him. */
+const FIRST_CALL = 0.6;
 const ENGAGE_R = 16;
 const FEEDER_SPEED = 4.4;
-const FEEDER_HP = 30;
+const FEEDER_HP = 38;
 /** A Fiorino darts at a pilgrim this close to its flight. */
 const FEEDER_BITE = 3.4;
+/** Within this of Plutus a Fiorino rushes in (no bite), and he swallows it at FEEDER_SWALLOW. */
+const FEEDER_RUSH = 5;
+const FEEDER_SWALLOW = 2.6;
 /**
  * His hoard: two coin piles in the tip of the ring, flanking the Ledger Bell between the
  * processions' last runs. The Fiorini rise there and stream to him through the east
@@ -124,14 +150,14 @@ const PULSE_WIND = 0.6;
 const PULSE_BASE_R = 2.3;
 const PULSE_R_PER = 0.45;
 const PULSE_DMG = 4;
-const PULSE_DMG_PER = 1;
+const PULSE_DMG_PER = 0.5;
 /**
  * Swollen, the ring of his hoard burns whoever stands in it (a tick a second): the
  * price of fighting him close while he holds coin — cut the Fiorini down, break him
  * with the bell, or strike from range.
  */
-const AURA_DMG = 3.5;
-const AURA_DMG_PER = 0.5;
+const AURA_DMG = 4.0;
+const AURA_DMG_PER = 0.15;
 const AURA_PAD = 0.4;
 const PLUTUS_SLAM = 8;
 const ROLL_EVERY = 7.5;
@@ -174,6 +200,8 @@ function init(room) {
     warned: [-1, -1],
     /** target id → clock (s) before which the procession cannot hit it again */
     cd: new Map(),
+    /** pilgrim id → clock (s) of their last roll-over (a quick second one is lighter) */
+    rolled: new Map(),
     /** weight records (weightsAt): now, and a laggy pilgrim's view */
     ws: [],
     wsLag: [],
@@ -341,20 +369,42 @@ function warnClash(room, A, side, left) {
   });
 }
 
-/** A rolling weight ran over a pilgrim: the blow, then thrown out of the lane. */
+/** A rolling weight ran over a pilgrim: the blow (by the drum's speed), then thrown out of the lane. */
 function rollOver(room, A, s, w, across, now) {
   if (!procHit(A, s.playerId, now)) return;
-  const taken = room.hitPlayer(s, { id: "mech:procession", kind: "mech" }, tierDmg(room, ROLL_DMG), {
+  const side = across >= 0 ? 1 : -1;
+  const fwd = Math.sign(w.vx * w.tx + w.vy * w.ty) || 1;
+  if (w.speed < ROLL_SOFT_SPEED) {
+    // a creeping drum only nudges you off its lane
+    const out = ROLL_HALF_W + PLAYER_PAD + 0.6 - Math.abs(across);
+    if (out > 0.05) room.shovePlayer(s, -w.ty * side * out, w.tx * side * out, 220);
+    return;
+  }
+  const share = clamp((w.speed - ROLL_MIN_SPEED) / (ROLL_FULL_SPEED - ROLL_MIN_SPEED), ROLL_MIN_SHARE, 1);
+  const last = A.rolled.get(s.playerId);
+  const repeat = last != null && now - last < ROLL_REPEAT_S ? ROLL_REPEAT_MUL : 1;
+  A.rolled.set(s.playerId, now);
+  const taken = room.hitPlayer(s, { id: "mech:procession", kind: "mech" }, tierDmg(room, ROLL_DMG * share * repeat), {
     teleKind: "ava_roll",
   });
   if (!(taken > 0) || !(s.hp > 0) || s.iframes > 0) return;
   // thrown out of the lane, a little along the roll
-  const side = across >= 0 ? 1 : -1;
   const out = ROLL_HALF_W + PLAYER_PAD + 1.5 - Math.abs(across);
-  const fwd = Math.sign(w.vx * w.tx + w.vy * w.ty) || 1;
   const dx = -w.ty * side * out + w.tx * fwd * 0.7;
   const dy = w.tx * side * out + w.ty * fwd * 0.7;
   room.shovePlayer(s, dx, dy, 240);
+}
+
+/** A drum rolled into Plutus: his windup broken, a chip of his life, shoved off the rails. */
+function railPlutus(room, A, p, w, across, now) {
+  if ((p._railAt || -1e9) > now - PLUTUS_RAIL_CD) return;
+  p._railAt = now;
+  if (p.teleId || p.windupLeft > 0) interruptAttack(room, p, PLUTUS_RAIL_STAGGER, "weight");
+  else p.staggerLeft = Math.max(p.staggerLeft || 0, PLUTUS_RAIL_STAGGER * 0.6);
+  const side = across >= 0 ? 1 : -1;
+  const out = ROLL_HALF_W + bodyRadius(p, room.cantoId) * 0.6 + 1.2 - Math.abs(across);
+  if (out > 0) room.shoveMob(p, -w.ty * side * out, w.tx * side * out);
+  crushMob(room, p, PLUTUS_RAIL_DMG, p.x + w.ty * side * 2, p.y - w.tx * side * 2, "ava_roll", "mech:procession");
 }
 
 function tickProcession(room, dt) {
@@ -388,6 +438,17 @@ function tickProcession(room, dt) {
   // Contact, foes (the server's own clock): a rolling weight crushes what it rolls over
   if (rollingAt(t)) {
     const ws = weightsAt(t, A.ws);
+    const p = room.entities.get(PLUTUS_ID);
+    if (p && p.hp > 0 && !p._dead && !(p.collapseLeft > 0)) {
+      const pad = bodyRadius(p, room.cantoId) * 0.5;
+      for (const w of ws) {
+        if (w.speed < ROLL_SOFT_SPEED) continue;
+        const across = footprint(w, p.x, p.y, pad);
+        if (across == null) continue;
+        railPlutus(room, A, p, w, across, now);
+        break;
+      }
+    }
     for (const e of room.entities.values()) {
       if (!isCrushable(e)) continue;
       const pad = bodyRadius(e, room.cantoId) * 0.8;
@@ -405,6 +466,9 @@ function tickProcession(room, dt) {
   // forget stale cooldowns now and then (ids of the dead / departed)
   if (A.cd.size > 80) {
     for (const [k, v] of A.cd) if (v < now) A.cd.delete(k);
+  }
+  if (A.rolled.size > 40) {
+    for (const [k, v] of A.rolled) if (v < now - ROLL_REPEAT_S) A.rolled.delete(k);
   }
   void dt;
 }
@@ -470,7 +534,9 @@ function tickFeeder(room, e, dt) {
     brake(e, dt);
     return true;
   }
-  if (e.atkCd <= 0) {
+  // the last stretch to his maw it no longer stops to bite: at his side, the coin is his
+  const toP = Math.hypot(p.x - e.x, p.y - e.y);
+  if (e.atkCd <= 0 && toP > FEEDER_RUSH) {
     let near = null;
     let nd = FEEDER_BITE;
     for (const s of room.sessions.values()) {
@@ -491,7 +557,7 @@ function tickFeeder(room, e, dt) {
   // the two processions' last runs — never along a lane), then on to him
   const viaE = p.x > PROC.E.x && e.x < PROC.E.x - 1.5;
   walkTo(room, e, viaE ? PROC.E.x : p.x, viaE ? PROC.E.y : p.y, FEEDER_SPEED, dt);
-  if (Math.hypot(p.x - e.x, p.y - e.y) < 2.1) {
+  if (Math.hypot(p.x - e.x, p.y - e.y) < FEEDER_SWALLOW) {
     if (!(p.collapseLeft > 0)) p.inflate = Math.min(INFLATE_MAX, (p.inflate || 0) + 1);
     removeFeeder(room, e, { type: "ava_absorb", id: e.id, x: +e.x.toFixed(2), y: +e.y.toFixed(2), inf: p.inflate || 0 });
   }
@@ -657,13 +723,15 @@ function tickPlutus(room, p, dt) {
   }
   p.engaged = nearestD < ENGAGE_R;
   if (p.rollCd > 0) p.rollCd -= dt;
-  // swollen, the ring of his hoard burns whoever stands in it (the gold ring drawn
-  // around him is exactly its edge): a tick a second, no hit-stop on the client (dot)
+  // swollen ripe (the coin the bell can break him at), the ring of his hoard burns
+  // whoever stands in it (the ring drawn around him is exactly its edge, and throbs
+  // once it burns): a tick a second, no hit-stop on the client (dot). One coin only
+  // glows — a long fight beside him no longer bleeds a pilgrim who never finds the bell
   const inf = p.inflate || 0;
   p.auraAcc = (p.auraAcc || 0) + dt;
   if (p.auraAcc >= 1) {
     p.auraAcc = 0;
-    if (inf >= 1) {
+    if (inf >= BELL_BREAK_MIN) {
       const r = PULSE_BASE_R + PULSE_R_PER * inf + AURA_PAD;
       const dmg = tierDmg(room, AURA_DMG + AURA_DMG_PER * inf);
       for (const s of room.sessions.values()) {
@@ -691,7 +759,8 @@ function tickPlutus(room, p, dt) {
   }
   // He calls the coins while someone fights him
   if (p.engaged) {
-    p.callCd = (p.callCd ?? CALL_EVERY) - dt;
+    // (the first call comes the moment he is engaged: every fight sees him swell)
+    p.callCd = (p.callCd ?? FIRST_CALL) - dt;
     if (p.callCd <= 0) {
       p.callCd = CALL_EVERY;
       for (const pile of PILES) spawnFeeder(room, pile.x, pile.y);

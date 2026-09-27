@@ -393,7 +393,9 @@ class AvariceView {
         this.shield.position.set(p.x, app.surfaceY(p.x, p.z, 0.14), p.z);
         this.shield.scale.set(r, r, 1);
         this.shield.rotation.z = app.animT * 0.0011;
-        // swollen enough for the bell to break him: the ring throbs (below that it glows)
+        // swollen enough for the bell to break him: the ring throbs — and burns whoever
+        // stands in it (server avarice.mjs: the aura ticks from BELL_BREAK_MIN); below
+        // that it only glows
         const ripe = this.inf >= BELL_BREAK_MIN;
         const pulse = ripe ? 0.62 + 0.38 * Math.sin(app.animT * 0.011) : 0.82 + 0.18 * Math.sin(app.animT * 0.006);
         this.shieldMat.opacity = Math.min(0.75, (ripe ? 0.3 : 0.16) + 0.1 * this.infView) * pulse;
