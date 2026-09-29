@@ -1405,7 +1405,7 @@ class CantoRoom {
       if (e.requireClear && !hasCleared(playerId, e.requireClear)) {
         const tip =
           e.requireClear === "inferno_05"
-            ? "Clear Minos first — then the Gluttony gate opens."
+            ? "Lust is not yet cleared — slay Minos, then the Gluttony gate opens."
             : e.requireClear === "inferno_06"
               ? "Clear Triple Maw first — then Avarice opens."
               : `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
@@ -1474,7 +1474,7 @@ class CantoRoom {
         if (e.requireClear && !hasCleared(playerId, e.requireClear)) {
           const tip =
             e.requireClear === "inferno_05"
-              ? "Clear Minos first — then the Gluttony gate opens."
+              ? "Lust is not yet cleared — slay Minos, then the Gluttony gate opens."
               : e.requireClear === "inferno_06"
                 ? "Clear Triple Maw first — then Avarice opens."
                 : `The way to ${cantoTitle(dest)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
@@ -2190,7 +2190,7 @@ export class World {
         if (!hasCleared(playerId, need)) {
           const tip =
             need === "inferno_05"
-              ? "Clear Minos first — then the Gluttony gate opens."
+              ? "Lust is not yet cleared — slay Minos, then the Gluttony gate opens."
               : need === "inferno_06"
                 ? "Clear Triple Maw first — then Avarice opens."
                 : `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`;
