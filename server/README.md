@@ -119,6 +119,16 @@ node scripts/selfplay.mjs --coop            # a party of two sharing rooms
 
 Exits non-zero if any canto cannot be cleared.
 
+## Postgres AH / melt regression
+
+`npm run test:pg` (`scripts/pg-ah-regression.mjs`) starts its own server on
+`PORT_TEST` (default 8091) and checks AH list / buy / cancel and bag melt across
+restarts. It needs a **local** Postgres (`npm run db`) and refuses Neon/Railway/Supabase URLs.
+
+```bash
+DATABASE_URL=postgresql://selva:selva_local@127.0.0.1:5433/selva npm run test:pg
+```
+
 ## Docker / Railway
 
 Dockerfile assumes build context = `server/` (bundled `content/` + `vendor/` + `migrations/`).
