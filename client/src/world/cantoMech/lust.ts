@@ -269,21 +269,17 @@ export const lustMech: CantoMech = {
     if (storm?.wb) pushOutOfRocks(storm.wb, p, PLAYER_PAD);
   },
 
-  adjustDash(app: WorldApp, from, to, dirX, dirY) {
+  adjustDash(_app: WorldApp, from, to, dirX, dirY) {
     const s = storm;
     if (!s) return;
-    const b = app.room?.bounds;
     const str = s.strength(performance.now());
     if (str > 0.05 && !inLee(s.wb, s.wx, s.wy, from.x, from.y)) {
       const a = dirX * s.wx + dirY * s.wy;
       if (a > 0) {
         const extra = 5.5 * DASH_DOWNWIND * a * Math.min(1, str);
+        // Caller wraps. Keep the end unwrapped so the rock sweep is one segment.
         to.x += dirX * extra;
         to.y += dirY * extra;
-        if (b) {
-          to.x = Math.max(2, Math.min(b.width - 2, to.x));
-          to.y = Math.max(2, Math.min(b.height - 2, to.y));
-        }
       }
     }
     if (!s.wb) return;

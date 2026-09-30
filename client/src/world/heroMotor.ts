@@ -21,6 +21,7 @@
 import * as THREE from "three";
 import type { Vec2 } from "../render/smoothing";
 import { setPlanar, yawFromPlanar } from "./frames";
+import { wrapCoord, wrapDelta } from "./wrap";
 import {
   SWING_U_COCK,
   SWING_U_HIT,
@@ -79,6 +80,8 @@ export interface HeroHost {
   onSwingContact(targetId: string | null, kind: number): void;
   /** Death pose finished: jump to the server's respawn point. */
   onReviveTeleport(): void;
+  /** Canto bounds for the torus wrap, or null before a room exists. */
+  bounds(): { width: number; height: number } | null;
 }
 
 const _v = new THREE.Vector3();
@@ -270,7 +273,16 @@ export class HeroMotor {
     const t = this.host.animT;
     this.dashStart = this.now;
     this.dashFrom = { x: from.x, y: from.y };
-    this.dashTo = { x: to.x, y: to.y };
+    // Short unwrapped end. A dash across the seam has `to` already wrapped, so
+    // the tween runs past the border and pinnedPos folds the sample back.
+    const b = this.host.bounds();
+    let tx = to.x;
+    let ty = to.y;
+    if (b && b.width > 0 && b.height > 0) {
+      tx = from.x + wrapDelta(to.x - from.x, b.width);
+      ty = from.y + wrapDelta(to.y - from.y, b.height);
+    }
+    this.dashTo = { x: tx, y: ty };
     this.swingStart = -1e9;
     this.uVis = -1;
     this.contactSent = true;
@@ -279,9 +291,25 @@ export class HeroMotor {
     if (g) humanoidDash(g, t, DASH_MS);
     const y0 = this.host.standY(from.x, from.y);
     _v.set(from.x, y0, from.y);
-    _v2.set(to.x, this.host.standY(to.x, to.y), to.y);
+    _v2.set(tx, this.host.standY(tx, ty), ty);
     this.streak.begin(_v, _v2, t, DASH_MS);
     this.dust.spawn(from.x, y0 + 0.05, from.y, t, 1.5, 0.5, 480);
+  }
+
+  /** Write the torus position. A sample that left the rect drops the streak. */
+  private wrapPlanar(x: number, y: number, out: Vec2): Vec2 {
+    const b = this.host.bounds();
+    if (!b || !(b.width > 0) || !(b.height > 0)) {
+      out.x = x;
+      out.y = y;
+      return out;
+    }
+    const wx = wrapCoord(x, b.width);
+    const wy = wrapCoord(y, b.height);
+    if (wx !== x || wy !== y) this.streak.cancel();
+    out.x = wx;
+    out.y = wy;
+    return out;
   }
 
   /** Planar position the hero is pinned to this frame (dash tween / death), or null. */
@@ -296,16 +324,17 @@ export class HeroMotor {
     const u = (t - this.dashStart) / DASH_MS;
     if (u >= 1) {
       this.dashStart = -1;
-      out.x = this.dashTo.x;
-      out.y = this.dashTo.y;
+      this.wrapPlanar(this.dashTo.x, this.dashTo.y, out);
       this.dust.spawn(out.x, this.host.standY(out.x, out.y, 0.05), out.y, this.host.animT, 1.3, 0.45, 460);
       return out;
     }
-    // ease-out cubic: explosive start, soft arrival
+    // ease-out cubic: explosive start, soft arrival, then fold across the seam
     const k = 1 - Math.pow(1 - Math.max(0, u), 3);
-    out.x = this.dashFrom.x + (this.dashTo.x - this.dashFrom.x) * k;
-    out.y = this.dashFrom.y + (this.dashTo.y - this.dashFrom.y) * k;
-    return out;
+    return this.wrapPlanar(
+      this.dashFrom.x + (this.dashTo.x - this.dashFrom.x) * k,
+      this.dashFrom.y + (this.dashTo.y - this.dashFrom.y) * k,
+      out
+    );
   }
 
   startDeath(at: Vec2) {

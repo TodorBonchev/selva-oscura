@@ -1,6 +1,9 @@
 /** Client-side prediction / interpolation helpers (server remains authoritative). */
 
+import { wrapCoord, wrapDelta } from "../world/wrap";
+
 export type Vec2 = { x: number; y: number };
+export type Bounds = { width: number; height: number };
 
 /** Throttle for move packets — slightly slower than before to cut rubber-band chatter. */
 export const MOVE_SEND_MS = 50;
@@ -44,15 +47,25 @@ export function reconcileLocal(
   server: Vec2,
   dtSec: number,
   predicting: boolean,
-  vel?: Vec2
+  vel?: Vec2,
+  bounds?: Bounds | null
 ): Vec2 {
-  const err = dist(render, server);
-  if (err > SNAP_ERROR) return { x: server.x, y: server.y };
-  if (!predicting && err < 0.02) return { x: server.x, y: server.y };
+  const bw = bounds && bounds.width > 0 ? bounds.width : 0;
+  const bh = bounds && bounds.height > 0 ? bounds.height : 0;
+  // Shortest error on the torus, so a snapshot on the other side of the seam
+  // does not drag the hero back across the map. Writes into `render` (no alloc).
+  const ex = bw ? wrapDelta(server.x - render.x, bw) : server.x - render.x;
+  const ey = bh ? wrapDelta(server.y - render.y, bh) : server.y - render.y;
+  const err = Math.hypot(ex, ey);
+  if (err > SNAP_ERROR || (!predicting && err < 0.02)) {
+    render.x = server.x;
+    render.y = server.y;
+    return render;
+  }
   const rate = predicting ? RECONCILE_PREDICT : RECONCILE_IDLE;
   const a = expAlpha(rate, dtSec);
-  let cx = (server.x - render.x) * a;
-  let cy = (server.y - render.y) * a;
+  let cx = ex * a;
+  let cy = ey * a;
   if (predicting && vel) {
     const sp = Math.hypot(vel.x, vel.y);
     if (sp > 0.01) {
@@ -66,7 +79,13 @@ export function reconcileLocal(
       }
     }
   }
-  return { x: render.x + cx, y: render.y + cy };
+  render.x += cx;
+  render.y += cy;
+  if (bw) {
+    render.x = wrapCoord(render.x, bw);
+    render.y = wrapCoord(render.y, bh);
+  }
+  return render;
 }
 
 /** Samples kept per entity (≈1 s of snapshots at the server's ~7.5 Hz cadence). */
@@ -110,8 +129,33 @@ export class InterpStore {
   private intervalEma = 130;
   private sampleT = 0;
   private stamp = 0;
+  /** Map size for torus steps (0 = plain Euclidean). Mobs stay inside; players wrap. */
+  private bw = 0;
+  private bh = 0;
   /** Current render delay (ms). */
   delay = 140;
+
+  /** Canto bounds. A sample jump longer than half the map is a seam cross, not a glide. */
+  setBounds(width: number, height: number) {
+    this.bw = width > 0 ? width : 0;
+    this.bh = height > 0 ? height : 0;
+  }
+
+  private sepX(a: number, b: number): number {
+    return this.bw > 0 ? wrapDelta(a - b, this.bw) : a - b;
+  }
+
+  private sepY(a: number, b: number): number {
+    return this.bh > 0 ? wrapDelta(a - b, this.bh) : a - b;
+  }
+
+  private wrapX(v: number): number {
+    return this.bw > 0 ? wrapCoord(v, this.bw) : v;
+  }
+
+  private wrapY(v: number): number {
+    return this.bh > 0 ? wrapCoord(v, this.bh) : v;
+  }
 
   /** Start a snapshot's samples. serverMs = room.st (undefined on old servers). */
   beginSnapshot(serverMs: number | undefined, nowMs: number) {
@@ -160,7 +204,8 @@ export class InterpStore {
     const ts = this.sampleT;
     if (t.n > 0) {
       const h = t.head;
-      if (Math.hypot(x - t.xs[h]!, y - t.ys[h]!) > TELEPORT) {
+      // Wrapped distance: a seam cross is a short step. A real teleport is long either way.
+      if (Math.hypot(this.sepX(x, t.xs[h]!), this.sepY(y, t.ys[h]!)) > TELEPORT) {
         t.n = 0;
         t.pos.x = x;
         t.pos.y = y;
@@ -207,11 +252,13 @@ export class InterpStore {
         // past the newest sample: glide on its velocity for a moment, then hold
         const p = (h - 1 + INTERP_N) % INTERP_N;
         const dt = t.ts[h]! - t.ts[p]!;
-        const vx = dt > 1 ? (t.xs[h]! - t.xs[p]!) / dt : 0;
-        const vy = dt > 1 ? (t.ys[h]! - t.ys[p]!) / dt : 0;
+        const sdx = this.sepX(t.xs[h]!, t.xs[p]!);
+        const sdy = this.sepY(t.ys[h]!, t.ys[p]!);
+        const vx = dt > 1 ? sdx / dt : 0;
+        const vy = dt > 1 ? sdy / dt : 0;
         const ex = Math.min(EXTRAPOLATE_MS, rt - t.ts[h]!);
-        t.pos.x = t.xs[h]! + vx * ex;
-        t.pos.y = t.ys[h]! + vy * ex;
+        t.pos.x = this.wrapX(t.xs[h]! + vx * ex);
+        t.pos.y = this.wrapY(t.ys[h]! + vy * ex);
         const moving = rt - t.ts[h]! < EXTRAPOLATE_MS;
         t.vx = moving ? vx * 1000 : 0;
         t.vy = moving ? vy * 1000 : 0;
@@ -225,11 +272,13 @@ export class InterpStore {
           const t0 = t.ts[j]!;
           const t1 = t.ts[i]!;
           const u = t1 > t0 ? (rt - t0) / (t1 - t0) : 1;
-          t.pos.x = t.xs[j]! + (t.xs[i]! - t.xs[j]!) * u;
-          t.pos.y = t.ys[j]! + (t.ys[i]! - t.ys[j]!) * u;
+          const sdx = this.sepX(t.xs[i]!, t.xs[j]!);
+          const sdy = this.sepY(t.ys[i]!, t.ys[j]!);
+          t.pos.x = this.wrapX(t.xs[j]! + sdx * u);
+          t.pos.y = this.wrapY(t.ys[j]! + sdy * u);
           const span = Math.max(1, t1 - t0);
-          t.vx = ((t.xs[i]! - t.xs[j]!) / span) * 1000;
-          t.vy = ((t.ys[i]! - t.ys[j]!) / span) * 1000;
+          t.vx = (sdx / span) * 1000;
+          t.vy = (sdy / span) * 1000;
           break;
         }
         i = j;

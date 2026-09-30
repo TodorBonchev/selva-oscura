@@ -79,6 +79,13 @@ export class BladeTrail {
   }
 
   push(tip: THREE.Vector3, base: THREE.Vector3, tMs: number) {
+    if (this.count > 0) {
+      const prev = (this.head - 1 + TRAIL_N) % TRAIL_N;
+      const dx = tip.x - this.tip[prev * 3]!;
+      const dz = tip.z - this.tip[prev * 3 + 2]!;
+      // A seam wrap jumps the blade; drop the ribbon instead of slicing the map.
+      if (dx * dx + dz * dz > 144) this.clear();
+    }
     if (!this.mesh.visible) this.mesh.visible = true;
     const i = this.head;
     this.tip[i * 3] = tip.x;
@@ -255,6 +262,12 @@ export class DashStreak {
     this.pos.needsUpdate = true;
     this.mat.opacity = 0;
     this.mesh.visible = false;
+  }
+
+  /** Drop the band (a dash that crossed the seam must not stretch across the canto). */
+  cancel() {
+    this.start = -1;
+    this.collapse();
   }
 
   /** `head` is the hero's current world position (the streak ends at the body). */

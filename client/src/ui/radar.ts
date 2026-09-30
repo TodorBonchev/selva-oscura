@@ -12,6 +12,7 @@ import type { PerspectiveCamera } from "three";
 import { Vector3 } from "three";
 import type { Objective } from "../world/objective";
 import { GATE_LABEL_RANGE, gateState, isTwinExitOf, type GateState } from "../world/gates";
+import { wrapDelta } from "../world/wrap";
 
 type Vec2 = { x: number; y: number };
 
@@ -176,7 +177,14 @@ export class Radar {
       cy + (ux * fx + uy * fz) * scale
     );
     ctx.fillStyle = "#3a342855";
-    ctx.fillRect(0, 0, opts.bounds.width, opts.bounds.height);
+    // Three copies each axis so the floor continues across the portal seam.
+    const bw = opts.bounds.width;
+    const bh = opts.bounds.height;
+    for (let ix = -1; ix <= 1; ix++) {
+      for (let iy = -1; iy <= 1; iy++) {
+        ctx.fillRect(ix * bw, iy * bh, bw, bh);
+      }
+    }
     // Avarice gold road tint — measure lane readable on the map
     if (opts.cantoId === "inferno_07") {
       const road: [number, number][] = [
@@ -216,8 +224,8 @@ export class Radar {
     let objOn = false;
     let objFound = false;
     for (const e of opts.entities) {
-      const dxw = e.x - ux;
-      const dyw = e.y - uy;
+      const dxw = wrapDelta(e.x - ux, bw);
+      const dyw = wrapDelta(e.y - uy, bh);
       const dx = (dxw * rx + dyw * rz) * scale;
       const dy = -(dxw * fx + dyw * fz) * scale;
       const d = Math.hypot(dx, dy);
@@ -388,9 +396,14 @@ export class Radar {
     let objShown = false;
     let bossFight = false;
     this.objArrowFor = null;
+    const bw = opts.bounds.width;
+    const bh = opts.bounds.height;
     if (obj) {
-      const d = Math.hypot(obj.x - opts.you.x, obj.y - opts.you.y);
-      const p = this.projectEdge(opts.camera, obj.x, obj.y, vw, vh, padL, padT, padR, padB);
+      const plain = Math.hypot(obj.x - opts.you.x, obj.y - opts.you.y);
+      const odx = wrapDelta(obj.x - opts.you.x, bw);
+      const ody = wrapDelta(obj.y - opts.you.y, bh);
+      const d = Math.hypot(odx, ody);
+      const p = this.projectEdge(opts.camera, opts.you.x + odx, opts.you.y + ody, vw, vh, padL, padT, padR, padB);
       // On screen and close: the world label / beacon carries it
       // (gate labels show name + distance to GATE_LABEL_RANGE; past that the arrow is the label)
       // Only when the target is on screen below the top HUD band, with room above it for
@@ -402,7 +415,8 @@ export class Radar {
       const hide = labelClear && (obj.open || d <= (obj.kind === "gate" ? GATE_LABEL_RANGE : 16));
       objShown = !hide;
       if (objShown) this.objArrowFor = obj.id;
-      bossFight = obj.entity?.kind === "boss" && d < 24;
+      // A boss across the seam is not this fight — plain distance, not the wrap.
+      bossFight = obj.entity?.kind === "boss" && plain < 24;
       // (a boss's fight is a boss fight whatever the objective points at — the bell…)
       if (!bossFight) {
         for (const e of opts.entities) {
@@ -428,7 +442,7 @@ export class Radar {
         if (e.kind !== "mob" && e.kind !== "boss") continue;
         if (e.hp != null && e.hp <= 0) continue;
         if (obj && String(e.id) === obj.id) continue;
-        const d = Math.hypot(e.x - opts.you.x, e.y - opts.you.y);
+        const d = Math.hypot(wrapDelta(e.x - opts.you.x, bw), wrapDelta(e.y - opts.you.y, bh));
         if (d < foeD) {
           foeD = d;
           foe = e;
@@ -437,7 +451,9 @@ export class Radar {
     }
     const fa = this.arrow("foe");
     if (foe) {
-      const p = this.projectEdge(opts.camera, foe.x, foe.y, vw, vh, padL, padT, padR, padB);
+      const fdx = wrapDelta(foe.x - opts.you.x, bw);
+      const fdy = wrapDelta(foe.y - opts.you.y, bh);
+      const p = this.projectEdge(opts.camera, opts.you.x + fdx, opts.you.y + fdy, vw, vh, padL, padT, padR, padB);
       const label = foe.kind === "boss" ? "Boss" : foe.champion ? "Elite" : "Foe";
       let fx = p.x;
       let fy = p.y;

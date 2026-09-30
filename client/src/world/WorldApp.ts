@@ -92,6 +92,8 @@ import {
 import { applyEquippedLook, equipLookKey } from "./gearLook";
 import { planEquipBest } from "../items/score";
 import { buildGround, type GroundRig } from "./ground";
+import { buildEdgeVeil, type EdgeVeil } from "./edgeVeil";
+import { wrapCoord, wrapDelta } from "./wrap";
 import {
   AshField,
   makeBolt,
@@ -296,6 +298,7 @@ export class WorldApp {
   clock = new THREE.Clock();
   mats: MatKit | null = null;
   ground: GroundRig | null = null;
+  edgeVeil: EdgeVeil | null = null;
   trees: THREE.Object3D[] = [];
   ash: AshField | null = null;
   hemi: THREE.HemisphereLight;
@@ -402,6 +405,8 @@ export class WorldApp {
   moveFeel: MoveFeelOut = { speedMul: 1, accelMul: 1, driftX: 0, driftY: 0 };
   /** shove displacement not yet applied (forces.displacement), consumed by integrateVelocity */
   _fv: Vec2 = { x: 0, y: 0 };
+  /** Reused velocity for reconcileLocal (no per-substep alloc). */
+  _reconVel: Vec2 = { x: 0, y: 0 };
   _fd: Vec2 = { x: 0, y: 0 };
   /** Canto mechanic collide() scratch (no allocation per move substep). */
   _mechP: Vec2 = { x: 0, y: 0 };
@@ -930,6 +935,7 @@ export class WorldApp {
     if (tier === this.gfx.tier) return;
     const flags = flagsFor(tier, isCompactUi());
     this.gfx = flags;
+    this.edgeVeil?.setTier(tier);
     this.governor.setFlags(flags);
     this.renderer.shadowMap.enabled = flags.shadows;
     this.sun.castShadow = flags.shadows;
@@ -1268,6 +1274,10 @@ export class WorldApp {
     return this.renderYou;
   }
 
+  bounds(): { width: number; height: number } | null {
+    return this.room?.bounds ?? null;
+  }
+
   entityRenderPos(e: { id: string; x: number; y: number }): Vec2 {
     // (the entity itself is the fallback: no allocation; callers only read it)
     return this.interp.pos(String(e.id), e);
@@ -1400,11 +1410,13 @@ export class WorldApp {
       else if (this.moveTarget) this.advanceTapMove(h);
       else this.integrateVelocity(h, false);
 
-      this.renderYou = reconcileLocal(this.renderYou, this.serverYou, h, this.predicting, {
-        x: this.velX,
-        y: this.velY,
-      });
-      if (pinned) this.renderYou = { x: pinned.x, y: pinned.y };
+      this._reconVel.x = this.velX;
+      this._reconVel.y = this.velY;
+      reconcileLocal(this.renderYou, this.serverYou, h, this.predicting, this._reconVel, this.room.bounds);
+      if (pinned) {
+        this.renderYou.x = pinned.x;
+        this.renderYou.y = pinned.y;
+      }
     }
 
     // Mobs + remote pilgrims: interpolated ~one snapshot behind the server clock
@@ -1605,7 +1617,14 @@ export class WorldApp {
       nx = cp.x;
       ny = cp.y;
     }
-    this.renderYou = this.clampToBounds(nx, ny);
+    const wb = this.room?.bounds;
+    if (wb && wb.width > 0 && wb.height > 0) {
+      this.renderYou.x = wrapCoord(nx, wb.width);
+      this.renderYou.y = wrapCoord(ny, wb.height);
+    } else {
+      this.renderYou.x = nx;
+      this.renderYou.y = ny;
+    }
     this.predicting = true;
     this.sendMoveThrottled(this.renderYou.x, this.renderYou.y);
   }
@@ -1649,6 +1668,19 @@ export class WorldApp {
     tickCamLead(this.camLead, this.velX, this.velY, dt, compact);
     this.camTarget.x += this.camLead.x;
     this.camTarget.z += this.camLead.z;
+    // A wrap jumps renderYou to the far edge. Shift the follow point by the same
+    // offset before the lerp, or the camera pans across the whole canto.
+    const camB = this.room?.bounds;
+    if (camB && camB.width > 0) {
+      const cdx = this.camTarget.x - this.camFollow.x;
+      if (cdx > camB.width * 0.5) this.camFollow.x += camB.width;
+      else if (cdx < -camB.width * 0.5) this.camFollow.x -= camB.width;
+    }
+    if (camB && camB.height > 0) {
+      const cdz = this.camTarget.z - this.camFollow.z;
+      if (cdz > camB.height * 0.5) this.camFollow.z += camB.height;
+      else if (cdz < -camB.height * 0.5) this.camFollow.z -= camB.height;
+    }
     const rate = compact ? CAM_LERP_MOBILE : CAM_LERP_DESKTOP;
     this.camFollow.lerp(this.camTarget, expAlpha(rate, dt));
     // Crush dais: lift look + floor so the camera clears the raised measure
@@ -1698,6 +1730,10 @@ export class WorldApp {
       this.camera.fov = baseFov;
       this.camera.updateProjectionMatrix();
       this.camFovKick = 0;
+    }
+    if (this.edgeVeil) {
+      this.edgeVeil.setTime(this.animT * 0.001);
+      this.edgeVeil.setHero(this.renderYou.x, this.renderYou.y);
     }
     if (this.gradePass) this.gradePass.flash.value = this.hitFlashAmt;
     this.hitFlashAmt = this.hitFlashAmt > 0.004 ? this.hitFlashAmt * Math.exp(-dt * 8.5) : 0;
@@ -2423,8 +2459,10 @@ export class WorldApp {
       const ud = rec.group.userData;
       const stepS = ud.gaitT == null ? 0 : Math.min(0.1, Math.max(0, (this.animT - ud.gaitT) / 1000));
       if (stepS > 0) {
-        const dx = pos.x - ud.gaitX;
-        const dy = pos.y - ud.gaitY;
+        const bw = this.room.bounds.width;
+        const bh = this.room.bounds.height;
+        const dx = wrapDelta(pos.x - ud.gaitX, bw);
+        const dy = wrapDelta(pos.y - ud.gaitY, bh);
         const jump = Math.hypot(dx, dy);
         if (jump < 3) {
           // (a larger step is a snap/teleport, not a stride)
@@ -3042,6 +3080,11 @@ export class WorldApp {
 
   rebuildGround() {
     if (!this.room || !this.mats) return;
+    if (this.edgeVeil) {
+      this.scene.remove(this.edgeVeil.group);
+      this.edgeVeil.dispose();
+      this.edgeVeil = null;
+    }
     if (this.ground) {
       this.scene.remove(this.ground.group);
       // Per-build geometry/materials go; kit materials, cached prop parts and textures stay
@@ -3060,6 +3103,8 @@ export class WorldApp {
     if (this.room.cantoId === "inferno_01") keepouts.push({ x: 64, y: 72, r: 4.8 });
     this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
     this.scene.add(this.ground.group);
+    this.edgeVeil = buildEdgeVeil(this.room.bounds, this.gfx.tier);
+    this.scene.add(this.edgeVeil.group);
     this.trees = [];
     this.propAnims = [];
     this.ground.group.traverse((o) => {
@@ -3218,6 +3263,8 @@ export class WorldApp {
         const first = this.lastCantoId == null;
         this.lastCantoId = msg.room.cantoId;
         this.serverYou = { x: sx, y: sy };
+        const bb = msg.room.bounds;
+        if (bb) this.interp.setBounds(Number(bb.width) || 0, Number(bb.height) || 0);
         if (import.meta.env.DEV) {
           (window as unknown as { __selvaWorldReady?: boolean }).__selvaWorldReady = true;
         }
@@ -4339,14 +4386,18 @@ export class WorldApp {
     const ny = this.aimY / len;
     // (a canto's ground may shorten it — the server's dashScale hook agrees)
     const step = 5.5 * (this.mech.dashScale?.(this) ?? 1);
-    // Same clamp as the server (room.handleDash): it teleports, we tween there
+    // Unwrapped end, same as the server. adjustDash may push it further; then wrap.
     const b = this.room?.bounds;
     const to = {
-      x: b ? Math.max(2, Math.min(b.width - 2, this.renderYou.x + nx * step)) : this.renderYou.x + nx * step,
-      y: b ? Math.max(2, Math.min(b.height - 2, this.renderYou.y + ny * step)) : this.renderYou.y + ny * step,
+      x: this.renderYou.x + nx * step,
+      y: this.renderYou.y + ny * step,
     };
     // Canto mechanic: wind / obstacles move the end (server room.handleDash mirrors it)
     this.mech.adjustDash?.(this, this.renderYou, to, nx, ny);
+    if (b && b.width > 0 && b.height > 0) {
+      to.x = wrapCoord(to.x, b.width);
+      to.y = wrapCoord(to.y, b.height);
+    }
     this.moveTarget = null;
     if (this.heroMotor) this.heroMotor.startDash(this.renderYou, to);
     else this.renderYou = { x: to.x, y: to.y };

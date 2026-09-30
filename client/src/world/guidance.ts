@@ -11,6 +11,7 @@ import { mechFor } from "./cantoMech";
 import { cantoName, GATE_LABEL_RANGE, gateState, gateTitle, lockReason, type GateState } from "./gates";
 import { makeBeaconMaterial, setPortalGateVisual, tickPortalMaterials } from "./meshes";
 import { CAM_FACE_YAW, setPlanar } from "./frames";
+import { wrapDelta } from "./wrap";
 import { isCompactUi, setQuestLine } from "../ui/hud";
 
 const OBJECTIVE_EVERY_MS = 100;
@@ -124,7 +125,14 @@ export class Guidance {
     }
     const t = o.target;
     if (!t) return "";
-    const d = Math.round(Math.hypot(t.x - app.renderYou.x, t.y - app.renderYou.y));
+    const b = app.room?.bounds;
+    let dx = t.x - app.renderYou.x;
+    let dy = t.y - app.renderYou.y;
+    if (b && b.width > 0 && b.height > 0) {
+      dx = wrapDelta(dx, b.width);
+      dy = wrapDelta(dy, b.height);
+    }
+    const d = Math.round(Math.hypot(dx, dy));
     return `${t.label} · ${d}m`;
   }
 

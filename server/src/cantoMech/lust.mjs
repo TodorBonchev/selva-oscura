@@ -48,6 +48,7 @@
  *   telegraph kinds "minos_coil" (circle, then rings), "minos_sentence" (line) and
  *   "bufera_strike" (line from upwind, attacker "mech:bufera", cut short at a rock)
  */
+import { wrapCoord } from "../wrap.mjs";
 import { rollDrops } from "../loot.mjs";
 import { pointInShape } from "../telegraph.mjs";
 import { bodyRadius, brake, chase, startAttack, walkTo } from "../mobAi.mjs";
@@ -280,11 +281,11 @@ function driftIdlePlayers(room, L, dt) {
     if (inLee(L.wb, L.wx, L.wy, s.x, s.y)) continue;
     const k = PLAYER_DRIFT * L.str * dt;
     const p = L._p;
-    p.x = clamp(s.x + L.wx * k, 0.5, b.width - 0.5);
-    p.y = clamp(s.y + L.wy * k, 0.5, b.height - 0.5);
+    p.x = wrapCoord(s.x + L.wx * k, b.width);
+    p.y = wrapCoord(s.y + L.wy * k, b.height);
     pushOutOfRocks(L.wb, p, PLAYER_PAD);
-    s.x = p.x;
-    s.y = p.y;
+    s.x = wrapCoord(p.x, b.width);
+    s.y = wrapCoord(p.y, b.height);
     room.markDirty();
   }
 }
@@ -1173,15 +1174,15 @@ export default {
   adjustDash(room, sess, fromX, fromY, toX, toY, dx, dy) {
     const L = state(room);
     if (!L) return null;
-    const b = room.canto.geo.bounds;
     let tx = toX;
     let ty = toY;
     if (L.str > 0.05 && !inLee(L.wb, L.wx, L.wy, fromX, fromY)) {
       const a = dx * L.wx + dy * L.wy;
       if (a > 0) {
         const extra = 5.5 * DASH_DOWNWIND * a * Math.min(1, L.str);
-        tx = clamp(tx + dx * extra, 2, b.width - 2);
-        ty = clamp(ty + dy * extra, 2, b.height - 2);
+        // Room wraps the end. Leave it unwrapped so the rock sweep stays one segment.
+        tx += dx * extra;
+        ty += dy * extra;
       }
     }
     const t = sweepRocks(L.wb, fromX, fromY, tx, ty, PLAYER_PAD);

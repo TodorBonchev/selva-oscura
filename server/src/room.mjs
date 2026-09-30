@@ -39,6 +39,7 @@ import {
   walkTo,
 } from "./mobAi.mjs";
 import { getMech } from "./cantoMech/index.mjs";
+import { wrapCoord, wrapDelta } from "./wrap.mjs";
 
 const ATTACK_RANGE = 3.5;
 /** Generous loot / POI reach so mobile players rarely see "Too far". */
@@ -692,15 +693,20 @@ class CantoRoom {
       x = s.x;
       y = s.y;
     }
-    const dx = x - s.x;
-    const dy = y - s.y;
+    // Shortest step on the torus, so a client that already wrapped (x≈0.3, s.x≈159.8)
+    // is a tiny step, not a teleport. The budget spends that delta.
+    let dx = wrapDelta(x - s.x, b.width);
+    let dy = wrapDelta(y - s.y, b.height);
     const d = Math.hypot(dx, dy);
     const allow = FREE_MOVE ? MOVE_SPEED : Math.min(MOVE_SPEED, budget + credit);
-    if (d > allow) {
+    if (d > allow && d > 0) {
       const k = allow / d;
-      x = s.x + dx * k;
-      y = s.y + dy * k;
+      dx *= k;
+      dy *= k;
     }
+    // Unwrapped end: canto adjustMove (rocks, mire) sees a continuous segment.
+    x = s.x + dx;
+    y = s.y + dy;
     if (this.mech.adjustMove) {
       const to = this.mech.adjustMove(this, s, { x: s.x, y: s.y }, { x, y }, dtMove);
       if (to && Number.isFinite(to.x) && Number.isFinite(to.y)) {
@@ -713,17 +719,11 @@ class CantoRoom {
     const useCredit = Math.min(credit, moved);
     s.shoveAllow = Math.max(0, credit - useCredit - PLAYER_WALK_SPEED * dtMove);
     s._moveBudget = Math.max(0, budget - (moved - useCredit));
-    let nx = clamp(x, 0.5, b.width - 0.5);
-    let ny = clamp(y, 0.5, b.height - 0.5);
-    const mdx = nx - s.x;
-    const mdy = ny - s.y;
-    if (Math.hypot(mdx, mdy) > 0.05) {
-      const ml = Math.hypot(mdx, mdy) || 1;
-      s._lastFaceX = mdx / ml;
-      s._lastFaceY = mdy / ml;
-    }
+    let nx = x;
+    let ny = y;
     // Bodies: pilgrims slide around foes instead of walking through them (every canto;
     // the client predicts the same push-out). Bell-stilled foes can be walked through.
+    // Push stays in unwrapped space (mobs are inside the bounds); the result wraps.
     for (const e of this.entities.values()) {
       if ((e.kind !== "mob" && e.kind !== "boss") || !(e.hp > 0)) continue;
       if ((e.stunLeft || 0) > 0.05) continue;
@@ -733,12 +733,19 @@ class CantoRoom {
       if (Math.abs(ex) >= rad || Math.abs(ey) >= rad) continue;
       const dR = Math.hypot(ex, ey);
       if (dR >= rad || dR < 0.001) continue;
-      nx = clamp(e.x + (ex / dR) * rad, 0.5, b.width - 0.5);
-      ny = clamp(e.y + (ey / dR) * rad, 0.5, b.height - 0.5);
+      nx = e.x + (ex / dR) * rad;
+      ny = e.y + (ey / dR) * rad;
     }
     if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
-    s.x = nx;
-    s.y = ny;
+    const mdx = nx - s.x;
+    const mdy = ny - s.y;
+    if (Math.hypot(mdx, mdy) > 0.05) {
+      const ml = Math.hypot(mdx, mdy) || 1;
+      s._lastFaceX = mdx / ml;
+      s._lastFaceY = mdy / ml;
+    }
+    s.x = wrapCoord(nx, b.width);
+    s.y = wrapCoord(ny, b.height);
     this.markDirty();
   }
 
@@ -1265,28 +1272,31 @@ class CantoRoom {
     const b = this.canto.geo.bounds;
     const fromX = s.x;
     const fromY = s.y;
-    s.x = Math.max(2, Math.min(b.width - 2, s.x + dx * step));
-    s.y = Math.max(2, Math.min(b.height - 2, s.y + dy * step));
+    // Unwrapped end so the sweep and adjustDash see one straight segment. Wrapped after.
+    let ux = fromX + dx * step;
+    let uy = fromY + dy * step;
     // Canto mechanic: where the dash really ends (wind, obstacles) — the client's
     // CantoMech.adjustDash predicts the same
     if (this.mech.adjustDash) {
-      const to = this.mech.adjustDash(this, s, fromX, fromY, s.x, s.y, dx, dy);
+      const to = this.mech.adjustDash(this, s, fromX, fromY, ux, uy, dx, dy);
       if (to && Number.isFinite(to.x) && Number.isFinite(to.y)) {
-        s.x = to.x;
-        s.y = to.y;
+        ux = to.x;
+        uy = to.y;
       }
     }
     s._lastFaceX = dx;
     s._lastFaceY = dy;
-    if (!Number.isFinite(s.x) || !Number.isFinite(s.y)) {
+    if (!Number.isFinite(ux) || !Number.isFinite(uy)) {
       s.x = fromX;
       s.y = fromY;
+      ux = fromX;
+      uy = fromY;
     }
     s.iframes = Math.max(s.iframes || 0, 0.35);
     s.dashCd = DASH_CD;
     s.dashReadyAt = Math.max(now, s.dashReadyAt || 0) + DASH_CD * 1000;
-    const segX = s.x - fromX;
-    const segY = s.y - fromY;
+    const segX = ux - fromX;
+    const segY = uy - fromY;
     const segL2 = segX * segX + segY * segY || 1;
     let cut = 0;
     for (const e of [...this.entities.values()]) {
@@ -1308,6 +1318,8 @@ class CantoRoom {
     }
     // A plain dash needs no words; a dash that cuts foes says how many
     if (cut) this.toast(s.ws, "loot", `Dash cuts ${cut}`);
+    s.x = wrapCoord(ux, b.width);
+    s.y = wrapCoord(uy, b.height);
     this.markDirty();
     this.pushSnapshot(playerId);
   }
@@ -1724,8 +1736,8 @@ class CantoRoom {
     if (!sess || !(sess.hp > 0)) return;
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
     const b = this.canto.geo.bounds;
-    sess.x = clamp(sess.x + dx, 0.5, b.width - 0.5);
-    sess.y = clamp(sess.y + dy, 0.5, b.height - 0.5);
+    sess.x = wrapCoord(sess.x + dx, b.width);
+    sess.y = wrapCoord(sess.y + dy, b.height);
     sess.shoveAllow = (sess.shoveAllow || 0) + Math.hypot(dx, dy);
     this.send(sess.ws, { type: "shove", dx: +dx.toFixed(3), dy: +dy.toFixed(3), dur: Math.round(durMs) });
     this.markDirty();

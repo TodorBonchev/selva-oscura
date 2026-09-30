@@ -280,7 +280,8 @@ export function buildGround(
   group.add(fogRing);
 
   const blocked = (x: number, z: number, r: number) => {
-    if (x < 4 || z < 4 || x > w - 4 || z > h - 4) return true;
+    // Portal seam: keep decorative props off the walk-through (~6u).
+    if (x < 6 || z < 6 || x > w - 6 || z > h - 6) return true;
     for (const k of keepouts) {
       if (Math.hypot(x - k.x, z - k.y) < k.r + r) return true;
     }
@@ -858,6 +859,7 @@ export function buildGround(
         const south = i % 2 === 0;
         const x = 16 + hash(i, 101) * (w - 32);
         const z = south ? 10 + hash(i, 102) * 10 : h - 20 + hash(i, 103) * 10;
+        if (x < 8 || z < 8 || x > w - 8 || z > h - 8) continue;
         if (blocked(x, z, 2.0)) continue;
         if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.5)) continue;
         _p.set(x, heightAt(x, z) + 0.16, z);
