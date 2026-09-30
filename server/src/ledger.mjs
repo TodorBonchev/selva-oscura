@@ -217,10 +217,11 @@ async function persistGlobalBossCap() {
   );
 }
 
-export async function persistItem(ownerId, item, location = "inventory") {
+export async function persistItem(ownerId, item, location = "inventory", client = null) {
   if (!dbEnabled()) return;
   const loc = item.equipSlot ? "equipped" : location;
-  await query(
+  const q = client ? client.query.bind(client) : query;
+  await q(
     `INSERT INTO inventory_items (
        id, owner_id, location, name, rarity, item_pool, seed, affixes, soulbound, qty,
        equipped_slot, base_id, slot
@@ -606,6 +607,8 @@ export function vendorAsh(item) {
  * Melt every bag item (not worn gear) into Ash and delete the rows.
  * @returns {Promise<{ ok: boolean, reason?: string, count?: number, ash?: number }>}
  */
+const salvaging = new Set();
+
 export async function salvageBag(playerId) {
   const p = players.get(playerId);
   if (!p) return { ok: false, reason: "no_player" };
@@ -620,17 +623,30 @@ export async function salvageBag(playerId) {
     }
   }
   if (!sold.length) return { ok: false, reason: "empty" };
-  const prevInv = p.inventory;
-  const prevAsh = p.ash;
-  p.inventory = keep;
-  p.ash += ash;
+  // One melt at a time per pilgrim: a double-tap must not credit the same bag twice.
+  if (salvaging.has(playerId)) return { ok: false, reason: "busy" };
+  salvaging.add(playerId);
+  const soldIds = new Set(sold.map((it) => it.id));
   try {
-    await persistPlayerRow(p);
-    for (const it of sold) await removeItemRow(it.id);
-  } catch (err) {
-    p.inventory = prevInv;
-    p.ash = prevAsh;
-    throw err;
+    if (dbEnabled()) {
+      // Ash credit and row deletes commit together (or not at all).
+      await withTransaction(async (client) => {
+        const upd = await client.query(
+          `UPDATE players SET ash = ash + $2, updated_at = NOW() WHERE id = $1`,
+          [playerId, ash]
+        );
+        if (!upd.rowCount) throw new Error("player_missing");
+        await client.query(
+          `DELETE FROM inventory_items WHERE id = ANY($1::text[]) AND owner_id = $2`,
+          [[...soldIds], playerId]
+        );
+      });
+    }
+    // Memory after COMMIT; filter the live bag so a pickup during the await survives.
+    p.inventory = (p.inventory || []).filter((it) => !soldIds.has(it.id));
+    p.ash += ash;
+  } finally {
+    salvaging.delete(playerId);
   }
   return { ok: true, count: sold.length, ash };
 }
@@ -686,15 +702,22 @@ export async function equipItem(playerId, itemId) {
   // Older rows may lack `slot`; infer from baseId / name.
   const slot = contentSlotToEquip(inferContentSlot(item));
   if (!slot) return { ok: false, reason: "not_equippable" };
-  // Unequip existing in that slot
+  const displaced = [];
   for (const other of p.inventory) {
-    if (other.equipSlot === slot && other.id !== item.id) {
-      other.equipSlot = null;
-      await persistItem(playerId, other, "inventory");
-    }
+    if (other.equipSlot === slot && other.id !== item.id) displaced.push(other);
   }
+  // Writes share one transaction. Memory changes only after it commits,
+  // so a unique-index or connection failure leaves the worn set as it was.
+  if (dbEnabled()) {
+    await withTransaction(async (client) => {
+      for (const other of displaced) {
+        await persistItem(playerId, { ...other, equipSlot: null }, "inventory", client);
+      }
+      await persistItem(playerId, { ...item, equipSlot: slot }, "equipped", client);
+    });
+  }
+  for (const other of displaced) other.equipSlot = null;
   item.equipSlot = slot;
-  await persistItem(playerId, item, "equipped");
   return { ok: true, item, slot, gearStats: computeGearStats(p) };
 }
 

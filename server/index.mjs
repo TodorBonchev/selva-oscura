@@ -177,6 +177,13 @@ setInterval(() => {
   world.pruneResumes(now);
 }, HEARTBEAT_MS);
 
+/** Refresh purses of other pilgrims an AH trade paid or refunded (seller, outbid bidder). */
+function pushTouched(ids, self) {
+  for (const id of ids || []) {
+    if (id !== self) world.getRoom(id)?.pushSnapshot(id);
+  }
+}
+
 async function handleMessage(ws, meta, msg) {
   const { playerId } = meta;
 
@@ -298,6 +305,7 @@ async function handleMessage(ws, meta, msg) {
         });
         send(ws, { type: "ah_listings", listings: ah.getListings() });
         world.getRoom(playerId)?.pushSnapshot(playerId);
+        pushTouched(r.touched, playerId);
       }
       break;
     }
@@ -313,6 +321,7 @@ async function handleMessage(ws, meta, msg) {
         });
         send(ws, { type: "ah_listings", listings: ah.getListings() });
         world.getRoom(playerId)?.pushSnapshot(playerId);
+        pushTouched(r.touched, playerId);
       }
       break;
     }
@@ -324,6 +333,23 @@ async function handleMessage(ws, meta, msg) {
         send(ws, { type: "toast", level: "info", text: `Bid ${msg.bidAsh} Ash placed` });
         send(ws, { type: "ah_listings", listings: ah.getListings() });
         world.getRoom(playerId)?.pushSnapshot(playerId);
+        pushTouched(r.touched, playerId);
+      }
+      break;
+    }
+    case "ah_cancel": {
+      const r = await ah.cancelListing(playerId, String(msg.listingId));
+      if (!r.ok) {
+        send(ws, { type: "error", code: r.reason, message: `AH cancel failed: ${r.reason}` });
+      } else {
+        send(ws, {
+          type: "toast",
+          level: "info",
+          text: `Cancelled listing: ${r.listing.item.name}`,
+        });
+        send(ws, { type: "ah_listings", listings: ah.getListings() });
+        world.getRoom(playerId)?.pushSnapshot(playerId);
+        pushTouched(r.touched, playerId);
       }
       break;
     }

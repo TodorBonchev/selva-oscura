@@ -1345,6 +1345,7 @@ class CantoRoom {
       this.toast(s.ws, "warn", "Could not melt the bag. Try again.");
       return;
     }
+    if (!r.ok && r.reason === "busy") return; // a melt is already in flight
     if (!r.ok) {
       this.toast(s.ws, "warn", "Nothing in the bag to melt. Worn gear stays on you.");
       return;

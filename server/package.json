@@ -2,15 +2,16 @@
   "name": "selva-oscura-server",
   "version": "0.1.0",
   "private": true,
-  "description": "Authoritative Selva Oscura game server — rooms, Ash ledger, D2 loot, off-chain AH",
+  "description": "Authoritative Selva Oscura game server \u2014 rooms, Ash ledger, D2 loot, off-chain AH",
   "type": "module",
   "scripts": {
     "dev": "node index.mjs",
     "start": "node index.mjs",
     "db": "node scripts/local-db.mjs",
     "dev:local": "node scripts/local-db.mjs",
-    "typecheck": "echo \"JS ESM server — no tsc\"",
-    "migrate": "node scripts/migrate.mjs"
+    "typecheck": "echo \"JS ESM server \u2014 no tsc\"",
+    "migrate": "node scripts/migrate.mjs",
+    "test:pg": "node scripts/pg-ah-regression.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",
