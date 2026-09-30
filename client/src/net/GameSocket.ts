@@ -203,6 +203,9 @@ export class GameSocket {
   ahBid(listingId: string, bidAsh: number) {
     this.send({ type: "ah_bid", listingId, bidAsh });
   }
+  ahCancel(listingId: string) {
+    this.send({ type: "ah_cancel", listingId });
+  }
   claimDaily() {
     this.send({ type: "claim_daily" });
   }

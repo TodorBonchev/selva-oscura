@@ -632,42 +632,132 @@ export function setTargetPlate(
   }
 }
 
-export function renderAh(
-  listings: any[],
-  onBuy: (id: string) => void,
-  onBid: (id: string) => void,
-  ash = 0
-) {
+/** Last AH payload. Filter changes repaint #ah-list only — the toolbar stays put. */
+let ahListings: any[] = [];
+let ahOnBuy: (id: string) => void = () => {};
+let ahOnBid: (id: string) => void = () => {};
+let ahOnCancel: (id: string) => void = () => {};
+let ahAsh = 0;
+let ahMyId: string | null = null;
+let ahFiltersWired = false;
+
+const AH_SLOT_LABEL: Record<string, string> = {
+  Head: "Head",
+  Chest: "Chest",
+  Hands: "Hands",
+  Feet: "Feet",
+  MainHand: "Main hand",
+  OffHand: "Off hand",
+  Other: "Other",
+};
+
+function ahSlotKey(item: any): string {
+  if (!item) return "Other";
+  return wearSlotFor(item) || "Other";
+}
+
+/** Primary key, then price, name, id. */
+function compareAhListings(a: any, b: any, mode: string): number {
+  const pa = Number(a?.priceAsh) || 0;
+  const pb = Number(b?.priceAsh) || 0;
+  const sa = itemScore(a?.item);
+  const sb = itemScore(b?.item);
+  let primary = 0;
+  if (mode === "price_desc") primary = pb - pa;
+  else if (mode === "score_desc") primary = sb - sa;
+  else if (mode === "score_asc") primary = sa - sb;
+  else primary = pa - pb;
+  if (primary) return primary;
+  if (pa !== pb) return pa - pb;
+  const name = String(a?.item?.name || "").localeCompare(String(b?.item?.name || ""));
+  if (name) return name;
+  return String(a?.id || "").localeCompare(String(b?.id || ""));
+}
+
+function readAhFilters(): { q: string; slot: string; sort: string } {
+  const q =
+    (document.getElementById("ah-search") as HTMLInputElement | null)?.value.trim().toLowerCase() ||
+    "";
+  const slot = (document.getElementById("ah-slot") as HTMLSelectElement | null)?.value || "";
+  const sort = (document.getElementById("ah-sort") as HTMLSelectElement | null)?.value || "price_asc";
+  return { q, slot, sort };
+}
+
+function ensureAhFilters() {
+  if (ahFiltersWired) return;
+  const search = document.getElementById("ah-search");
+  const slot = document.getElementById("ah-slot");
+  const sort = document.getElementById("ah-sort");
+  if (!search || !slot || !sort) return;
+  const rerender = () => paintAhList(false);
+  search.addEventListener("input", rerender);
+  search.addEventListener("search", rerender);
+  slot.addEventListener("change", rerender);
+  sort.addEventListener("change", rerender);
+  ahFiltersWired = true;
+}
+
+function paintAhList(pulse: boolean) {
   const list = document.getElementById("ah-list");
   if (!list) return;
-  list.innerHTML = "";
+  const { q, slot, sort } = readAhFilters();
+  list.replaceChildren();
   const purse = document.createElement("li");
   purse.className = "ah-purse";
-  purse.textContent = `Your purse · ${ash.toLocaleString()} Ash`;
+  purse.textContent = `Your purse · ${ahAsh.toLocaleString()} Ash`;
   list.appendChild(purse);
-  if (!listings.length) {
+
+  const total = ahListings.length;
+  if (!total) {
     const empty = document.createElement("li");
     empty.className = "ah-empty";
     empty.textContent = "No listings. Melt trash for Ash, or list a bag item with a price.";
     list.appendChild(empty);
     return;
   }
-  const sorted = [...listings].sort((a, b) => Number(a.priceAsh) - Number(b.priceAsh));
-  for (const L of sorted) {
+
+  const shown = ahListings.filter((L) => {
+    if (slot && ahSlotKey(L.item) !== slot) return false;
+    if (q && !String(L.item?.name || "").toLowerCase().includes(q)) return false;
+    return true;
+  });
+  shown.sort((a, b) => compareAhListings(a, b, sort));
+
+  const count = document.createElement("li");
+  count.className = "ah-count";
+  count.textContent = `${shown.length} of ${total} lots`;
+  list.appendChild(count);
+
+  if (!shown.length) {
+    const empty = document.createElement("li");
+    empty.className = "ah-empty";
+    empty.textContent = "No lots match your search.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const L of shown) {
     const li = document.createElement("li");
-    li.className = `ah-row ah-loot-pulse ${rarityClass(L.item?.rarity)}`;
+    li.className = `ah-row${pulse ? " ah-loot-pulse" : ""} ${rarityClass(L.item?.rarity)}`;
     const rarity = RARITY_LABEL[L.item?.rarity] || L.item?.rarity || "";
     const stats = L.item ? formatItemStats(itemStatBonus(L.item)) : "";
     const weighed = Boolean(L.item?.soulbound);
     const price = Number(L.priceAsh) || 0;
-    const canBuy = ash >= price;
+    const canBuy = ahAsh >= price;
+    const slotKey = ahSlotKey(L.item);
+    const slotLabel = AH_SLOT_LABEL[slotKey] || "Other";
+    const wearable = Boolean(L.item && wearSlotFor(L.item));
+    const scoreText = wearable ? `Score ${itemScore(L.item)}` : "\u2014";
     if (weighed) li.classList.add("ah-weighed");
     li.innerHTML = `
       <div class="ah-item">
         <span class="ah-seal" aria-hidden="true"></span>
         <div class="ah-text">
-          <div class="ah-name">${escapeHtml(L.item?.name)}${weighed ? `<span class="ah-weighed-tag" title="Soulbound — bank at stash, not transferable">Weighed</span>` : ""}</div>
-          <div class="ah-meta"><span class="ah-rarity">${escapeHtml(rarity)}</span>${weighed ? ` · <span class="ah-weighed-meta">soulbound</span>` : ""} · ${escapeHtml(L.sellerName)}${stats ? ` · ${escapeHtml(stats)}` : ""}</div>
+          <div class="ah-title">
+            <div class="ah-name">${escapeHtml(L.item?.name)}${weighed ? `<span class="ah-weighed-tag" title="Soulbound — bank at stash, not transferable">Weighed</span>` : ""}</div>
+            <span class="ah-score${wearable ? "" : " is-empty"}" title="${wearable ? "Gear score" : "Not wearable"}">${scoreText}</span>
+          </div>
+          <div class="ah-meta"><span class="ah-rarity">${escapeHtml(rarity)}</span> · <span class="ah-slot">${escapeHtml(slotLabel)}</span>${weighed ? ` · <span class="ah-weighed-meta">soulbound</span>` : ""} · ${escapeHtml(L.sellerName)}${stats ? ` · ${escapeHtml(stats)}` : ""}</div>
         </div>
       </div>
       <div class="ah-prices">
@@ -676,28 +766,71 @@ export function renderAh(
       </div>`;
     const row = document.createElement("div");
     row.className = "row ah-actions";
-    const buy = document.createElement("button");
-    buy.className = "btn-gold";
-    buy.textContent = canBuy ? "Buy" : "Need Ash";
-    buy.disabled = !canBuy;
-    buy.onclick = (e) => {
-      e.stopPropagation();
-      onBuy(L.id);
-    };
-    const floor = Math.max(Number(L.highestBidAsh) || 0, price);
-    const next = floor + Math.max(50, Math.round(floor * 0.1));
-    const bid = document.createElement("button");
-    bid.textContent = `Bid ${next.toLocaleString()}`;
-    bid.disabled = ash < next;
-    bid.title = "Raises the bid by about 10%";
-    bid.onclick = (e) => {
-      e.stopPropagation();
-      onBid(L.id);
-    };
-    row.append(buy, bid);
+    const mine = ahMyId != null && String(L.sellerId) === String(ahMyId);
+    if (mine) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      cancel.onclick = (e) => {
+        e.stopPropagation();
+        ahOnCancel(L.id);
+      };
+      row.append(cancel);
+    } else {
+      const buy = document.createElement("button");
+      buy.type = "button";
+      buy.className = "btn-gold";
+      buy.textContent = canBuy ? "Buy" : "Need Ash";
+      buy.disabled = !canBuy;
+      buy.onclick = (e) => {
+        e.stopPropagation();
+        ahOnBuy(L.id);
+      };
+      const floor = Math.max(Number(L.highestBidAsh) || 0, price);
+      const next = floor + Math.max(50, Math.round(floor * 0.1));
+      const bid = document.createElement("button");
+      bid.type = "button";
+      bid.textContent = `Bid ${next.toLocaleString()}`;
+      bid.disabled = ahAsh < next;
+      bid.title = "Raises the bid by about 10%";
+      bid.onclick = (e) => {
+        e.stopPropagation();
+        ahOnBid(L.id);
+      };
+      row.append(buy, bid);
+    }
     li.appendChild(row);
     list.appendChild(li);
   }
+}
+
+export function renderAh(
+  listings: any[],
+  onBuy: (id: string) => void,
+  onBid: (id: string) => void,
+  ash = 0,
+  myId: string | null = null,
+  onCancel: (id: string) => void = () => {}
+) {
+  ahListings = Array.isArray(listings) ? listings : [];
+  ahOnBuy = onBuy;
+  ahOnBid = onBid;
+  ahOnCancel = onCancel;
+  ahAsh = ash;
+  ahMyId = myId ?? null;
+  ensureAhFilters();
+  paintAhList(true);
+}
+
+/**
+ * Snapshot purse → AH. `ah_listings` lands before the post-trade snapshot, so the
+ * purse line and Buy/Bid gating would otherwise show the pre-trade balance.
+ */
+export function setAhPurse(ash: number) {
+  const next = Number(ash) || 0;
+  if (next === ahAsh) return;
+  ahAsh = next;
+  if (ahFiltersWired && isPanelOpen("ah")) paintAhList(false);
 }
 
 /** Is a panel (e.g. "inventory") currently shown? */

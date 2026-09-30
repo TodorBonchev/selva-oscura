@@ -6,6 +6,7 @@ import {
   updateStats,
   renderInventory,
   renderAh,
+  setAhPurse,
   getSelectedItemId,
   getSelectedItemSource,
   isStashMode,
@@ -1089,7 +1090,13 @@ export class WorldApp {
   bindInput() {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
       this.keys.add(e.code);
       if (e.code === "KeyI") togglePanel("inventory");
       if (e.code === "KeyH") {
@@ -3203,6 +3210,7 @@ export class WorldApp {
         updateStats(msg.room.you, msg.room.title, msg.room.subtitleIt || msg.room.subtitle_it);
         this.lastYouSnapshot = msg.room.you;
         this.refreshInventoryUi();
+        setAhPurse(Number(msg.room.you?.ash) || 0);
         this.noteNewInventoryLoot(msg.room.you);
         const sx = msg.room.you.x as number;
         const sy = msg.room.you.y as number;
@@ -3542,7 +3550,9 @@ export class WorldApp {
             const bid = floor + Math.max(50, Math.round(floor * 0.1));
             this.socket.ahBid(id, bid);
           },
-          Number(this.room?.you?.ash) || 0
+          Number(this.room?.you?.ash) || 0,
+          this.room?.you?.id ?? null,
+          (id) => this.socket.ahCancel(id)
         );
         setPanelOpen("ah", true);
         break;

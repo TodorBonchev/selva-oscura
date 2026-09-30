@@ -112,6 +112,25 @@
         <h2>Auction House</h2>
         <button type="button" class="btn-close" data-close="ah" aria-label="Close auction house">✕</button>
       </div>
+      <div class="ah-toolbar">
+        <input id="ah-search" type="search" placeholder="Search items" autocomplete="off" enterkeyhint="search" aria-label="Search items" />
+        <select id="ah-slot" aria-label="Filter by slot">
+          <option value="">All slots</option>
+          <option value="Head">Head</option>
+          <option value="Chest">Chest</option>
+          <option value="Hands">Hands</option>
+          <option value="Feet">Feet</option>
+          <option value="MainHand">Main hand</option>
+          <option value="OffHand">Off hand</option>
+          <option value="Other">Other</option>
+        </select>
+        <select id="ah-sort" aria-label="Sort lots">
+          <option value="price_asc" selected>Price ↑</option>
+          <option value="price_desc">Price ↓</option>
+          <option value="score_desc">Score ↓</option>
+          <option value="score_asc">Score ↑</option>
+        </select>
+      </div>
       <ul id="ah-list" class="ah-list"></ul>
       <div class="row row-end">
         <button id="btn-ah-refresh" type="button">Refresh</button>
