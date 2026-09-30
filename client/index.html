@@ -68,6 +68,7 @@
     <aside id="inventory" class="panel modal inv-panel hidden" aria-label="Inventory">
       <div class="panel-head">
         <h2>Inventory <em id="inv-count"></em></h2>
+        <button type="button" id="btn-inv-sort" class="btn-inv-filter btn-inv-sort" aria-pressed="true" title="Sort the bag by gear score">Sort: Score</button>
         <button type="button" id="btn-inv-weighed" class="btn-inv-filter" aria-pressed="false" title="Show weighed (soulbound) items only">Weighed</button>
         <button type="button" class="btn-close" data-close="inventory" aria-label="Close inventory">✕</button>
       </div>
@@ -95,6 +96,7 @@
         </div>
         <div class="row inv-actions">
           <button id="btn-stash" type="button" class="btn-gold hidden" disabled>Bank</button>
+          <button id="btn-equip-best" type="button" class="btn-gold" disabled title="Wear the highest-score item for each slot">Best equipped</button>
           <button id="btn-melt" type="button" class="btn-gold" disabled>Nothing to melt</button>
         </div>
         <div class="row inv-actions">

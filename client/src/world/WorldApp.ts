@@ -89,6 +89,7 @@ import {
   type KindKey,
 } from "./meshes";
 import { applyEquippedLook, equipLookKey } from "./gearLook";
+import { planEquipBest } from "../items/score";
 import { buildGround, type GroundRig } from "./ground";
 import {
   AshField,
@@ -419,6 +420,8 @@ export class WorldApp {
   animT = 0;
   lastCantoId: string | null = null;
   lastYouSnapshot: any = null;
+  /** In-flight "Equip best" batch: counts server equip replies to show one summary toast. */
+  equipBest: { left: number; ok: number; failed: number; timer: number } | null = null;
   nodes = new Map<string, NodeRec>();
   youGroup: THREE.Group | null = null;
   camTarget = new THREE.Vector3();
@@ -781,6 +784,22 @@ export class WorldApp {
         this.socket.unequip({ itemId: String(id) });
       },
       meltBag: () => this.socket.salvageBag(),
+      equipBest: () => {
+        const you = this.lastYouSnapshot;
+        if (!you) return;
+        const bag = (you.inventory || []).filter((it: any) => it && !it.equipSlot);
+        const plan = planEquipBest(bag, you.equipped || {});
+        if (!plan.length) {
+          showToast("Already wearing your best gear", "info");
+          return;
+        }
+        // One server-authoritative equip per slot (the server swaps the old piece to the bag).
+        // Per-slot "Equipped X → slot" replies fold into one summary toast.
+        this.finishEquipBest();
+        this.equipBest = { left: plan.length, ok: 0, failed: 0, timer: 0 };
+        this.equipBest.timer = window.setTimeout(() => this.finishEquipBest(), 3000);
+        for (const p of plan) this.socket.equip(String(p.item.id));
+      },
       stashSelected: () => {
         const id = getSelectedItemId();
         const src = getSelectedItemSource();
@@ -3404,7 +3423,16 @@ export class WorldApp {
         break;
       case "toast": {
         const text = String(msg.text || "");
-        showToast(text, msg.level);
+        const eb = this.equipBest;
+        const isEquipLine = /^pesato — equipped/i.test(text) || /^Equipped /i.test(text);
+        if (eb && (isEquipLine || /^Cannot equip/i.test(text))) {
+          if (isEquipLine) eb.ok++;
+          else {
+            eb.failed++;
+            showToast(text, msg.level);
+          }
+          if (--eb.left <= 0) this.finishEquipBest();
+        } else showToast(text, msg.level);
         if (/out of range|nothing to strike|no foe in range|lashes empty air/i.test(text)) resetCombo();
         if (/slain|you fall under the weight|wake at the ledger gate/i.test(text)) this.triggerDeathRevive();
         if (
@@ -3999,6 +4027,15 @@ export class WorldApp {
       }
       this.spawnHitFx({ x: bx, y: by }, 0xff5533, true);
     }
+  }
+
+  /** Close an "Equip best" batch with one toast (all replies in, or the 3 s fallback). */
+  finishEquipBest() {
+    const eb = this.equipBest;
+    if (!eb) return;
+    this.equipBest = null;
+    window.clearTimeout(eb.timer);
+    if (eb.ok > 0) showToast(`Equipped ${eb.ok} upgrade${eb.ok === 1 ? "" : "s"}`, "loot");
   }
 
   /**

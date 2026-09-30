@@ -6,6 +6,15 @@ import {
   type EquipSlot,
 } from "../items/icons";
 import { formatItemStats, itemStatBonus, itemStatsHtml, slotLabelForItem, vendorAsh } from "../items/stats";
+import {
+  compareByScore,
+  formatDelta,
+  itemScore,
+  planEquipBest,
+  rarityRank,
+  scoreDelta,
+  wearSlotFor,
+} from "../items/score";
 import { SPELLS, SPELL_HOTBAR, type SpellId } from "../spells";
 import { placeToastLayer, pushToast } from "./toasts";
 
@@ -43,26 +52,19 @@ const RARITY_LABEL: Record<string, string> = {
   canto_unique: "Canto Unique",
 };
 
-/** Higher = show first in bag (weighed / richer loot floats after Avarice pickups). */
-function rarityRank(r: string | undefined): number {
-  switch (String(r || "normal")) {
-    case "canto_unique":
-      return 6;
-    case "unique":
-      return 5;
-    case "set":
-      return 4;
-    case "rare":
-      return 3;
-    case "magic":
-      return 2;
-    default:
-      return 1;
+/** Bag order: "score" (gear score ↓) or "rarity" (the older rarity ↓ / weighed / name order). */
+type InvSort = "score" | "rarity";
+const INV_SORT_KEY = "selva.invSort";
+let invSort: InvSort = (() => {
+  try {
+    return localStorage.getItem(INV_SORT_KEY) === "rarity" ? "rarity" : "score";
+  } catch {
+    return "score";
   }
-}
+})();
 
-/** Stable bag order: rarity ↓, weighed (soulbound) first, then name. */
 function sortInventoryItems(items: any[]): any[] {
+  if (invSort === "score") return [...items].sort(compareByScore);
   return [...items].sort((a, b) => {
     const rr = rarityRank(b?.rarity) - rarityRank(a?.rarity);
     if (rr) return rr;
@@ -72,6 +74,22 @@ function sortInventoryItems(items: any[]): any[] {
   });
 }
 
+/** Tooltip / aria line: "Score 60 (+12 vs worn)". */
+function scoreLine(it: any, equipped: Record<string, any>): string {
+  if (!wearSlotFor(it)) return "Score — (not wearable)";
+  const d = scoreDelta(it, equipped);
+  const sc = itemScore(it);
+  if (d == null) return `Score ${sc} (worn)`;
+  const worn = equipped?.[wearSlotFor(it) as string];
+  return worn ? `Score ${sc} (${formatDelta(d)} vs worn)` : `Score ${sc} (slot empty)`;
+}
+
+function scoreBadgeHtml(it: any, equipped: Record<string, any>): string {
+  if (!wearSlotFor(it)) return "";
+  const d = scoreDelta(it, equipped);
+  const cls = d == null ? "" : d > 0 ? " up" : d < 0 ? " down" : "";
+  return `<span class="inv-score${cls}" aria-hidden="true">${itemScore(it)}</span>`;
+}
 
 function escapeHtml(s: unknown): string {
   return String(s ?? "")
@@ -246,6 +264,10 @@ function slotGlyph(name: string): string {
   return String(name || "?").slice(0, 2).toUpperCase();
 }
 
+type RenderInvOpts = Parameters<typeof renderInventory>[2];
+let lastRenderOnSelect: (id: string) => void = () => {};
+let lastRenderOpts: RenderInvOpts;
+
 export function renderInventory(
   items: any[],
   onSelect: (id: string) => void,
@@ -261,16 +283,51 @@ export function renderInventory(
   // Weighed / richer drops float up so Avarice loot is not buried under normals
   items = sortInventoryItems(items);
   lastBagItems = items;
+  lastRenderOnSelect = onSelect;
+  lastRenderOpts = opts;
   const filterBtn = document.getElementById("btn-inv-weighed");
   if (filterBtn && filterBtn.dataset.wired !== "1") {
     filterBtn.dataset.wired = "1";
     filterBtn.addEventListener("click", () => {
       invWeighedOnly = !invWeighedOnly;
       filterBtn.setAttribute("aria-pressed", invWeighedOnly ? "true" : "false");
-      renderInventory(lastBagItems, onSelect, opts);
+      // Re-render with the latest snapshot args (not the ones captured when first wired)
+      renderInventory(lastBagItems, lastRenderOnSelect, lastRenderOpts);
     });
   }
   filterBtn?.setAttribute("aria-pressed", invWeighedOnly ? "true" : "false");
+  const sortBtn = document.getElementById("btn-inv-sort");
+  if (sortBtn && sortBtn.dataset.wired !== "1") {
+    sortBtn.dataset.wired = "1";
+    sortBtn.addEventListener("click", () => {
+      invSort = invSort === "score" ? "rarity" : "score";
+      try {
+        localStorage.setItem(INV_SORT_KEY, invSort);
+      } catch {
+        /* private mode */
+      }
+      renderInventory(lastBagItems, lastRenderOnSelect, lastRenderOpts);
+    });
+  }
+  if (sortBtn) {
+    sortBtn.textContent = invSort === "score" ? "Sort: Score" : "Sort: Rarity";
+    sortBtn.setAttribute("aria-pressed", invSort === "score" ? "true" : "false");
+    sortBtn.title =
+      invSort === "score"
+        ? "Bag sorted by gear score (best first). Tap for rarity order."
+        : "Bag sorted by rarity. Tap to sort by gear score (best first).";
+  }
+  const bestBtn = document.getElementById("btn-equip-best") as HTMLButtonElement | null;
+  if (bestBtn) {
+    const plan = planEquipBest(lastBagItems, opts?.equipped || {});
+    bestBtn.disabled = plan.length === 0;
+    bestBtn.textContent = plan.length ? `Equip best · ${plan.length}` : "Best equipped";
+    bestBtn.title = plan.length
+      ? `Wear the highest-score bag item for each slot: ${plan
+          .map((p) => `${p.slot} ${formatDelta(p.gain)}`)
+          .join(", ")}`
+      : "Every slot already wears your highest-score gear.";
+  }
   if (invWeighedOnly) {
     items = items.filter((it) => Boolean(it?.soulbound));
   }
@@ -283,10 +340,11 @@ export function renderInventory(
   }
   const melt = document.getElementById("btn-melt") as HTMLButtonElement | null;
   if (melt && melt.dataset.armed !== "1") {
-    const ash = items.reduce((sum, it) => sum + vendorAsh(it), 0);
-    melt.disabled = items.length === 0;
-    melt.textContent = items.length ? `Melt all · ${ash.toLocaleString()} Ash` : "Nothing to melt";
-    melt.title = items.length
+    const bagAll = lastBagItems;
+    const ash = bagAll.reduce((sum, it) => sum + vendorAsh(it), 0);
+    melt.disabled = bagAll.length === 0;
+    melt.textContent = bagAll.length ? `Melt all · ${ash.toLocaleString()} Ash` : "Nothing to melt";
+    melt.title = bagAll.length
       ? "Turns every bag item into Ash. Worn gear is kept."
       : "Bag is empty. Equipped gear is not melted.";
   }
@@ -321,22 +379,24 @@ export function renderInventory(
     }
     slot.classList.add(rarityClass(it.rarity));
     {
-      const st = itemStatBonus(it);
+      // Unwearable trinkets never reach computeGearStats, so show no phantom bonus
+      const st = wearSlotFor(it) ? itemStatBonus(it) : { dmg: 0, maxHp: 0, armor: 0 };
       const tipStats = formatItemStats(st);
       const wear = slotLabelForItem(it);
-      slot.title = tipStats
-        ? `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name} (${wear})\n${tipStats}`
-        : `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name} (${wear})`;
-      slot.setAttribute("aria-label", slot.title.replace("\n", ", "));
+      const head =
+        `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name} (${wear})` +
+        (it.soulbound ? " · Weighed (no AH)" : "");
+      slot.title = [head, tipStats, scoreLine(it, equipped)].filter(Boolean).join("\n");
+      slot.setAttribute("aria-label", slot.title.replace(/\n/g, ", "));
     }
     const icon = itemIconUrl(it);
-    slot.innerHTML = `<img class="inv-icon" src="${icon}" alt="" draggable="false" /><span class="inv-tier" aria-hidden="true"></span>`;
+    slot.innerHTML = `<img class="inv-icon" src="${icon}" alt="" draggable="false" /><span class="inv-tier" aria-hidden="true"></span>${scoreBadgeHtml(it, equipped)}`;
     if (it.id === selectedItemId) slot.classList.add("selected");
     slot.onclick = (e) => {
       e.preventDefault();
       selectedItemId = it.id;
       onSelect(it.id);
-      renderInventory(items, onSelect, opts);
+      renderInventory(lastBagItems, onSelect, opts);
     };
     grid.appendChild(slot);
   }
@@ -351,11 +411,13 @@ export function renderInventory(
     btn.classList.toggle("selected", Boolean(worn && worn.id === selectedItemId));
     if (body) {
       if (worn) {
-        body.innerHTML = `<img class="inv-icon" src="${itemIconUrl(worn)}" alt="" draggable="false" />`;
+        body.innerHTML = `<img class="inv-icon" src="${itemIconUrl(worn)}" alt="" draggable="false" />${scoreBadgeHtml(worn, equipped)}`;
         {
           const st = itemStatBonus(worn);
           const tip = formatItemStats(st);
-          btn.title = tip ? `${es}: ${worn.name}\n${tip}` : `${es}: ${worn.name}`;
+          btn.title = [`${es}: ${worn.name}`, tip, `Score ${itemScore(worn)}`]
+            .filter(Boolean)
+            .join("\n");
         }
       } else {
         body.innerHTML = "";
@@ -369,7 +431,7 @@ export function renderInventory(
         onSelect(worn.id);
       }
       opts?.onEquipSlotClick?.(es);
-      renderInventory(items, onSelect, opts);
+      renderInventory(lastBagItems, onSelect, opts);
     };
   }
 
@@ -400,9 +462,9 @@ export function renderInventory(
         continue;
       }
       slot.classList.add(rarityClass(it.rarity));
-      slot.title = `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name} (stashed)`;
-      slot.setAttribute("aria-label", slot.title);
-      slot.innerHTML = `<img class="inv-icon" src="${itemIconUrl(it)}" alt="" draggable="false" /><span class="inv-tier" aria-hidden="true"></span>`;
+      slot.title = `${RARITY_LABEL[it.rarity] || it.rarity} · ${it.name} (stashed)\n${scoreLine(it, equipped)}`;
+      slot.setAttribute("aria-label", slot.title.replace(/\n/g, ", "));
+      slot.innerHTML = `<img class="inv-icon" src="${itemIconUrl(it)}" alt="" draggable="false" /><span class="inv-tier" aria-hidden="true"></span>${scoreBadgeHtml(it, equipped)}`;
       if (it.id === selectedItemId) slot.classList.add("selected");
       slot.onclick = (e) => {
         e.preventDefault();
@@ -439,7 +501,7 @@ export function renderInventory(
       (stashMode ? stashItems.find((it) => it.id === selectedItemId) : undefined);
     if (sel) {
       const wear = slotLabelForItem(sel);
-      const st = itemStatBonus(sel);
+      const st = wearSlotFor(sel) ? itemStatBonus(sel) : { dmg: 0, maxHp: 0, armor: 0 };
       const worn = Object.values(equipped).some((it: any) => it?.id === sel.id);
       detail.className = `inv-detail ${rarityClass(sel.rarity)}`;
       detail.innerHTML =
@@ -449,12 +511,27 @@ export function renderInventory(
         (worn ? `<b class="inv-detail-worn">Worn</b>` : "") +
         `</span>` +
         `</div>` +
-        `<div class="inv-detail-stats">${itemStatsHtml(st)}</div>`;
+        `<div class="inv-detail-stats">${itemStatsHtml(st)}${detailScoreHtml(sel, equipped)}</div>`;
     } else {
       detail.className = "inv-detail";
       detail.innerHTML = `<span class="inv-detail-name muted">${count ? "Select an item to equip or list. Melt all turns the bag into Ash — worn gear stays." : "Your satchel is empty — foes in Lust drop loot."}</span>`;
     }
   }
+}
+
+/** Score pill for the detail panel, with the delta against the worn piece in that slot. */
+function detailScoreHtml(it: any, equipped: Record<string, any>): string {
+  if (!wearSlotFor(it)) return "";
+  const d = scoreDelta(it, equipped);
+  const hasWorn = Boolean(equipped?.[wearSlotFor(it) as string]);
+  let cmp = "";
+  if (d != null) {
+    const cls = d > 0 ? "up" : d < 0 ? "down" : "even";
+    cmp = hasWorn
+      ? ` <b class="score-delta ${cls}">${formatDelta(d)}</b><small>vs worn</small>`
+      : ` <b class="score-delta up">new</b><small>slot empty</small>`;
+  }
+  return `<span class="stat-score" title="Gear score: 10×dmg + 2×HP + 5×armor">Score ${itemScore(it)}${cmp}</span>`;
 }
 
 export function getSelectedItemId() {
@@ -1552,6 +1629,7 @@ export function wireHud(api: {
   unequipSelected?: () => void;
   stashSelected?: () => void;
   meltBag?: () => void;
+  equipBest?: () => void;
   sip?: () => void;
   dash?: () => void;
   castSpell?: (spellId: SpellId) => void;
@@ -1569,6 +1647,10 @@ export function wireHud(api: {
   });
   document.getElementById("btn-equip")?.addEventListener("click", () => {
     api.equipSelected?.();
+  });
+  document.getElementById("btn-equip-best")?.addEventListener("click", () => {
+    hapticLight();
+    api.equipBest?.();
   });
   document.getElementById("btn-unequip")?.addEventListener("click", () => {
     api.unequipSelected?.();
