@@ -11,7 +11,8 @@
     "dev:local": "node scripts/local-db.mjs",
     "typecheck": "echo \"JS ESM server \u2014 no tsc\"",
     "migrate": "node scripts/migrate.mjs",
-    "test:pg": "node scripts/pg-ah-regression.mjs"
+    "test:pg": "node scripts/pg-ah-regression.mjs",
+    "test:pvp": "node scripts/pvp-regression.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",

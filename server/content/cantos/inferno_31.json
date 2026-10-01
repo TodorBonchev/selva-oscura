@@ -1,0 +1,70 @@
+{
+  "id": "inferno_31",
+  "canticle": "inferno",
+  "number": 31,
+  "title": "Pozzo dei Giganti",
+  "subtitle_it": "che me parve veder molte alte torri",
+  "role": "arena",
+  "geo": {
+    "bounds": {
+      "width": 96,
+      "height": 96
+    },
+    "wrap": false,
+    "spawn": {
+      "x": 48,
+      "y": 74
+    },
+    "pvp_spawns": [
+      { "x": 56.4, "y": 35.7 },
+      { "x": 68.3, "y": 47.6 },
+      { "x": 68.3, "y": 64.4 },
+      { "x": 56.4, "y": 76.3 },
+      { "x": 39.6, "y": 76.3 },
+      { "x": 27.7, "y": 64.4 },
+      { "x": 27.7, "y": 47.6 },
+      { "x": 39.6, "y": 35.7 }
+    ],
+    "exits": [
+      {
+        "to_canto": "inferno_01",
+        "x": 48,
+        "y": 88,
+        "label": "← Dark Wood"
+      }
+    ],
+    "pois": [
+      {
+        "id": "chain_etch",
+        "kind": "craft",
+        "x": 18,
+        "y": 48,
+        "label": "Catene",
+        "hint": "Ephialtes e Anteo — le catene del pozzo"
+      },
+      {
+        "id": "horn_etch",
+        "kind": "craft",
+        "x": 78,
+        "y": 70,
+        "label": "Corno",
+        "hint": "Nembrot: Raphèl maì amècche zabì almi"
+      }
+    ]
+  },
+  "packs": [],
+  "bosses": [],
+  "first_clear": {
+    "enabled": false
+  },
+  "style_kit": {
+    "palette": "giants_well_bone_gold",
+    "kit_id": "giants_well",
+    "notes": "Bone/gold Doré etching; the walled pit of the giants; towers like men"
+  },
+  "loot_density": "none",
+  "legal": {
+    "text_source": "italian_original",
+    "notes": "Short Italian epigraph only (Inf. XXXI); no modern translation prose; no third-party Dante game assets"
+  }
+}

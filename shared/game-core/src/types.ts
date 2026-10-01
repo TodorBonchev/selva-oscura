@@ -174,6 +174,25 @@ export interface PlayerSnapshot {
   dailyQuestDoneUtc: string | null;
   visitedInferno: boolean;
   spokeToGuide: boolean;
+  /** Consensual PvP. Remotes carry only non-default fields; `you` carries the purse. */
+  pvp?: {
+    rating?: number;
+    peak?: number;
+    title?: string | null;
+    downed?: boolean;
+    invuln?: boolean;
+    ranked?: boolean;
+    wins?: number;
+    losses?: number;
+    draws?: number;
+    kills?: number;
+    deaths?: number;
+    bestStreak?: number;
+    roundsWon?: number;
+    streak?: number;
+    roundKills?: number;
+    queued?: boolean;
+  };
 }
 
 export interface RoomSnapshot {
@@ -184,4 +203,27 @@ export interface RoomSnapshot {
   entities: EntitySnapshot[];
   players: PlayerSnapshot[];
   you: PlayerSnapshot;
+  /** Active duel rings (countdown / fight) so a late joiner can draw them. */
+  duels?: {
+    id: string;
+    a: string;
+    b: string;
+    aName: string;
+    bName: string;
+    cx: number;
+    cy: number;
+    r: number;
+    phase: "countdown" | "fight" | "over";
+    startsAt: number;
+    endsAt: number;
+    ranked: boolean;
+    winnerId?: string;
+    reason?: string;
+    ratingDelta?: Record<string, number>;
+  }[];
+  /** Present only in the arena room. */
+  arena?: {
+    round: { n: number; endsAt: number };
+    board: { id: string; name: string; kills: number; streak: number }[];
+  };
 }

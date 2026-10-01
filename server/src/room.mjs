@@ -40,6 +40,36 @@ import {
 } from "./mobAi.mjs";
 import { getMech } from "./cantoMech/index.mjs";
 import { wrapCoord, wrapDelta } from "./wrap.mjs";
+import {
+  pvpAimTarget,
+  pvpBreakInvuln,
+  pvpBurst,
+  pvpDashCut,
+  pvpIsDown,
+  pvpLandBolt,
+  pvpMelee,
+  pvpOnJoin,
+  pvpOnRoomLeave,
+  pvpRemote,
+  pvpRoomFields,
+  pvpTick,
+  pvpTouch,
+  pvpYou,
+} from "./pvp.mjs";
+
+/** Arena pits clamp to the wall; every other canto keeps the torus wrap. */
+function placeBody(room, x, y) {
+  const b = room.canto.geo.bounds;
+  if (room.canto.geo.wrap === false) {
+    const maxX = Math.max(1, b.width - 1);
+    const maxY = Math.max(1, b.height - 1);
+    return {
+      x: Math.max(1, Math.min(maxX, x)),
+      y: Math.max(1, Math.min(maxY, y)),
+    };
+  }
+  return { x: wrapCoord(x, b.width), y: wrapCoord(y, b.height) };
+}
 
 const ATTACK_RANGE = 3.5;
 /** Generous loot / POI reach so mobile players rarely see "Too far". */
@@ -489,6 +519,11 @@ class CantoRoom {
       cantoId: this.cantoId,
     };
     this.sessions.set(playerId, sess);
+    try {
+      pvpOnJoin(this, sess);
+    } catch (err) {
+      console.error("[pvp] join", err.message);
+    }
     // Everyone already here sees the newcomer on the next tick, not on their first move
     this.markDirty();
     if (this.cantoId !== "inferno_01") {
@@ -539,6 +574,12 @@ class CantoRoom {
   }
 
   leave(playerId) {
+    const sess = this.sessions.get(playerId);
+    try {
+      pvpOnRoomLeave(this, playerId, sess?._pvpLeaveReason || "disconnect");
+    } catch (err) {
+      console.error("[pvp] leave", err.message);
+    }
     this.sessions.delete(playerId);
     // Others drop the leaver's pilgrim on the next tick (an idle room pushes nothing otherwise)
     this.markDirty();
@@ -624,9 +665,28 @@ class CantoRoom {
       });
       // Remotes: slim equipped for look only; strip inventory/ash/private fields.
       // Local "you" snapshot below stays full.
-      playerSnaps.push(pid === forPlayerId ? full : slimRemotePlayerSnap(full));
+      if (pid === forPlayerId) {
+        playerSnaps.push(full);
+      } else {
+        const slim = slimRemotePlayerSnap(full);
+        try {
+          const pv = pvpRemote(this, s);
+          if (pv) slim.pvp = pv;
+        } catch (err) {
+          console.error("[pvp] remote snap", err.message);
+        }
+        playerSnaps.push(slim);
+      }
     }
     const mech = this.mech.snapshotExtra ? this.mech.snapshotExtra(this, youSess) : undefined;
+    let pvpExtra = {};
+    let youPvp;
+    try {
+      pvpExtra = pvpRoomFields(this);
+      youPvp = youSess ? pvpYou(this, youSess) : undefined;
+    } catch (err) {
+      console.error("[pvp] snap", err.message);
+    }
     return {
       cantoId: this.cantoId,
       // Server clock of the tick that moved these positions (event snapshots between
@@ -634,6 +694,7 @@ class CantoRoom {
       // one); the client interpolates entities on it
       st: this._tickAt && Date.now() - this._tickAt < 250 ? this._tickAt : Date.now(),
       ...(mech !== undefined ? { mech } : {}),
+      ...pvpExtra,
       title: this.canto.title,
       subtitleIt: this.canto.subtitle_it || this.canto.subtitleIt || null,
       role: this.canto.role,
@@ -656,6 +717,7 @@ class CantoRoom {
         bellCd: youSess.bellCd > 0 ? Number(youSess.bellCd) : 0,
         // Client: Ledger Cache empty mesh (session-local claim)
         lootedCache: Boolean(youSess.lootedCache),
+        ...(youPvp ? { pvp: youPvp } : {}),
       },
     };
   }
@@ -672,9 +734,11 @@ class CantoRoom {
 
   handleMove(playerId, x, y) {
     const s = this.sessions.get(playerId);
-    if (!s) return;
+    if (!s || pvpIsDown(s)) return;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    pvpTouch(s);
     const b = this.canto.geo.bounds;
+    const clampArena = this.canto.geo.wrap === false;
     const now = Date.now();
     // Real wall-clock time since the last move packet (no floor: a flood of packets
     // earns no extra walking — every budget below refills on this clock)
@@ -695,8 +759,9 @@ class CantoRoom {
     }
     // Shortest step on the torus, so a client that already wrapped (x≈0.3, s.x≈159.8)
     // is a tiny step, not a teleport. The budget spends that delta.
-    let dx = wrapDelta(x - s.x, b.width);
-    let dy = wrapDelta(y - s.y, b.height);
+    // A walled pit (geo.wrap === false) uses the plain step and clamps at the wall.
+    let dx = clampArena ? x - s.x : wrapDelta(x - s.x, b.width);
+    let dy = clampArena ? y - s.y : wrapDelta(y - s.y, b.height);
     const d = Math.hypot(dx, dy);
     const allow = FREE_MOVE ? MOVE_SPEED : Math.min(MOVE_SPEED, budget + credit);
     if (d > allow && d > 0) {
@@ -744,8 +809,9 @@ class CantoRoom {
       s._lastFaceX = mdx / ml;
       s._lastFaceY = mdy / ml;
     }
-    s.x = wrapCoord(nx, b.width);
-    s.y = wrapCoord(ny, b.height);
+    const placed = placeBody(this, nx, ny);
+    s.x = placed.x;
+    s.y = placed.y;
     this.markDirty();
   }
 
@@ -810,9 +876,20 @@ class CantoRoom {
 
   handleAttack(playerId, targetId, combo) {
     const s = this.sessions.get(playerId);
-    if (!s) return;
+    if (!s || pvpIsDown(s)) return;
+    pvpTouch(s);
+    pvpBreakInvuln(s);
     const now = Date.now();
     if (now < (s.atkReadyAt || 0) - PLAYER_ATK_GRACE * 1000) return;
+    const other = this.sessions.get(targetId);
+    if (other && other !== s) {
+      try {
+        pvpMelee(this, s, other, combo);
+      } catch (err) {
+        console.error("[pvp] melee", err.message);
+      }
+      return;
+    }
     const target = this.entities.get(targetId);
     if (!target) return;
     if (target.kind !== "mob" && target.kind !== "boss") {
@@ -868,7 +945,9 @@ class CantoRoom {
 
   handleCast(playerId, spellId, aimX, aimY) {
     const s = this.sessions.get(playerId);
-    if (!s) return;
+    if (!s || pvpIsDown(s)) return;
+    pvpTouch(s);
+    pvpBreakInvuln(s);
     const spell = spellById(spellId);
     if (!spell) {
       this.toast(s.ws, "warn", "Unknown spell.");
@@ -958,6 +1037,44 @@ class CantoRoom {
 
   _castGaleBolt(playerId, s, spell, aimX, aimY) {
     const target = this._foeInAim(s, aimX, aimY, spell.range);
+    let pvpT = null;
+    try {
+      pvpT = pvpAimTarget(this, s, aimX, aimY, spell.range);
+    } catch (err) {
+      console.error("[pvp] aim", err.message);
+    }
+    const foeD = target ? dist(s, target) : Infinity;
+    const pvpD = pvpT ? Math.hypot(pvpT.x - s.x, pvpT.y - s.y) : Infinity;
+    if (pvpT && pvpD <= foeD) {
+      this._spendSpell(s, spell);
+      const gear = computeGearStats(players.get(playerId) || { inventory: [] });
+      const raw =
+        spell.baseDamage +
+        Math.floor(gear.dmg * 0.55) +
+        Math.floor(Math.random() * (spell.damageVar + 1));
+      const travel = Math.min(0.32, Math.max(0.08, pvpD / GALE_BOLT_SPEED));
+      const impact = { x: pvpT.x, y: pvpT.y };
+      const targetId = pvpT.playerId;
+      this.broadcast({
+        type: "spell_fx",
+        spellId: spell.id,
+        casterId: playerId,
+        x: s.x,
+        y: s.y,
+        tx: impact.x,
+        ty: impact.y,
+        duration: +travel.toFixed(3),
+      });
+      this.schedule(travel, () => {
+        try {
+          pvpLandBolt(this, playerId, targetId, raw, impact);
+        } catch (err) {
+          console.error("[pvp] bolt", err.message);
+        }
+      });
+      this.markDirty();
+      return;
+    }
     let tx = s.x;
     let ty = s.y;
     if (Number.isFinite(aimX) && Number.isFinite(aimY) && (aimX !== 0 || aimY !== 0)) {
@@ -1059,6 +1176,11 @@ class CantoRoom {
     });
     // The burst blows everything outward (heavy shove)
     for (const h of hit) this.damageMob(h.ent, h.dmg, playerId, { spellId: spell.id, from: s, heavy: true });
+    try {
+      pvpBurst(this, s, base, spell.radius);
+    } catch (err) {
+      console.error("[pvp] burst", err.message);
+    }
     // Combat msgs carry targetHp (kills already pushed); mana rides the next tick snapshot
     this.markDirty();
   }
@@ -1245,7 +1367,7 @@ class CantoRoom {
 
   handleDash(playerId, aimX, aimY) {
     const s = this.sessions.get(playerId);
-    if (!s || s.hp <= 0) return;
+    if (!s || s.hp <= 0 || pvpIsDown(s)) return;
     // Cooldown on the wall clock (dashCd only ticks at ~15 Hz: a dash sent the moment
     // the client's 4 s ran out met a sliver of it and was refused — a dodge on screen
     // with no iframes). Early by up to the grace is carried forward as debt.
@@ -1269,7 +1391,6 @@ class CantoRoom {
     dy /= len;
     // (a canto's ground may shorten it — the client asks its mech the same)
     const step = 5.5 * (this.mech.dashScale?.(this, s) ?? 1);
-    const b = this.canto.geo.bounds;
     const fromX = s.x;
     const fromY = s.y;
     // Unwrapped end so the sweep and adjustDash see one straight segment. Wrapped after.
@@ -1295,6 +1416,8 @@ class CantoRoom {
     s.iframes = Math.max(s.iframes || 0, 0.35);
     s.dashCd = DASH_CD;
     s.dashReadyAt = Math.max(now, s.dashReadyAt || 0) + DASH_CD * 1000;
+    pvpTouch(s);
+    pvpBreakInvuln(s);
     const segX = ux - fromX;
     const segY = uy - fromY;
     const segL2 = segX * segX + segY * segY || 1;
@@ -1316,17 +1439,23 @@ class CantoRoom {
       const from = off > 0.05 ? { x: px, y: py } : { x: e.x + dy, y: e.y - dx };
       this.damageMob(e, dmg, playerId, { spellId: "dash", from });
     }
+    try {
+      pvpDashCut(this, s, fromX, fromY, ux, uy);
+    } catch (err) {
+      console.error("[pvp] dash", err.message);
+    }
     // A plain dash needs no words; a dash that cuts foes says how many
     if (cut) this.toast(s.ws, "loot", `Dash cuts ${cut}`);
-    s.x = wrapCoord(ux, b.width);
-    s.y = wrapCoord(uy, b.height);
+    const dashed = placeBody(this, ux, uy);
+    s.x = dashed.x;
+    s.y = dashed.y;
     this.markDirty();
     this.pushSnapshot(playerId);
   }
 
   handleSip(playerId) {
     const s = this.sessions.get(playerId);
-    if (!s) return;
+    if (!s || pvpIsDown(s)) return;
     const now = Date.now();
     if (now < (s.sipReadyAt || 0) - DASH_GRACE_MS) {
       this.toast(s.ws, "warn", `Flask cooling (${Math.ceil(((s.sipReadyAt || 0) - now) / 1000)}s)`);
@@ -1735,9 +1864,9 @@ class CantoRoom {
   shovePlayer(sess, dx, dy, durMs = 220) {
     if (!sess || !(sess.hp > 0)) return;
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
-    const b = this.canto.geo.bounds;
-    sess.x = wrapCoord(sess.x + dx, b.width);
-    sess.y = wrapCoord(sess.y + dy, b.height);
+    const shoved = placeBody(this, sess.x + dx, sess.y + dy);
+    sess.x = shoved.x;
+    sess.y = shoved.y;
     sess.shoveAllow = (sess.shoveAllow || 0) + Math.hypot(dx, dy);
     this.send(sess.ws, { type: "shove", dx: +dx.toFixed(3), dy: +dy.toFixed(3), dur: Math.round(durMs) });
     this.markDirty();
@@ -1798,6 +1927,8 @@ class CantoRoom {
     const armor = (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
     const { taken, soaked } = mitigate(raw, armor);
     target.hp = Math.max(0, target.hp - taken);
+    // The well never uses the PvE death wake — a stray blow leaves the pilgrim at 1.
+    if (this.canto?.role === "arena" && target.hp <= 0) target.hp = 1;
     this.broadcast({
       type: "combat",
       attackerId,
@@ -1936,7 +2067,18 @@ class CantoRoom {
         else this.pending[w++] = p;
       }
       this.pending.length = w;
-      for (const p of due) p.fn();
+      for (const p of due) {
+        try {
+          p.fn();
+        } catch (err) {
+          console.error("[room] pending", err.message);
+        }
+      }
+    }
+    try {
+      pvpTick(this, dt);
+    } catch (err) {
+      console.error("[pvp] tick", err.message);
     }
     // Windups that end this tick land before mobs act on the new state
     this.tele.tick(dt);
@@ -2089,7 +2231,9 @@ export class World {
   constructor() {
     this.rooms = new Map();
     for (const id of Object.keys(CANTOS)) {
-      this.rooms.set(id, new CantoRoom(id));
+      const room = new CantoRoom(id);
+      room.world = this;
+      this.rooms.set(id, room);
     }
     this.playerRoom = new Map(); // playerId -> cantoId
     /** Brief mid-combat reconnect resume: playerId -> { cantoId, x, y, until } */
@@ -2212,7 +2356,9 @@ export class World {
         }
       }
     }
-    // Allow travel if near exit OR explicit travel after interact
+    // Allow travel if near exit OR explicit travel after interact.
+    // Flag the leave before ensureJoin: that calls CantoRoom.leave directly.
+    if (sess) sess._pvpLeaveReason = "forfeit";
     const room = this.ensureJoin(ws, playerId, name, toCanto);
     room.pushSnapshot(playerId);
     // (no "Entered X." toast: the client shows a canto title card on arrival)
@@ -2231,13 +2377,19 @@ export class World {
       }
     } else if (room.cantoId === "inferno_05" && hasCleared(playerId, "inferno_05")) {
       room.toast(ws, "info", "The Gluttony gate past Minos's dais stands open.");
+    } else if (room.canto?.role === "arena") {
+      room.toast(ws, "info", "The well of the giants — blades between the willing.");
     }
     return { ok: true, room };
   }
 
   tick(dt) {
     for (const room of this.rooms.values()) {
-      room.tick(dt);
+      try {
+        room.tick(dt);
+      } catch (err) {
+        console.error("[room] tick", room.cantoId, err.message);
+      }
     }
   }
 }

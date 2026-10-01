@@ -20,6 +20,12 @@
         "x": 96,
         "y": 40,
         "label": "Toward Lust →"
+      },
+      {
+        "to_canto": "inferno_31",
+        "x": 30,
+        "y": 64,
+        "label": "← Pozzo dei Giganti (PvP)"
       }
     ],
     "pois": [

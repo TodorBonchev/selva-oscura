@@ -155,7 +155,7 @@
       "type": "object",
       "required": ["palette", "kit_id"],
       "properties": {
-        "palette": { "type": "string", "enum": ["inferno_red_black", "purgatorio_marble_dawn", "paradiso_white_gold", "hub_bone_gold"] },
+        "palette": { "type": "string", "enum": ["inferno_red_black", "purgatorio_marble_dawn", "paradiso_white_gold", "hub_bone_gold", "giants_well_bone_gold"] },
         "kit_id": { "type": "string" },
         "notes": { "type": "string" }
       }

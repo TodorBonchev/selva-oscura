@@ -27,6 +27,17 @@ function loadLocalEnv() {
 }
 loadLocalEnv();
 import { World } from "./src/room.mjs";
+import { CANTOS } from "./src/content.mjs";
+import {
+  flushPvp,
+  handleDuelCancel,
+  handleDuelChallenge,
+  handleDuelRespond,
+  handleLeaderboard,
+  handlePvpQueue,
+  hydratePvp,
+  leaderboardPayload,
+} from "./src/pvp.mjs";
 import { noteClientRtt, noteServerRtt } from "./src/telegraph.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
@@ -61,7 +72,7 @@ const server = http.createServer((req, res) => {
       status: "slice1",
       protocol: PROTOCOL_VERSION,
       startedAt,
-      rooms: ["inferno_01", "inferno_05", "inferno_06", "inferno_07"],
+      rooms: Object.keys(CANTOS),
       vaultRemainingAsh: vault.remainingAsh,
       persistence: dbEnabled() ? "postgres" : "memory",
       note: "Devnet vault PDA is spec-only; emits credit pendingAsh on server ledger",
@@ -81,6 +92,18 @@ const server = http.createServer((req, res) => {
   if (url === "/emits") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ log: getEmitLog(), vault }));
+    return;
+  }
+  if (url === "/pvp/leaderboard") {
+    let body = { top: [], you: null };
+    try {
+      const payload = leaderboardPayload(null);
+      body = { top: payload.top, you: payload.you };
+    } catch (err) {
+      console.error("[pvp] leaderboard", err.message);
+    }
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(JSON.stringify(body));
     return;
   }
   res.writeHead(404, { "content-type": "application/json" });
@@ -399,6 +422,61 @@ async function handleMessage(ws, meta, msg) {
       room.handleDash(playerId, Number(msg.x), Number(msg.y));
       break;
     }
+    case "duel_challenge": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        handleDuelChallenge(room, sess, String(msg.targetId || ""));
+      } catch (err) {
+        console.error("[pvp] challenge", err.message);
+      }
+      break;
+    }
+    case "duel_respond": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        handleDuelRespond(room, sess, String(msg.fromId || ""), Boolean(msg.accept));
+      } catch (err) {
+        console.error("[pvp] respond", err.message);
+      }
+      break;
+    }
+    case "duel_cancel": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        handleDuelCancel(room, sess);
+      } catch (err) {
+        console.error("[pvp] cancel", err.message);
+      }
+      break;
+    }
+    case "pvp_queue": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        handlePvpQueue(room, sess, Boolean(msg.join));
+      } catch (err) {
+        console.error("[pvp] queue", err.message);
+      }
+      break;
+    }
+    case "pvp_leaderboard": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        handleLeaderboard(room, sess);
+      } catch (err) {
+        console.error("[pvp] leaderboard", err.message);
+      }
+      break;
+    }
     default:
       send(ws, { type: "error", code: "unknown_type", message: `Unknown: ${msg.type}` });
   }
@@ -410,7 +488,11 @@ setInterval(() => {
   const now = Date.now();
   const dt = Math.min(0.2, (now - last) / 1000);
   last = now;
-  world.tick(dt);
+  try {
+    world.tick(dt);
+  } catch (err) {
+    console.error("[tick]", err.message);
+  }
 }, 66);
 
 async function boot() {
@@ -420,10 +502,18 @@ async function boot() {
     await hydrateFromDb();
     await ah.hydrateListings();
   }
+  try {
+    await hydratePvp();
+  } catch (err) {
+    console.error("[pvp] hydrate failed", err.message);
+  }
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`selva-oscura slice1 listening on ${PORT}`);
-    console.log(`content rooms: inferno_01 (hub), inferno_05 (Lust), inferno_06 (Gluttony), inferno_07 (Avarice)`);
+    const roomList = Object.keys(CANTOS)
+      .map((id) => `${id} (${CANTOS[id].title})`)
+      .join(", ");
+    console.log(`content rooms: ${roomList}`);
     console.log(
       `persistence: ${dbEnabled() ? "postgres" : "memory (set DATABASE_URL for durable state)"}`
     );
@@ -436,6 +526,11 @@ boot().catch((err) => {
 });
 
 async function shutdown() {
+  try {
+    await flushPvp();
+  } catch (err) {
+    console.error("[pvp] flush failed", err.message);
+  }
   try {
     await closeDb();
   } catch {
