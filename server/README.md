@@ -15,7 +15,23 @@ Authoritative multiplayer game server (Slice 1).
 
 WebSocket path: `/ws` (JSON). See `shared/game-core/src/protocol.ts`.
 
-Rooms: `inferno_01` (Dark Wood hub), `inferno_05` (Lust).
+Rooms: `inferno_01` (Dark Wood hub), `inferno_05` (Lust), `inferno_06` (Gluttony), `inferno_07` (Avarice), `inferno_31` (Pozzo dei Giganti, arena). The hub's west exit (`← Pozzo dei Giganti (PvP)`) enters the arena with no clear required. `inferno_31` does not wrap: moves, dashes, and shoves clamp to the wall.
+
+### Consensual PvP
+
+Player→player damage only happens in the arena free-for-all, or between the two fighters of a duel whose phase is `fight`. Hub duels are casual (Elo K=20). Arena `pvp_queue` pairs a ranked 1v1 (K=32) on the north ring. A downed pilgrim is not killed: no Ash or item loss, no PvE death wake.
+
+Client → server: `duel_challenge`, `duel_respond`, `duel_cancel`, `pvp_queue`, `pvp_leaderboard`. An `attack` whose `targetId` is another player in the room is a PvP swing (windup, then a cone check).
+
+Server → client: `duel_invite`, `duel_pending`, `duel_declined`, `duel_state`, `pvp_windup`, `pvp_down`, `pvp_kill`, `pvp_round`, `pvp_queue`, `pvp_leaderboard`. Invite `expiresIn` is seconds. Active duels ride the room snapshot as `duels`; the arena snapshot adds `arena`.
+
+`GET /pvp/leaderboard` returns the top 20. Ratings and arena kills persist in `pvp_stats` (migration `004_pvp.sql`) when `DATABASE_URL` is set.
+
+```bash
+cd server && node scripts/pvp-regression.mjs   # or npm run test:pvp
+```
+
+`SELVA_PVP_ROUND_SEC` overrides the 180s arena round when `NODE_ENV` is not `production`.
 
 Map edges wrap around (torus): a move, dash or shove that crosses an edge continues from
 the opposite side, and the move budget measures the shortest wrapped step (`src/wrap.mjs`).
@@ -55,6 +71,7 @@ If `DATABASE_URL` is missing, the server logs a clear warning and runs fully in-
 | `emit_caps_global` | global boss hourly counter |
 | `vault_state` | remaining ash/stelle mirror for the emit formula |
 | `schema_migrations` | applied migration ids |
+| `pvp_stats` (`004_pvp.sql`) | rating, peak, wins/losses/draws, kills/deaths, best streak, rounds won, cosmetic title |
 
 ### Migrate
 
