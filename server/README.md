@@ -17,6 +17,10 @@ WebSocket path: `/ws` (JSON). See `shared/game-core/src/protocol.ts`.
 
 Rooms: `inferno_01` (Dark Wood hub), `inferno_05` (Lust).
 
+Map edges wrap around (torus): a move, dash or shove that crosses an edge continues from
+the opposite side, and the move budget measures the shortest wrapped step (`src/wrap.mjs`).
+Mobs, projectiles, hazards and loot stay inside the bounds.
+
 Reconnect: clients send `hello` with a display `name`. The server restores the existing
 character row (ash, pendingAsh, inventory, first-clears, quest flags) when that name
 already exists (case-insensitive). A second `welcome` may be sent with the stable
