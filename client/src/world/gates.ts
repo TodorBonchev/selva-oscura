@@ -23,7 +23,13 @@ export function cantoName(id: string | undefined): string {
   if (id === "inferno_06") return "Gluttony";
   if (id === "inferno_07") return "Avarice";
   if (id === "inferno_01") return "Dark Wood";
+  if (id === "inferno_31") return "Pozzo dei Giganti";
   return "the road";
+}
+
+/** The hub never shows an Avarice road, even if one arrives in the entity list. */
+export function isHiddenHubGate(cantoId: string | undefined, e: any): boolean {
+  return cantoId === "inferno_01" && isGate(e) && e?.toCanto === "inferno_07";
 }
 
 export function gateLocked(e: any, clears: string[] | undefined): boolean {
@@ -50,6 +56,7 @@ export function gateState(e: any, cantoId: string | undefined, clears: string[] 
  * its clear opens — so the stash road keeps its own name.
  */
 export function gateTitle(e: any): string {
+  if (e?.toCanto === "inferno_31") return "Pozzo dei Giganti";
   if (e?.kind === "exit" && !e.requireClear && /stash road/i.test(String(e.label || ""))) return "Stash road";
   return `${cantoName(e?.toCanto)} gate`;
 }

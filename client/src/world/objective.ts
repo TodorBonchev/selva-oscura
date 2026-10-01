@@ -93,6 +93,10 @@ export function computeObjective(room: any, you: Vec2, todayUtc: string): Object
   const entities: any[] = room?.entities || [];
   const hpFrac = (Number(me.hp) || 0) / Math.max(1, Number(me.maxHp) || 1);
 
+  if (canto === "inferno_31" || room?.role === "arena") {
+    return { text: "The well is open", sub: "", target: null };
+  }
+
   if (canto === "inferno_05" || canto === "inferno_06" || canto === "inferno_07") {
     let boss: any = null;
     let heart: any = null;

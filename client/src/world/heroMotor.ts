@@ -82,6 +82,8 @@ export interface HeroHost {
   onReviveTeleport(): void;
   /** Canto bounds for the torus wrap, or null before a room exists. */
   bounds(): { width: number; height: number } | null;
+  /** False in the closed pit: dash and the pinned sample clamp instead of folding. */
+  mapWraps(): boolean;
 }
 
 const _v = new THREE.Vector3();
@@ -278,7 +280,7 @@ export class HeroMotor {
     const b = this.host.bounds();
     let tx = to.x;
     let ty = to.y;
-    if (b && b.width > 0 && b.height > 0) {
+    if (b && b.width > 0 && b.height > 0 && this.host.mapWraps()) {
       tx = from.x + wrapDelta(to.x - from.x, b.width);
       ty = from.y + wrapDelta(to.y - from.y, b.height);
     }
@@ -302,6 +304,14 @@ export class HeroMotor {
     if (!b || !(b.width > 0) || !(b.height > 0)) {
       out.x = x;
       out.y = y;
+      return out;
+    }
+    if (!this.host.mapWraps()) {
+      const cx = x < 1 ? 1 : x > b.width - 1 ? b.width - 1 : x;
+      const cy = y < 1 ? 1 : y > b.height - 1 ? b.height - 1 : y;
+      if (cx !== x || cy !== y) this.streak.cancel();
+      out.x = cx;
+      out.y = cy;
       return out;
     }
     const wx = wrapCoord(x, b.width);

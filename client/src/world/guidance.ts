@@ -12,6 +12,7 @@ import { cantoName, GATE_LABEL_RANGE, gateState, gateTitle, lockReason, type Gat
 import { makeBeaconMaterial, setPortalGateVisual, tickPortalMaterials } from "./meshes";
 import { CAM_FACE_YAW, setPlanar } from "./frames";
 import { wrapDelta } from "./wrap";
+import { roomWraps } from "./mapSpace";
 import { isCompactUi, setQuestLine } from "../ui/hud";
 
 const OBJECTIVE_EVERY_MS = 100;
@@ -110,6 +111,11 @@ export class Guidance {
       firstClears: Array.isArray(yu?.firstClears) ? yu.firstClears : [],
       objective: this.objective,
       hint: this.hint,
+      wrap: roomWraps(room),
+      players: room.players,
+      youId: yu?.id != null ? String(yu.id) : "",
+      duels: room.duels,
+      role: room.role,
     });
   }
 
@@ -128,7 +134,7 @@ export class Guidance {
     const b = app.room?.bounds;
     let dx = t.x - app.renderYou.x;
     let dy = t.y - app.renderYou.y;
-    if (b && b.width > 0 && b.height > 0) {
+    if (roomWraps(app.room) && b && b.width > 0 && b.height > 0) {
       dx = wrapDelta(dx, b.width);
       dy = wrapDelta(dy, b.height);
     }
@@ -175,6 +181,7 @@ export class Guidance {
     const st = this.stateOf(e);
     if (this.app.mats) setPortalGateVisual(group, st, this.app.mats);
     wrap.classList.add("portal-label", `gate-${st}`);
+    if (group.userData.gateKind === "arena") wrap.classList.add("gate-arena");
     const name = wrap.querySelector(".wl-name");
     if (name && !wrap.querySelector(".wl-sub")) {
       const sub = document.createElement("div");
@@ -189,7 +196,9 @@ export class Guidance {
     if (!app.mats) return;
     const prev = rec.group.userData.portalState as GateState | undefined;
     const st = this.stateOf(e);
-    if (prev === st) {
+    const arena = rec.group.userData.gateKind === "arena";
+    const vis = arena ? "arena" : st;
+    if (prev === st && rec.group.userData.portalVis === vis) {
       this.fitBeacon(rec);
       return;
     }
@@ -349,6 +358,7 @@ export class Guidance {
         ? "The Dark Wood road stands open past the dais"
         : "Cross between the weights' clashes, then break Plutus";
     }
+    if (cantoId === "inferno_31") return "The pit is open — strike, or queue a ranked duel";
     if (cantoId === "inferno_01") {
       if (!you?.spokeToGuide) return "Speak with the Guide, then take the gold gate to Lust";
       if (clears.includes("inferno_07")) return "Avarice is clear — writ, stash, or hunt the circles again";

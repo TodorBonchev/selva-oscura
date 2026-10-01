@@ -78,7 +78,7 @@ export class PointerInput {
     if (!app.room) return false;
     const hit = app.pickEntity({ clientX, clientY });
     if (hit) {
-      if (hit.kind === "mob" || hit.kind === "boss") {
+      if (hit.kind === "mob" || hit.kind === "boss" || hit.kind === "player") {
         app.softSnapTargetId = null;
         app.lockedId = String(hit.id);
         // Held mouse / finger on a foe keeps swinging until that pointer lifts; a tap
@@ -112,17 +112,18 @@ export class PointerInput {
     this.hoverDirty = false;
     const hit = this.mouseIn && this.heldPointer == null ? this.app.pickEntity({ clientX: this.mouseX, clientY: this.mouseY }) : null;
     const id = hit ? String(hit.id) : "";
-    const foe = hit && (hit.kind === "mob" || hit.kind === "boss");
+    const foe = hit && (hit.kind === "mob" || hit.kind === "boss" || hit.kind === "player");
     const usable = hit && (hit.kind === "loot" || hit.kind === "poi" || hit.kind === "exit");
     const cursor = foe ? "crosshair" : usable ? "pointer" : "";
     if (cursor !== this.cursor) {
       this.cursor = cursor;
       this.canvas.style.cursor = cursor;
     }
-    if (id !== this.hoverId) {
+    const nodeId = hit?.kind === "player" ? `pl:${id}` : id;
+    if (nodeId !== this.hoverId) {
       this.app.nodes.get(this.hoverId)?.hpEl.classList.remove("is-hover");
-      this.hoverId = id;
-      if (id && (foe || usable)) this.app.nodes.get(id)?.hpEl.classList.add("is-hover");
+      this.hoverId = nodeId;
+      if (nodeId && (foe || usable)) this.app.nodes.get(nodeId)?.hpEl.classList.add("is-hover");
     }
   }
 }

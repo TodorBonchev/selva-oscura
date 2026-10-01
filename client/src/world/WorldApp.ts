@@ -94,6 +94,8 @@ import { planEquipBest } from "../items/score";
 import { buildGround, type GroundRig } from "./ground";
 import { buildEdgeVeil, type EdgeVeil } from "./edgeVeil";
 import { wrapCoord, wrapDelta } from "./wrap";
+import { roomWraps } from "./mapSpace";
+import { PvpDirector } from "./pvpDirector";
 import {
   AshField,
   makeBolt,
@@ -142,7 +144,7 @@ import { Radar } from "../ui/radar";
 import { Guidance } from "./guidance";
 import { PointerInput } from "./pointerInput";
 import { PickupFx } from "./pickupFx";
-import { forwardGate, gateState, gateTitle, lockReason, visibleGates } from "./gates";
+import { forwardGate, gateState, gateTitle, isHiddenHubGate, lockReason, visibleGates } from "./gates";
 import { CombatView, isMobKind } from "./combatView";
 import { teleWeight, type TelegraphLand, type TelegraphMsg } from "./telegraphs";
 import { PlayerForces } from "./forces";
@@ -320,6 +322,8 @@ export class WorldApp {
   radar: Radar | null = null;
   /** Objective model + gates + compass/minimap/beacon (world/guidance.ts). */
   guidance: Guidance | null = null;
+  /** Duels, the giants' well, and pilgrim nameplates (world/pvpDirector.ts). */
+  pvp!: PvpDirector;
   frameN = 0;
   combatUntil = 0;
   lastChaseToast = 0;
@@ -745,6 +749,8 @@ export class WorldApp {
     this.scene.add(this.ash.points);
     this.radar = new Radar();
     this.guidance = new Guidance(this);
+    // Before wireHud: the Classifica panel's [data-close] is bound once at wire time.
+    this.pvp = new PvpDirector(this);
 
     this.bindInput();
     // Inventory rebuilds are deferred while the bag is closed — catch up when it opens
@@ -832,6 +838,14 @@ export class WorldApp {
     if (new URLSearchParams(location.search).has("debug")) {
       (window as any).__world = this;
       (window as any).__selfTestControls = () => this.selfTestControls();
+    }
+    if (import.meta.env.DEV) {
+      (window as unknown as { __selvaPvp?: unknown }).__selvaPvp = {
+        state: () => this.pvp.state(),
+        challengeNearest: () => this.pvp.challengeNearest(),
+        accept: () => this.pvp.accept(),
+        decline: () => this.pvp.decline(),
+      };
     }
 
     {
@@ -1127,9 +1141,18 @@ export class WorldApp {
         if (portal) this.beginPortalHold(portal, { fromKey: true });
         else this.interactNearest();
       }
+      if (e.code === "KeyG") this.pvp?.onKeyG();
+      if (e.code === "KeyL") this.pvp?.toggleBoard();
+      if (e.code === "KeyY") this.pvp?.accept();
+      if (e.code === "KeyN") this.pvp?.decline();
+      if (e.code === "Tab") {
+        e.preventDefault();
+        this.pvp?.tabDown();
+      }
     });
     window.addEventListener("keyup", (e) => {
       this.keys.delete(e.code);
+      if (e.code === "Tab") this.pvp?.tabUp();
       if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
         this.releaseSpellHold(true);
       }
@@ -1140,6 +1163,7 @@ export class WorldApp {
     const dropHeld = () => {
       this.stopAttackHold();
       this.keys.clear();
+      this.pvp?.tabUp();
     };
     window.addEventListener("blur", dropHeld);
     document.addEventListener("visibilitychange", () => {
@@ -1267,7 +1291,15 @@ export class WorldApp {
     while (obj && obj.userData.entityId == null) obj = obj.parent;
     const id = obj?.userData.entityId as string | undefined;
     if (!id) return null;
-    return this.room.entities.find((e: any) => String(e.id) === String(id)) ?? null;
+    const ent = this.room.entities.find((e: any) => String(e.id) === String(id));
+    if (ent) return ent;
+    const pl = this.room.players?.find((p: any) => String(p.id) === String(id));
+    if (!pl || !this.pvp?.canTarget(pl)) return null;
+    return { ...pl, id: pl.id, kind: "player" };
+  }
+
+  mapWraps(): boolean {
+    return roomWraps(this.room);
   }
 
   youPos(): Vec2 {
@@ -1330,6 +1362,7 @@ export class WorldApp {
     // (the hero's combat clock runs on real frame time: no clamp, no hit-stop)
     this.frameRawDt = dt;
     if (performance.now() < this.hitStopUntil) dt *= 0.15;
+    if (this.pvp) dt *= this.pvp.timeScale();
     // Below 20fps the game no longer runs in slow motion: movement catches up in ≤50ms
     // substeps (tick), bounded so one long stall can't spiral
     dt = Math.min(0.25, dt);
@@ -1378,9 +1411,16 @@ export class WorldApp {
     if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) sx += 1;
     if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) sx -= 1;
 
-    const ix = fwd.x * fx + right.x * sx;
-    const iy = fwd.z * fx + right.z * sx;
+    let ix = fwd.x * fx + right.x * sx;
+    let iy = fwd.z * fx + right.z * sx;
     this.predicting = false;
+    if (this.room.you?.pvp?.downed) {
+      this.velX = 0;
+      this.velY = 0;
+      this.moveTarget = null;
+      ix = 0;
+      iy = 0;
+    }
     // Canto mechanic: this frame's move feel (speed/accel multipliers, drift), then its tick
     const mf = this.moveFeel;
     mf.speedMul = 1;
@@ -1412,7 +1452,7 @@ export class WorldApp {
 
       this._reconVel.x = this.velX;
       this._reconVel.y = this.velY;
-      reconcileLocal(this.renderYou, this.serverYou, h, this.predicting, this._reconVel, this.room.bounds);
+      reconcileLocal(this.renderYou, this.serverYou, h, this.predicting, this._reconVel, this.room.bounds, this.mapWraps());
       if (pinned) {
         this.renderYou.x = pinned.x;
         this.renderYou.y = pinned.y;
@@ -1459,6 +1499,7 @@ export class WorldApp {
         this.room.bounds,
         this.room.cantoId === "inferno_05" ||
           this.room.cantoId === "inferno_06" ||
+          this.room.cantoId === "inferno_31" ||
           ava,
         this.renderYou.x,
         this.renderYou.y,
@@ -1560,6 +1601,12 @@ export class WorldApp {
   }
 
   integrateVelocity(dtSec: number, driven: boolean) {
+    if (this.room?.you?.pvp?.downed) {
+      this.velX = 0;
+      this.velY = 0;
+      this.predicting = false;
+      return;
+    }
     if (!driven) {
       const sp = Math.hypot(this.velX, this.velY);
       if (sp < 0.05) {
@@ -1619,8 +1666,29 @@ export class WorldApp {
     }
     const wb = this.room?.bounds;
     if (wb && wb.width > 0 && wb.height > 0) {
-      this.renderYou.x = wrapCoord(nx, wb.width);
-      this.renderYou.y = wrapCoord(ny, wb.height);
+      if (this.mapWraps()) {
+        this.renderYou.x = wrapCoord(nx, wb.width);
+        this.renderYou.y = wrapCoord(ny, wb.height);
+      } else {
+        const maxX = wb.width - 1;
+        const maxY = wb.height - 1;
+        if (nx < 1) {
+          nx = 1;
+          if (this.velX < 0) this.velX = 0;
+        } else if (nx > maxX) {
+          nx = maxX;
+          if (this.velX > 0) this.velX = 0;
+        }
+        if (ny < 1) {
+          ny = 1;
+          if (this.velY < 0) this.velY = 0;
+        } else if (ny > maxY) {
+          ny = maxY;
+          if (this.velY > 0) this.velY = 0;
+        }
+        this.renderYou.x = nx;
+        this.renderYou.y = ny;
+      }
     } else {
       this.renderYou.x = nx;
       this.renderYou.y = ny;
@@ -1671,12 +1739,12 @@ export class WorldApp {
     // A wrap jumps renderYou to the far edge. Shift the follow point by the same
     // offset before the lerp, or the camera pans across the whole canto.
     const camB = this.room?.bounds;
-    if (camB && camB.width > 0) {
+    if (this.mapWraps() && camB && camB.width > 0) {
       const cdx = this.camTarget.x - this.camFollow.x;
       if (cdx > camB.width * 0.5) this.camFollow.x += camB.width;
       else if (cdx < -camB.width * 0.5) this.camFollow.x -= camB.width;
     }
-    if (camB && camB.height > 0) {
+    if (this.mapWraps() && camB && camB.height > 0) {
       const cdz = this.camTarget.z - this.camFollow.z;
       if (cdz > camB.height * 0.5) this.camFollow.z += camB.height;
       else if (cdz < -camB.height * 0.5) this.camFollow.z -= camB.height;
@@ -1731,6 +1799,7 @@ export class WorldApp {
       this.camera.updateProjectionMatrix();
       this.camFovKick = 0;
     }
+    this.pvp?.nudgeCamera(this.frameRawDt ?? dt);
     if (this.edgeVeil) {
       this.edgeVeil.setTime(this.animT * 0.001);
       this.edgeVeil.setHero(this.renderYou.x, this.renderYou.y);
@@ -1781,6 +1850,7 @@ export class WorldApp {
     // Telegraphs, flashes, ash, corpses, combat numbers (after the camera is placed)
     this.combat?.tick(performance.now(), this.viewW, this.viewH);
     this.lightPool.update(this.camFollow, dt);
+    this.pvp?.frame(this.frameRawDt ?? dt, performance.now());
     this.renderFrame();
     // One finished frame: readers between frames (or mid-bench) never see a partial sum
     const fi = this.frameInfo;
@@ -1812,6 +1882,19 @@ export class WorldApp {
       if (d < bestD) {
         bestD = d;
         best = pos;
+      }
+    }
+    const pilgrims = this.room.players;
+    if (pilgrims && this.pvp) {
+      for (let i = 0; i < pilgrims.length; i++) {
+        const pl = pilgrims[i];
+        if (!this.pvp.canTarget(pl)) continue;
+        const pos = this.interp.pos(`pl:${pl.id}`, pl);
+        const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+        if (d < bestD) {
+          bestD = d;
+          best = pos;
+        }
       }
     }
     if (!best) return;
@@ -2302,6 +2385,7 @@ export class WorldApp {
     const cullIn2 = (FOE_CULL_R - 4) * (FOE_CULL_R - 4);
     try {
     for (const e of this.room.entities) {
+      if (isHiddenHubGate(this.room.cantoId, e)) continue;
       const id = String(e.id);
       const kind = resolveKind(e);
       let rec = this.nodes.get(id);
@@ -2461,8 +2545,8 @@ export class WorldApp {
       if (stepS > 0) {
         const bw = this.room.bounds.width;
         const bh = this.room.bounds.height;
-        const dx = wrapDelta(pos.x - ud.gaitX, bw);
-        const dy = wrapDelta(pos.y - ud.gaitY, bh);
+        const dx = this.mapWraps() ? wrapDelta(pos.x - ud.gaitX, bw) : pos.x - ud.gaitX;
+        const dy = this.mapWraps() ? wrapDelta(pos.y - ud.gaitY, bh) : pos.y - ud.gaitY;
         const jump = Math.hypot(dx, dy);
         if (jump < 3) {
           // (a larger step is a snap/teleport, not a stride)
@@ -2494,7 +2578,7 @@ export class WorldApp {
         applyEquippedLook(rec.group, eq);
         rec.group.userData.equipLookKey = lookKey;
       }
-      this.updateLabel(rec, { name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp }, pos);
+      this.updateLabel(rec, { id: pl.id, name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp, pvp: pl.pvp }, pos);
     }
     } finally {
       for (const rec of this.nodes.values()) {
@@ -2714,7 +2798,8 @@ export class WorldApp {
     }
     if (kind === "portal") {
       label.position.set(0, 4.1, 0);
-      // Face the camera, colour by state (forward gold / return blue / locked grey)
+      if (e?.toCanto === "inferno_31") group.userData.gateKind = "arena";
+      // Face the camera, colour by state (forward gold / return blue / locked grey / arena crimson)
       this.guidance?.setupGate(group, wrap, e);
       if (this.portalIsLocked(e)) wrap.classList.add("portal-locked");
       if (group.userData.avaHubHomeGlow) wrap.classList.add("ava-hub-home");
@@ -2795,6 +2880,7 @@ export class WorldApp {
     this.scene.remove(rec.group);
     // A hit-flash shell riding on this foe goes back to its pool first
     this.combat?.release(rec.group);
+    this.pvp?.fx.releaseHero(rec.group);
     // Pilgrims / the Guide share geometry + materials; free only the bone texture
     if (rec.kind === "player" || rec.kind === "guide") {
       disposeHero(rec.group);
@@ -2871,6 +2957,7 @@ export class WorldApp {
       far = rec.kind === "loot" ? 14 : boss ? 20 : midboss ? 18 : foe ? 13 : poiish ? 8 : 10;
       if (inAva && foe && !boss && !midboss) far = 11;
     }
+    if (rec.kind === "player" && this.room?.cantoId === "inferno_31") far = isCompactUi() ? 28 : 32;
     // Nearest interact always keeps its plate readable
     if (this.nearestInteract && this.nearestInteract.id === rec.id) far = Math.max(far, 14);
     if (d > far) {
@@ -2895,6 +2982,7 @@ export class WorldApp {
         ? name
         : "•";
     if (nameEl && nameEl.textContent !== shown) nameEl.textContent = shown;
+    if (rec.kind === "player") this.pvp?.paintRemote(rec.hpEl, e);
     rec.hpEl.classList.toggle("stilled", Number(rec.group.userData.stunLeft || 0) > 0.05);
     if (e.hp != null && e.maxHp) {
       if (hp.style.display !== "block") hp.style.display = "block";
@@ -3103,8 +3191,10 @@ export class WorldApp {
     if (this.room.cantoId === "inferno_01") keepouts.push({ x: 64, y: 72, r: 4.8 });
     this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
     this.scene.add(this.ground.group);
-    this.edgeVeil = buildEdgeVeil(this.room.bounds, this.gfx.tier);
-    this.scene.add(this.edgeVeil.group);
+    if (this.mapWraps()) {
+      this.edgeVeil = buildEdgeVeil(this.room.bounds, this.gfx.tier);
+      this.scene.add(this.edgeVeil.group);
+    }
     this.trees = [];
     this.propAnims = [];
     this.ground.group.traverse((o) => {
@@ -3121,27 +3211,30 @@ export class WorldApp {
     const lust = this.room.cantoId === "inferno_05";
     const glut = this.room.cantoId === "inferno_06";
     const ava = this.room.cantoId === "inferno_07";
+    const arena = this.room.cantoId === "inferno_31" || this.room.role === "arena";
     document.body.classList.toggle("in-lust", lust);
     document.body.classList.toggle("in-gluttony", glut);
     document.body.classList.toggle("in-avarice", ava);
+    document.body.classList.toggle("in-arena", arena);
     if (this.selfRing) {
       // pale bone where the ground is red (Lust) or gold (Avarice): the ring must not
       // melt into the floor; gold elsewhere
       const m = this.selfRing.material as THREE.MeshBasicMaterial;
-      m.color.setHex(lust || ava ? 0xf4ecd6 : 0xe4c060);
-      m.opacity = lust || ava ? 0.88 : 0.78;
+      m.color.setHex(lust || ava || arena ? 0xf4ecd6 : 0xe4c060);
+      m.opacity = lust || ava || arena ? 0.88 : 0.78;
     }
     if (!ava) document.body.classList.remove("ava-idle");
     if (this.ash) {
       if (ava) this.ash.setColor(0xd4a840, isCompactUi() ? 0.32 : 0.4);
       else if (glut) this.ash.setColor(0xb8c070, isCompactUi() ? 0.4 : 0.5);
       else if (lust) this.ash.setColor(0xffb090, isCompactUi() ? 0.45 : 0.55);
+      else if (arena) this.ash.setColor(0xc4b4a4, isCompactUi() ? 0.38 : 0.48);
       else this.ash.setColor(0xe8d4b0, 0.55);
     }
     this.setSky(
-      lust ? 0x12060a : glut ? 0x0a0c08 : ava ? 0x0a0804 : 0x0e0c09,
-      lust ? 0x6e2616 : glut ? 0x3a4022 : ava ? 0x5e4618 : 0x4e4230,
-      lust ? 0x2a0e08 : glut ? 0x14120a : ava ? 0x100c06 : 0x1c1812
+      lust ? 0x12060a : glut ? 0x0a0c08 : ava ? 0x0a0804 : arena ? 0x07060a : 0x0e0c09,
+      lust ? 0x6e2616 : glut ? 0x3a4022 : ava ? 0x5e4618 : arena ? 0x3a221c : 0x4e4230,
+      lust ? 0x2a0e08 : glut ? 0x14120a : ava ? 0x100c06 : arena ? 0x0c0908 : 0x1c1812
     );
     if (lust) {
       this.fogTargetColor.setHex(0x3a140e);
@@ -3199,6 +3292,20 @@ export class WorldApp {
       this.rim.intensity = compact ? 1.25 : 1.6;
       this.heroLight.intensity = compact ? 2.2 : 3.0;
       this.heroLight.distance = compact ? 6.5 : 8;
+    } else if (arena) {
+      // Ash over a closed pit — the rim stays bone-gold, the well stays dark.
+      this.fogTargetColor.setHex(0x1a100e);
+      this.fogTargetDensity = 0.02;
+      this.clearTargetColor.setHex(0x0c0908);
+      this.hemi.color.set(0xc8b8a4);
+      this.hemi.groundColor.set(0x120c0a);
+      this.hemi.intensity = 0.72;
+      this.sun.color.set(0xd4b090);
+      this.sun.intensity = 1.15;
+      this.rim.color.set(0xe8c4a0);
+      this.rim.intensity = 1.35;
+      this.heroLight.intensity = 3.6;
+      this.heroLight.distance = 10;
     } else {
       this.fogTargetColor.setHex(0x1c1812);
       this.fogTargetDensity = 0.013;
@@ -3229,11 +3336,18 @@ export class WorldApp {
     if (!this.room) return;
     const cantoId = this.room.cantoId;
     const clears = this.room.you?.firstClears;
-    const portal = forwardGate(this.room.entities, cantoId) || visibleGates(this.room.entities)[0];
+    const portal =
+      forwardGate(this.room.entities, cantoId) ||
+      visibleGates(this.room.entities).find((e) => !isHiddenHubGate(cantoId, e));
     if (!portal) return;
     const st = gateState(portal, cantoId, clears);
-    this.portalLight.intensity = st === "locked" ? 1.2 : st === "forward" ? 5.2 : 3.2;
-    this.portalLight.color.set(st === "locked" ? 0x5a5040 : st === "forward" ? 0xffc050 : 0x8fb4e8);
+    if (cantoId === "inferno_31" || this.room.role === "arena") {
+      this.portalLight.intensity = 3.4;
+      this.portalLight.color.setHex(0xc45a48);
+    } else {
+      this.portalLight.intensity = st === "locked" ? 1.2 : st === "forward" ? 5.2 : 3.2;
+      this.portalLight.color.set(st === "locked" ? 0x5a5040 : st === "forward" ? 0xffc050 : 0x8fb4e8);
+    }
     setPlanar(this.portalLight.position, portal.x, portal.y, this.standY(portal.x, portal.y, 2.2));
   }
 
@@ -3264,7 +3378,8 @@ export class WorldApp {
         this.lastCantoId = msg.room.cantoId;
         this.serverYou = { x: sx, y: sy };
         const bb = msg.room.bounds;
-        if (bb) this.interp.setBounds(Number(bb.width) || 0, Number(bb.height) || 0);
+        if (bb) this.interp.setBounds(Number(bb.width) || 0, Number(bb.height) || 0, roomWraps(msg.room));
+        this.pvp?.onSnapshot(msg.room);
         if (import.meta.env.DEV) {
           (window as unknown as { __selvaWorldReady?: boolean }).__selvaWorldReady = true;
         }
@@ -3406,7 +3521,7 @@ export class WorldApp {
           this.mireHeartSeenAlive = false;
           this.poiHintsShown.clear();
         }
-        if (msg.room.cantoId === "inferno_07" && (first || cantoChanged)) {
+        if ((msg.room.cantoId === "inferno_07" || msg.room.cantoId === "inferno_31") && (first || cantoChanged)) {
           const epi = String(msg.room.subtitleIt || msg.room.subtitle_it || "").trim();
           if (epi) {
             const el = document.getElementById("canto-title");
@@ -3676,6 +3791,7 @@ export class WorldApp {
         break;
       }
       default:
+        if (this.pvp?.onMessage(msg)) break;
         // A canto mechanic's own messages (cantoMech/*)
         this.mech.onMessage?.(this, msg);
     }
@@ -3778,6 +3894,10 @@ export class WorldApp {
   }
 
   onCombat(msg: any) {
+    if (msg.targetIsPlayer && this.pvp?.isPlayerAttacker(String(msg.attackerId ?? ""))) {
+      this.pvp.onPlayerCombat(msg);
+      return;
+    }
     const now = performance.now();
     const tid = String(msg.targetId ?? "");
     const youId = this.room?.you?.id != null ? String(this.room.you.id) : "";
@@ -4192,6 +4312,7 @@ export class WorldApp {
     let bestD = maxRange;
     let bestPos: Vec2 = { x: 0, y: 0 };
     for (const e of this.room.entities) {
+      if (isHiddenHubGate(this.room.cantoId, e)) continue;
       if (e.kind !== "exit" && !(e.kind === "poi" && e.poiKind === "portal")) continue;
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
@@ -4205,6 +4326,7 @@ export class WorldApp {
     if (!best) {
       bestD = maxRange;
       for (const e of this.room.entities) {
+        if (isHiddenHubGate(this.room.cantoId, e)) continue;
         if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
         const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
         const d = Math.hypot(pos.x - you.x, pos.y - you.y);
@@ -4328,12 +4450,29 @@ export class WorldApp {
   foeById(id: string, maxDist: number): { e: any; d: number; pos: Vec2 } | null {
     if (!this.room) return null;
     const e = this.room.entities.find((x: any) => String(x.id) === id);
-    if (!e || (e.hp != null && e.hp <= 0)) return null;
+    if (e) {
+      if (e.hp != null && e.hp <= 0) return null;
+      const you = this.youPos();
+      const pos = this.entityRenderPos(e);
+      const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+      if (d > maxDist) return null;
+      return { e, d, pos };
+    }
+    const pl = this.room.players?.find((p: any) => String(p.id) === String(id));
+    if (!pl || !this.pvp?.canTarget(pl)) return null;
+    if (pl.kind !== "player") pl.kind = "player";
     const you = this.youPos();
-    const pos = this.entityRenderPos(e);
-    const d = Math.hypot(pos.x - you.x, pos.y - you.y);
+    const pos = this.interp.pos(`pl:${pl.id}`, pl);
+    let dx = pos.x - you.x;
+    let dy = pos.y - you.y;
+    const b = this.room.bounds;
+    if (b && this.mapWraps()) {
+      dx = wrapDelta(dx, b.width);
+      dy = wrapDelta(dy, b.height);
+    }
+    const d = Math.hypot(dx, dy);
     if (d > maxDist) return null;
-    return { e, d, pos };
+    return { e: pl, d, pos };
   }
 
   nearestFoe(maxDist: number): { e: any; d: number; pos: Vec2 } | null {
@@ -4346,6 +4485,25 @@ export class WorldApp {
       const pos = this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);
       if (d < maxDist && (!best || d < best.d)) best = { e, d, pos };
+    }
+    const pilgrims = this.room.players;
+    if (pilgrims && this.pvp) {
+      const b = this.room.bounds;
+      const wrap = this.mapWraps();
+      for (let i = 0; i < pilgrims.length; i++) {
+        const pl = pilgrims[i];
+        if (!this.pvp.canTarget(pl)) continue;
+        if (pl.kind !== "player") pl.kind = "player";
+        const pos = this.interp.pos(`pl:${pl.id}`, pl);
+        let dx = pos.x - you.x;
+        let dy = pos.y - you.y;
+        if (wrap && b) {
+          dx = wrapDelta(dx, b.width);
+          dy = wrapDelta(dy, b.height);
+        }
+        const d = Math.hypot(dx, dy);
+        if (d < maxDist && (!best || d < best.d)) best = { e: pl, d, pos };
+      }
     }
     return best;
   }
@@ -4375,6 +4533,7 @@ export class WorldApp {
   }
 
   dash() {
+    if (this.room?.you?.pvp?.downed) return;
     const now = Date.now();
     if (now < this.dashReadyAt) return;
     if (this.heroMotor && !this.heroMotor.canDash()) return;
@@ -4395,8 +4554,15 @@ export class WorldApp {
     // Canto mechanic: wind / obstacles move the end (server room.handleDash mirrors it)
     this.mech.adjustDash?.(this, this.renderYou, to, nx, ny);
     if (b && b.width > 0 && b.height > 0) {
-      to.x = wrapCoord(to.x, b.width);
-      to.y = wrapCoord(to.y, b.height);
+      if (this.mapWraps()) {
+        to.x = wrapCoord(to.x, b.width);
+        to.y = wrapCoord(to.y, b.height);
+      } else {
+        if (to.x < 1) to.x = 1;
+        else if (to.x > b.width - 1) to.x = b.width - 1;
+        if (to.y < 1) to.y = 1;
+        else if (to.y > b.height - 1) to.y = b.height - 1;
+      }
     }
     this.moveTarget = null;
     if (this.heroMotor) this.heroMotor.startDash(this.renderYou, to);
@@ -4408,11 +4574,18 @@ export class WorldApp {
 
   attackNearest(opts?: { silent?: boolean }) {
     if (!this.room) return;
+    if (this.room.you?.pvp?.downed) {
+      this.stopAttackHold();
+      return;
+    }
     // A canto mechanic may spend the press on its own action (Gluttony: a thrown clod)
     if (this.mech.onAttackPress?.(this)) return;
     if (this.lockedId) {
       const live = this.room.entities.find((e: any) => String(e.id) === this.lockedId);
-      if (!live || (live.hp != null && live.hp <= 0)) this.lockedId = null;
+      const pl = live ? null : this.room.players?.find((p: any) => String(p.id) === String(this.lockedId));
+      if (live) {
+        if (live.hp != null && live.hp <= 0) this.lockedId = null;
+      } else if (!pl || !this.pvp?.canTarget(pl)) this.lockedId = null;
     }
     const melee = this.lockedId
       ? this.foeById(this.lockedId, 80)
@@ -4420,16 +4593,14 @@ export class WorldApp {
     const inMelee = melee && melee.d <= ATTACK_RANGE ? melee : this.nearestFoe(ATTACK_RANGE);
     if (inMelee) {
       this.moveTarget = null;
-      this.aimX = inMelee.pos.x - this.renderYou.x;
-      this.aimY = inMelee.pos.y - this.renderYou.y;
-      this.sendAttack(inMelee.e.id);
+      this.aimToward(inMelee.pos);
+      this.sendAttack(String(inMelee.e.id));
       return;
     }
     const chase = this.lockedId ? this.foeById(this.lockedId, 80) : this.nearestFoe(CHASE_RANGE);
     if (chase) {
       this.moveTarget = { x: chase.pos.x, y: chase.pos.y };
-      this.aimX = chase.pos.x - this.renderYou.x;
-      this.aimY = chase.pos.y - this.renderYou.y;
+      this.aimToward(chase.pos);
       if (!opts?.silent && this.animT - this.lastChaseToast > 1600) {
         this.lastChaseToast = this.animT;
         showToast(`Closing on ${chase.e.name || "foe"}`, "info");
@@ -4457,11 +4628,51 @@ export class WorldApp {
     else this.onSwingContact(targetId, 0);
   }
 
+  /** Face a point. Closed rooms use the straight delta; wrapping rooms take the short seam. */
+  aimToward(pos: Vec2) {
+    let ax = pos.x - this.renderYou.x;
+    let ay = pos.y - this.renderYou.y;
+    const b = this.room?.bounds;
+    if (b && this.mapWraps()) {
+      ax = wrapDelta(ax, b.width);
+      ay = wrapDelta(ay, b.height);
+    }
+    this.aimX = ax;
+    this.aimY = ay;
+  }
+
   /** heroMotor: the blade reached the target — punch the camera and send the attack. */
   onSwingContact(targetId: string | null, kind: number) {
     this.camPunch = Math.max(this.camPunch, kind === 2 ? 0.3 : 0.22);
     this.camFovKick = Math.max(this.camFovKick, kind === 2 ? 1.7 : 1.35);
-    if (!targetId) return;
+    if (!targetId || this.room?.you?.pvp?.downed) return;
+    const pilgrim = this.room?.players?.find((p: any) => String(p.id) === String(targetId));
+    if (pilgrim && String(pilgrim.id) !== String(this.room?.you?.id ?? "")) {
+      if (!this.pvp?.canTarget(pilgrim)) return;
+      const pos = this.interp.pos(`pl:${pilgrim.id}`, pilgrim);
+      let dx = pos.x - this.renderYou.x;
+      let dy = pos.y - this.renderYou.y;
+      const b = this.room?.bounds;
+      if (b && this.mapWraps()) {
+        dx = wrapDelta(dx, b.width);
+        dy = wrapDelta(dy, b.height);
+      }
+      if (Math.hypot(dx, dy) > ATTACK_RANGE + 0.45) return;
+      this.socket.attack(String(pilgrim.id), kind);
+      const now = performance.now();
+      const fin = kind === 2;
+      this.combat?.predictContact(String(pilgrim.id), now);
+      const rec = this.nodes.get(`pl:${pilgrim.id}`);
+      if (rec) this.pvp.fx.flashHero(rec.group, fin, now);
+      this.spawnHitFx(pos, 0xfff3c4, fin);
+      this.kickShake(fin ? 0.32 : 0.2, dx, dy);
+      this.camPunch = Math.max(this.camPunch, fin ? 0.5 : 0.36);
+      this.camFovKick = Math.max(this.camFovKick, fin ? 3.2 : 2.4);
+      this.hitFlashAmt = Math.max(this.hitFlashAmt, fin ? 0.14 : 0.08);
+      this.hitStopUntil = now + HIT_STOP_MS + (fin ? 34 : 0);
+      if (fin) hapticCombat("heavy");
+      return;
+    }
     const live = this.room?.entities.find((e: any) => String(e.id) === String(targetId));
     if (!live || (live.hp != null && live.hp <= 0)) return;
     const pos = this.entityRenderPos(live);
@@ -4488,8 +4699,13 @@ export class WorldApp {
   /** heroMotor: live render position of a foe (null once gone or dead). */
   foeRenderPos(id: string): Vec2 | null {
     const e = this.room?.entities?.find((x: any) => String(x.id) === id);
-    if (!e || (e.hp != null && e.hp <= 0)) return null;
-    return this.entityRenderPos(e);
+    if (e) {
+      if (e.hp != null && e.hp <= 0) return null;
+      return this.entityRenderPos(e);
+    }
+    const pl = this.room?.players?.find((p: any) => String(p.id) === String(id));
+    if (!pl || !this.pvp?.canTarget(pl)) return null;
+    return this.interp.pos(`pl:${pl.id}`, pl);
   }
 
   /**
@@ -4513,7 +4729,7 @@ export class WorldApp {
   }
 
   castSpell(spellId: SpellId, opts?: { aimX?: number; aimY?: number; preferNearest?: boolean }) {
-    if (!this.room || this.pendingCast) return;
+    if (!this.room || this.pendingCast || this.room.you?.pvp?.downed) return;
     const def = SPELLS[spellId];
     if (!def) return;
     const mana = Number(this.room.you?.mana) || 0;
@@ -4529,6 +4745,12 @@ export class WorldApp {
       const dir = this.pickGaleAimDir();
       ax = dir.x;
       ay = dir.y;
+    } else if (spellId === "infernal_burst" && preferNearest) {
+      const near = this.nearestFoe(BURST_RADIUS);
+      if (near) {
+        ax = near.pos.x - this.renderYou.x;
+        ay = near.pos.y - this.renderYou.y;
+      }
     }
     const len = Math.hypot(ax, ay) || 1;
     this.aimX = ax / len;
@@ -4568,6 +4790,25 @@ export class WorldApp {
           best = { x: dx, y: dy };
         }
       }
+      const pilgrims = this.room.players;
+      if (pilgrims && this.pvp) {
+        for (let i = 0; i < pilgrims.length; i++) {
+          const pl = pilgrims[i];
+          if (!this.pvp.canTarget(pl)) continue;
+          const pos = this.interp.pos(`pl:${pl.id}`, pl);
+          const dx = pos.x - you.x;
+          const dy = pos.y - you.y;
+          const d = Math.hypot(dx, dy);
+          if (String(pl.id) === stickyId && d < GALE_RANGE * 1.2) {
+            stickyDir = { x: dx, y: dy };
+            stickyD = d;
+          }
+          if (d < bestD) {
+            bestD = d;
+            best = { x: dx, y: dy };
+          }
+        }
+      }
     }
     const use = stickyDir && !(best && bestD < 2.2 && stickyD > bestD + 1.4) ? stickyDir : best;
     if (use) {
@@ -4579,9 +4820,13 @@ export class WorldApp {
   }
 
   beginSpellHold(spellId: SpellId, o: { fromKey: boolean; pointer?: PointerEvent }) {
-    if (!this.room || this.pendingCast) return;
+    if (!this.room || this.pendingCast || this.room.you?.pvp?.downed) return;
     if (this.spellHold) this.cancelSpellHold();
-    const seed = spellId === "gale_bolt" ? this.pickGaleAimDir() : { x: this.aimX, y: this.aimY };
+    let seed = spellId === "gale_bolt" ? this.pickGaleAimDir() : { x: this.aimX, y: this.aimY };
+    if (spellId === "infernal_burst") {
+      const near = this.nearestFoe(BURST_RADIUS);
+      if (near) seed = { x: near.pos.x - this.renderYou.x, y: near.pos.y - this.renderYou.y };
+    }
     const len = Math.hypot(seed.x, seed.y) || 1;
     const btn = document.getElementById(`btn-spell-${spellId}`);
     this.spellHold = {
@@ -4789,6 +5034,7 @@ export class WorldApp {
     if (target?.toCanto === "inferno_06") return "Gluttony";
     if (target?.toCanto === "inferno_07") return "Avarice";
     if (target?.toCanto === "inferno_01") return "Dark Wood";
+    if (target?.toCanto === "inferno_31") return "Pozzo dei Giganti";
     return String(target?.label || target?.name || "portal");
   }
 
@@ -5061,6 +5307,7 @@ export class WorldApp {
     let bestScore = Infinity;
     let fromSticky = false;
     for (const e of this.room.entities) {
+      if (isHiddenHubGate(this.room.cantoId, e)) continue;
       if (e.kind !== "poi" && e.kind !== "exit" && e.kind !== "loot") continue;
       const pos = e.kind === "loot" ? this.lootRenderPos(e) : this.entityRenderPos(e);
       const d = Math.hypot(pos.x - you.x, pos.y - you.y);

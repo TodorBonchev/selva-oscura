@@ -48,14 +48,16 @@ export function reconcileLocal(
   dtSec: number,
   predicting: boolean,
   vel?: Vec2,
-  bounds?: Bounds | null
+  bounds?: Bounds | null,
+  wrap = true
 ): Vec2 {
   const bw = bounds && bounds.width > 0 ? bounds.width : 0;
   const bh = bounds && bounds.height > 0 ? bounds.height : 0;
   // Shortest error on the torus, so a snapshot on the other side of the seam
-  // does not drag the hero back across the map. Writes into `render` (no alloc).
-  const ex = bw ? wrapDelta(server.x - render.x, bw) : server.x - render.x;
-  const ey = bh ? wrapDelta(server.y - render.y, bh) : server.y - render.y;
+  // does not drag the hero back across the map. A closed pit (wrap false) uses
+  // the plain delta and clamps. Writes into `render` (no alloc).
+  const ex = wrap && bw ? wrapDelta(server.x - render.x, bw) : server.x - render.x;
+  const ey = wrap && bh ? wrapDelta(server.y - render.y, bh) : server.y - render.y;
   const err = Math.hypot(ex, ey);
   if (err > SNAP_ERROR || (!predicting && err < 0.02)) {
     render.x = server.x;
@@ -82,8 +84,15 @@ export function reconcileLocal(
   render.x += cx;
   render.y += cy;
   if (bw) {
-    render.x = wrapCoord(render.x, bw);
-    render.y = wrapCoord(render.y, bh);
+    if (wrap) {
+      render.x = wrapCoord(render.x, bw);
+      render.y = wrapCoord(render.y, bh);
+    } else {
+      if (render.x < 1) render.x = 1;
+      else if (render.x > bw - 1) render.x = bw - 1;
+      if (render.y < 1) render.y = 1;
+      else if (render.y > bh - 1) render.y = bh - 1;
+    }
   }
   return render;
 }
@@ -132,29 +141,36 @@ export class InterpStore {
   /** Map size for torus steps (0 = plain Euclidean). Mobs stay inside; players wrap. */
   private bw = 0;
   private bh = 0;
+  /** False in the giants' well: separate with a plain delta and clamp. */
+  private wrapOn = true;
   /** Current render delay (ms). */
   delay = 140;
 
   /** Canto bounds. A sample jump longer than half the map is a seam cross, not a glide. */
-  setBounds(width: number, height: number) {
+  setBounds(width: number, height: number, wrap = true) {
     this.bw = width > 0 ? width : 0;
     this.bh = height > 0 ? height : 0;
+    this.wrapOn = wrap;
   }
 
   private sepX(a: number, b: number): number {
-    return this.bw > 0 ? wrapDelta(a - b, this.bw) : a - b;
+    return this.wrapOn && this.bw > 0 ? wrapDelta(a - b, this.bw) : a - b;
   }
 
   private sepY(a: number, b: number): number {
-    return this.bh > 0 ? wrapDelta(a - b, this.bh) : a - b;
+    return this.wrapOn && this.bh > 0 ? wrapDelta(a - b, this.bh) : a - b;
   }
 
   private wrapX(v: number): number {
-    return this.bw > 0 ? wrapCoord(v, this.bw) : v;
+    if (!(this.bw > 0)) return v;
+    if (!this.wrapOn) return v < 1 ? 1 : v > this.bw - 1 ? this.bw - 1 : v;
+    return wrapCoord(v, this.bw);
   }
 
   private wrapY(v: number): number {
-    return this.bh > 0 ? wrapCoord(v, this.bh) : v;
+    if (!(this.bh > 0)) return v;
+    if (!this.wrapOn) return v < 1 ? 1 : v > this.bh - 1 ? this.bh - 1 : v;
+    return wrapCoord(v, this.bh);
   }
 
   /** Start a snapshot's samples. serverMs = room.st (undefined on old servers). */

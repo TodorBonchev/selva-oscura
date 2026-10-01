@@ -170,6 +170,21 @@ export class GameSocket {
     this.lastAttackAt = Date.now();
     this.send({ type: "attack", targetId, combo });
   }
+  duelChallenge(targetId: string) {
+    this.send({ type: "duel_challenge", targetId });
+  }
+  duelRespond(fromId: string, accept: boolean) {
+    this.send({ type: "duel_respond", fromId, accept });
+  }
+  duelCancel() {
+    this.send({ type: "duel_cancel" });
+  }
+  pvpQueue(join: boolean) {
+    this.send({ type: "pvp_queue", join });
+  }
+  pvpLeaderboard() {
+    this.send({ type: "pvp_leaderboard" });
+  }
   cast(spellId: string, aim?: { x?: number; y?: number }) {
     this.send({
       type: "cast",

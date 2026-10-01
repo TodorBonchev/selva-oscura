@@ -11,7 +11,8 @@
 import type { PerspectiveCamera } from "three";
 import { Vector3 } from "three";
 import type { Objective } from "../world/objective";
-import { GATE_LABEL_RANGE, gateState, isTwinExitOf, type GateState } from "../world/gates";
+import { GATE_LABEL_RANGE, gateState, isHiddenHubGate, isTwinExitOf, type GateState } from "../world/gates";
+import { canTargetPlayer } from "../world/pvpRules";
 import { wrapDelta } from "../world/wrap";
 
 type Vec2 = { x: number; y: number };
@@ -19,6 +20,13 @@ type Vec2 = { x: number; y: number };
 const RANGE = 38;
 /** Avarice gold road is long — pull the map out so Crush/CW/hub gate fit. */
 const RANGE_AVA = 48;
+/** The well is a closed circle — show the rim, not three tiled copies. */
+const RANGE_WELL = 46;
+
+function sep(d: number, size: number, wrap: boolean): number {
+  if (!wrap || !(size > 0)) return d;
+  return wrapDelta(d, size);
+}
 const MAP_EVERY_MS = 80;
 const ARROW_EVERY_MS = 50;
 /** Nearest-foe arrow only for foes this close (further ones are the objective's job). */
@@ -67,6 +75,12 @@ export type RadarTick = {
   objective: Objective | null;
   /** Caption under the minimap (objective target + distance, or the hold prompt). */
   hint: string;
+  /** False in the giants' well: one floor tile, plain separation. */
+  wrap?: boolean;
+  players?: any[];
+  youId?: string;
+  duels?: { a: string; b: string; phase: string }[];
+  role?: string;
 };
 
 export class Radar {
@@ -142,7 +156,8 @@ export class Radar {
     const h = canvas.height;
     const cx = w * 0.5;
     const cy = h * 0.5;
-    const range = opts.cantoId === "inferno_07" ? RANGE_AVA : RANGE;
+    const range = opts.cantoId === "inferno_07" ? RANGE_AVA : opts.cantoId === "inferno_31" ? RANGE_WELL : RANGE;
+    const wrap = opts.wrap !== false;
     const scale = (w * 0.46) / range;
     const { fx, fz, rx, rz } = this;
     const ux = opts.you.x;
@@ -178,12 +193,22 @@ export class Radar {
     );
     ctx.fillStyle = "#3a342855";
     // Three copies each axis so the floor continues across the portal seam.
+    // A closed pit draws one tile and a bone ring for the well.
     const bw = opts.bounds.width;
     const bh = opts.bounds.height;
-    for (let ix = -1; ix <= 1; ix++) {
-      for (let iy = -1; iy <= 1; iy++) {
+    const tile0 = wrap ? -1 : 0;
+    const tile1 = wrap ? 1 : 0;
+    for (let ix = tile0; ix <= tile1; ix++) {
+      for (let iy = tile0; iy <= tile1; iy++) {
         ctx.fillRect(ix * bw, iy * bh, bw, bh);
       }
+    }
+    if (opts.cantoId === "inferno_31") {
+      ctx.strokeStyle = "#c9a22799";
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.arc(bw * 0.5, bh * 0.5, Math.min(bw, bh) * 0.36, 0, Math.PI * 2);
+      ctx.stroke();
     }
     // Avarice gold road tint — measure lane readable on the map
     if (opts.cantoId === "inferno_07") {
@@ -224,8 +249,9 @@ export class Radar {
     let objOn = false;
     let objFound = false;
     for (const e of opts.entities) {
-      const dxw = wrapDelta(e.x - ux, bw);
-      const dyw = wrapDelta(e.y - uy, bh);
+      if (isHiddenHubGate(opts.cantoId, e)) continue;
+      const dxw = sep(e.x - ux, bw, wrap);
+      const dyw = sep(e.y - uy, bh, wrap);
       const dx = (dxw * rx + dyw * rz) * scale;
       const dy = -(dxw * fx + dyw * fz) * scale;
       const d = Math.hypot(dx, dy);
@@ -242,7 +268,7 @@ export class Radar {
       if (e.kind === "exit" || e.poiKind === "portal") {
         if (isTwinExitOf(e, opts.entities)) continue;
         const st = gateState(e, opts.cantoId, clears);
-        const fill = GATE_FILL[st];
+        const fill = e.toCanto === "inferno_31" ? "#a33a32" : GATE_FILL[st];
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(Math.PI / 4);
@@ -265,6 +291,24 @@ export class Radar {
       } else if (e.kind === "poi" || e.poiKind) {
         if (!on) continue;
         ring(sx, sy, 3.2, "#d9cfae", "#8a7030");
+      }
+    }
+    const players = opts.players;
+    if (players) {
+      const youId = opts.youId || "";
+      for (let i = 0; i < players.length; i++) {
+        const pl = players[i];
+        if (!pl || String(pl.id) === youId) continue;
+        const dxw = sep(pl.x - ux, bw, wrap);
+        const dyw = sep(pl.y - uy, bh, wrap);
+        const dx = (dxw * rx + dyw * rz) * scale;
+        const dy = -(dxw * fx + dyw * fz) * scale;
+        const d = Math.hypot(dx, dy) || 1;
+        const on = d <= rim;
+        const sx = on ? cx + dx : cx + (dx / d) * rim;
+        const sy = on ? cy + dy : cy + (dy / d) * rim;
+        const hostile = canTargetPlayer(opts.role, opts.cantoId, opts.duels, youId, pl);
+        ring(sx, sy, on ? 4 : 3.2, hostile ? "#d63a2a" : "#d9cfae", hostile ? "#ffc8b8" : "#8a7030");
       }
     }
 
@@ -398,10 +442,11 @@ export class Radar {
     this.objArrowFor = null;
     const bw = opts.bounds.width;
     const bh = opts.bounds.height;
+    const wrap = opts.wrap !== false;
     if (obj) {
       const plain = Math.hypot(obj.x - opts.you.x, obj.y - opts.you.y);
-      const odx = wrapDelta(obj.x - opts.you.x, bw);
-      const ody = wrapDelta(obj.y - opts.you.y, bh);
+      const odx = sep(obj.x - opts.you.x, bw, wrap);
+      const ody = sep(obj.y - opts.you.y, bh, wrap);
       const d = Math.hypot(odx, ody);
       const p = this.projectEdge(opts.camera, opts.you.x + odx, opts.you.y + ody, vw, vh, padL, padT, padR, padB);
       // On screen and close: the world label / beacon carries it
@@ -442,17 +487,30 @@ export class Radar {
         if (e.kind !== "mob" && e.kind !== "boss") continue;
         if (e.hp != null && e.hp <= 0) continue;
         if (obj && String(e.id) === obj.id) continue;
-        const d = Math.hypot(wrapDelta(e.x - opts.you.x, bw), wrapDelta(e.y - opts.you.y, bh));
+        const d = Math.hypot(sep(e.x - opts.you.x, bw, wrap), sep(e.y - opts.you.y, bh, wrap));
         if (d < foeD) {
           foeD = d;
           foe = e;
         }
       }
+      const players = opts.players;
+      const youId = opts.youId || "";
+      if (players && youId) {
+        for (let i = 0; i < players.length; i++) {
+          const pl = players[i];
+          if (!canTargetPlayer(opts.role, opts.cantoId, opts.duels, youId, pl)) continue;
+          const d = Math.hypot(sep(pl.x - opts.you.x, bw, wrap), sep(pl.y - opts.you.y, bh, wrap));
+          if (d < foeD) {
+            foeD = d;
+            foe = pl;
+          }
+        }
+      }
     }
     const fa = this.arrow("foe");
     if (foe) {
-      const fdx = wrapDelta(foe.x - opts.you.x, bw);
-      const fdy = wrapDelta(foe.y - opts.you.y, bh);
+      const fdx = sep(foe.x - opts.you.x, bw, wrap);
+      const fdy = sep(foe.y - opts.you.y, bh, wrap);
       const p = this.projectEdge(opts.camera, opts.you.x + fdx, opts.you.y + fdy, vw, vh, padL, padT, padR, padB);
       const label = foe.kind === "boss" ? "Boss" : foe.champion ? "Elite" : "Foe";
       let fx = p.x;

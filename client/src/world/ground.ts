@@ -17,6 +17,7 @@ import {
   makeTree,
 } from "./meshes";
 import { isCompactUi } from "../ui/hud";
+import { buildGiantsWell } from "./giantsWell";
 import { makeLightShaft } from "./fx";
 import { CAUSEWAY_HALF, CAUSEWAY_PADS, CAUSEWAY_PTS, mireDepth } from "./gluttonyMire";
 
@@ -182,6 +183,7 @@ export function buildGround(
   mats: MatKit,
   keepouts: { x: number; y: number; r: number }[]
 ): GroundRig {
+  if (cantoId === "inferno_31") return buildGiantsWell(bounds, mats);
   const group = new THREE.Group();
   group.name = `ground:${cantoId}`;
   const isHub = cantoId === "inferno_01";
