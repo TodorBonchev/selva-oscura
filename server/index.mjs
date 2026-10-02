@@ -37,7 +37,17 @@ import {
   handlePvpQueue,
   hydratePvp,
   leaderboardPayload,
+  pvpDuelBusy,
+  pvpIsDown,
 } from "./src/pvp.mjs";
+import {
+  flushProgression,
+  handleDevGrantXp,
+  handleSkillLearn,
+  handleSkillLoadout,
+  handleSkillRespec,
+  hydrateProgression,
+} from "./src/progression.mjs";
 import { noteClientRtt, noteServerRtt } from "./src/telegraph.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
@@ -477,6 +487,53 @@ async function handleMessage(ws, meta, msg) {
       }
       break;
     }
+    case "skill_learn": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        handleSkillLearn(room, sess, msg.skillId);
+      } catch (err) {
+        console.error("[prog] learn", err.message);
+      }
+      break;
+    }
+    case "skill_loadout": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        handleSkillLoadout(room, sess, msg.slots);
+      } catch (err) {
+        console.error("[prog] loadout", err.message);
+      }
+      break;
+    }
+    case "skill_respec": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        const busy = pvpIsDown(sess) || pvpDuelBusy(room, playerId);
+        handleSkillRespec(room, sess, busy);
+      } catch (err) {
+        console.error("[prog] respec", err.message);
+      }
+      break;
+    }
+    case "dev_grant_xp": {
+      // Opt-in only: never reachable unless the test harness sets SELVA_DEV_XP=1.
+      if (process.env.NODE_ENV === "production" || process.env.SELVA_DEV_XP !== "1") break;
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      try {
+        handleDevGrantXp(room, sess, msg.amount);
+      } catch (err) {
+        console.error("[prog] dev_xp", err.message);
+      }
+      break;
+    }
     default:
       send(ws, { type: "error", code: "unknown_type", message: `Unknown: ${msg.type}` });
   }
@@ -507,6 +564,11 @@ async function boot() {
   } catch (err) {
     console.error("[pvp] hydrate failed", err.message);
   }
+  try {
+    await hydrateProgression();
+  } catch (err) {
+    console.error("[prog] hydrate failed", err.message);
+  }
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`selva-oscura slice1 listening on ${PORT}`);
@@ -526,6 +588,11 @@ boot().catch((err) => {
 });
 
 async function shutdown() {
+  try {
+    await flushProgression();
+  } catch (err) {
+    console.error("[prog] flush failed", err.message);
+  }
   try {
     await flushPvp();
   } catch (err) {

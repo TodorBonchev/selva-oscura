@@ -4,10 +4,27 @@
  * Throws are logged; none of this may kill the room tick.
  */
 import crypto from "node:crypto";
-import { computeGearStats, players } from "./ledger.mjs";
+import { players } from "./ledger.mjs";
 import { dbEnabled, query } from "./db.mjs";
 import { PLAYER_MAX_MANA } from "./spells.mjs";
 import { wrapDelta } from "./wrap.mjs";
+import {
+  applyPlayerStats,
+  getLevel,
+  grantXp,
+  playerCombatStats,
+  pvpXpAllowed,
+} from "./progression.mjs";
+import {
+  applyLifesteal,
+  bastionDr,
+  meleeDmgMult,
+  resetLastStandLife,
+  thornsPct,
+  tryLastStand,
+  warCryMult,
+  weakenMult,
+} from "./skills.mjs";
 
 /** Melee / spell scale. Tuned so equal starter melee TTK sits in 4–7s and a
  * best-in-slot attacker needs ≥2.5s of light swings to down a starter. */
@@ -56,6 +73,17 @@ const CAP_BY_KIND = {
   gale_bolt: CAP_HEAVY,
   infernal_burst: CAP_HEAVY,
   dash: CAP_HEAVY,
+  furious_cleave: CAP_MELEE,
+  wrath_charge: CAP_HEAVY,
+  earthsplitter: 0.12,
+  lance_of_light: CAP_HEAVY,
+  pillar_of_flame: CAP_HEAVY,
+  pillar_burn: 0.05,
+  halo: 0.05,
+  tempest: 0.06,
+  snare_glyph: CAP_MELEE,
+  summon_shade: 0.12,
+  thorns: 0.08,
 };
 
 /** @type {Map<string, object>} */
@@ -144,6 +172,11 @@ export function pvpDamage(raw, ctx = {}) {
   const scaled = Math.max(0, Number(raw) || 0) * PVP_SCALE;
   const armor = Math.max(0, Number(ctx.targetGear?.armor) || 0);
   let taken = scaled * (PVP_ARMOR_K / (PVP_ARMOR_K + armor));
+  const la = Number(ctx.levelAtk);
+  const ld = Number(ctx.levelDef);
+  if (Number.isFinite(la) && Number.isFinite(ld)) {
+    taken *= Math.max(0.88, Math.min(1.12, 1 + 0.01 * (la - ld)));
+  }
   const maxHp = Math.max(1, Number(ctx.targetMaxHp) || 1);
   const pct = CAP_BY_KIND[ctx.kind] ?? CAP_MELEE;
   taken = Math.min(taken, maxHp * pct);
@@ -257,6 +290,8 @@ function pvpGate(room, attacker, target) {
     !duelOf(room, attacker.playerId) &&
     !duelOf(room, target.playerId)
   ) {
+    // Short fight lock between FFA rounds while the round card is up.
+    if ((room._pvp?.round?.startsAt || 0) > Date.now()) return "no";
     return invulnerable(target) ? "invuln" : "ok";
   }
   return "no";
@@ -266,10 +301,27 @@ export function pvpCanHit(room, attacker, target) {
   return pvpGate(room, attacker, target) === "ok";
 }
 
+/** True when A and B are currently legal PvP opponents (ignores iframes). */
+export function pvpAreOpponents(room, a, b) {
+  if (!room || !a || !b || a === b) return false;
+  const duel = duelOf(room, a.playerId);
+  if (duel && (duel.a === b.playerId || duel.b === b.playerId)) return duel.phase === "fight";
+  if (room.canto?.role === "arena" && !duelOf(room, a.playerId) && !duelOf(room, b.playerId)) return true;
+  return false;
+}
+
+export function pvpDuelBusy(room, playerId) {
+  const d = duelOf(room, playerId);
+  return !!(d && (d.phase === "countdown" || d.phase === "fight"));
+}
+
 function gearOf(id, armorBuff) {
-  const g = computeGearStats(players.get(id) || { inventory: [] });
-  if (armorBuff) g.armor = (g.armor || 0) + armorBuff;
-  return g;
+  const st = playerCombatStats(id);
+  return {
+    dmg: st.gear?.dmg || 0,
+    maxHp: st.gear?.maxHp || 0,
+    armor: st.armor + (armorBuff || 0),
+  };
 }
 
 function noteRecap(target, attacker, how, dmg) {
@@ -324,20 +376,71 @@ function applyPvpDamage(room, attacker, target, raw, kind) {
     return 0;
   }
   if (gate !== "ok") return 0;
+  let incoming = Math.max(0, Number(raw) || 0);
+  if (kind !== "thorns") {
+    incoming *= warCryMult(attacker);
+    incoming *= weakenMult(attacker);
+  }
   const ag = gearOf(attacker.playerId, 0);
   const tg = gearOf(target.playerId, target.armorBuff || 0);
-  const taken = pvpDamage(raw, {
+  let taken = pvpDamage(incoming, {
     attackerGear: ag,
     targetGear: tg,
     targetMaxHp: target.maxHp,
     kind,
+    levelAtk: getLevel(attacker.playerId),
+    levelDef: getLevel(target.playerId),
   });
-  const soaked = Math.max(0, Math.round(raw) - taken);
+  const dr = bastionDr(target, true);
+  if (dr > 0) taken = Math.max(1, Math.round(taken * (1 - dr)));
+  const soaked = Math.max(0, Math.round(incoming) - taken);
+  const lethal = target.hp - taken <= 0;
+  if (lethal && tryLastStand(target, true)) {
+    try {
+      room.broadcast({
+        type: "spell_fx",
+        spellId: "last_stand",
+        casterId: target.playerId,
+        x: target.x,
+        y: target.y,
+        duration: 1,
+      });
+    } catch {
+      /* closing */
+    }
+    sendHit(room, attacker, target, taken, soaked, kind);
+    noteRecap(target, attacker, kind, taken);
+    applyLifesteal(attacker, taken, true);
+    return taken;
+  }
   target.hp = Math.max(0, target.hp - taken);
   sendHit(room, attacker, target, taken, soaked, kind);
   noteRecap(target, attacker, kind, taken);
+  applyLifesteal(attacker, taken, true);
+  if (
+    kind !== "thorns" &&
+    (kind === "melee" ||
+      kind === "finisher" ||
+      kind === "furious_cleave" ||
+      kind === "wrath_charge" ||
+      kind === "earthsplitter")
+  ) {
+    const pct = thornsPct(target.playerId, true);
+    if (pct > 0 && taken > 0 && attacker.hp > 1) {
+      const refl = Math.max(1, Math.round(taken * pct));
+      const leave = Math.max(1, attacker.hp - refl);
+      const dealt = attacker.hp - leave;
+      attacker.hp = leave;
+      sendHit(room, target, attacker, dealt, 0, "thorns");
+      noteRecap(attacker, target, "thorns", dealt);
+    }
+  }
   if (target.hp <= 0) downPlayer(room, target, attacker, kind);
   return taken;
+}
+
+export function pvpHit(room, attacker, target, raw, kind) {
+  return safe("hit", () => applyPvpDamage(room, attacker, target, raw, kind)) || 0;
 }
 
 function downPlayer(room, victim, killer, how) {
@@ -368,6 +471,11 @@ function downPlayer(room, victim, killer, how) {
     console.error("[pvp] down send", err.message);
   }
   room.markDirty();
+  try {
+    if (typeof room.cleanupPlayerSkills === "function") room.cleanupPlayerSkills(victim.playerId);
+  } catch (err) {
+    console.error("[pvp] skill cleanup", err.message);
+  }
   if (duel && killer && (duel.a === victim.playerId || duel.b === victim.playerId)) {
     const winnerId = duel.a === victim.playerId ? duel.b : duel.a;
     endDuel(room, duel, { winnerId, reason: "down" });
@@ -451,6 +559,9 @@ function onArenaKill(room, victim, killer, how, prevStreak) {
   room.broadcast(msg);
   persistPvp(killer.playerId);
   persistPvp(victim.playerId);
+  if (pvpXpAllowed(killer.playerId, victim.playerId)) {
+    grantXp(room, killer.playerId, 25, "pvp_arena", { skipPenalty: true });
+  }
 }
 
 function spawnsOf(room) {
@@ -499,6 +610,7 @@ function arenaRespawn(room, victimId, killerId) {
   s.pvpDown = null;
   s.status = null;
   s.pvpInvulnUntil = Date.now() + INVULN_MS;
+  resetLastStandLife(s);
   room.markDirty();
   try {
     room.pushAllSnapshots();
@@ -508,15 +620,14 @@ function arenaRespawn(room, victimId, killerId) {
 }
 
 function prepareFighter(sess) {
-  const g = gearOf(sess.playerId, 0);
-  sess.maxHp = PLAYER_MAX_HP + (g.maxHp || 0);
-  sess.hp = sess.maxHp;
+  applyPlayerStats(sess, { refill: true });
   sess.maxMana = sess.maxMana || PLAYER_MAX_MANA;
   sess.mana = sess.maxMana;
   sess.pvpDown = null;
   sess.status = null;
   sess.iframes = 0;
   sess.pvpInvulnUntil = 0;
+  resetLastStandLife(sess);
 }
 
 function publicDuel(d) {
@@ -591,6 +702,7 @@ function applyRating(room, duel, winnerId, reason) {
   let dA = 0;
   let dB = 0;
   if (mult <= 0) {
+    duel.pairZeroed = true;
     const line = "Rating unchanged: you have met this rival too often today.";
     for (const id of [duel.a, duel.b]) {
       const s = room.sessions.get(id);
@@ -629,6 +741,13 @@ function endDuel(room, duel, { winnerId = null, reason }) {
   } catch (err) {
     console.error("[pvp] rating", err.message);
     duel.ratingDelta = { [duel.a]: 0, [duel.b]: 0 };
+  }
+  if (winnerId && !duel.pairZeroed) {
+    const loserId = winnerId === duel.a ? duel.b : duel.a;
+    const winXp = duel.ranked ? 60 : 40;
+    const loseXp = duel.ranked ? 15 : 10;
+    if (pvpXpAllowed(winnerId, loserId)) grantXp(room, winnerId, winXp, duel.ranked ? "pvp_ranked" : "pvp_duel", { skipPenalty: true });
+    grantXp(room, loserId, loseXp, duel.ranked ? "pvp_ranked" : "pvp_duel", { skipPenalty: true });
   }
   broadcastDuel(room, duel);
   const loserId = !winnerId ? null : winnerId === duel.a ? duel.b : duel.a;
@@ -741,11 +860,12 @@ function startDuel(room, a, b, opts) {
   return duel;
 }
 
-function meleeRaw(attackerId, heavy) {
-  const g = gearOf(attackerId, 0);
-  let raw = PLAYER_BASE_DMG + (g.dmg || 0) + Math.floor(Math.random() * 6);
+function meleeRaw(attacker, heavy) {
+  const st = playerCombatStats(attacker.playerId);
+  let raw = st.weaponDmg + Math.floor(Math.random() * 6);
   if (heavy) raw = Math.round(raw * FINISHER_MULT);
-  return raw;
+  raw *= meleeDmgMult(attacker.playerId, true);
+  return Math.round(raw);
 }
 
 export function pvpMelee(room, attacker, target, combo) {
@@ -810,7 +930,7 @@ export function pvpMelee(room, attacker, target, combo) {
           if (dot < 0.2) return;
         }
         const kind = heavy ? "finisher" : "melee";
-        applyPvpDamage(room, a, t, meleeRaw(attackerId, heavy), kind);
+        applyPvpDamage(room, a, t, meleeRaw(a, heavy), kind);
       });
     });
   });
@@ -913,10 +1033,20 @@ function boardRows(room) {
       name: nameOf(id),
       kills: s.roundKills || 0,
       streak: s.streak || 0,
+      lv: getLevel(id),
     });
   }
   rows.sort((a, b) => b.kills - a.kills || b.streak - a.streak || a.name.localeCompare(b.name));
   return rows;
+}
+
+/** Breather between FFA rounds: no arena damage while the round card shows. */
+function intermissionMs() {
+  if (process.env.NODE_ENV !== "production" && process.env.SELVA_PVP_INTERMISSION_SEC != null) {
+    const n = Number(process.env.SELVA_PVP_INTERMISSION_SEC);
+    if (Number.isFinite(n) && n >= 0) return n * 1000;
+  }
+  return 8000;
 }
 
 function finishRound(room) {
@@ -940,9 +1070,11 @@ function finishRound(room) {
     console.error("[pvp] round", err.message);
   }
   for (const s of mem.values()) s.roundKills = 0;
+  const startsAt = Date.now() + intermissionMs();
   st.round = {
     n: round.n + 1,
-    endsAt: Date.now() + roundSeconds() * 1000,
+    startsAt,
+    endsAt: startsAt + roundSeconds() * 1000,
     firstBlood: false,
     live: true,
   };
@@ -1357,6 +1489,7 @@ function rowView(id, s, rank) {
     losses: s.losses,
     kills: s.kills,
     title: s.title || null,
+    lv: getLevel(id),
   };
 }
 
@@ -1434,7 +1567,11 @@ export function pvpRoomFields(room) {
   if (room?.canto?.role === "arena") {
     const round = ensureRound(room);
     extra.arena = {
-      round: { n: round.n, endsAt: round.endsAt },
+      round: {
+        n: round.n,
+        endsAt: round.endsAt,
+        ...(round.startsAt > Date.now() ? { startsAt: round.startsAt } : {}),
+      },
       board: boardRows(room).slice(0, 8),
     };
   }

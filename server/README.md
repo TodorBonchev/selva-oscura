@@ -33,6 +33,22 @@ cd server && node scripts/pvp-regression.mjs   # or npm run test:pvp
 
 `SELVA_PVP_ROUND_SEC` overrides the 180s arena round when `NODE_ENV` is not `production`.
 
+### Levels and the skill tree
+
+Characters go from level 1 to 50. XP is server-side (`grantXp` in `src/progression.mjs`). `xpToNext(L) = round(60·L^1.65 + 40·L)` (100 from 1→2). Four branches — Ira, Fede, Ombra, Fortezza — hold 24 skills. Every pilgrim starts with `gale_bolt`, `whirl_ward`, and `infernal_burst` at rank 1 (free) and loadout `[gale_bolt, whirl_ward, infernal_burst, null]`. Level L has `(L−1)` skill points. Old clients that only cast those three spells keep working.
+
+Client → server: `skill_learn {skillId}`, `skill_loadout {slots}` (exactly four, `null` allowed), `skill_respec {}` (costs `200 × level` Ash; refused while downed or in a duel countdown/fight). `cast {spellId}` accepts any learned active in the loadout.
+
+Server → client: `you.prog` on the snapshot (`level`, `xp`, `xpToNext`, `xpIntoLevel`, `points`, `ranks`, `loadout`, `cds`), remotes carry `lv`, `xp_gain`, `level_up`, `skill_result`, `spell_fx` (optional `hits`), `room.skillFx` for glyphs/shades/burns/vortexes. Arena board and leaderboard rows include `lv`.
+
+Progress persists in `player_progress` (migration `005_progression.sql`) when `DATABASE_URL` is set. Existing characters with first-clears and no progress row are backfilled once (800 XP × canto tier).
+
+```bash
+cd server && node scripts/progression-regression.mjs   # or npm run test:levels
+```
+
+Self-play `--skills` spends points into a PvE build and puts `furious_cleave` on the loadout.
+
 Map edges wrap around (torus): a move, dash or shove that crosses an edge continues from
 the opposite side, and the move budget measures the shortest wrapped step (`src/wrap.mjs`).
 Mobs, projectiles, hazards and loot stay inside the bounds.
@@ -50,7 +66,7 @@ On boot the server:
 
 1. Connects with `pg` (node-postgres)
 2. Runs idempotent SQL migrations from `migrations/`
-3. Hydrates vault, players, inventory, AH listings, emit log, and caps into memory
+3. Hydrates vault, players, inventory, AH listings, emit log, caps, PvP, and progression into memory
 
 Meaningful writes are persisted: ash changes, loot grants, inventory location, AH
 list/buy/bid (buy/bid use a DB transaction), emit grants, first-clear / daily caps,
@@ -72,6 +88,7 @@ If `DATABASE_URL` is missing, the server logs a clear warning and runs fully in-
 | `vault_state` | remaining ash/stelle mirror for the emit formula |
 | `schema_migrations` | applied migration ids |
 | `pvp_stats` (`004_pvp.sql`) | rating, peak, wins/losses/draws, kills/deaths, best streak, rounds won, cosmetic title |
+| `player_progress` (`005_progression.sql`) | level, total xp, skill ranks JSON, loadout JSON, backfill flag, respec count |
 
 ### Migrate
 

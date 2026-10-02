@@ -119,6 +119,7 @@ async function startServer() {
     PORT: String(port),
     NODE_ENV: "test",
     SELVA_PVP_ROUND_SEC: "20",
+    SELVA_PVP_INTERMISSION_SEC: "0",
   };
   if (dbUrl) env.DATABASE_URL = dbUrl;
   else delete env.DATABASE_URL;

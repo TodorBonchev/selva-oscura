@@ -155,6 +155,17 @@ export interface EntitySnapshot {
   item?: GameItem;
 }
 
+export interface ProgSnapshot {
+  level: number;
+  xp: number;
+  xpToNext: number;
+  xpIntoLevel: number;
+  points: number;
+  ranks: Record<string, number>;
+  loadout: (string | null)[];
+  cds?: Record<string, number>;
+}
+
 export interface PlayerSnapshot {
   id: string;
   name: string;
@@ -164,6 +175,9 @@ export interface PlayerSnapshot {
   maxHp: number;
   mana: number;
   maxMana: number;
+  /** Character level. Remotes always carry this; `you` also has `prog`. */
+  lv?: number;
+  prog?: ProgSnapshot;
   cantoId: CantoId;
   ash: number;
   pendingAsh: number;
@@ -224,6 +238,16 @@ export interface RoomSnapshot {
   /** Present only in the arena room. */
   arena?: {
     round: { n: number; endsAt: number };
-    board: { id: string; name: string; kills: number; streak: number }[];
+    board: { id: string; name: string; kills: number; streak: number; lv?: number }[];
   };
+  /** Ground skill effects (glyphs, shades, burns, vortexes) for late joiners. */
+  skillFx?: {
+    id: string;
+    kind: string;
+    x: number;
+    y: number;
+    r: number;
+    owner: string;
+    ttl: number;
+  }[];
 }

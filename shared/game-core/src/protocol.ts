@@ -22,6 +22,9 @@ export type ClientMessage =
   | { type: "sip" }
   | { type: "dash"; x?: number; y?: number }
   | { type: "cast"; spellId: string; aimX?: number; aimY?: number }
+  | { type: "skill_learn"; skillId: string }
+  | { type: "skill_loadout"; slots: (string | null)[] }
+  | { type: "skill_respec" }
   | { type: "ping" }
   | { type: "duel_challenge"; targetId: string }
   | { type: "duel_respond"; fromId: string; accept: boolean }
@@ -45,7 +48,11 @@ export type ServerMessage =
       ty?: number;
       radius?: number;
       duration?: number;
+      hits?: string[];
     }
+  | { type: "xp_gain"; amount: number; reason: string; total: number }
+  | { type: "level_up"; playerId: string; name: string; level: number }
+  | { type: "skill_result"; ok: boolean; op: string; error?: string }
   | { type: "entity_removed"; id: string }
   /** Sent after interacting with the Dark Wood stash: client opens the bag in stash mode. */
   | { type: "stash_open" }
@@ -87,7 +94,7 @@ export type ServerMessage =
       phase: "end";
       n: number;
       winners: { id: string; name: string; kills: number }[];
-      board: { id: string; name: string; kills: number; streak: number }[];
+      board: { id: string; name: string; kills: number; streak: number; lv?: number }[];
     }
   | {
       type: "duel_invite";
@@ -130,6 +137,7 @@ export type ServerMessage =
         losses: number;
         kills: number;
         title: string | null;
+        lv?: number;
       }[];
       you: {
         rank: number;
@@ -139,5 +147,6 @@ export type ServerMessage =
         losses: number;
         kills: number;
         title: string | null;
+        lv?: number;
       } | null;
     };

@@ -7,7 +7,7 @@
  *   Dark Wood (Guide, pyre, stash, AH, writ) → Lust → Gluttony → Avarice → Dark Wood
  *
  * Usage (server must be running):
- *   node scripts/selfplay.mjs [--url ws://127.0.0.1:8080/ws] [--name Bot] [--runs 1] [--quiet]
+ *   node scripts/selfplay.mjs [--url ws://127.0.0.1:8080/ws] [--name Bot] [--runs 1] [--quiet] [--skills]
  *
  * Exits non-zero if any canto cannot be cleared or a gate misbehaves.
  */
@@ -23,7 +23,24 @@ const arg = (k, d) => {
 const URL = arg("url", "ws://127.0.0.1:8080/ws");
 const RUNS = Number(arg("runs", "1"));
 const QUIET = args.includes("--quiet");
+/** Spend skill points into a PvE build and put new actives on the loadout. */
+const LEARN_SKILLS = args.includes("--skills");
 const BASE_NAME = arg("name", `Bot${Math.random().toString(36).slice(2, 6)}`);
+const LEARN_ORDER = [
+  "ferocia",
+  "furious_cleave",
+  "silenzio",
+  "stone_skin",
+  "fervore",
+  "vigor",
+  "wrath_charge",
+  "lance_of_light",
+  "bloodthirst",
+  "grace",
+  "war_cry",
+  "shadow_step",
+  "snare_glyph",
+];
 /** skilled: dodges telegraphs, casts, rings bells. naive: melee + flask only (a new phone player). */
 const STYLE = arg("style", "skilled");
 /** Skilled reaction time (ms): a telegraph is only "seen" this long after it appears — a human, not an oracle. */
@@ -86,6 +103,7 @@ class Bot {
       this.snap = m.room;
       const st = this.cur && this.stats[this.cur];
       if (st && m.room.you) st.minHp = Math.min(st.minHp, m.room.you.hp);
+      this.spendSkills();
       // Our own predicted position (like the client): moves step from it at walking
       // speed instead of from the ~130 ms-old snapshot; big server corrections win.
       const y = m.room.you;
@@ -135,6 +153,29 @@ class Bot {
 
   send(m) {
     if (this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
+  }
+
+  spendSkills() {
+    if (!LEARN_SKILLS) return;
+    const prog = this.snap?.you?.prog;
+    if (!prog) return;
+    const ranks = prog.ranks || {};
+    if (!this._loadoutSet && (ranks.furious_cleave || 0) >= 1) {
+      this.send({
+        type: "skill_loadout",
+        slots: ["gale_bolt", "whirl_ward", "infernal_burst", "furious_cleave"],
+      });
+      this._loadoutSet = true;
+    }
+    if (!(prog.points > 0)) return;
+    if (this._learnAt && Date.now() - this._learnAt < 160) return;
+    for (const id of LEARN_ORDER) {
+      const cur = Math.floor(Number(ranks[id]) || 0);
+      if (cur >= 5) continue;
+      this.send({ type: "skill_learn", skillId: id });
+      this._learnAt = Date.now();
+      return;
+    }
   }
 
   async waitFor(pred, ms = 8000, label = "cond") {
@@ -275,6 +316,20 @@ class Bot {
     } else if (you.hp < you.maxHp * 0.6 && you.mana >= 28 && (!this._wardAt || now - this._wardAt > 8200)) {
       this._wardAt = now;
       this.send({ type: "cast", spellId: "whirl_ward" });
+    } else if (
+      LEARN_SKILLS &&
+      close >= 2 &&
+      you.mana >= 10 &&
+      (you.prog?.ranks?.furious_cleave || 0) >= 1 &&
+      (!this._cleaveAt || now - this._cleaveAt > 4200)
+    ) {
+      this._cleaveAt = now;
+      this.send({
+        type: "cast",
+        spellId: "furious_cleave",
+        aimX: target.x - you.x,
+        aimY: target.y - you.y,
+      });
     } else if (d < 9 && you.mana >= 40 && (!this._boltAt || now - this._boltAt > 1500)) {
       this._boltAt = now;
       this.send({ type: "cast", spellId: "gale_bolt", aimX: target.x - you.x, aimY: target.y - you.y });
@@ -471,7 +526,9 @@ class Bot {
     }
     this.send({ type: "salvage_bag" });
     await sleep(300);
-    this.log(`final ash=${this.you.ash} pending=${this.you.pendingAsh} clears=${this.you.firstClears.join(",")}`);
+    this.log(
+      `final ash=${this.you.ash} pending=${this.you.pendingAsh} clears=${this.you.firstClears.join(",")} level=${this.you.prog?.level} xp=${this.you.prog?.xp}`
+    );
     this.ws.close();
     return { stats: this.stats, errors: this.errors, you: this.you };
   }
@@ -519,5 +576,7 @@ for (const c of ["inferno_05", "inferno_06", "inferno_07"]) {
   );
 }
 const total = RUNS * PARTY;
+const lv = all.map((a) => a.you?.prog?.level).filter((n) => n != null);
+if (lv.length) console.log(`levels: ${lv.join(", ")}  xp: ${all.map((a) => a.you?.prog?.xp).join(", ")}`);
 console.log(failed ? `\n${failed}/${total} player run(s) failed` : `\nall ${total} player run(s) passed`);
 process.exit(failed ? 1 : 0);

@@ -1,6 +1,7 @@
 /**
- * Inferno mana spells — server-authoritative definitions.
- * Costs / CDs are the single source of truth; client mirrors for UI only.
+ * Inferno mana spells — rank-1 numbers for gale_bolt / whirl_ward / infernal_burst.
+ * The skill tree (ranks, loadout, new skills) lives in skills.mjs; this file stays
+ * the rank-1 source so old clients keep working.
  */
 
 export const PLAYER_MAX_MANA = 100;

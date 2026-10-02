@@ -17,11 +17,6 @@ import {
   unstashItem,
 } from "./ledger.mjs";
 import * as ah from "./ah.mjs";
-import {
-  PLAYER_MAX_MANA,
-  MANA_REGEN_PER_SEC,
-  spellById,
-} from "./spells.mjs";
 import { Telegraphs } from "./telegraph.mjs";
 import {
   POISE_BREAK,
@@ -56,6 +51,34 @@ import {
   pvpTouch,
   pvpYou,
 } from "./pvp.mjs";
+import {
+  applyPlayerStats,
+  firstClearXp,
+  flushXpGains,
+  getLevel,
+  getProgress,
+  grantKillXp,
+  grantXp,
+  manaRegenPerSec,
+  playerCombatStats,
+  progSnapshot,
+} from "./progression.mjs";
+import {
+  applyLifesteal,
+  bastionActive,
+  bastionDr,
+  beginCast,
+  castActive,
+  cleanupPlayerSkills,
+  meleeDmgMult,
+  skillFxSnapshot,
+  spellDmgMult,
+  thornsPct,
+  tickSkills,
+  tryLastStand,
+  warCryMult,
+  weakenMult,
+} from "./skills.mjs";
 
 /** Arena pits clamp to the wall; every other canto keeps the torus wrap. */
 function placeBody(room, x, y) {
@@ -269,9 +292,10 @@ function avaCoinWeave(e, sx, sy, dt) {
 const AVA_CHAMP_WIND = { windup: 0.62 };
 const ATTACKS_WARDEN = new Set(["gale_warden", "mire_warden", "ledger_warden"]);
 
-/** Remember every player who hurt a boss so a shared kill credits them all. */
-function noteBossHit(e, playerId) {
-  if (!e || e.kind !== "boss" || !playerId) return;
+/** Remember every player who hurt a foe so kill XP can be shared. */
+function noteHit(e, playerId) {
+  if (!e || !playerId) return;
+  if (e.kind !== "boss" && e.kind !== "mob") return;
   if (!e.hitBy) e.hitBy = new Set();
   e.hitBy.add(playerId);
 }
@@ -359,8 +383,22 @@ function slimRemotePlayerSnap(full) {
     mana: full.mana,
     maxMana: full.maxMana,
     cantoId: full.cantoId,
+    lv: full.lv,
     equipped: slimEquippedLook(full.equipped),
   };
+}
+
+function affOf(sess) {
+  if (!sess) return undefined;
+  const now = Date.now();
+  const bits = [];
+  const st = sess.status;
+  if (st && st.until > now) {
+    if (st.root) bits.push("root");
+    else if ((st.slow ?? 1) < 0.98) bits.push("slow");
+  }
+  if (sess.weakenUntil > now) bits.push("weak");
+  return bits.length ? bits.join(",") : undefined;
 }
 
 /** One authoritative instance per canto (Slice 1 single shard). */
@@ -488,27 +526,24 @@ class CantoRoom {
       )
         .then(() => {
           const s = this.sessions.get(playerId);
-          if (s) {
-            s.maxHp = PLAYER_MAX_HP + computeGearStats(ledger).maxHp;
-            s.hp = s.maxHp;
-          }
+          if (s) applyPlayerStats(s, { refill: true });
           this.pushSnapshot(playerId);
         })
         .catch((err) => console.error("[starter] grant failed", err.message));
       this.toast(ws, "loot", "Starter kit worn: Ashen Club + Torn Cape.");
     }
     const spawn = this.canto.geo.spawn;
-    const gear = computeGearStats(ledger);
-    const maxHp = PLAYER_MAX_HP + gear.maxHp;
+    getProgress(playerId);
+    const st = playerCombatStats(playerId);
     const sess = {
       ws,
       playerId,
       x: spawn.x,
       y: spawn.y,
-      hp: maxHp,
-      maxHp,
-      mana: PLAYER_MAX_MANA,
-      maxMana: PLAYER_MAX_MANA,
+      hp: st.maxHp,
+      maxHp: st.maxHp,
+      mana: st.maxMana,
+      maxMana: st.maxMana,
       atkCd: 0,
       sipCd: 0,
       dashCd: 0,
@@ -580,6 +615,11 @@ class CantoRoom {
     } catch (err) {
       console.error("[pvp] leave", err.message);
     }
+    try {
+      cleanupPlayerSkills(this, playerId);
+    } catch (err) {
+      console.error("[skills] leave", err.message);
+    }
     this.sessions.delete(playerId);
     // Others drop the leaver's pilgrim on the next tick (an idle room pushes nothing otherwise)
     this.markDirty();
@@ -644,6 +684,9 @@ class CantoRoom {
         item: e.item,
         // Avarice/Lust/Glut bell still — client gold measure tint
         stunLeft: e.stunLeft > 0.05 ? Math.round(e.stunLeft * 5) / 5 : undefined,
+        rootLeft: e.rootLeft > 0.05 ? Math.round(e.rootLeft * 5) / 5 : undefined,
+        weakenLeft: e.weakenLeft > 0.05 ? Math.round(e.weakenLeft * 5) / 5 : undefined,
+        slowLeft: e.slowLeft > 0.05 ? Math.round(e.slowLeft * 5) / 5 : undefined,
         windupLeft:
           (e.kind === "boss" || e.champion || e.archetype === "weight_champion") && e.windupLeft > 0
             ? Math.round(e.windupLeft * 100) / 100
@@ -663,12 +706,16 @@ class CantoRoom {
         maxMana: s.maxMana,
         cantoId: this.cantoId,
       });
+      full.lv = getLevel(pid);
       // Remotes: slim equipped for look only; strip inventory/ash/private fields.
       // Local "you" snapshot below stays full.
       if (pid === forPlayerId) {
         playerSnaps.push(full);
       } else {
         const slim = slimRemotePlayerSnap(full);
+        slim.lv = full.lv;
+        const aff = affOf(s);
+        if (aff) slim.aff = aff;
         try {
           const pv = pvpRemote(this, s);
           if (pv) slim.pvp = pv;
@@ -687,6 +734,12 @@ class CantoRoom {
     } catch (err) {
       console.error("[pvp] snap", err.message);
     }
+    let skillFx;
+    try {
+      skillFx = skillFxSnapshot(this);
+    } catch (err) {
+      console.error("[skills] snap", err.message);
+    }
     return {
       cantoId: this.cantoId,
       // Server clock of the tick that moved these positions (event snapshots between
@@ -701,6 +754,7 @@ class CantoRoom {
       bounds: this.canto.geo.bounds,
       entities,
       players: playerSnaps,
+      ...(skillFx && skillFx.length ? { skillFx } : {}),
       you: {
         ...snapshotPlayer(ledger, {
           x: Math.round(youSess.x * 100) / 100,
@@ -713,6 +767,9 @@ class CantoRoom {
         }),
         armorBuff: youSess.armorBuff || 0,
         wardUntil: youSess.wardUntil || 0,
+        lv: getLevel(forPlayerId),
+        prog: progSnapshot(forPlayerId, youSess),
+        ...(affOf(youSess) ? { aff: affOf(youSess) } : {}),
         // Client: Ledger/Mire/Gale bell quiet → Guide / measure pathing
         bellCd: youSess.bellCd > 0 ? Number(youSess.bellCd) : 0,
         // Client: Ledger Cache empty mesh (session-local claim)
@@ -838,7 +895,7 @@ class CantoRoom {
     const evade = v.kind === "boss" && v.resetting && hit > 0;
     if (evade) hit = 0;
     v.hp = Math.max(0, v.hp - hit);
-    noteBossHit(v, playerId);
+    noteHit(v, playerId);
     let kb = 0;
     if (v.hp > 0 && !evade && !HEART_ARCHETYPES.has(v.archetype)) {
       kb = knockbackFor(v, extra.heavy) * (extra.kbMul ?? 1);
@@ -918,9 +975,10 @@ class CantoRoom {
     const finisher = Number(combo) === 2 && chain >= 2;
     s.chain = finisher ? -1 : chain;
     s.lastBlowAt = now;
-    const gear = computeGearStats(players.get(playerId) || { inventory: [] });
-    let dmg = PLAYER_BASE_DMG + gear.dmg + Math.floor(Math.random() * 6);
+    const st = playerCombatStats(playerId);
+    let dmg = Math.round(st.weaponDmg) + Math.floor(Math.random() * 6);
     if (finisher) dmg = Math.round(dmg * FINISHER_MULT);
+    dmg = Math.max(1, Math.round(dmg * meleeDmgMult(playerId, false) * warCryMult(s) * weakenMult(s)));
     const victims = [target];
     for (const e of this.entities.values()) {
       if (e === target || (e.kind !== "mob" && e.kind !== "boss")) continue;
@@ -928,16 +986,18 @@ class CantoRoom {
       if (dist(target, e) > 2.6) continue;
       victims.push(e);
     }
+    let dealt = 0;
     for (const v of victims) {
       if (v._dead) continue;
       let hit = v === target ? dmg : Math.max(8, Math.round(dmg * 0.55));
       if (heartWards(this, v)) hit = Math.max(1, Math.round(hit * 0.7));
-      this.damageMob(v, hit, playerId, {
+      dealt += this.damageMob(v, hit, playerId, {
         heavy: finisher,
         from: s,
         kbMul: v === target ? 1 : 0.6,
       });
     }
+    applyLifesteal(s, dealt, false);
     // The combat broadcasts carry targetHp; the next tick's snapshot (<=80ms) syncs the
     // rest instead of an extra ~8KB snapshot to every player on every swing
     this.markDirty();
@@ -948,41 +1008,38 @@ class CantoRoom {
     if (!s || pvpIsDown(s)) return;
     pvpTouch(s);
     pvpBreakInvuln(s);
-    const spell = spellById(spellId);
-    if (!spell) {
-      this.toast(s.ws, "warn", "Unknown spell.");
+    let plan;
+    try {
+      plan = beginCast(this, s, spellId, aimX, aimY);
+    } catch (err) {
+      console.error("[skills] begin", err.message);
       return;
     }
-    // (wall clock, like the dash: the ticked spellCd could refuse a cast right at 0)
-    const readyAt = s.spellReadyAt?.[spell.id] || 0;
-    if (Date.now() < readyAt - DASH_GRACE_MS) {
-      this.toast(s.ws, "warn", `${spell.name} recharging…`);
-      return;
+    if (!plan) return;
+    if (plan.existing) {
+      const spell = plan.spell;
+      if (spell.id === "gale_bolt") {
+        this._castGaleBolt(playerId, s, spell, aimX, aimY);
+        return;
+      }
+      if (spell.id === "whirl_ward") {
+        this._castWhirlWard(playerId, s, spell);
+        return;
+      }
+      if (spell.id === "infernal_burst") {
+        this._castInfernalBurst(playerId, s, spell);
+        return;
+      }
     }
-    if (s.mana < spell.manaCost) {
-      this.toast(s.ws, "warn", `Not enough mana for ${spell.name} (${spell.manaCost}).`);
-      this.send(s.ws, {
-        type: "spell_fx",
-        spellId: "mana_deny",
-        casterId: playerId,
-        x: s.x,
-        y: s.y,
-      });
-      return;
+    try {
+      castActive(this, s, plan.def, plan.rank, aimX, aimY);
+    } catch (err) {
+      console.error("[skills] cast", err.message);
     }
+  }
 
-    if (spell.id === "gale_bolt") {
-      this._castGaleBolt(playerId, s, spell, aimX, aimY);
-      return;
-    }
-    if (spell.id === "whirl_ward") {
-      this._castWhirlWard(playerId, s, spell);
-      return;
-    }
-    if (spell.id === "infernal_burst") {
-      this._castInfernalBurst(playerId, s, spell);
-      return;
-    }
+  cleanupPlayerSkills(playerId) {
+    cleanupPlayerSkills(this, playerId);
   }
 
   _spendSpell(s, spell) {
@@ -1048,10 +1105,15 @@ class CantoRoom {
     if (pvpT && pvpD <= foeD) {
       this._spendSpell(s, spell);
       const gear = computeGearStats(players.get(playerId) || { inventory: [] });
-      const raw =
-        spell.baseDamage +
-        Math.floor(gear.dmg * 0.55) +
-        Math.floor(Math.random() * (spell.damageVar + 1));
+      const raw = Math.max(
+        1,
+        Math.round(
+          (spell.baseDamage +
+            Math.floor(gear.dmg * 0.55) +
+            Math.floor(Math.random() * (spell.damageVar + 1))) *
+            spellDmgMult(playerId, true)
+        )
+      );
       const travel = Math.min(0.32, Math.max(0.08, pvpD / GALE_BOLT_SPEED));
       const impact = { x: pvpT.x, y: pvpT.y };
       const targetId = pvpT.playerId;
@@ -1096,6 +1158,7 @@ class CantoRoom {
         spell.baseDamage +
         Math.floor(gear.dmg * 0.55) +
         Math.floor(Math.random() * (spell.damageVar + 1));
+      dmg = Math.max(1, Math.round(dmg * spellDmgMult(playerId, false)));
       if (heartWards(this, target)) dmg = Math.max(1, Math.round(dmg * 0.7));
       dmg = Math.max(1, Math.round(dmg * weightMatchupMult(spell.id, target)));
       // The bolt flies (≈32 u/s): the blow lands when it arrives, not on the cast frame
@@ -1152,10 +1215,11 @@ class CantoRoom {
   _castInfernalBurst(playerId, s, spell) {
     this._spendSpell(s, spell);
     const gear = computeGearStats(players.get(playerId) || { inventory: [] });
-    const base =
+    const rolled =
       spell.baseDamage +
       Math.floor(gear.dmg * 0.7) +
       Math.floor(Math.random() * (spell.damageVar + 1));
+    const base = Math.max(1, Math.round(rolled * spellDmgMult(playerId, false)));
     const hit = [];
     for (const e of [...this.entities.values()]) {
       if (e.kind !== "mob" && e.kind !== "boss") continue;
@@ -1177,7 +1241,7 @@ class CantoRoom {
     // The burst blows everything outward (heavy shove)
     for (const h of hit) this.damageMob(h.ent, h.dmg, playerId, { spellId: spell.id, from: s, heavy: true });
     try {
-      pvpBurst(this, s, base, spell.radius);
+      pvpBurst(this, s, Math.round(rolled * spellDmgMult(playerId, true)), spell.radius);
     } catch (err) {
       console.error("[pvp] burst", err.message);
     }
@@ -1257,6 +1321,11 @@ class CantoRoom {
     this.mech.onKilled?.(this, entity);
     this.entities.delete(entity.id);
     this.broadcast({ type: "entity_removed", id: entity.id });
+    try {
+      grantKillXp(this, killerId, entity);
+    } catch (err) {
+      console.error("[prog] kill xp", err.message);
+    }
     if (entity.packId && killer && !entity.summoned) {
       let left = 0;
       for (const e of this.entities.values()) {
@@ -1345,6 +1414,11 @@ class CantoRoom {
         const r2 = tryEmit(pid, "FirstClear", { cantoId: this.cantoId, requires: entity.id });
         if (r2.ok) {
           this.toast(sess.ws, "emit", `First clear reward +${ashStelleTag(r2.payoutAsh)} (pending)`);
+          try {
+            grantXp(this, pid, firstClearXp(this.cantoId), "first_clear");
+          } catch (err) {
+            console.error("[prog] first_clear xp", err.message);
+          }
           const gateLine =
             this.cantoId === "inferno_05"
               ? "Lust falls — the Gluttony gate past the dais opens."
@@ -1769,10 +1843,7 @@ class CantoRoom {
       this.toast(s.ws, "warn", `Cannot equip: ${r.reason}`);
       return;
     }
-    const gear = r.gearStats || computeGearStats(players.get(playerId));
-    const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
-    s.maxHp = PLAYER_MAX_HP + gear.maxHp;
-    s.hp = Math.max(1, Math.min(s.maxHp, Math.round(s.maxHp * ratio)));
+    applyPlayerStats(s);
     const eqLine =
       this.cantoId === "inferno_07"
         ? `pesato — equipped ${r.item.name} → ${r.slot}`
@@ -1823,10 +1894,7 @@ class CantoRoom {
       this.toast(s.ws, "warn", `Cannot unequip: ${r.reason}`);
       return;
     }
-    const gear = r.gearStats || computeGearStats(players.get(playerId));
-    const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
-    s.maxHp = PLAYER_MAX_HP + gear.maxHp;
-    s.hp = Math.max(1, Math.min(s.maxHp, Math.round(s.maxHp * ratio)));
+    applyPlayerStats(s);
     this.toast(s.ws, "info", `Unequipped ${r.item.name}`);
     this.pushAllSnapshots();
   }
@@ -1863,6 +1931,7 @@ class CantoRoom {
    */
   shovePlayer(sess, dx, dy, durMs = 220) {
     if (!sess || !(sess.hp > 0)) return;
+    if (bastionActive(sess)) return;
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
     const shoved = placeBody(this, sess.x + dx, sess.y + dy);
     sess.x = shoved.x;
@@ -1923,9 +1992,34 @@ class CantoRoom {
     }
     raw = Math.max(0, Math.round(Number(raw) || 0));
     if (raw <= 0) return 0;
-    const led = players.get(target.playerId);
-    const armor = (led ? computeGearStats(led).armor : 0) + (target.armorBuff || 0);
-    const { taken, soaked } = mitigate(raw, armor);
+    const st = playerCombatStats(target.playerId);
+    const armor = st.armor + (target.armorBuff || 0);
+    let { taken, soaked } = mitigate(raw, armor);
+    const dr = bastionDr(target, false);
+    if (dr > 0) taken = Math.max(1, Math.round(taken * (1 - dr)));
+    if (target.hp - taken <= 0 && tryLastStand(target, false)) {
+      this.broadcast({
+        type: "spell_fx",
+        spellId: "last_stand",
+        casterId: target.playerId,
+        x: target.x,
+        y: target.y,
+        duration: 1,
+      });
+      this.broadcast({
+        type: "combat",
+        attackerId,
+        targetId: target.playerId,
+        targetIsPlayer: true,
+        damage: taken,
+        soaked,
+        wardActive: !!(target.armorBuff > 0),
+        targetHp: target.hp,
+        ...extra,
+      });
+      this.markDirty();
+      return taken;
+    }
     target.hp = Math.max(0, target.hp - taken);
     // The well never uses the PvE death wake — a stray blow leaves the pilgrim at 1.
     if (this.canto?.role === "arena" && target.hp <= 0) target.hp = 1;
@@ -1941,6 +2035,19 @@ class CantoRoom {
       ...extra,
     });
     this.markDirty();
+    if (taken > 0 && attacker && (attacker.kind === "mob" || attacker.kind === "boss")) {
+      const pct = thornsPct(target.playerId, false);
+      if (pct > 0) {
+        try {
+          this.damageMob(attacker, Math.max(1, Math.round(taken * pct)), target.playerId, {
+            spellId: "thorns",
+            from: target,
+          });
+        } catch (err) {
+          console.error("[skills] thorns", err.message);
+        }
+      }
+    }
     if (target.hp <= 0) {
       const sp = this.canto.geo.spawn;
       target.x = sp.x;
@@ -2016,7 +2123,9 @@ class CantoRoom {
       e.kind === "boss"
         ? MOB_DMG[arch] || MOB_DMG.boss
         : MOB_DMG[arch] || (isChampionClass(e) ? MOB_DMG.gale_champion : MOB_DMG.whirl_shade);
-    return Math.round(dmg * tierOf(this.cantoId).dmg);
+    dmg = Math.round(dmg * tierOf(this.cantoId).dmg);
+    if ((e.weakenLeft || 0) > 0) dmg = Math.max(1, Math.round(dmg * (e.weakenMult || 0.85)));
+    return dmg;
   }
 
   tick(dt) {
@@ -2052,11 +2161,21 @@ class CantoRoom {
       }
       if (s.hp > 0 && s.mana < s.maxMana) {
         const before = s.mana;
-        s.mana = Math.min(s.maxMana, s.mana + MANA_REGEN_PER_SEC * dt);
+        s.mana = Math.min(s.maxMana, s.mana + manaRegenPerSec(s.playerId) * dt);
         if (Math.floor(s.mana) !== Math.floor(before)) manaDirty = true;
       }
     }
     if (manaDirty) this.markDirty();
+    try {
+      tickSkills(this, dt);
+    } catch (err) {
+      console.error("[skills] tick", err.message);
+    }
+    try {
+      flushXpGains(this);
+    } catch (err) {
+      console.error("[prog] xp flush", err.message);
+    }
     this.mech.tick?.(this, dt);
     if (this.pending.length) {
       const due = [];
@@ -2111,6 +2230,13 @@ class CantoRoom {
         }
         continue;
       }
+      if ((e.rootLeft || 0) > 0) {
+        e.rootLeft = Math.max(0, e.rootLeft - dt);
+        e.sp = 0;
+        continue;
+      }
+      if ((e.slowLeft || 0) > 0) e.slowLeft = Math.max(0, e.slowLeft - dt);
+      if ((e.weakenLeft || 0) > 0) e.weakenLeft = Math.max(0, e.weakenLeft - dt);
       if (HEART_ARCHETYPES.has(e.archetype)) continue;
       let nearest = null;
       let nearestD = 999;
@@ -2204,6 +2330,7 @@ class CantoRoom {
           if (e.archetype === "weight_champion" && nearestD > 3.2 && nearestD < 6.5) speedMul = 1.35;
           if (e.archetype === "coin_wisp") weave = avaCoinWeave;
         }
+        if ((e.slowLeft || 0) > 0) speedMul *= e.slowMul || 0.55;
         if (chase(this, e, nearest, dt, { speedMul, weave })) moved = true;
         if (unstick(e, nearestD > 3.2, dt)) moved = true;
         if (e.atkCd <= 0 && !(nearest.iframes > 0)) {
