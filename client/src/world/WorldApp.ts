@@ -37,6 +37,12 @@ import {
   playDeathRevive,
   flashWardSoak,
   flashSpellCancel,
+  applyHotbar,
+  setXpHud,
+  floatXp,
+  flashVitals,
+  setSkillPoints,
+  noteServerCds,
   flashSlamSting,
   flashSlamSafeRim,
   hapticPortalComplete,
@@ -50,7 +56,21 @@ import {
   hapticCombat,
 } from "../ui/hud";
 import { flushStaleToasts, showCantoCard } from "../ui/toasts";
-import { SPELLS, GALE_RANGE, BURST_RADIUS, type SpellId } from "../spells";
+import { GALE_RANGE, BURST_RADIUS } from "../spells";
+import {
+  SKILLS,
+  aimRadius,
+  aimRange,
+  cooldownAtRank,
+  isGroundSkill,
+  manaCostAtRank,
+  skillAnim,
+  skillLabel,
+  skillSfxKind,
+} from "../skills";
+import { skillIcon } from "../ui/skillIcons";
+import { mountSkillPanel, skillErrorText, skillPanel, toggleSkills, type ProgView } from "../ui/skillPanel";
+import { SkillVfx } from "./skillVfx";
 import { VirtualJoystick } from "../ui/virtualJoystick";
 import {
   InterpStore,
@@ -137,7 +157,7 @@ import { LightPool, VirtualLight, isVirtualLight } from "./lightPool";
 import { applyTextureTier } from "./materials";
 import { disposeNode3D, markShared, sharedGeo } from "./dispose";
 import { HeroMotor, SWING_MS } from "./heroMotor";
-import { humanoidCast, humanoidFlinch, humanoidSwing } from "./heroAnim";
+import { humanoidCast, humanoidDash, humanoidFlinch, humanoidSwing } from "./heroAnim";
 import { disposeHero, setHeroGhost } from "./hero";
 import type { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Radar } from "../ui/radar";
@@ -472,19 +492,27 @@ export class WorldApp {
   _step: Vec2 = { x: 0, y: 0 };
   lastHitFoe: { id: string; until: number } | null = null;
   deathFxUntil = 0;
-  pendingCast: { spellId: SpellId; aimX: number; aimY: number; until: number } | null = null;
+  pendingCast: { spellId: string; aimX: number; aimY: number; packX: number; packY: number; until: number } | null = null;
   spellHold: {
-    spellId: SpellId;
+    spellId: string;
     fromKey: boolean;
     pointerId: number | null;
     startMs: number;
     aimX: number;
     aimY: number;
+    packX: number;
+    packY: number;
     aimed: boolean;
+    aimStamp: number;
     btnEl: HTMLElement | null;
     onMove: ((e: PointerEvent) => void) | null;
     onUp: ((e: PointerEvent) => void) | null;
   } | null = null;
+  skillVfx: SkillVfx | null = null;
+  prog: ProgView | null = null;
+  selfAff = { slow: 1, root: false, until: 0 };
+  lastPtr = { x: 0, y: 0, t: 0 };
+  lastLevelChime = 0;
   portalHold: {
     target: any;
     fromKey: boolean;
@@ -751,6 +779,29 @@ export class WorldApp {
     this.guidance = new Guidance(this);
     // Before wireHud: the Classifica panel's [data-close] is bound once at wire time.
     this.pvp = new PvpDirector(this);
+    this.skillVfx = new SkillVfx(this.scene, {
+      standY: (x, y, h) => this.standY(x, y, h),
+      tier: () => this.gfx.tier,
+      youId: () => String(this.room?.you?.id ?? this.socket.playerId ?? ""),
+      foeOf: (id) => {
+        const pl = this.room?.players?.find((p: { id?: string }) => String(p.id) === id);
+        return Boolean(pl && this.pvp?.canTarget(pl));
+      },
+      posOf: (id) => {
+        const you = String(this.room?.you?.id ?? "");
+        if (id && id === you) return { x: this.renderYou.x, y: this.renderYou.y };
+        const n = this.nodes.get(`pl:${id}`);
+        if (n) return { x: n.group.position.x, y: n.group.position.z };
+        const pl = this.room?.players?.find((p: { id?: string; x?: number; y?: number }) => String(p.id) === id);
+        if (pl) return { x: Number(pl.x) || 0, y: Number(pl.y) || 0 };
+        return null;
+      },
+    });
+    mountSkillPanel({
+      learn: (id) => this.socket.skillLearn(id),
+      loadout: (slots) => this.socket.skillLoadout(slots),
+      respec: () => this.socket.skillRespec(),
+    });
 
     this.bindInput();
     // Inventory rebuilds are deferred while the bag is closed — catch up when it opens
@@ -775,6 +826,7 @@ export class WorldApp {
         togglePanel("ah");
         this.socket.ahBrowse();
       },
+      toggleSkills: () => toggleSkills(),
       interactNearest: () => this.interactNearest(),
       attackNearest: () => this.attackNearest(),
       onAttackHoldStart: () => this.startAttackHold("button"),
@@ -840,11 +892,34 @@ export class WorldApp {
       (window as any).__selfTestControls = () => this.selfTestControls();
     }
     if (import.meta.env.DEV) {
-      (window as unknown as { __selvaPvp?: unknown }).__selvaPvp = {
+      const dev = window as unknown as {
+        __selvaPvp?: unknown;
+        __selvaGrantXp?: (n: number) => void;
+        __selvaTest?: unknown;
+      };
+      dev.__selvaPvp = {
         state: () => this.pvp.state(),
         challengeNearest: () => this.pvp.challengeNearest(),
         accept: () => this.pvp.accept(),
         decline: () => this.pvp.decline(),
+      };
+      dev.__selvaGrantXp = (n: number) => this.socket.devGrantXp(n);
+      dev.__selvaTest = {
+        pos: () => ({ x: this.renderYou.x, y: this.renderYou.y, canto: this.room?.cantoId ?? "" }),
+        prog: () => this.room?.you?.prog ?? null,
+        ash: () => Number(this.room?.you?.ash) || 0,
+        foes: () =>
+          (this.room?.entities || [])
+            .filter((e: { kind?: string; hp?: number }) => (e.kind === "mob" || e.kind === "boss") && (e.hp == null || e.hp > 0))
+            .map((e: { id?: string; x?: number; y?: number; name?: string }) => ({
+              id: String(e.id),
+              name: String(e.name || ""),
+              x: Number(e.x) || 0,
+              y: Number(e.y) || 0,
+            })),
+        walkTo: (x: number, y: number) => {
+          this.moveTarget = { x, y };
+        },
       };
     }
 
@@ -1123,12 +1198,21 @@ export class WorldApp {
         togglePanel("ah");
         this.socket.ahBrowse();
       }
-      if (e.code === "Digit1") this.beginSpellHold("gale_bolt", { fromKey: true });
-      if (e.code === "Digit2") this.beginSpellHold("whirl_ward", { fromKey: true });
-      if (e.code === "Digit3") this.beginSpellHold("infernal_burst", { fromKey: true });
+      const slotFromCode = (code: string) =>
+        code === "Digit1" ? 0 : code === "Digit2" ? 1 : code === "Digit3" ? 2 : code === "Digit4" ? 3 : -1;
+      const slot = slotFromCode(e.code);
+      if (slot >= 0 && !isPanelOpen("skills")) {
+        const id = this.loadoutId(slot);
+        if (id) this.beginSpellHold(id, { fromKey: true });
+      }
+      if (e.code === "KeyK") {
+        e.preventDefault();
+        toggleSkills();
+      }
       if (e.code === "Escape") {
         this.cancelSpellHold();
         this.cancelPortalHold();
+        if (isPanelOpen("skills")) setPanelOpen("skills", false);
       }
       if (e.code === "KeyQ") this.sip();
       if (e.code === "KeyF") this.startAttackHold("key");
@@ -1153,7 +1237,7 @@ export class WorldApp {
     window.addEventListener("keyup", (e) => {
       this.keys.delete(e.code);
       if (e.code === "Tab") this.pvp?.tabUp();
-      if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
+      if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4") {
         this.releaseSpellHold(true);
       }
       if (e.code === "KeyF") this.stopAttackHold("key");
@@ -1177,6 +1261,11 @@ export class WorldApp {
     window.addEventListener("pointerup", liftAttack, true);
     window.addEventListener("pointercancel", liftAttack, true);
 
+    window.addEventListener("pointermove", (ev) => {
+      this.lastPtr.x = ev.clientX;
+      this.lastPtr.y = ev.clientY;
+      this.lastPtr.t = performance.now();
+    });
     this.pointer = new PointerInput(this, this.renderer.domElement);
     this.renderer.domElement.addEventListener("pointerdown", (ev) => {
       if (!this.room) return;
@@ -1731,6 +1820,7 @@ export class WorldApp {
       }
     }
 
+    this.pvp?.catchRespawnCamera();
     setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
     // Look-ahead along the walk so the road in front gets the screen
     tickCamLead(this.camLead, this.velX, this.velY, dt, compact);
@@ -1847,8 +1937,11 @@ export class WorldApp {
     this.tickAtmosphere();
     this.fadeTreeOccluders();
     this.tickFx(dt);
+    this.tickSkillVfx();
     // Telegraphs, flashes, ash, corpses, combat numbers (after the camera is placed)
     this.combat?.tick(performance.now(), this.viewW, this.viewH);
+    const wellTick = this.ground?.group.userData.wellTick as ((now: number) => void) | undefined;
+    if (wellTick) wellTick(performance.now());
     this.lightPool.update(this.camFollow, dt);
     this.pvp?.frame(this.frameRawDt ?? dt, performance.now());
     this.renderFrame();
@@ -2578,7 +2671,7 @@ export class WorldApp {
         applyEquippedLook(rec.group, eq);
         rec.group.userData.equipLookKey = lookKey;
       }
-      this.updateLabel(rec, { id: pl.id, name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp, pvp: pl.pvp }, pos);
+      this.updateLabel(rec, { id: pl.id, name: pl.name, kind: "player", hp: pl.hp, maxHp: pl.maxHp, pvp: pl.pvp, lv: pl.lv }, pos);
     }
     } finally {
       for (const rec of this.nodes.values()) {
@@ -2928,7 +3021,8 @@ export class WorldApp {
     const nameEl = rec.nameEl;
     const hp = rec.hpBar;
     const fill = rec.hpFill;
-    const name = e.item?.name || e.label || e.name || "";
+    const rawName = e.item?.name || e.label || e.name || "";
+    const name = rec.kind === "player" && e.lv != null ? `Lv ${e.lv} ${rawName}` : rawName;
     const foe =
       rec.kind === "whirl" ||
       rec.kind === "champion" ||
@@ -3189,7 +3283,7 @@ export class WorldApp {
         })),
     ];
     if (this.room.cantoId === "inferno_01") keepouts.push({ x: 64, y: 72, r: 4.8 });
-    this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts);
+    this.ground = buildGround(this.room.cantoId, this.room.bounds, this.mats, keepouts, this.gfx.tier);
     this.scene.add(this.ground.group);
     if (this.mapWraps()) {
       this.edgeVeil = buildEdgeVeil(this.room.bounds, this.gfx.tier);
@@ -3293,19 +3387,20 @@ export class WorldApp {
       this.heroLight.intensity = compact ? 2.2 : 3.0;
       this.heroLight.distance = compact ? 6.5 : 8;
     } else if (arena) {
-      // Ash over a closed pit — the rim stays bone-gold, the well stays dark.
-      this.fogTargetColor.setHex(0x1a100e);
-      this.fogTargetDensity = 0.02;
+      // Ash over a closed pit. A touch more fill so pilgrims read on the bone stage.
+      const phone = isCompactUi();
+      this.fogTargetColor.setHex(0x140e0c);
+      this.fogTargetDensity = phone ? 0.017 : 0.015;
       this.clearTargetColor.setHex(0x0c0908);
-      this.hemi.color.set(0xc8b8a4);
+      this.hemi.color.set(0xd4c4b0);
       this.hemi.groundColor.set(0x120c0a);
-      this.hemi.intensity = 0.72;
-      this.sun.color.set(0xd4b090);
-      this.sun.intensity = 1.15;
-      this.rim.color.set(0xe8c4a0);
-      this.rim.intensity = 1.35;
-      this.heroLight.intensity = 3.6;
-      this.heroLight.distance = 10;
+      this.hemi.intensity = phone ? 0.98 : 1.08;
+      this.sun.color.set(0xe0c0a0);
+      this.sun.intensity = phone ? 1.32 : 1.55;
+      this.rim.color.set(0xf0d0b0);
+      this.rim.intensity = phone ? 1.3 : 1.6;
+      this.heroLight.intensity = phone ? 4.0 : 4.4;
+      this.heroLight.distance = phone ? 9 : 11;
     } else {
       this.fogTargetColor.setHex(0x1c1812);
       this.fogTargetDensity = 0.013;
@@ -3367,6 +3462,7 @@ export class WorldApp {
         const prevYou = this.lastYouSnapshot;
         this.room = msg.room;
         updateStats(msg.room.you, msg.room.title, msg.room.subtitleIt || msg.room.subtitle_it);
+        this.syncProgression(msg.room);
         this.lastYouSnapshot = msg.room.you;
         this.refreshInventoryUi();
         setAhPurse(Number(msg.room.you?.ash) || 0);
@@ -3386,6 +3482,7 @@ export class WorldApp {
         if (first || cantoChanged) {
           // Memory: flush combat ephemerals on canto leave (Lust/Glut/Ava)
           if (cantoChanged && prevCanto && prevCanto !== msg.room.cantoId) {
+            this.skillVfx?.clear();
             if (prevCanto === "inferno_07") this.disposeAvaEphemerals();
             else if (prevCanto === "inferno_05" || prevCanto === "inferno_06") {
               this.disposeCombatEphemerals();
@@ -3730,6 +3827,18 @@ export class WorldApp {
       case "spell_fx":
         this.onSpellFx(msg);
         break;
+      case "xp_gain":
+        floatXp(Number(msg.amount) || 0);
+        break;
+      case "level_up":
+        this.onLevelUp(msg);
+        break;
+      case "skill_result":
+        skillPanel()?.onResult(msg);
+        if (!msg.ok) {
+          showToast(skillErrorText(String(msg.error || ""), undefined, Number(this.prog?.level) || 1), "warn");
+        }
+        break;
       case "telegraph":
         this.onTelegraph(msg as TelegraphMsg);
         break;
@@ -3755,6 +3864,11 @@ export class WorldApp {
         break;
       case "status":
         this.forces.status(Number(msg.slow) || 1, Boolean(msg.root), Number(msg.dur) || 0, performance.now());
+        this.selfAff = {
+          slow: Number(msg.slow) || 1,
+          root: Boolean(msg.root),
+          until: this.animT + (Number(msg.dur) || 0),
+        };
         break;
       case "entity_removed": {
         const rid = String(msg.id);
@@ -3980,6 +4094,10 @@ export class WorldApp {
     }
     const heavy = ent.kind === "boss";
     const spell = String(msg.spellId || "");
+    if (spell === "thorns" || msg.how === "thorns") {
+      const sparkAt = ent ? this.entityRenderPos(ent) : this.renderYou;
+      this.skillVfx?.sparkThorns(sparkAt.x, sparkAt.y, now);
+    }
     const pos = this.entityRenderPos(ent);
     const rec = this.nodes.get(String(ent.id));
     // Our own swing already sparked, flinched and hit-stopped on the blade's frame
@@ -4148,11 +4266,27 @@ export class WorldApp {
 
   onSpellFx(msg: any) {
     const id = String(msg.spellId || "");
-    // Remote pilgrims strike the matching cast pose (release frame: short wind)
-    const caster = msg.casterId != null ? this.nodes.get(`pl:${msg.casterId}`) : undefined;
-    if (caster && (id === "gale_bolt" || id === "whirl_ward" || id === "infernal_burst")) {
-      humanoidCast(caster.group, id === "gale_bolt" ? "gale" : id === "whirl_ward" ? "ward" : "burst", this.animT, 70);
+    if (id === "mana_deny") {
+      flashManaDeny(String(msg.spellId || ""));
+      return;
     }
+    const caster = msg.casterId != null ? this.nodes.get(`pl:${msg.casterId}`) : undefined;
+    const youId = String(this.room?.you?.id ?? this.socket.playerId ?? "");
+    const mine = String(msg.casterId ?? "") === youId;
+    if (caster) {
+      const kind = skillAnim(id);
+      if (kind === "swing") humanoidSwing(caster.group, this.animT, id === "earthsplitter" ? 2 : 1, 220);
+      else if (kind === "dash") humanoidDash(caster.group, this.animT, 180);
+      else humanoidCast(caster.group, kind, this.animT, 70);
+    }
+    const sx = Number(msg.x) || this.renderYou.x;
+    const sy = Number(msg.y) || this.renderYou.y;
+    const near = mine || Math.hypot(sx - this.renderYou.x, sy - this.renderYou.y) < 30;
+    const pillarMark = id === "pillar_of_flame" && !(Array.isArray(msg.hits) && msg.hits.length) && Number(msg.duration) >= 0.5;
+    if (near && id !== "gale_bolt" && id !== "whirl_ward" && id !== "infernal_burst" && !pillarMark) {
+      this.pvp?.sfx.skill(skillSfxKind(id));
+    }
+    if (this.skillVfx?.onSpell(msg, this.animT)) return;
     if (id === "gale_bolt") {
       const bolt: Bolt = {
         // Avarice: gold bolt (a cached tinted copy — the ember kit material is shared)
@@ -4162,7 +4296,8 @@ export class WorldApp {
         x1: Number(msg.tx ?? msg.x) || this.renderYou.x + this.aimX * 6,
         y1: Number(msg.ty ?? msg.y) || this.renderYou.y + this.aimY * 6,
         start: this.animT,
-        dur: Number(msg.duration ?? 0.28) * 1000 || 280,
+        // Server travel is often under 200 ms. Keep the streak on screen long enough to read.
+        dur: Math.max(480, Number(msg.duration ?? 0.28) * 1000 || 280),
       };
       this.scene.add(bolt.mesh);
       this.bolts.push(bolt);
@@ -4728,36 +4863,210 @@ export class WorldApp {
     this.attackHeld = this.attackHolds.size > 0;
   }
 
-  castSpell(spellId: SpellId, opts?: { aimX?: number; aimY?: number; preferNearest?: boolean }) {
-    if (!this.room || this.pendingCast || this.room.you?.pvp?.downed) return;
-    const def = SPELLS[spellId];
-    if (!def) return;
-    const mana = Number(this.room.you?.mana) || 0;
-    if (mana < def.manaCost) {
-      flashManaDeny(spellId);
-      showToast(`Not enough mana for ${def.name} (${def.manaCost})`, "warn");
-      return;
+  loadoutId(slot: number): string | null {
+    const id = this.prog?.loadout?.[slot];
+    return id ? String(id) : null;
+  }
+
+  syncProgression(room: { you?: any; skillFx?: { id: string; kind: string; x: number; y: number; r?: number; owner?: string; ttl?: number }[] }) {
+    const prog = room.you?.prog as ProgView | undefined;
+    if (prog) {
+      this.prog = prog;
+      setXpHud(prog);
+      setSkillPoints(Number(prog.points) || 0);
+      skillPanel()?.sync(prog, Number(room.you?.ash) || 0);
+      noteServerCds((prog as ProgView & { cds?: Record<string, number> }).cds);
+      const sil = Math.floor(Number(prog.ranks?.silenzio) || 0);
+      const slots = [];
+      const loadout = Array.isArray(prog.loadout) ? prog.loadout : [];
+      for (let i = 0; i < 4; i++) {
+        const id = loadout[i] ? String(loadout[i]) : "";
+        const def = id ? SKILLS[id] : undefined;
+        const rank = id ? Math.floor(Number(prog.ranks?.[id]) || 0) : 0;
+        if (!def || def.type !== "active" || rank < 1) {
+          slots.push(null);
+          continue;
+        }
+        const lab = skillLabel(def);
+        slots.push({
+          id,
+          name: def.name,
+          short: def.short || lab.title,
+          icon: skillIcon(id),
+          mana: manaCostAtRank(def, rank),
+          cd: cooldownAtRank(def, rank, sil),
+          rank,
+          blurb: def.blurb,
+        });
+      }
+      applyHotbar(slots);
     }
-    let ax = opts?.aimX ?? this.aimX;
-    let ay = opts?.aimY ?? this.aimY;
-    const preferNearest = opts?.preferNearest !== false && opts?.aimX == null;
-    if (spellId === "gale_bolt" && preferNearest) {
-      const dir = this.pickGaleAimDir();
-      ax = dir.x;
-      ay = dir.y;
-    } else if (spellId === "infernal_burst" && preferNearest) {
-      const near = this.nearestFoe(BURST_RADIUS);
-      if (near) {
-        ax = near.pos.x - this.renderYou.x;
-        ay = near.pos.y - this.renderYou.y;
+    this.skillVfx?.syncPersistent(room.skillFx, this.animT);
+  }
+
+  onLevelUp(msg: { playerId?: string; level?: number; name?: string }) {
+    const pid = String(msg.playerId ?? "");
+    const youId = String(this.room?.you?.id ?? this.socket.playerId ?? "");
+    const mine = pid === youId;
+    let x = this.renderYou.x;
+    let y = this.renderYou.y;
+    if (!mine) {
+      const n = this.nodes.get(`pl:${pid}`);
+      if (n) {
+        x = n.group.position.x;
+        y = n.group.position.z;
+      } else {
+        const pl = this.room?.players?.find((p: { id?: string; x?: number; y?: number }) => String(p.id) === pid);
+        if (pl) {
+          x = Number(pl.x) || x;
+          y = Number(pl.y) || y;
+        }
       }
     }
-    const len = Math.hypot(ax, ay) || 1;
-    this.aimX = ax / len;
-    this.aimY = ay / len;
-    const wind = SPELL_TELEGRAPH_MS[spellId] ?? 220;
-    this.pendingCast = { spellId, aimX: this.aimX, aimY: this.aimY, until: this.animT + wind };
+    this.skillVfx?.levelUp(x, y, mine, this.animT);
+    if (!mine) return;
+    showToast(`Level ${Number(msg.level) || 1} — 1 skill point`, "emit");
+    if (this.animT - this.lastLevelChime > 420) {
+      this.lastLevelChime = this.animT;
+      this.pvp?.sfx.levelUp();
+      flashVitals();
+    }
+  }
+
+  tickSkillVfx() {
+    const vfx = this.skillVfx;
+    if (!vfx) return;
+    const now = this.animT;
+    vfx.tick(now);
+    vfx.beginStatuses();
+    const room = this.room;
+    if (room?.entities) {
+      for (const e of room.entities) {
+        if (e.kind !== "mob" && e.kind !== "boss") continue;
+        const stun = Number(e.stunLeft) || 0;
+        const root = Number(e.rootLeft) || 0;
+        const slow = Number(e.slowLeft) || 0;
+        const weak = Number(e.weakenLeft) || 0;
+        if (stun < 0.05 && root < 0.05 && slow < 0.05 && weak < 0.05) continue;
+        const pos = this.entityRenderPos(e);
+        vfx.pushStatus(String(e.id), pos.x, pos.y, stun, root, slow, weak, now);
+      }
+    }
+    const youId = String(room?.you?.id ?? "");
+    if (room?.players) {
+      for (const pl of room.players) {
+        if (!pl || String(pl.id) === youId) continue;
+        const aff = String(pl.aff || "");
+        if (!aff) continue;
+        const n = this.nodes.get(`pl:${pl.id}`);
+        const x = n ? n.group.position.x : Number(pl.x) || 0;
+        const y = n ? n.group.position.z : Number(pl.y) || 0;
+        vfx.pushStatus(
+          String(pl.id),
+          x,
+          y,
+          0,
+          aff.includes("root") ? 1 : 0,
+          aff.includes("slow") ? 1 : 0,
+          aff.includes("weak") ? 1 : 0,
+          now
+        );
+      }
+    }
+    if (this.selfAff.until > now) {
+      vfx.pushStatus(
+        "you",
+        this.renderYou.x,
+        this.renderYou.y,
+        0,
+        this.selfAff.root ? 1 : 0,
+        this.selfAff.slow < 0.98 ? 1 : 0,
+        0,
+        now
+      );
+    }
+    vfx.endStatuses();
+  }
+
+  castSpell(
+    spellId: string,
+    opts?: { aimX?: number; aimY?: number; packX?: number; packY?: number; preferNearest?: boolean }
+  ) {
+    if (!this.room || this.pendingCast || this.room.you?.pvp?.downed) return;
+    const def = SKILLS[spellId];
+    if (!def || def.type !== "active") return;
+    const rank = Math.floor(Number(this.prog?.ranks?.[spellId]) || 0);
+    if (rank < 1) return;
+    const manaCost = manaCostAtRank(def, rank);
+    const mana = Number(this.room.you?.mana) || 0;
+    if (mana < manaCost) {
+      flashManaDeny(spellId);
+      showToast(`Not enough mana for ${def.name} (${manaCost})`, "warn");
+      return;
+    }
+    const ground = isGroundSkill(spellId);
+    const preferNearest = opts?.preferNearest !== false && opts?.aimX == null && opts?.packX == null;
+    let faceX = opts?.aimX ?? this.aimX;
+    let faceY = opts?.aimY ?? this.aimY;
+    let packX = opts?.packX;
+    let packY = opts?.packY;
+    if (ground) {
+      const range = aimRange(def);
+      if (packX == null || packY == null) {
+        if (preferNearest) {
+          const near = this.nearestFoe(range);
+          if (near) {
+            packX = near.pos.x - this.renderYou.x;
+            packY = near.pos.y - this.renderYou.y;
+          } else {
+            const len = Math.hypot(this.aimX, this.aimY) || 1;
+            packX = (this.aimX / len) * range;
+            packY = (this.aimY / len) * range;
+          }
+        } else {
+          const len = Math.hypot(faceX, faceY) || 1;
+          const span = len > 1.2 ? Math.min(range, len) : range;
+          packX = (faceX / len) * span;
+          packY = (faceY / len) * span;
+        }
+      }
+      const plen = Math.hypot(packX, packY) || 1;
+      if (plen > range) {
+        packX = (packX / plen) * range;
+        packY = (packY / plen) * range;
+      }
+      faceX = packX / (Math.hypot(packX, packY) || 1);
+      faceY = packY / (Math.hypot(packX, packY) || 1);
+    } else if (spellId === "gale_bolt" && preferNearest) {
+      const dir = this.pickGaleAimDir();
+      faceX = dir.x;
+      faceY = dir.y;
+      packX = faceX;
+      packY = faceY;
+    } else if (spellId === "infernal_burst" && preferNearest) {
+      const near = this.nearestFoe(BURST_RADIUS * (1 + 0.08 * Math.max(0, rank - 1)));
+      if (near) {
+        faceX = near.pos.x - this.renderYou.x;
+        faceY = near.pos.y - this.renderYou.y;
+      }
+      const len = Math.hypot(faceX, faceY) || 1;
+      faceX /= len;
+      faceY /= len;
+      packX = faceX;
+      packY = faceY;
+    } else {
+      const len = Math.hypot(faceX, faceY) || 1;
+      faceX /= len;
+      faceY /= len;
+      packX = faceX;
+      packY = faceY;
+    }
+    this.aimX = faceX;
+    this.aimY = faceY;
+    const wind = SPELL_TELEGRAPH_MS[spellId] ?? (ground ? 180 : 200);
+    this.pendingCast = { spellId, aimX: faceX, aimY: faceY, packX, packY, until: this.animT + wind };
     this.heroMotor?.cast(spellId, wind);
+    this.skillVfx?.setAim(false);
     if (spellId === "gale_bolt") {
       const mesh = makeTelegraph(0xffd078);
       setPlanar(mesh.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.1));
@@ -4819,16 +5128,19 @@ export class WorldApp {
     return { x: this.aimX / len, y: this.aimY / len };
   }
 
-  beginSpellHold(spellId: SpellId, o: { fromKey: boolean; pointer?: PointerEvent }) {
+  beginSpellHold(spellId: string, o: { fromKey: boolean; pointer?: PointerEvent }) {
     if (!this.room || this.pendingCast || this.room.you?.pvp?.downed) return;
+    if (!SKILLS[spellId]) return;
     if (this.spellHold) this.cancelSpellHold();
+    const ground = isGroundSkill(spellId);
     let seed = spellId === "gale_bolt" ? this.pickGaleAimDir() : { x: this.aimX, y: this.aimY };
     if (spellId === "infernal_burst") {
       const near = this.nearestFoe(BURST_RADIUS);
       if (near) seed = { x: near.pos.x - this.renderYou.x, y: near.pos.y - this.renderYou.y };
     }
     const len = Math.hypot(seed.x, seed.y) || 1;
-    const btn = document.getElementById(`btn-spell-${spellId}`);
+    const range = ground ? aimRange(SKILLS[spellId]) : 0;
+    const btn = document.querySelector<HTMLElement>(`.spell-btn[data-spell="${spellId}"]`);
     this.spellHold = {
       spellId,
       fromKey: o.fromKey,
@@ -4836,12 +5148,16 @@ export class WorldApp {
       startMs: performance.now(),
       aimX: seed.x / len,
       aimY: seed.y / len,
+      packX: ground ? (seed.x / len) * range : seed.x / len,
+      packY: ground ? (seed.y / len) * range : seed.y / len,
       aimed: false,
+      aimStamp: 0,
       btnEl: btn,
       onMove: null,
       onUp: null,
     };
     btn?.classList.add("aiming");
+    if (ground && !isCompactUi()) this.previewGroundAim();
     if (!o.fromKey && o.pointer) {
       const onMove = (e: PointerEvent) => this.updateSpellHoldPointer(e);
       const onUp = (e: PointerEvent) => {
@@ -4860,6 +5176,8 @@ export class WorldApp {
     const g = this.spellHold;
     if (!g || g.fromKey) return;
     if (g.pointerId != null && ev.pointerId !== g.pointerId) return;
+    const ground = isGroundSkill(g.spellId);
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     if (g.btnEl) {
       const r = g.btnEl.getBoundingClientRect();
       const pad = 10;
@@ -4871,18 +5189,19 @@ export class WorldApp {
       const cx = (r.left + r.right) / 2;
       const cy = (r.top + r.bottom) / 2;
       const drag = Math.hypot(ev.clientX - cx, ev.clientY - cy);
-      if (g.spellId === "gale_bolt") {
+      if (g.spellId === "gale_bolt" || (ground && fine)) {
         if (!g.aimed && !inside && drag < GALE_DRAG_AIM_PX) {
           this.cancelSpellHold();
           return;
         }
         if (drag >= GALE_DRAG_AIM_PX) g.aimed = true;
-      } else if (!inside) {
+      } else if (!ground && !inside) {
         this.cancelSpellHold();
         return;
       }
     }
     if (g.spellId === "gale_bolt") this.setGaleAimFromClient(ev.clientX, ev.clientY);
+    else if (ground && fine) this.setGroundAimFromClient(ev.clientX, ev.clientY);
   }
 
   setGaleAimFromClient(clientX: number, clientY: number) {
@@ -4890,21 +5209,61 @@ export class WorldApp {
     const g = this.pickGroundClient(clientX, clientY);
     if (!g) return;
     const you = this.youPos();
-    let ax = g.x - you.x;
-    let ay = g.y - you.y;
+    const ax = g.x - you.x;
+    const ay = g.y - you.y;
     const len = Math.hypot(ax, ay);
     if (len < 0.15) return;
     this.spellHold.aimX = ax / len;
     this.spellHold.aimY = ay / len;
+    this.spellHold.packX = this.spellHold.aimX;
+    this.spellHold.packY = this.spellHold.aimY;
     this.spellHold.aimed = true;
     this.aimX = this.spellHold.aimX;
     this.aimY = this.spellHold.aimY;
   }
 
+  setGroundAimFromClient(clientX: number, clientY: number) {
+    const hold = this.spellHold;
+    if (!hold || !isGroundSkill(hold.spellId)) return;
+    const def = SKILLS[hold.spellId];
+    if (!def) return;
+    const g = this.pickGroundClient(clientX, clientY);
+    if (!g) return;
+    const you = this.youPos();
+    const ax = g.x - you.x;
+    const ay = g.y - you.y;
+    const len = Math.hypot(ax, ay);
+    if (len < 0.15) return;
+    const range = aimRange(def);
+    const span = Math.min(range, len);
+    hold.aimX = ax / len;
+    hold.aimY = ay / len;
+    hold.packX = hold.aimX * span;
+    hold.packY = hold.aimY * span;
+    hold.aimed = true;
+    this.aimX = hold.aimX;
+    this.aimY = hold.aimY;
+    this.previewGroundAim();
+  }
+
+  previewGroundAim() {
+    const hold = this.spellHold;
+    if (!hold || !isGroundSkill(hold.spellId) || isCompactUi()) {
+      this.skillVfx?.setAim(false);
+      return;
+    }
+    const def = SKILLS[hold.spellId];
+    if (!def) return;
+    const you = this.youPos();
+    this.skillVfx?.setAim(true, you.x + hold.packX, you.y + hold.packY, aimRadius(def));
+  }
+
   tickSpellKeyAim() {
     const g = this.spellHold;
-    if (!g || !g.fromKey || g.spellId !== "gale_bolt") return;
-    if (performance.now() - g.startMs < SPELL_HOLD_CONFIRM_MS) return;
+    if (!g || !g.fromKey || !isGroundSkill(g.spellId) || isCompactUi()) return;
+    if (g.aimStamp === this.lastPtr.t) return;
+    g.aimStamp = this.lastPtr.t;
+    this.setGroundAimFromClient(this.lastPtr.x, this.lastPtr.y);
   }
 
   releaseSpellHold(cast: boolean, ev?: PointerEvent) {
@@ -4915,10 +5274,15 @@ export class WorldApp {
     const spellId = g.spellId;
     const aimX = g.aimX;
     const aimY = g.aimY;
+    const packX = g.packX;
+    const packY = g.packY;
     const aimed = g.aimed || heldMs >= SPELL_HOLD_CONFIRM_MS;
+    const ground = isGroundSkill(spellId);
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     this.clearSpellHoldListeners();
     this.spellHold = null;
-    document.getElementById(`btn-spell-${spellId}`)?.classList.remove("aiming");
+    document.querySelector(`.spell-btn[data-spell="${spellId}"]`)?.classList.remove("aiming");
+    this.skillVfx?.setAim(false);
     if (!cast) return;
     if (spellId === "gale_bolt" && heldMs >= GALE_HOLD_TOAST_MS && heldMs < SPELL_HOLD_CONFIRM_MS) {
       showToast("Gale loosed", "info");
@@ -4926,7 +5290,9 @@ export class WorldApp {
     if (spellId === "gale_bolt") {
       if (aimed) this.castSpell("gale_bolt", { aimX, aimY, preferNearest: false });
       else this.castSpell("gale_bolt", { preferNearest: true });
-    } else this.castSpell(spellId);
+    } else if (ground && fine && aimed) {
+      this.castSpell(spellId, { aimX, aimY, packX, packY, preferNearest: false });
+    } else this.castSpell(spellId, { preferNearest: true });
   }
 
   cancelSpellHold() {
@@ -4935,7 +5301,8 @@ export class WorldApp {
     const spellId = this.spellHold.spellId;
     this.clearSpellHoldListeners();
     this.spellHold = null;
-    document.getElementById(`btn-spell-${spellId}`)?.classList.remove("aiming", "pressed");
+    document.querySelector(`.spell-btn[data-spell="${spellId}"]`)?.classList.remove("aiming", "pressed");
+    this.skillVfx?.setAim(false);
     flashSpellCancel(spellId);
     if (spellId === "gale_bolt" && heldMs >= GALE_HOLD_TOAST_MS) showToast("Gale cancelled", "info");
   }
@@ -4955,13 +5322,15 @@ export class WorldApp {
     if (!pc || !this.room) return;
     if (this.animT < pc.until) return;
     this.pendingCast = null;
-    const def = SPELLS[pc.spellId];
+    const def = SKILLS[pc.spellId];
     if (!def) return;
+    const rank = Math.max(1, Math.floor(Number(this.prog?.ranks?.[pc.spellId]) || 1));
+    const sil = Math.floor(Number(this.prog?.ranks?.silenzio) || 0);
     this.aimX = pc.aimX;
     this.aimY = pc.aimY;
     this.noteCombat();
-    this.socket.cast(pc.spellId, { x: this.aimX, y: this.aimY });
-    noteSpellCast(pc.spellId, def.cooldown);
+    this.socket.cast(pc.spellId, { x: pc.packX, y: pc.packY });
+    noteSpellCast(pc.spellId, cooldownAtRank(def, rank, sil));
   }
 
   nearestIsPortalTravel(): any | null {

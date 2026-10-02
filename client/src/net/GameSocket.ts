@@ -193,6 +193,18 @@ export class GameSocket {
       aimY: aim?.y,
     });
   }
+  skillLearn(skillId: string) {
+    this.send({ type: "skill_learn", skillId });
+  }
+  skillLoadout(slots: (string | null)[]) {
+    this.send({ type: "skill_loadout", slots });
+  }
+  skillRespec() {
+    this.send({ type: "skill_respec" });
+  }
+  devGrantXp(amount: number) {
+    this.send({ type: "dev_grant_xp", amount });
+  }
   interact(targetId: string) {
     this.send({ type: "interact", targetId });
   }

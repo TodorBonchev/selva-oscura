@@ -23,6 +23,7 @@ type ConeSlot = {
   born: number;
   ms: number;
   peak: number;
+  heavy: boolean;
   on: boolean;
 };
 
@@ -82,8 +83,11 @@ export class PvpFx {
   private cones: ConeSlot[] = [];
   private rings: RingSlot[] = [];
   private flashes: FlashSlot[] = [];
+  private shimmers: THREE.Object3D[] = [];
   private shimmerMat: THREE.MeshBasicMaterial;
   private shimmerGeo: THREE.BufferGeometry;
+  private shieldGeo: THREE.BufferGeometry;
+  private shieldMat: THREE.MeshBasicMaterial;
   private scene: THREE.Scene;
 
   constructor(scene: THREE.Scene) {
@@ -103,7 +107,7 @@ export class PvpFx {
       mesh.renderOrder = 2;
       mesh.frustumCulled = false;
       scene.add(mesh);
-      this.cones.push({ mesh, mat, until: 0, born: 0, ms: 120, peak: 0.22, on: false });
+      this.cones.push({ mesh, mat, until: 0, born: 0, ms: 120, peak: 0.22, heavy: false, on: false });
     }
 
     const dashMap = dashTexture();
@@ -181,14 +185,26 @@ export class PvpFx {
       this.flashes.push({ mesh, mat, at: 0, dur: 140, peak: 0.7, on: false });
     }
 
-    this.shimmerGeo = sharedGeo("pvpShimmer", () => new THREE.SphereGeometry(0.6, 10, 8));
+    this.shimmerGeo = sharedGeo("pvpShimmer", () => new THREE.SphereGeometry(0.72, 10, 8));
     this.shimmerMat = sharedMat(
       "pvpShimmer",
       () =>
         new THREE.MeshBasicMaterial({
           color: 0xf0d48a,
           transparent: true,
-          opacity: 0.22,
+          opacity: 0.28,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+    );
+    this.shieldGeo = sharedGeo("pvpShield", () => new THREE.TorusGeometry(0.78, 0.05, 6, 18));
+    this.shieldMat = sharedMat(
+      "pvpShield",
+      () =>
+        new THREE.MeshBasicMaterial({
+          color: 0xffe7a8,
+          transparent: true,
+          opacity: 0.82,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         })
@@ -209,13 +225,14 @@ export class PvpFx {
     slot.born = now;
     slot.ms = Math.max(80, ms);
     slot.until = now + slot.ms;
-    slot.peak = heavy ? 0.62 : 0.26;
-    slot.mat.color.setHex(heavy ? 0xffe6a8 : 0xf0d8a0);
+    slot.heavy = heavy;
+    slot.peak = heavy ? 0.9 : 0.28;
+    slot.mat.color.setHex(heavy ? 0xffb060 : 0xf0d8a0);
     slot.mat.opacity = slot.peak;
     slot.mesh.visible = true;
     slot.mesh.position.set(x, y, z);
     slot.mesh.rotation.y = yawFromPlanar(fx, fy);
-    slot.mesh.scale.setScalar(heavy ? 1 : 0.92);
+    slot.mesh.scale.setScalar(heavy ? 0.62 : 0.92);
   }
 
   /** Show one ring per live countdown/fight duel. `yAt` is stand height. Authored at r = 9. */
@@ -275,7 +292,11 @@ export class PvpFx {
         c.mat.opacity = 0;
         continue;
       }
-      c.mat.opacity = c.peak * (1 - u);
+      const hold = c.heavy ? 0.42 : 0.12;
+      const fade = u < hold ? 1 : (1 - u) / (1 - hold);
+      c.mat.opacity = c.peak * Math.max(0, fade);
+      const grow = c.heavy ? 0.62 + 0.62 * Math.min(1, u / 0.72) : 0.92;
+      c.mesh.scale.setScalar(grow);
     }
     const spin = rawDt > 0 && rawDt < 0.2 ? rawDt : 0.016;
     for (let i = 0; i < this.rings.length; i++) {
@@ -284,8 +305,14 @@ export class PvpFx {
       s.spin.rotation.y += spin * 0.45;
       s.runes.rotation.y -= spin * 0.28;
     }
-    const pulse = 0.09 + Math.sin(now * 0.008) * 0.05;
+    const pulse = 0.2 + Math.sin(now * 0.007) * 0.1;
     this.shimmerMat.opacity = pulse;
+    for (let i = 0; i < this.shimmers.length; i++) {
+      const shell = this.shimmers[i]!;
+      if (!shell.visible) continue;
+      const ring = shell.children[0];
+      if (ring) ring.rotation.y += spin * 1.7;
+    }
     for (let i = 0; i < this.flashes.length; i++) {
       const f = this.flashes[i]!;
       if (!f.on) continue;
@@ -306,10 +333,16 @@ export class PvpFx {
       mesh = new THREE.Mesh(this.shimmerGeo, this.shimmerMat);
       mesh.name = "pvpShimmer";
       mesh.position.set(0, 1.15, 0);
-      mesh.scale.set(1, 1.35, 1);
+      mesh.scale.set(1.05, 1.55, 1.05);
       mesh.visible = false;
+      const ring = new THREE.Mesh(this.shieldGeo, this.shieldMat);
+      ring.name = "pvpShield";
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.05;
+      mesh.add(ring);
       group.add(mesh);
       group.userData.pvpShimmer = mesh;
+      this.shimmers.push(mesh);
     }
     if (mesh.visible !== on) mesh.visible = on;
   }

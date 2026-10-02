@@ -11,6 +11,21 @@ const HOW_IT: Record<string, string> = {
   gale_bolt: "dardo",
   infernal_burst: "vampata",
   dash: "scatto",
+  furious_cleave: "fendente",
+  wrath_charge: "carica",
+  war_cry: "grido",
+  earthsplitter: "frattura",
+  lance_of_light: "lancia",
+  grace: "grazia",
+  pillar_of_flame: "colonna",
+  halo: "aureola",
+  shadow_step: "passo",
+  snare_glyph: "laccio",
+  summon_shade: "ombra",
+  tempest: "tempesta",
+  bastion: "bastione",
+  thorns: "spine",
+  last_stand: "estremo",
 };
 
 export const HOW_ICON: Record<string, string> = {
@@ -19,6 +34,21 @@ export const HOW_ICON: Record<string, string> = {
   gale_bolt: "⇢",
   infernal_burst: "✹",
   dash: "»",
+  furious_cleave: "⚔",
+  wrath_charge: "»",
+  war_cry: "✶",
+  earthsplitter: "⚔",
+  lance_of_light: "†",
+  grace: "✚",
+  pillar_of_flame: "✹",
+  halo: "○",
+  shadow_step: "»",
+  snare_glyph: "⌗",
+  summon_shade: "✧",
+  tempest: "◎",
+  bastion: "◈",
+  thorns: "✶",
+  last_stand: "✦",
 };
 
 const REASON_IT: Record<string, string> = {
@@ -47,7 +77,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
   return n;
 }
 
-export type FeedRow = { killer: string; victim: string; how: string; mine: boolean; at: number };
+export type FeedRow = { killer: string; victim: string; how: string; mine: boolean; down: boolean; at: number };
 
 export class PvpHud {
   root: HTMLElement;
@@ -85,8 +115,11 @@ export class PvpHud {
   boardStats: HTMLElement;
   mute: HTMLButtonElement;
   hurt: HTMLElement;
+  hitDir: HTMLElement;
+  queueHint: HTMLElement;
   classifica: HTMLButtonElement;
   tabella: HTMLButtonElement;
+  private roundNext: HTMLElement | null = null;
   private challengeText = "";
   private pendingText = "";
   private countText = "";
@@ -133,6 +166,7 @@ export class PvpHud {
       e.preventDefault();
       handlers.onQueue();
     });
+    this.queueHint = el("div", "pvp-queue-hint", tools);
     this.mute = el("button", "pvp-tool pvp-mute", tools);
     this.mute.type = "button";
     this.mute.textContent = "Suono";
@@ -215,6 +249,8 @@ export class PvpHud {
     this.recapTimer = el("div", "pvp-recap-timer", recapCard);
 
     this.hurt = el("div", "pvp-hurt", document.body);
+    this.hitDir = el("div", "pvp-hitdir", document.body);
+    el("div", "pvp-low", document.body);
 
     const panels = document.getElementById("panels") || document.body;
     const board = el("aside", "panel modal hidden", panels);
@@ -343,12 +379,14 @@ export class PvpHud {
     }
   }
 
-  setQueue(text: string, queued: boolean) {
+  setQueue(text: string, queued: boolean, hint = "") {
     if (text !== this.queueText) {
       this.queueText = text;
       this.queue.textContent = text;
     }
     this.queue.classList.toggle("is-queued", queued);
+    this.queueHint.classList.toggle("on", Boolean(hint));
+    if (hint && this.queueHint.textContent !== hint) this.queueHint.textContent = hint;
   }
 
   setFeed(rows: readonly FeedRow[], now: number) {
@@ -361,7 +399,8 @@ export class PvpHud {
       }
       if (node.style.display !== "block") node.style.display = "block";
       const age = now - row.at;
-      node.classList.toggle("mine", row.mine);
+      node.classList.toggle("mine", row.mine && !row.down);
+      node.classList.toggle("victim", row.down);
       node.classList.toggle("fade", age > 4600);
       const text = `${row.killer} ${howIcon(row.how)} ${row.victim}`;
       if (node.textContent !== text) node.textContent = text;
@@ -390,10 +429,17 @@ export class PvpHud {
 
   showRoundEnd(html: string) {
     this.roundEndBody.innerHTML = html;
+    const next = this.roundEndBody.querySelector(".pvp-roundend-next");
+    this.roundNext = next instanceof HTMLElement ? next : null;
     this.roundEnd.classList.remove("hidden");
+  }
+  setRoundNext(text: string) {
+    const n = this.roundNext;
+    if (n && n.textContent !== text) n.textContent = text;
   }
   hideRoundEnd() {
     this.roundEnd.classList.add("hidden");
+    this.roundNext = null;
   }
 
   showRecap(title: string, rowsHtml: string) {
@@ -418,6 +464,18 @@ export class PvpHud {
     this.hurt.classList.remove("pvp-hurt-on");
     void this.hurt.offsetWidth;
     this.hurt.classList.add("pvp-hurt-on");
+  }
+
+  /** Screen angle in degrees: 0 is up (threat ahead of the camera). */
+  pulseHit(deg: number) {
+    this.hitDir.style.setProperty("--hit-ang", `${Math.round(deg)}deg`);
+    this.hitDir.classList.remove("on");
+    void this.hitDir.offsetWidth;
+    this.hitDir.classList.add("on");
+  }
+
+  setLowHp(on: boolean) {
+    document.body.classList.toggle("pvp-lowhp", on);
   }
 
   setKillCam(on: boolean) {

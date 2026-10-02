@@ -52,7 +52,7 @@
       </div>
     </header>
     <div id="help" class="help-desktop">
-      WASD / click ground to move · Click foe to attack · 1/2/3 spells · E interact · I inventory · H AH
+      WASD / click ground to move · Click foe to attack · 1–4 spells · K skills · E interact · I inventory · H AH
     </div>
     <div id="help-mobile" class="help-mobile">
       Stick moves · Tap foe / hold Attack · Spell icons · Tap POI / Use
@@ -146,6 +146,12 @@
       <div class="php-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i></i></div>
     </div>
   </div>
+  <div id="xp-plate" title="Level 1 — 0/100">
+    <span id="xp-lv">Lv 1</span>
+    <div id="xp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="xp-fill"></i></div>
+    <span id="xp-read">0/100</span>
+    <div id="xp-float" aria-hidden="true"></div>
+  </div>
   <nav id="action-bar" aria-label="Game actions">
     <button type="button" id="btn-inv" class="action-btn" title="Inventory">
       <img class="action-icon" src="/assets/ui/bag.svg" alt="" draggable="false" />
@@ -157,27 +163,44 @@
       <span class="action-label">AH</span>
       <span class="action-hint" aria-hidden="true">H</span>
     </button>
+    <button type="button" id="btn-skills" class="action-btn" title="Skills (K)">
+      <img class="action-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 6 L37.5 23.5 H56 L41 34.5 L46.5 52 L32 41.5 L17.5 52 L23 34.5 L8 23.5 H26.5 Z' fill='none' stroke='%23e6d7b0' stroke-width='2.4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%23c9a227'/%3E%3C/svg%3E" alt="" draggable="false" />
+      <span class="action-label">Skills</span>
+      <span class="action-hint" aria-hidden="true">K</span>
+      <span id="skill-badge" class="skill-badge hidden"></span>
+    </button>
     <div id="spell-bar" class="spell-bar" role="group" aria-label="Spells">
-      <button type="button" class="action-btn spell-btn" data-spell="gale_bolt" id="btn-spell-gale_bolt" title="Gale Bolt (1)">
+      <button type="button" class="action-btn spell-btn" data-spell="gale_bolt" data-slot="0" id="btn-spell-slot-0" title="Gale Bolt (1)">
         <img class="spell-icon" src="/assets/spells/spell_gale_bolt.png" alt="" draggable="false" />
         <span class="spell-cd" hidden></span>
         <span class="action-label" data-short="Gale">Gale</span>
         <span class="action-hint" aria-hidden="true">1</span>
         <span class="spell-cost">18</span>
+        <span class="spell-rank"></span>
       </button>
-      <button type="button" class="action-btn spell-btn" data-spell="whirl_ward" id="btn-spell-whirl_ward" title="Whirl Ward (2)">
+      <button type="button" class="action-btn spell-btn" data-spell="whirl_ward" data-slot="1" id="btn-spell-slot-1" title="Whirl Ward (2)">
         <img class="spell-icon" src="/assets/spells/spell_whirl_ward.png" alt="" draggable="false" />
         <span class="spell-cd" hidden></span>
         <span class="action-label" data-short="Ward">Ward</span>
         <span class="action-hint" aria-hidden="true">2</span>
         <span class="spell-cost">28</span>
+        <span class="spell-rank"></span>
       </button>
-      <button type="button" class="action-btn spell-btn" data-spell="infernal_burst" id="btn-spell-infernal_burst" title="Infernal Burst (3)">
+      <button type="button" class="action-btn spell-btn" data-spell="infernal_burst" data-slot="2" id="btn-spell-slot-2" title="Infernal Burst (3)">
         <img class="spell-icon" src="/assets/spells/spell_infernal_burst.png" alt="" draggable="false" />
         <span class="spell-cd" hidden></span>
         <span class="action-label" data-short="Burst">Burst</span>
         <span class="action-hint" aria-hidden="true">3</span>
         <span class="spell-cost">48</span>
+        <span class="spell-rank"></span>
+      </button>
+      <button type="button" class="action-btn spell-btn spell-empty" data-slot="3" id="btn-spell-slot-3" title="Spell 4" aria-label="Spell 4 empty">
+        <img class="spell-icon" alt="" draggable="false" hidden />
+        <span class="spell-cd" hidden></span>
+        <span class="action-label" data-short=""></span>
+        <span class="action-hint" aria-hidden="true">4</span>
+        <span class="spell-cost"></span>
+        <span class="spell-rank"></span>
       </button>
     </div>
     <button type="button" id="btn-dash" class="action-btn" title="Dash — short leap, brief safety (Space)">

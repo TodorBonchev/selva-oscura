@@ -38,6 +38,7 @@ import {
   tickHumanoid,
 } from "./heroAnim";
 import { BladeTrail, DashStreak, DustPool } from "./heroFx";
+import { skillAnim } from "../skills";
 
 /**
  * One swing = the attack busy time. The server's PLAYER_ATK_CD is 0.42 s with a
@@ -367,8 +368,11 @@ export class HeroMotor {
   cast(spellId: string, windMs: number) {
     const g = this.host.youGroup;
     if (!g || this.dying()) return;
-    const kind = spellId === "gale_bolt" ? "gale" : spellId === "whirl_ward" ? "ward" : "burst";
-    humanoidCast(g, kind, this.host.animT, windMs);
+    const kind = skillAnim(spellId);
+    const wind = Math.max(180, windMs);
+    if (kind === "swing") humanoidSwing(g, this.host.animT, spellId === "earthsplitter" ? 2 : 1, wind);
+    else if (kind === "dash") humanoidDash(g, this.host.animT, wind);
+    else humanoidCast(g, kind, this.host.animT, wind);
   }
 
   /**

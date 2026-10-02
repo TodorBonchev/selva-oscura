@@ -206,11 +206,11 @@ export class CombatView {
     return nowMs - this.lastSwingAt <= PREDICT_WINDOW_MS ? "cleave" : "none";
   }
 
-  number(x: number, y: number, z: number, amount: number, style: DmgStyle, key: string, nowMs: number, label?: string) {
+  number(x: number, y: number, z: number, amount: number, style: DmgStyle, key: string, nowMs: number, label?: string, mark?: string) {
     const n = Math.round(Number(amount) || 0);
     const text =
       label ?? (style === "heal" ? `+${n}` : style === "block" ? "dodged" : style === "self" ? `−${n}` : String(n));
-    this.numbers.spawn(x, y, z, text, style, nowMs, key);
+    this.numbers.spawn(x, y, z, text, style, nowMs, key, mark || "");
   }
 
   // ——— deaths ————————————————————————————————————————————————————

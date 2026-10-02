@@ -39,6 +39,7 @@ function keyOf(text: string): string {
 /** Lines that say the same kind of thing replace each other instead of queueing. */
 function familyOf(text: string): string {
   const t = text.trim();
+  if (/^level \d+/i.test(t) || /^you reach level/i.test(t)) return "levelup";
   if (/^Closing on /i.test(t)) return "closing";
   if (/^Approaching /i.test(t)) return "approach";
   if (/^(Picked up|Picking up|Dropped:|Weighed:)/i.test(t)) return "loot";

@@ -65,6 +65,20 @@ export class PvpDirector {
   private hpOverride = new Map<string, number>();
   private queueSize = 0;
   private queueFlag = false;
+  private queueSince = 0;
+  private queueLeaveArmed = false;
+  private queueDropAt = 0;
+  private matchFor = "";
+  private matchedAt = 0;
+  private seenRound = 0;
+  private warned30 = false;
+  private warned10 = false;
+  private roundDeaths = new Map<string, number>();
+  private killCamFrom = 0;
+  private killCamSkip = false;
+  private killCamBlend = 0;
+  private wasDowned = false;
+  private lowOn = false;
   private lastHud = 0;
   private lastCount = "";
   private gongFor = "";
@@ -86,6 +100,7 @@ export class PvpDirector {
   private subs = new WeakMap<HTMLElement, HTMLElement>();
   private scoreCache = "";
   private _fwd = new THREE.Vector3();
+  private _aim = new THREE.Vector3();
   private _want = new THREE.Vector3();
   private app: WorldApp;
 
@@ -106,6 +121,11 @@ export class PvpDirector {
       onMute: () => this.hud.setMuted(this.sfx.toggleMuted()),
     });
     this.hud.setMuted(this.sfx.muted);
+    window.addEventListener("pointerdown", () => this.skipKillCam(), true);
+    window.addEventListener("keydown", (e) => {
+      if (e.repeat || e.code === "Tab") return;
+      this.skipKillCam();
+    });
   }
 
   youId(): string {
@@ -132,7 +152,12 @@ export class PvpDirector {
   onSnapshot(room: any) {
     this.duels = Array.isArray(room?.duels) ? room.duels : (EMPTY as unknown as Duel[]);
     this.hpOverride.clear();
-    if (room?.you?.pvp && typeof room.you.pvp.queued === "boolean") this.queueFlag = Boolean(room.you.pvp.queued);
+    if (room?.you?.pvp && typeof room.you.pvp.queued === "boolean") {
+      const q = Boolean(room.you.pvp.queued);
+      if (q && !this.queueFlag && !this.queueSince) this.queueSince = performance.now();
+      if (!q) this.queueSince = 0;
+      this.queueFlag = q;
+    }
     this.fx.syncRings(this.duels, this.ringY);
     if (!room?.you?.pvp?.downed && this.hud.recapOn) this.hud.hideRecap();
     this.paintPlayers();
@@ -172,8 +197,7 @@ export class PvpDirector {
         this.onRound(msg);
         return true;
       case "pvp_queue":
-        this.queueFlag = Boolean(msg.queued);
-        this.queueSize = Number(msg.size) || 0;
+        this.onQueueMsg(Boolean(msg.queued), Number(msg.size) || 0);
         return true;
       case "pvp_leaderboard":
         this.paintBoard(msg);
@@ -210,9 +234,10 @@ export class PvpDirector {
     const pos = this.heroPlanar(tid, hitSelf);
     const gy = app.standY(pos.x, pos.y);
     const group = hitSelf ? app.youGroup : app.nodes.get(`pl:${tid}`)?.group;
+    if (how === "thorns") this.app.skillVfx?.sparkThorns(pos.x, pos.y, now);
     if (group && !blocked) this.fx.flashHero(group, heavy, now);
     if (blocked) {
-      app.combat?.number(pos.x, gy + 2.15, pos.y, 0, "block", tid, now, "schivato");
+      app.combat?.number(pos.x, gy + 2.15, pos.y, 0, "block", tid, now, "schivato", "dmg-pvp");
       if (hitSelf) {
         const src = this.heroPlanar(attacker, false);
         app.kickShake(0.06, app.renderYou.x - src.x, app.renderYou.y - src.y);
@@ -230,13 +255,14 @@ export class PvpDirector {
             : weHit
               ? "melee"
               : "other";
-    app.combat?.number(pos.x, gy + 2.15, pos.y, dmg, style, tid, now);
+    app.combat?.number(pos.x, gy + 2.15, pos.y, dmg, style, tid, now, undefined, "dmg-pvp");
     if (hitSelf) {
       const src = this.heroPlanar(attacker, false);
       app.kickShake(heavy ? 0.28 : 0.16, app.renderYou.x - src.x, app.renderYou.y - src.y);
-      app.hitStopUntil = now + (heavy ? 100 : 64);
-      app.camPunch = Math.max(app.camPunch, heavy ? 0.42 : 0.28);
+      app.hitStopUntil = now + (heavy ? 90 : 55);
+      app.camPunch = Math.max(app.camPunch, heavy ? 0.36 : 0.22);
       this.hud.pulseHurt();
+      this.hud.pulseHit(this.hitAngle(src.x, src.y));
       if (heavy) this.sfx.heavy();
       else this.sfx.hit();
       return;
@@ -270,17 +296,25 @@ export class PvpDirector {
       this.announceUntil = 0;
       this.hud.hideAnnounce();
     }
-    if (this.roundEndUntil && now > this.roundEndUntil) {
-      this.roundEndUntil = 0;
-      this.hud.hideRoundEnd();
+    if (this.roundEndUntil) {
+      if (now > this.roundEndUntil) {
+        this.roundEndUntil = 0;
+        this.hud.hideRoundEnd();
+      } else {
+        const s = Math.max(0, Math.ceil((this.roundEndUntil - now) / 1000));
+        this.hud.setRoundNext(`Prossimo round tra ${s} s`);
+      }
     }
+    if (this.queueDropAt && now - this.queueDropAt > 450) this.settleQueueDrop();
     if (this.inviteFrom && this.inviteUntil && now > this.inviteUntil) {
       this.inviteFrom = null;
       this.hud.hideInvite();
     }
     this.expireFeed(now);
     const downed = Boolean(this.app.room?.you?.pvp?.downed);
-    this.hud.setKillCam(downed);
+    const compact = isCompactUi();
+    const camMs = compact ? 1000 : 1300;
+    this.hud.setKillCam(downed && !this.killCamSkip && now < this.killCamFrom + camMs);
     if (downed && this.respawnUntil) {
       const left = Math.max(0, this.respawnUntil - now);
       this.hud.setRecapTimer(left > 0 ? `Rinascita ${Math.ceil(left / 1000)}` : "");
@@ -290,38 +324,77 @@ export class PvpDirector {
     this.paintHud(now);
   }
 
-  /** After placeFollowCamera. Kill cam eases toward the killer; a scored down pushes in. */
+  /**
+   * After placeFollowCamera. A down eases a short offset toward the killer and
+   * back — no lookAt, so a phone camera never snaps. A scored KO only pushes in.
+   */
   nudgeCamera(rawDt: number) {
     const cam = this.app.camera;
+    const now = performance.now();
+    const compact = isCompactUi();
+    const dt = Math.max(0, rawDt);
     const downed = Boolean(this.app.room?.you?.pvp?.downed);
-    if (downed && this.killerId) {
+    const camMs = compact ? 900 : 1100;
+    const want = downed && !this.killCamSkip && this.killerId && now < this.killCamFrom + camMs ? 1 : 0;
+    const k = 1 - Math.exp(-dt * (compact ? 6 : 4));
+    this.killCamBlend += (want - this.killCamBlend) * k;
+    if (this.killCamBlend < 0.015 && want === 0) this.killCamBlend = 0;
+    if (this.killCamBlend > 0.001 && this.killerId) {
       const node = this.app.nodes.get(`pl:${this.killerId}`);
       if (node) {
-        const k = node.group.position;
-        this._want.set(k.x + CAM_SIDE_X * 6.2, k.y + 4.2, k.z + CAM_SIDE_Z * 6.2);
-        const a = 1 - Math.exp(-Math.max(0, rawDt) * 2.6);
-        cam.position.lerp(this._want, a);
-        cam.lookAt(k.x, k.y + 1.3, k.z);
+        const p = node.group.position;
+        const dx = p.x - cam.position.x;
+        const dz = p.z - cam.position.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const max = compact ? 0.28 : 1.05;
+        const u = this.killCamBlend * max;
+        cam.position.x += (dx / len) * u;
+        cam.position.z += (dz / len) * u;
+        if (!compact) cam.position.y += 0.16 * this.killCamBlend;
       }
-      return;
     }
-    if (this.pushLeft > 0) {
+    if (this.pushLeft > 0 && this.killCamBlend < 0.25) {
       cam.getWorldDirection(this._fwd);
-      cam.position.addScaledVector(this._fwd, 0.62 * Math.min(1, this.pushLeft / 0.4));
-      this.pushLeft = Math.max(0, this.pushLeft - Math.max(0, rawDt));
+      const push = (compact ? 0.2 : 0.42) * Math.min(1, this.pushLeft / 0.32);
+      cam.position.addScaledVector(this._fwd, push);
+      this.pushLeft = Math.max(0, this.pushLeft - dt);
     }
+  }
+
+  /** Before the follow lerp: a respawn across the pit cuts, it does not pan. */
+  catchRespawnCamera() {
+    const downed = Boolean(this.app.room?.you?.pvp?.downed);
+    if (this.wasDowned && !downed) {
+      this.slowUntil = 0;
+      this.pushLeft = 0;
+      this.killCamSkip = false;
+      this.killCamBlend = 0;
+      const dx = this.app.camFollow.x - this.app.renderYou.x;
+      const dz = this.app.camFollow.z - this.app.renderYou.y;
+      if (dx * dx + dz * dz > 36) {
+        this.app.camFollow.x = this.app.renderYou.x;
+        this.app.camFollow.z = this.app.renderYou.y;
+        this.app.camLead.x = 0;
+        this.app.camLead.z = 0;
+      }
+    }
+    this.wasDowned = downed;
   }
 
   timeScale(): number {
     if (this.slowUntil <= 0) return 1;
     const now = performance.now();
-    if (now < this.slowUntil) return 0.3;
-    const u = (now - this.slowUntil) / 280;
+    if (this.slowUntil - now > 1200) {
+      this.slowUntil = 0;
+      return 1;
+    }
+    if (now < this.slowUntil) return 0.35;
+    const u = (now - this.slowUntil) / 180;
     if (u >= 1) {
       this.slowUntil = 0;
       return 1;
     }
-    return 0.3 + 0.7 * u;
+    return 0.35 + 0.65 * u;
   }
 
   paintRemote(el: HTMLElement, pl: any) {
@@ -395,7 +468,10 @@ export class PvpDirector {
     this.inviteUntil = performance.now() + sec * 1000;
     const title = msg.title ? String(msg.title) : "";
     const rating = Number(msg.rating) || 1200;
-    const who = title ? `${this.inviteName} (${rating}, ${title})` : `${this.inviteName} (${rating})`;
+    const rival = this.app.room?.players?.find((p: { id?: string; lv?: number }) => String(p.id) === this.inviteFrom);
+    const lv = Number(rival?.lv) || 0;
+    const named = lv ? `Lv ${lv} ${this.inviteName}` : this.inviteName;
+    const who = title ? `${named} (${rating}, ${title})` : `${named} (${rating})`;
     this.hud.showInvite(`${who} ti sfida a duello`);
     this.hud.setInviteFrac(1);
   }
@@ -409,6 +485,15 @@ export class PvpDirector {
     if (you && (String(d.a) === you || String(d.b) === you)) {
       this.pending = null;
       this.hud.setPending(null);
+    }
+    if (d.ranked && you && (String(d.a) === you || String(d.b) === you) && d.phase !== "over" && this.matchFor !== d.id) {
+      this.matchFor = d.id;
+      this.matchedAt = performance.now();
+      this.queueDropAt = 0;
+      this.queueLeaveArmed = false;
+      this.hud.flashAnnounce("Match trovato");
+      this.announceUntil = performance.now() + 1400;
+      this.sfx.match();
     }
     if (d.phase === "over") {
       if (idx >= 0) this.duels.splice(idx, 1);
@@ -434,7 +519,7 @@ export class PvpDirector {
     }
     const delta = d.ratingDelta && you && d.ratingDelta[you] != null ? fmtDelta(Number(d.ratingDelta[you])) : "";
     const why = d.reason ? reasonLine(d.reason) : "";
-    const sub = [why, delta].filter(Boolean).join(" · ");
+    const sub = [why, delta ? `${delta} rating` : ""].filter(Boolean).join(" · ");
     this.hud.showResult(title, sub);
     this.resultUntil = performance.now() + 3400;
     if (title === "Vittoria") this.sfx.victory();
@@ -472,6 +557,9 @@ export class PvpDirector {
   private onDown(msg: any) {
     const now = performance.now();
     this.killerId = msg.killerId ? String(msg.killerId) : null;
+    this.killCamSkip = false;
+    this.killCamFrom = now;
+    this.killCamBlend = 0;
     const wait = Number(msg.respawnIn) || 0;
     this.respawnUntil = now + wait;
     const name = String(msg.killerName || "—");
@@ -493,11 +581,18 @@ export class PvpDirector {
     const you = this.youId();
     const killerId = String(msg.killerId ?? "");
     const victimId = String(msg.victimId ?? "");
+    this.roundDeaths.set(victimId, (this.roundDeaths.get(victimId) || 0) + 1);
+    const lvName = (id: string, fallback: string) => {
+      const pl = this.app.room?.players?.find((p: { id?: string; lv?: number }) => String(p.id) === id);
+      const lv = Number(pl?.lv) || 0;
+      return lv ? `Lv ${lv} ${fallback}` : fallback;
+    };
     this.feed.unshift({
-      killer: String(msg.killerName || ""),
-      victim: String(msg.victimName || ""),
+      killer: lvName(killerId, String(msg.killerName || "")),
+      victim: lvName(victimId, String(msg.victimName || "")),
       how: String(msg.how || "melee"),
       mine: killerId === you || victimId === you,
+      down: victimId === you,
       at: now,
     });
     if (this.feed.length > 5) this.feed.length = 5;
@@ -510,15 +605,48 @@ export class PvpDirector {
   }
 
   private onRound(msg: any) {
+    const n = Number(msg.n) || 0;
     const winners = Array.isArray(msg.winners) ? msg.winners : [];
-    let html = `<div class="pvp-roundend-title">Round ${Number(msg.n) || ""}</div>`;
-    if (!winners.length) html += `<div>Nessuna uccisione</div>`;
-    for (let i = 0; i < winners.length; i++) {
-      const w = winners[i];
-      html += `<div>${esc(String(w.name || ""))} · ${Number(w.kills) || 0}</div>`;
+    const board = Array.isArray(msg.board) ? msg.board : [];
+    const you = this.youId();
+    const purse = this.app.room?.you?.pvp;
+    let win = "Nessuna uccisione";
+    if (winners.length === 1) {
+      win = `Vincitore · ${esc(String(winners[0].name || ""))} · ${Number(winners[0].kills) || 0}`;
+    } else if (winners.length > 1) {
+      const names = winners.map((w: { name?: string }) => esc(String(w.name || ""))).join(", ");
+      win = `Pareggio · ${names}`;
     }
+    const top = board.slice(0, 3);
+    let rows = "";
+    for (let i = 0; i < top.length; i++) {
+      const r = top[i];
+      const id = String(r.id || "");
+      const mine = id === you ? " mine" : "";
+      const deaths = this.roundDeaths.get(id) || 0;
+      const rlv = Number(r.lv) ? `Lv ${Number(r.lv)} ` : "";
+      rows += `<div class="pvp-score-row cols${mine}"><span>${i + 1}</span><span>${esc(rlv + String(r.name || ""))}</span><em>${Number(r.kills) || 0}</em><span>${deaths}</span><span>${Number(r.streak) || 0}</span></div>`;
+    }
+    if (!rows) rows = `<div>Nessun sangue in questo round</div>`;
+    const me = board.find((r: { id?: string }) => String(r.id || "") === you);
+    const myK = me ? Number(me.kills) || 0 : Number(purse?.roundKills) || 0;
+    const myD = this.roundDeaths.get(you) || 0;
+    const myS = me ? Number(me.streak) || 0 : Number(purse?.streak) || 0;
+    const rating = Number(purse?.rating) || 1200;
+    const html =
+      `<div class="pvp-roundend-kicker">Pozzo dei Giganti</div>` +
+      `<div class="pvp-roundend-title">Round ${n} chiuso</div>` +
+      `<div class="pvp-roundend-win">${win}</div>` +
+      `<div class="pvp-score-row cols head"><span>#</span><span>Nome</span><span>Ucc.</span><span>Morti</span><span>Serie</span></div>` +
+      rows +
+      `<div class="pvp-roundend-you">Tu · ${myK} uccisioni · ${myD} morti · serie ${myS} · rating ${rating}</div>` +
+      `<div class="pvp-roundend-live">Round ${n + 1} è aperto</div>` +
+      `<div class="pvp-roundend-next">Prossimo round tra 8 s</div>`;
     this.hud.showRoundEnd(html);
-    this.roundEndUntil = performance.now() + 6000;
+    this.roundEndUntil = performance.now() + 8000;
+    this.roundDeaths.clear();
+    this.warned30 = false;
+    this.warned10 = false;
     this.sfx.gong();
   }
 
@@ -526,8 +654,9 @@ export class PvpDirector {
     const now = performance.now();
     if (now - this.slowMarked < 700) return;
     this.slowMarked = now;
-    this.slowUntil = now + 400;
-    this.pushLeft = 0.4;
+    const compact = isCompactUi();
+    this.slowUntil = now + (compact ? 240 : 300);
+    this.pushLeft = compact ? 0.16 : 0.3;
     this.sfx.kill();
   }
 
@@ -613,8 +742,9 @@ export class PvpDirector {
       if (id) {
         const pl = room.players?.find((p: any) => String(p.id) === id);
         const name = String(pl?.name || "pellegrino");
+        const lv = Number(pl?.lv) || 1;
         const hint = isCompactUi() ? "" : " (G)";
-        this.hud.setChallenge(`⚔ Sfida ${name}${hint}`);
+        this.hud.setChallenge(`⚔ Sfida Lv ${lv} ${name}${hint}`);
       } else this.hud.setChallenge(null);
     } else this.hud.setChallenge(null);
 
@@ -634,10 +764,57 @@ export class PvpDirector {
       const left = Number(room.arena.round.endsAt) - Date.now();
       const streakN = Number(room.you?.pvp?.streak) || 0;
       this.hud.setArena(true, `Round ${n}`, fmtClock(left), streakN > 0 ? `Serie ${streakN}` : "");
-    } else this.hud.setArena(false, "", "", "");
+      this.hud.arenaClock.classList.toggle("hot", left > 0 && left <= 30000);
+      if (n !== this.seenRound) {
+        const first = this.seenRound === 0;
+        this.seenRound = n;
+        this.warned30 = false;
+        this.warned10 = false;
+        if (!this.roundEndUntil) {
+          this.hud.flashAnnounce(`Round ${n}`);
+          this.announceUntil = now + (first ? 1200 : 1500);
+          if (first) this.sfx.announce();
+          else this.sfx.gong();
+        }
+      }
+      if (!this.roundEndUntil && !this.warned30 && left <= 30000 && left > 10000) {
+        this.warned30 = true;
+        this.hud.flashAnnounce("Trenta secondi");
+        this.announceUntil = now + 1400;
+        this.sfx.tick();
+      }
+      if (!this.roundEndUntil && !this.warned10 && left > 0 && left <= 10000) {
+        this.warned10 = true;
+        this.hud.flashAnnounce("Dieci secondi");
+        this.announceUntil = now + 1400;
+        this.sfx.tick();
+      }
+    } else {
+      this.seenRound = 0;
+      this.warned30 = false;
+      this.warned10 = false;
+      this.hud.arenaClock.classList.remove("hot");
+      this.hud.setArena(false, "", "", "");
+    }
 
     const queued = Boolean(room?.you?.pvp?.queued ?? this.queueFlag);
-    this.hud.setQueue(queued ? `In coda · ${this.queueSize}` : "Classificata 1v1", queued);
+    if (queued) {
+      if (!this.queueSince) this.queueSince = now;
+      const elapsed = Math.max(0, now - this.queueSince);
+      const band = 80 + Math.floor(elapsed / 3000) * 100;
+      const mm = Math.floor(elapsed / 60000);
+      const ss = Math.floor(elapsed / 1000) % 60;
+      const clock = `${mm}:${ss < 10 ? "0" : ""}${ss}`;
+      this.hud.setQueue(`In coda ${clock} · Annulla`, true, `±${band} · ${this.queueSize} in attesa`);
+    } else this.hud.setQueue("Classificata 1v1", false, "");
+
+    const hp = Number(room?.you?.hp) || 0;
+    const maxHp = Number(room?.you?.maxHp) || 0;
+    const low = (arena || inDuel) && !room?.you?.pvp?.downed && maxHp > 0 && hp > 0 && hp / maxHp <= 0.3;
+    if (low !== this.lowOn) {
+      this.lowOn = low;
+      this.hud.setLowHp(low);
+    }
 
     this.hud.setFeed(this.feed, now);
     const showScore = (this.tabHeld || this.hud.scorePinned) && arena;
@@ -668,7 +845,9 @@ export class PvpDirector {
     }
     const nameEl = this.localLabel.element.querySelector(".wl-name");
     const name = String(you.name || "");
-    if (nameEl && nameEl.textContent !== name) nameEl.textContent = name;
+    const lv = Number(you.lv ?? you.prog?.level) || 1;
+    const plate = `Lv ${lv} ${name}`;
+    if (nameEl && nameEl.textContent !== plate) nameEl.textContent = plate;
     if (name !== this.localName) this.localName = name;
     this.paintPlate(this.localLabel.element, you.pvp, false, Boolean(you.pvp?.downed));
   }
@@ -714,7 +893,9 @@ export class PvpDirector {
     for (let i = 0; i < board.length; i++) {
       const r = board[i];
       const mine = String(r.id) === you ? " mine" : "";
-      html += `<div class="pvp-score-row${mine}">${esc(String(r.name || ""))}<em>${Number(r.kills) || 0}</em><span>${Number(r.streak) || 0}</span></div>`;
+      const deaths = this.roundDeaths.get(String(r.id || "")) || 0;
+      const slv = Number(r.lv) ? `Lv ${Number(r.lv)} ` : "";
+      html += `<div class="pvp-score-row${mine}">${esc(slv + String(r.name || ""))}<em>${Number(r.kills) || 0}</em><span class="d">${deaths}</span><span>${Number(r.streak) || 0}</span></div>`;
     }
     return html;
   }
@@ -725,7 +906,8 @@ export class PvpDirector {
     for (let i = 0; i < top.length; i++) {
       const r = top[i];
       const title = r.title ? `<i>${esc(String(r.title))}</i>` : "";
-      html += `<div class="pvp-lb-row"><span>${Number(r.rank) || i + 1}</span><span>${esc(String(r.name || ""))}${title}</span><span>${Number(r.rating) || 0}</span><span>${Number(r.wins) || 0}-${Number(r.losses) || 0}</span><span>${Number(r.kills) || 0}</span></div>`;
+      const blv = Number(r.lv) ? `Lv ${Number(r.lv)} ` : "";
+      html += `<div class="pvp-lb-row"><span>${Number(r.rank) || i + 1}</span><span>${esc(blv + String(r.name || ""))}${title}</span><span>${Number(r.rating) || 0}</span><span>${Number(r.wins) || 0}-${Number(r.losses) || 0}</span><span>${Number(r.kills) || 0}</span></div>`;
     }
     if (!top.length) html += `<div class="muted">La classifica è ancora vuota</div>`;
     const you = msg.you;
@@ -744,7 +926,77 @@ export class PvpDirector {
   private toggleQueue() {
     const room = this.app.room;
     const queued = Boolean(room?.you?.pvp?.queued ?? this.queueFlag);
+    this.queueLeaveArmed = queued;
     this.app.socket.pvpQueue(!queued);
+  }
+
+  /** queued:false arrives before duel_state on a match. Wait, then say why the queue dropped. */
+  private onQueueMsg(queued: boolean, size: number) {
+    this.queueSize = size;
+    const was = this.queueFlag;
+    this.queueFlag = queued;
+    if (queued) {
+      if (!this.queueSince) this.queueSince = performance.now();
+      this.queueDropAt = 0;
+      this.queueLeaveArmed = false;
+      return;
+    }
+    this.queueSince = 0;
+    const matched = this.matchedAt && performance.now() - this.matchedAt < 2500;
+    if (was && !this.inRankedFight() && !matched) this.queueDropAt = performance.now();
+    else this.queueDropAt = 0;
+  }
+
+  private settleQueueDrop() {
+    this.queueDropAt = 0;
+    if (this.inRankedFight()) return;
+    if (this.matchedAt && performance.now() - this.matchedAt < 2500) return;
+    if (this.queueLeaveArmed) {
+      this.queueLeaveArmed = false;
+      showToast("Hai lasciato la coda", "info");
+      return;
+    }
+    const room = this.app.room;
+    const arena = Boolean(room && (room.role === "arena" || room.cantoId === "inferno_31"));
+    showToast(arena ? "Coda chiusa" : "La coda è solo nel pozzo", "info");
+  }
+
+  private inRankedFight(): boolean {
+    const you = this.youId();
+    if (!you) return false;
+    for (let i = 0; i < this.duels.length; i++) {
+      const d = this.duels[i]!;
+      if (!d.ranked || d.phase === "over") continue;
+      if (d.a === you || d.b === you) return true;
+    }
+    return false;
+  }
+
+  private skipKillCam() {
+    if (!this.app.room?.you?.pvp?.downed) return;
+    if (this.killCamSkip) return;
+    this.killCamSkip = true;
+    this.hud.setKillCam(false);
+  }
+
+  /**
+   * Degrees, 0 = threat ahead of the camera (chevron up).
+   * right = (−fwd.z, 0, fwd.x). Check: fwd (0,0,−1) → right (1,0,0).
+   */
+  private hitAngle(ax: number, ay: number): number {
+    const cam = this.app.camera;
+    cam.getWorldDirection(this._aim);
+    this._aim.y = 0;
+    const len = Math.hypot(this._aim.x, this._aim.z);
+    if (len < 1e-4) return 0;
+    const fx = this._aim.x / len;
+    const fz = this._aim.z / len;
+    const rx = -fz;
+    const rz = fx;
+    const you = this.app.renderYou;
+    const dx = ax - you.x;
+    const dz = ay - you.y;
+    return (Math.atan2(dx * rx + dz * rz, dx * fx + dz * fz) * 180) / Math.PI;
   }
 
   toggleBoard() {

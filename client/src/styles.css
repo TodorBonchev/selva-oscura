@@ -1310,7 +1310,7 @@ button:disabled { opacity: 0.55; cursor: default; }
   gap: 0.35rem;
   pointer-events: auto;
   flex: 1.6 1 0;
-  max-width: 14rem;
+  max-width: 22rem;
   justify-content: center;
 }
 .spell-btn {
@@ -1740,7 +1740,7 @@ body.has-modal #virtual-joystick { display: none; }
   .spell-bar {
     order: 0;
     flex: 1.6 1 0;
-    max-width: 14rem;
+    max-width: 22rem;
     width: auto;
     justify-content: center;
   }
@@ -4419,6 +4419,14 @@ body.hud-compact .dmg-self { font-size: 18px; }
 body.hud-compact .dmg-heal { font-size: 16px; }
 body.hud-compact .dmg-block { font-size: 12px; }
 body.hud-compact .dmg-other { font-size: 12px; }
+/* PvP blows read warmer than mob numbers, with a small blade mark */
+.dmg-pvp.dmg-melee { color: #ffd0a0; }
+.dmg-pvp.dmg-heavy { color: #ffb040; text-shadow: 0 1px 0 #000, 0 0 10px #a02818cc, 0 0 2px #000; }
+.dmg-pvp.dmg-spell { color: #ffc8b0; text-shadow: 0 1px 0 #000, 0 0 9px #802010cc, 0 0 2px #000; }
+.dmg-pvp.dmg-dash { color: #ffd8c0; }
+.dmg-pvp.dmg-self { color: #ff5040; font-size: 26px; }
+.dmg-pvp::before { content: "⚔ "; font-size: 0.72em; opacity: 0.9; }
+body.hud-compact .dmg-pvp.dmg-self { font-size: 20px; }
 
 #dodge-callout {
   position: fixed;
@@ -5503,9 +5511,10 @@ body.hud-compact #action-bar #btn-attack {
   box-shadow: inset 0 0 0 2px #000, inset 0 0 0 3px #d63a2a55, inset 0 -8px 14px #000b, 0 3px 12px #000d, 0 0 16px #d63a2a33;
 }
 body.hud-compact #action-bar #btn-attack .action-icon { width: 58%; height: 58%; filter: drop-shadow(0 0 6px #ff6a5599) brightness(1.2); }
-body.hud-compact #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 100px); --y: var(--arc-cy); }
-body.hud-compact #action-bar #btn-spell-whirl_ward { --s: var(--arc-outer); --x: calc(var(--arc-cx) + 115px); --y: calc(var(--arc-cy) + 128px); }
-body.hud-compact #action-bar #btn-spell-infernal_burst { --x: var(--arc-cx); --y: calc(var(--arc-cy) + 100px); }
+body.hud-compact #action-bar #btn-spell-slot-0 { --x: calc(var(--arc-cx) + 100px); --y: var(--arc-cy); }
+body.hud-compact #action-bar #btn-spell-slot-1 { --s: var(--arc-outer); --x: calc(var(--arc-cx) + 115px); --y: calc(var(--arc-cy) + 128px); }
+body.hud-compact #action-bar #btn-spell-slot-2 { --x: var(--arc-cx); --y: calc(var(--arc-cy) + 100px); }
+body.hud-compact #action-bar #btn-spell-slot-3 { --s: 44px; --x: calc(var(--arc-cx) + 192px); --y: calc(var(--arc-cy) + 96px); }
 body.hud-compact #action-bar #btn-interact {
   --s: var(--arc-use);
   --x: calc(var(--arc-cx) + 169px);
@@ -5575,9 +5584,10 @@ body.hud-compact #panels { padding-bottom: 0; }
     --arc-outer: 46px;
     --arc-use: 54px;
   }
-  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 90px); }
-  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 103px); --y: calc(var(--arc-cy) + 114px); }
-  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-infernal_burst { --y: calc(var(--arc-cy) + 90px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-slot-0 { --x: calc(var(--arc-cx) + 90px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-slot-1 { --x: calc(var(--arc-cx) + 103px); --y: calc(var(--arc-cy) + 114px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-slot-2 { --y: calc(var(--arc-cy) + 90px); }
+  body.hud-compact:not(.hud-landscape) #action-bar #btn-spell-slot-3 { --s: 40px; --x: calc(var(--arc-cx) + 178px); --y: calc(var(--arc-cy) + 86px); }
   body.hud-compact:not(.hud-landscape) #action-bar #btn-interact { --x: calc(var(--arc-cx) + 150px); --y: calc(var(--arc-cy) + 28px); }
   body.hud-compact:not(.hud-landscape) #action-bar #btn-dash { --x: calc(var(--arc-cx) + 64px); --y: calc(var(--arc-cy) + 64px); }
   body.hud-compact:not(.hud-landscape) #action-bar #btn-sip { --x: calc(var(--arc-cx) + 13px); --y: calc(var(--arc-cy) + 153px); }
@@ -5632,9 +5642,10 @@ body.hud-landscape #target-plate {
   transform: translateX(-50%);
   width: min(30vw, 14rem);
 }
-body.hud-landscape #action-bar #btn-spell-gale_bolt { --x: calc(var(--arc-cx) + 86px); --y: var(--arc-cy); }
-body.hud-landscape #action-bar #btn-spell-whirl_ward { --x: calc(var(--arc-cx) + 99px); --y: calc(var(--arc-cy) + 110px); }
-body.hud-landscape #action-bar #btn-spell-infernal_burst { --x: var(--arc-cx); --y: calc(var(--arc-cy) + 86px); }
+body.hud-landscape #action-bar #btn-spell-slot-0 { --x: calc(var(--arc-cx) + 86px); --y: var(--arc-cy); }
+body.hud-landscape #action-bar #btn-spell-slot-1 { --x: calc(var(--arc-cx) + 99px); --y: calc(var(--arc-cy) + 110px); }
+body.hud-landscape #action-bar #btn-spell-slot-2 { --x: var(--arc-cx); --y: calc(var(--arc-cy) + 86px); }
+body.hud-landscape #action-bar #btn-spell-slot-3 { --s: 40px; --x: calc(var(--arc-cx) + 186px); --y: calc(var(--arc-cy) + 84px); }
 body.hud-landscape #action-bar #btn-interact { --x: calc(var(--arc-cx) + 146px); --y: calc(var(--arc-cy) + 26px); }
 body.hud-landscape #action-bar #btn-dash { --x: calc(var(--arc-cx) + 61px); --y: calc(var(--arc-cy) + 61px); }
 body.hud-landscape #action-bar #btn-sip { --x: calc(var(--arc-cx) + 13px); --y: calc(var(--arc-cy) + 146px); }
@@ -6084,6 +6095,7 @@ body.hud-compact #virtual-joystick.vj-active .vj-base {
 /* ——— Phones: Inv / AH / fullscreen as a small top-right menu (not above the stick) ——— */
 body.hud-compact #action-bar #btn-inv,
 body.hud-compact #action-bar #btn-ah,
+body.hud-compact #action-bar #btn-skills,
 body.hud-compact #btn-fullscreen {
   --s: 38px;
   position: fixed;
@@ -6096,15 +6108,21 @@ body.hud-compact #btn-fullscreen {
 }
 body.hud-compact #action-bar #btn-inv { right: calc(var(--hv-gut) + var(--safe-right)); }
 body.hud-compact #action-bar #btn-ah { right: calc(var(--hv-gut) + var(--safe-right) + 46px); }
+body.hud-compact #action-bar #btn-skills { right: calc(var(--hv-gut) + var(--safe-right) + 138px); }
 body.hud-compact #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 92px); }
 body.hud-landscape #action-bar #btn-inv,
 body.hud-landscape #action-bar #btn-ah,
+body.hud-landscape #action-bar #btn-skills,
 body.hud-landscape #btn-fullscreen {
   --s: 34px;
   top: calc(var(--hv-top) + 96px + 22px);
 }
 body.hud-landscape #action-bar #btn-ah { right: calc(var(--hv-gut) + var(--safe-right) + 42px); }
 body.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 84px); }
+body.hud-landscape #action-bar #btn-skills { right: calc(var(--hv-gut) + var(--safe-right) + 126px); }
+body.in-lust.hud-compact #action-bar #btn-skills,
+body.in-gluttony.hud-compact #action-bar #btn-skills,
+body.in-avarice.hud-compact #action-bar #btn-skills { right: calc(var(--hv-gut) + var(--safe-right) + 92px); }
 /* The Auction House lives in the Dark Wood: no AH seal inside the combat circles */
 body.in-lust #btn-ah,
 body.in-gluttony #btn-ah,
@@ -6261,8 +6279,11 @@ body.in-avarice.hud-compact .ava-plutus-line { font-size: 14px; }
 .pvp-root button,
 .pvp-invite,
 .pvp-score,
-.pvp-recap,
 #pvp-board { pointer-events: auto; }
+.pvp-roundend,
+.pvp-recap,
+.pvp-roundend-card,
+.pvp-recap-card { pointer-events: none; }
 
 .pvp-tools {
   position: absolute;
@@ -6296,13 +6317,35 @@ body.hud-compact.in-arena .pvp-tabella { display: inline-block; }
 .pvp-queue { display: none; }
 body.in-arena .pvp-queue { display: inline-block; }
 .pvp-queue.is-queued { border-color: #e8c86a; color: #f0d78a; }
+.pvp-queue-hint {
+  display: none;
+  flex-basis: 100%;
+  font-family: var(--serif);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: #e8c86a;
+  line-height: 1.2;
+  pointer-events: none;
+  text-shadow: 0 1px 0 #000;
+}
+.pvp-queue-hint.on { display: block; }
+body.hud-compact .pvp-queue {
+  white-space: normal;
+  max-width: 11rem;
+  text-align: left;
+  line-height: 1.2;
+}
 
+/* Challenge chip sits above the hotbar, clear of the quest line and of nameplates.
+   Phones dock it in the lower centre: the old top:42% left:10px sat on the Guide label. */
 .pvp-challenge,
 .pvp-pending {
   position: absolute;
   left: 50%;
-  top: calc(var(--safe-top) + 5.4rem);
+  top: auto;
+  bottom: calc(var(--action-bar-h) + 3.6rem);
   transform: translateX(-50%);
+  max-width: min(22rem, calc(100vw - 2rem));
   min-height: 36px;
   padding: 0.35rem 0.9rem;
   font-family: var(--serif);
@@ -6311,22 +6354,28 @@ body.in-arena .pvp-queue { display: inline-block; }
   background: #1a100ee6;
   border: 1px solid #a86858;
   cursor: pointer;
+  text-align: center;
 }
-body.hud-compact .pvp-challenge,
-body.hud-compact .pvp-pending {
-  left: calc(var(--safe-left) + 10px);
-  top: 42%;
-  transform: none;
-  min-height: 48px;
-  min-width: 9.5rem;
-  font-size: 1.05rem;
-  text-align: left;
+body.hud-compact:not(.hud-landscape) .pvp-challenge,
+body.hud-compact:not(.hud-landscape) .pvp-pending {
+  bottom: calc(276px + var(--safe-bottom));
+  max-width: min(16rem, calc(100vw - 2.4rem));
+  min-height: 44px;
+  font-size: 0.98rem;
+}
+body.hud-landscape .pvp-challenge,
+body.hud-landscape .pvp-pending {
+  bottom: calc(78px + var(--safe-bottom));
+  max-width: min(46vw, 20rem);
+  min-height: 40px;
+  font-size: 0.92rem;
 }
 
 .pvp-invite {
   position: absolute;
   left: 50%;
-  top: 26%;
+  top: auto;
+  bottom: calc(var(--action-bar-h) + 3.6rem);
   transform: translateX(-50%);
   width: min(22rem, calc(100vw - 1.4rem));
   background: #100e0cf2;
@@ -6334,6 +6383,15 @@ body.hud-compact .pvp-pending {
   padding: 0.85rem 1rem 0.75rem;
   color: var(--bone);
   font-family: var(--serif);
+}
+body.hud-compact:not(.hud-landscape) .pvp-invite {
+  bottom: calc(276px + var(--safe-bottom));
+  width: min(20rem, calc(100vw - 1.6rem));
+}
+body.hud-landscape .pvp-invite {
+  bottom: calc(72px + var(--safe-bottom));
+  width: min(48vw, 22rem);
+  padding: 0.55rem 0.7rem 0.5rem;
 }
 .pvp-invite-text { margin: 0 0 0.4rem; font-size: 1.15rem; line-height: 1.25; }
 .pvp-invite-track { height: 4px; background: #2a2418; margin: 0.45rem 0 0.6rem; }
@@ -6355,19 +6413,24 @@ body.hud-compact .pvp-pending {
 .pvp-ringwarn {
   position: absolute;
   left: 50%;
-  top: 38%;
   transform: translate(-50%, -50%);
   font-family: var(--serif);
   color: #f3e9c9;
   text-align: center;
   text-shadow: 0 2px 14px #000;
   pointer-events: none;
+  max-width: calc(100vw - 1.6rem);
 }
-.pvp-countdown { font-size: clamp(2rem, 8vw, 4.2rem); letter-spacing: 0.12em; }
-.pvp-announce { font-size: clamp(1.5rem, 6vw, 3.1rem); }
+.pvp-announce { top: 30%; font-size: clamp(1.35rem, 5.5vw, 3.1rem); }
+.pvp-countdown { top: 42%; font-size: clamp(2rem, 8vw, 4.2rem); letter-spacing: 0.12em; }
+.pvp-result { top: 40%; }
 .pvp-result-title { font-size: clamp(2rem, 7vw, 3.6rem); }
 .pvp-result-sub { margin-top: 0.25rem; font-size: 1rem; color: #d9cfae; }
-.pvp-ringwarn { top: 50%; color: #e8c86a; font-size: 1.2rem; }
+.pvp-ringwarn { top: 58%; color: #e8c86a; font-size: 1.2rem; }
+body.hud-landscape .pvp-announce { top: 28%; font-size: clamp(1.15rem, 4vw, 2rem); }
+body.hud-landscape .pvp-countdown { top: 42%; }
+body.hud-landscape .pvp-result { top: 38%; }
+body.hud-landscape .pvp-ringwarn { top: 56%; font-size: 1rem; }
 .pvp-pop { animation: pvp-pop 0.28s ease-out; }
 @keyframes pvp-pop {
   from { transform: translate(-50%, -50%) scale(0.72); opacity: 0; }
@@ -6391,11 +6454,13 @@ body.hud-compact .pvp-opp { display: none; }
 
 .pvp-arena {
   position: absolute;
-  left: 50%;
-  /* under the HUD bars and the objective line, not across the mana bar */
-  top: calc(var(--safe-top) + 6.6rem);
-  transform: translateX(-50%);
-  text-align: center;
+  left: auto;
+  right: calc(0.7rem + var(--safe-right));
+  /* under the desktop minimap, clear of the centred quest line */
+  top: calc(12.4rem + var(--safe-top));
+  transform: none;
+  width: 8rem;
+  text-align: right;
   pointer-events: none;
   font-family: var(--serif);
   color: var(--bone);
@@ -6416,32 +6481,52 @@ body.hud-compact.in-arena #toast-layer.toast-above-actions {
   right: calc(220px + var(--safe-right));
 }
 .pvp-arena-clock { font-size: 1.3rem; letter-spacing: 0.08em; color: #f0d78a; }
+.pvp-arena-clock.hot { color: #ffb070; }
 .pvp-arena-round { font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; }
 .pvp-streak { font-size: 0.85rem; color: #e8c86a; }
 
 .pvp-feed {
   position: absolute;
-  top: calc(var(--safe-top) + 4.1rem);
+  top: calc(var(--safe-top) + 8.4rem);
   right: calc(11.5rem + var(--safe-right));
   width: 14rem;
   pointer-events: none;
   font-family: var(--serif);
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   color: var(--bone);
   text-align: right;
+  text-shadow: 0 1px 2px #000, 0 0 6px #000;
 }
-body.hud-compact .pvp-feed {
+body.hud-compact:not(.hud-landscape) .pvp-feed {
   right: calc(var(--safe-right) + 8px);
-  top: calc(var(--hv-top) + 176px);
-  width: 9.4rem;
+  top: calc(var(--hv-top) + 248px);
+  width: 9rem;
+  font-size: 0.72rem;
 }
-.pvp-feed-row.mine { color: #f0d78a; }
+body.hud-landscape .pvp-feed {
+  top: calc(var(--hv-top) + 160px);
+  right: calc(8px + var(--safe-right));
+  left: auto;
+  width: min(11rem, 32vw);
+  font-size: 0.7rem;
+}
+.pvp-feed-row { line-height: 1.25; padding: 1px 0; }
+.pvp-feed-row.mine {
+  color: #f0d78a;
+  border-right: 2px solid #c9a227;
+  padding-right: 6px;
+}
+.pvp-feed-row.victim {
+  color: #ff8a78;
+  border-right: 2px solid #e15a4a;
+  padding-right: 6px;
+}
 .pvp-feed-row.fade { opacity: 0.22; }
 
 .pvp-score {
   position: absolute;
   left: 50%;
-  top: 16%;
+  top: calc(var(--safe-top) + 8rem);
   transform: translateX(-50%);
   width: min(22rem, calc(100% - 1.4rem));
 }
@@ -6457,16 +6542,88 @@ body.hud-compact .pvp-feed {
 .pvp-score-head { letter-spacing: 0.12em; text-transform: uppercase; font-size: 0.75rem; color: #e8c86a; margin-bottom: 0.35rem; }
 .pvp-score-row { display: flex; gap: 0.6rem; padding: 0.15rem 0; }
 .pvp-score-row.mine { color: #f0d78a; }
-.pvp-score-row em { margin-left: auto; font-style: normal; }
+.pvp-score-row em { margin-left: auto; font-style: normal; min-width: 1.2rem; text-align: right; }
+.pvp-score-row span.d { min-width: 1.1rem; text-align: right; color: #e07a6e; }
+.pvp-score-row.cols {
+  display: grid;
+  grid-template-columns: 1.3rem minmax(0, 1fr) 2.2rem 2.6rem 2.4rem;
+  gap: 0.25rem;
+  align-items: baseline;
+}
+.pvp-score-row.cols em { margin-left: 0; }
+.pvp-score-row.cols.head {
+  color: #e8c86a;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pvp-roundend-kicker {
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  color: #e8c86a;
+}
+.pvp-roundend-title { font-size: 1.35rem; margin: 0.12rem 0 0.2rem; }
+.pvp-roundend-win { margin-bottom: 0.35rem; }
+.pvp-roundend-you,
+.pvp-roundend-live,
+.pvp-roundend-next { margin-top: 0.35rem; font-size: 0.88rem; }
+.pvp-roundend-next { color: #e8c86a; }
 .pvp-roundend,
 .pvp-recap {
   position: absolute;
   left: 50%;
-  top: 20%;
+  top: calc(var(--safe-top) + 7.2rem);
   transform: translateX(-50%);
   width: min(24rem, calc(100% - 1.2rem));
 }
-body.hud-compact .pvp-recap { top: 28%; }
+/* Short landscape: the thumb arc and the stick eat the lower half. Keep feed and tools in the free band. */
+@media (max-height: 430px) {
+  body.hud-landscape .pvp-tools {
+    top: calc(var(--hv-top) + 56px);
+    bottom: auto;
+    left: auto;
+    right: calc(128px + var(--safe-right));
+    max-width: min(16rem, 46vw);
+    flex-wrap: nowrap;
+  }
+  body.hud-landscape .pvp-tool {
+    font-size: 0.66rem;
+    min-height: 28px;
+    padding: 0.12rem 0.32rem;
+  }
+  body.hud-landscape .pvp-queue-hint { font-size: 0.62rem; }
+  body.hud-landscape .pvp-feed {
+    top: calc(var(--hv-top) + 78px);
+    left: calc(8px + var(--safe-left));
+    right: auto;
+    width: 9.2rem;
+    text-align: left;
+  }
+  body.hud-landscape .pvp-challenge,
+  body.hud-landscape .pvp-pending,
+  body.hud-landscape .pvp-invite {
+    bottom: calc(70px + var(--safe-bottom));
+  }
+}
+body.hud-compact:not(.hud-landscape) .pvp-score,
+body.hud-compact:not(.hud-landscape) .pvp-roundend,
+body.hud-compact:not(.hud-landscape) .pvp-recap {
+  top: auto;
+  bottom: calc(288px + var(--safe-bottom));
+  width: min(20rem, calc(100vw - 1.4rem));
+}
+body.hud-landscape .pvp-score,
+body.hud-landscape .pvp-roundend,
+body.hud-landscape .pvp-recap {
+  top: 14%;
+  bottom: auto;
+  width: min(22rem, 68vw);
+}
+body.hud-landscape .pvp-roundend-title { font-size: 1.05rem; }
+body.hud-landscape .pvp-roundend-you,
+body.hud-landscape .pvp-roundend-live,
+body.hud-landscape .pvp-roundend-next { font-size: 0.75rem; margin-top: 0.2rem; }
 .pvp-recap-title { font-size: 1.25rem; margin-bottom: 0.35rem; }
 .pvp-recap-list { font-size: 0.9rem; line-height: 1.35; }
 .pvp-recap-timer { margin-top: 0.4rem; color: #e8c86a; }
@@ -6482,7 +6639,54 @@ body.hud-compact .pvp-recap { top: 28%; }
   transition: opacity 0.12s linear;
 }
 .pvp-hurt.pvp-hurt-on { opacity: 0.85; }
+.pvp-low {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+  opacity: 0;
+  box-shadow: inset 0 0 90px 28px #4a0c0c;
+}
+body.pvp-lowhp .pvp-low { animation: pvp-low-pulse 1.1s ease-in-out infinite; }
+@keyframes pvp-low-pulse {
+  0%, 100% { opacity: 0.22; }
+  50% { opacity: 0.72; }
+}
+.pvp-hitdir {
+  --hit-ang: 0deg;
+  position: fixed;
+  left: 50%;
+  top: 46%;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  z-index: 36;
+  pointer-events: none;
+  opacity: 0;
+  transform: rotate(var(--hit-ang));
+}
+.pvp-hitdir::before {
+  content: "";
+  display: block;
+  width: 0;
+  height: 0;
+  margin: 2px auto 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 16px solid #e15a4a;
+  filter: drop-shadow(0 0 6px #6a1010);
+}
+.pvp-hitdir.on { animation: pvp-hitdir 0.42s ease-out; }
+@keyframes pvp-hitdir {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
 body.pvp-killcam #game-root canvas { filter: saturate(0.28) brightness(0.78); }
+@media (prefers-reduced-motion: reduce) {
+  body.pvp-lowhp .pvp-low { animation: none; opacity: 0.45; }
+  .pvp-hitdir.on { animation: none; opacity: 0.85; }
+}
 
 #pvp-board { max-width: min(36rem, calc(100vw - 1rem)); }
 #pvp-board .pvp-board-scroll { max-height: min(70vh, 32rem); overflow: auto; padding: 0.4rem 0.7rem 0.8rem; }
@@ -6511,4 +6715,300 @@ body.pvp-killcam #game-root canvas { filter: saturate(0.28) brightness(0.78); }
   }
   #pvp-board .pvp-lb-head span { white-space: nowrap; }
   .pvp-feed { font-size: 0.72rem; }
+}
+
+/* ——— Levels, XP bar, skill tree ——— */
+#xp-plate {
+  position: fixed;
+  z-index: 26;
+  left: 50%;
+  /* Clear the desktop hotbar (icons + labels run ~7rem). Compact rules pull it to the screen edge. */
+  bottom: calc(11.25rem + var(--safe-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: min(24rem, 46vw);
+  pointer-events: auto;
+  font-family: var(--font-ui, "Palatino Linotype", Palatino, serif);
+}
+#xp-lv {
+  color: #e6d7b0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  min-width: 2.6rem;
+}
+#xp-bar {
+  flex: 1;
+  height: 5px;
+  background: #14110c;
+  border: 1px solid #c9a22788;
+  border-radius: 2px;
+  overflow: hidden;
+}
+#xp-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #8a6a28, #e6d7b0);
+  transition: width 0.25s ease;
+}
+#xp-read {
+  display: none;
+  color: #e6d7b0;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+#xp-plate:hover #xp-read,
+#xp-plate.show-read #xp-read { display: inline; }
+#xp-float {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.xp-pop {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  transform: translate(-50%, 8px);
+  color: #f0e2b8;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  opacity: 0;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000;
+}
+.xp-pop.on {
+  animation: xp-float 0.9s ease-out forwards;
+}
+@keyframes xp-float {
+  0% { opacity: 0; transform: translate(-50%, 6px); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -18px); }
+}
+body.hud-compact #xp-plate {
+  left: calc(8px + var(--safe-left));
+  right: calc(200px + var(--safe-right));
+  bottom: calc(4px + var(--safe-bottom));
+  width: auto;
+  transform: none;
+}
+body.hud-landscape #xp-plate {
+  left: calc(120px + var(--safe-left));
+  right: calc(230px + var(--safe-right));
+  bottom: calc(4px + var(--safe-bottom));
+}
+.spell-rank {
+  position: absolute;
+  right: 3px;
+  bottom: 1.05rem;
+  font-size: 0.55rem;
+  color: #e6d7b0;
+  pointer-events: none;
+  z-index: 2;
+}
+.spell-btn.spell-empty { opacity: 0.45; }
+.skill-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #c9a227;
+  color: #1a140c;
+  font-size: 0.62rem;
+  line-height: 1rem;
+  text-align: center;
+  z-index: 3;
+}
+.skill-badge.pulse { animation: skill-badge-pulse 1.1s ease-in-out infinite; }
+@keyframes skill-badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+#hp-plate.vitals-refill,
+#mp-plate.vitals-refill { box-shadow: 0 0 12px #e6d7b088; }
+body.level-flash::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+  background: radial-gradient(ellipse at 50% 70%, #e6d7b055, transparent 55%);
+  animation: level-flash 0.7s ease-out forwards;
+}
+@keyframes level-flash {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  100% { opacity: 0; }
+}
+#skills.sk-panel:not(.hidden) {
+  display: flex;
+  flex-direction: column;
+  width: min(68rem, 96vw);
+  max-height: min(86dvh, 820px);
+  overflow: hidden;
+  padding: 0.65rem 0.75rem 0.75rem;
+  gap: 0.4rem;
+}
+.sk-head { display: flex; align-items: center; gap: 0.6rem; }
+.sk-head h2 { margin: 0; flex: 0 0 auto; }
+.sk-points { color: #e6d7b0; letter-spacing: 0.06em; font-size: 0.85rem; }
+.sk-points b { color: #f0e2b8; }
+#sk-respec { margin-left: auto; }
+.sk-loadout {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+.sk-slot {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.4rem;
+  background: #14110c;
+  color: #e6d7b0;
+  border: 1px solid #c9a22788;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sk-slot.drop { outline: 1px solid #e6d7b0; }
+.sk-slot img { width: 32px; height: 32px; object-fit: cover; }
+.sk-slot i { margin-left: auto; opacity: 0.7; font-style: normal; }
+.sk-slot-empty { opacity: 0.55; }
+.sk-tabs { display: none; gap: 0.35rem; }
+.sk-tab {
+  flex: 1;
+  min-height: 44px;
+  background: #14110c;
+  color: #e6d7b0;
+  border: 1px solid #8a7440;
+}
+.sk-tab.on { border-color: #e6d7b0; color: #f0e2b8; }
+.sk-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16rem;
+  gap: 0.6rem;
+  min-height: 0;
+  flex: 1;
+}
+.sk-tree {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+  overflow: auto;
+  min-height: 0;
+  position: relative;
+}
+.sk-col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.sk-col header { display: flex; flex-direction: column; color: #e6d7b0; }
+.sk-col header span { font-size: 0.72rem; opacity: 0.75; }
+.sk-wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.sk-tier { display: flex; flex-direction: column; gap: 0.25rem; }
+.sk-tier-lv { font-size: 0.62rem; letter-spacing: 0.12em; color: #c9a227; }
+.sk-nodes { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.sk-node {
+  width: 92px;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 0.2rem;
+  background: #14110c;
+  color: #e6d7b0;
+  border: 1px solid #5a4a30;
+  border-radius: 3px;
+  text-align: left;
+  position: relative;
+}
+.sk-node img { width: 28px; height: 28px; }
+.sk-node b { font-size: 0.68rem; font-weight: 600; }
+.sk-node small { font-size: 0.58rem; opacity: 0.7; }
+.sk-node em { position: absolute; right: 3px; top: 3px; font-size: 0.58rem; font-style: normal; color: #c9a227; }
+.sk-node.available { border-color: #c9a227; }
+.sk-node.ranked { border-color: #e6d7b0; }
+.sk-node.maxed { border-color: #f0e2b8; box-shadow: inset 0 0 0 1px #c9a22766; }
+.sk-node.locked { opacity: 0.55; }
+.sk-node.selected { outline: 1px solid #f0e2b8; }
+.sk-detail {
+  overflow: auto;
+  border-left: 1px solid #c9a22744;
+  padding-left: 0.6rem;
+  color: #e6d7b0;
+  font-size: 0.82rem;
+}
+.sk-detail h3 { margin: 0.2rem 0; }
+.sk-detail-icon { width: 48px; height: 48px; }
+.sk-sub, .sk-meta { opacity: 0.8; font-size: 0.75rem; }
+.sk-now, .sk-next { margin: 0.35rem 0; }
+.sk-reqs { margin: 0.3rem 0; padding-left: 1rem; }
+.sk-reqs .bad { color: #e07060; }
+.sk-pvp { color: #d8c090; font-size: 0.75rem; }
+#sk-learn { min-height: 44px; margin-top: 0.4rem; }
+.sk-confirm {
+  position: absolute;
+  inset: 0;
+  background: #0c0a08ee;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  z-index: 3;
+  color: #e6d7b0;
+  text-align: center;
+  padding: 1rem;
+}
+.sk-confirm.hidden { display: none; }
+.sk-confirm-row { display: flex; gap: 0.5rem; }
+.sk-confirm-row button { min-height: 44px; min-width: 6rem; }
+body.hud-compact #skills.sk-panel:not(.hidden) {
+  width: min(100vw, 100%);
+  max-width: 100vw;
+  height: calc(100dvh - var(--safe-top) - 6px);
+  max-height: calc(100dvh - var(--safe-top) - 6px);
+  margin: 0;
+}
+body.hud-compact .sk-tabs { display: flex; }
+body.hud-compact .sk-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+body.hud-compact .sk-tree { grid-template-columns: 1fr; }
+body.hud-compact .sk-detail {
+  border-left: 0;
+  border-top: 1px solid #c9a22744;
+  padding-left: 0;
+  padding-top: 0.35rem;
+  max-height: 34vh;
+}
+body.hud-compact .sk-node { width: calc(50% - 0.3rem); min-height: 48px; }
+body.hud-landscape #skills.sk-panel:not(.hidden) {
+  width: min(860px, 96vw);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 8px);
+  height: auto;
+}
+body.hud-landscape .sk-detail { max-height: 9.5rem; }
+body.hud-compact #action-bar #btn-skills .skill-badge { top: -6px; right: -6px; }
+
+/* The skill tree is a full overlay on phones: keep the PvP tool pills out of it. */
+body:has(#skills.sk-panel:not(.hidden)) .pvp-tools {
+  display: none;
 }

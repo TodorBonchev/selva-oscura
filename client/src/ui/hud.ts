@@ -15,7 +15,8 @@ import {
   scoreDelta,
   wearSlotFor,
 } from "../items/score";
-import { SPELLS, SPELL_HOTBAR, type SpellId } from "../spells";
+import { SPELLS, type SpellId } from "../spells";
+import { SKILLS } from "../skills";
 import { placeToastLayer, pushToast } from "./toasts";
 
 let selectedItemId: string | null = null;
@@ -165,8 +166,9 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
     const epi = subtitleIt ? String(subtitleIt) : "";
     if (canto.getAttribute("data-epigraph") !== epi) canto.setAttribute("data-epigraph", epi);
   }
-  const maxHp = Number(you.maxHp) || 1;
-  const cur = Math.max(0, Number(you.hp) || 0);
+  const maxHp = Math.round(Number(you.maxHp) || 1);
+  // Heal-over-time and lifesteal leave fractional hp on the server; show whole numbers.
+  const cur = Math.max(0, Math.ceil(Number(you.hp) || 0));
   const ratio = Math.max(0, Math.min(1, cur / maxHp));
   const hpTxt = `${cur} / ${maxHp}`;
   if (hp && hp.textContent !== hpTxt) hp.textContent = hpTxt;
@@ -1062,9 +1064,22 @@ function barTipFinePointer() {
 }
 
 function actionBarTipCopy(btn: HTMLElement): { key: string; name: string; meta: string; blurb: string } {
-  const spellId = btn.getAttribute("data-spell") as SpellId | null;
-  if (spellId && SPELLS[spellId]) {
-    const s = SPELLS[spellId];
+  const spellId = btn.getAttribute("data-spell");
+  if (spellId && SKILLS[spellId]) {
+    const s = SKILLS[spellId];
+    const mana = btn.getAttribute("data-mana") || "";
+    const cd = btn.getAttribute("data-cd") || "";
+    const rank = btn.querySelector(".spell-rank")?.textContent?.trim();
+    const key = btn.querySelector(".action-hint")?.textContent?.trim() || "";
+    return {
+      key,
+      name: s.name,
+      meta: `${mana} mana · ${cd}s${rank ? ` · rank ${rank}` : ""}`,
+      blurb: s.blurb,
+    };
+  }
+  if (spellId && SPELLS[spellId as SpellId]) {
+    const s = SPELLS[spellId as SpellId];
     return {
       key: s.hotkey,
       name: s.name,
@@ -1072,6 +1087,7 @@ function actionBarTipCopy(btn: HTMLElement): { key: string; name: string; meta: 
       blurb: s.blurb,
     };
   }
+  if (btn.id === "btn-skills") return { key: "K", name: "Skills", meta: "", blurb: "Skill tree and the four active slots." };
   const id = btn.id;
   const hint = btn.querySelector(".action-hint")?.textContent?.trim() || "";
   const label = btn.querySelector(".action-label")?.textContent?.trim() || "";
@@ -1251,9 +1267,151 @@ let attackCdTotalMs = 560;
 /** Track which spells were on CD so we can fire a ready ping when they clear. */
 const spellWasOnCd = new Map<string, boolean>();
 
+const spellCdTotal = new Map<string, number>();
+
+export type HotSlot = {
+  id: string;
+  name: string;
+  short: string;
+  icon: string;
+  mana: number;
+  cd: number;
+  rank: number;
+  blurb: string;
+} | null;
+
+const hotbar: HotSlot[] = [null, null, null, null];
+
 export function noteSpellCast(spellId: string, cooldownSec: number) {
-  spellCdUntil.set(spellId, Date.now() + cooldownSec * 1000);
+  const ms = Math.max(50, cooldownSec * 1000);
+  spellCdUntil.set(spellId, Date.now() + ms);
+  spellCdTotal.set(spellId, ms);
   kickSpellCdLoop();
+}
+
+/** Server cds are milliseconds remaining. Adopt them when they outlast the local sweep. */
+export function noteServerCds(cds: Record<string, number> | undefined) {
+  if (!cds) return;
+  const now = Date.now();
+  let any = false;
+  for (const id of Object.keys(cds)) {
+    const left = Number(cds[id]) || 0;
+    if (left <= 0) continue;
+    const until = now + left;
+    if (until > (spellCdUntil.get(id) || 0) + 50) {
+      spellCdUntil.set(id, until);
+      const prev = spellCdTotal.get(id) || 0;
+      if (left > prev) spellCdTotal.set(id, left);
+      any = true;
+    }
+  }
+  if (any) kickSpellCdLoop();
+}
+
+export function applyHotbar(slots: HotSlot[]) {
+  for (let i = 0; i < 4; i++) hotbar[i] = slots[i] || null;
+  for (let i = 0; i < 4; i++) {
+    const btn = document.getElementById(`btn-spell-slot-${i}`);
+    if (!btn) continue;
+    const s = hotbar[i];
+    const img = btn.querySelector<HTMLImageElement>(".spell-icon");
+    const label = btn.querySelector<HTMLElement>(".action-label");
+    const cost = btn.querySelector<HTMLElement>(".spell-cost");
+    const rank = btn.querySelector<HTMLElement>(".spell-rank");
+    if (!s) {
+      btn.removeAttribute("data-spell");
+      btn.removeAttribute("data-mana");
+      btn.removeAttribute("data-cd");
+      btn.classList.add("spell-empty");
+      btn.setAttribute("aria-disabled", "true");
+      btn.setAttribute("aria-label", `Spell ${i + 1} empty`);
+      if (img) {
+        img.removeAttribute("src");
+        img.hidden = true;
+      }
+      if (label) label.textContent = "";
+      if (cost) cost.textContent = "";
+      if (rank) rank.textContent = "";
+      continue;
+    }
+    btn.classList.remove("spell-empty");
+    btn.setAttribute("data-spell", s.id);
+    btn.setAttribute("data-mana", String(s.mana));
+    btn.setAttribute("data-cd", String(s.cd));
+    btn.setAttribute("aria-label", `${s.name}, slot ${i + 1}`);
+    if (img) {
+      img.hidden = false;
+      if (img.src !== s.icon && !img.src.endsWith(s.icon)) img.src = s.icon;
+      else if (!img.getAttribute("src")) img.src = s.icon;
+    }
+    if (label) {
+      label.textContent = s.short;
+      label.dataset.short = s.short;
+    }
+    if (cost) cost.textContent = String(s.mana);
+    if (rank) rank.textContent = s.rank > 1 ? String(s.rank) : "";
+  }
+  kickSpellCdLoop();
+}
+
+export function setXpHud(prog: { level?: number; xpIntoLevel?: number; xpToNext?: number }) {
+  const lv = document.getElementById("xp-lv");
+  const fill = document.getElementById("xp-fill");
+  const read = document.getElementById("xp-read");
+  const plate = document.getElementById("xp-plate");
+  const level = Number(prog.level) || 1;
+  const into = Math.max(0, Math.floor(Number(prog.xpIntoLevel) || 0));
+  const next = Math.max(0, Math.floor(Number(prog.xpToNext) || 0));
+  if (lv) lv.textContent = `Lv ${level}`;
+  const pct = next > 0 ? Math.max(0, Math.min(1, into / next)) : 1;
+  if (fill) fill.style.width = `${(pct * 100).toFixed(1)}%`;
+  const label = next > 0 ? `${into}/${next}` : `${into}`;
+  if (read) read.textContent = label;
+  if (plate) plate.title = `Level ${level} — ${label}`;
+}
+
+const xpPops: HTMLElement[] = [];
+export function floatXp(amount: number) {
+  const n = Math.floor(Number(amount) || 0);
+  if (n <= 0) return;
+  const host = document.getElementById("xp-float");
+  if (!host) return;
+  let el = xpPops.find((e) => !e.classList.contains("on"));
+  if (!el) {
+    el = document.createElement("span");
+    el.className = "xp-pop";
+    host.appendChild(el);
+    xpPops.push(el);
+  }
+  el.textContent = `+${n} XP`;
+  el.classList.remove("on");
+  void el.offsetWidth;
+  el.classList.add("on");
+  const node = el;
+  window.setTimeout(() => node.classList.remove("on"), 900);
+}
+
+export function flashVitals() {
+  for (const id of ["hp-plate", "mp-plate"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.classList.remove("vitals-refill");
+    void el.offsetWidth;
+    el.classList.add("vitals-refill");
+  }
+  document.body.classList.remove("level-flash");
+  void document.body.offsetWidth;
+  document.body.classList.add("level-flash");
+  window.setTimeout(() => document.body.classList.remove("level-flash"), 720);
+}
+
+export function setSkillPoints(n: number) {
+  const b = document.getElementById("skill-badge");
+  if (!b) return;
+  const v = Math.max(0, Math.floor(Number(n) || 0));
+  b.textContent = v > 0 ? String(v) : "";
+  b.classList.toggle("hidden", v <= 0);
+  b.classList.toggle("pulse", v > 0);
 }
 
 /** Optimistic melee CD radial on the Attack button (matches spell-style sweep). */
@@ -1620,7 +1778,7 @@ export function pulseComboVoidGhost(n: number) {
 /** Esc / drag-off cancel: brief red-rim flash then restore idle chrome. */
 export function flashSpellCancel(spellId?: string) {
   const btn = spellId
-    ? document.getElementById(`btn-spell-${spellId}`)
+    ? document.querySelector<HTMLElement>(`.spell-btn[data-spell="${spellId}"]`)
     : document.querySelector<HTMLElement>(".spell-btn.aiming");
   if (!btn) return;
   btn.classList.remove("aiming", "pressed", "spell-cancel-flash");
@@ -1687,14 +1845,14 @@ function updateUtilityCds() {
 
 function updateSpellButtons(mana: number) {
   const now = Date.now();
-  for (const id of SPELL_HOTBAR) {
-    const def = SPELLS[id];
-    const btn = document.querySelector<HTMLElement>(`.spell-btn[data-spell="${id}"]`);
-    if (!btn) continue;
-    const until = spellCdUntil.get(id) || 0;
+  for (let i = 0; i < 4; i++) {
+    const slot = hotbar[i];
+    const btn = document.getElementById(`btn-spell-slot-${i}`);
+    if (!btn || !slot) continue;
+    const until = spellCdUntil.get(slot.id) || 0;
     const onCd = until > now;
-    const was = spellWasOnCd.get(id) === true;
-    const lack = mana < def.manaCost;
+    const was = spellWasOnCd.get(slot.id) === true;
+    const lack = mana < slot.mana;
     btn.classList.toggle("on-cooldown", onCd);
     btn.classList.toggle("no-mana", lack && !onCd);
     btn.setAttribute("aria-disabled", onCd || lack ? "true" : "false");
@@ -1704,7 +1862,8 @@ function updateSpellButtons(mana: number) {
         const left = Math.max(0, (until - now) / 1000);
         cdEl.hidden = false;
         cdEl.textContent = left >= 1 ? String(Math.ceil(left)) : left.toFixed(1);
-        const frac = Math.max(0, Math.min(1, (until - now) / (def.cooldown * 1000)));
+        const total = spellCdTotal.get(slot.id) || slot.cd * 1000;
+        const frac = Math.max(0, Math.min(1, (until - now) / Math.max(1, total)));
         cdEl.style.setProperty("--cd-frac", String(frac));
         cdEl.style.setProperty("--cd-deg", `${(frac * 360).toFixed(1)}deg`);
       } else {
@@ -1713,7 +1872,7 @@ function updateSpellButtons(mana: number) {
       }
     }
     if (was && !onCd) pingSpellReady(btn);
-    spellWasOnCd.set(id, onCd);
+    spellWasOnCd.set(slot.id, onCd);
   }
   updateAttackCdButton();
   updateUtilityCds();
@@ -1765,11 +1924,12 @@ export function wireHud(api: {
   equipBest?: () => void;
   sip?: () => void;
   dash?: () => void;
-  castSpell?: (spellId: SpellId) => void;
+  castSpell?: (spellId: string) => void;
+  toggleSkills?: () => void;
   /** Spell hold-to-confirm (Gale aim / Ward+Burst telegraph). */
-  onSpellHoldStart?: (spellId: SpellId, ev: PointerEvent) => void;
-  onSpellHoldMove?: (spellId: SpellId, ev: PointerEvent) => void;
-  onSpellHoldEnd?: (spellId: SpellId, ev: PointerEvent, cast: boolean) => void;
+  onSpellHoldStart?: (spellId: string, ev: PointerEvent) => void;
+  onSpellHoldMove?: (spellId: string, ev: PointerEvent) => void;
+  onSpellHoldEnd?: (spellId: string, ev: PointerEvent, cast: boolean) => void;
   /** Portal travel: hold Interact to charge; release early cancels. Non-portal = tap. */
   onInteractHoldStart?: (ev: PointerEvent) => void;
   onInteractHoldEnd?: (ev: PointerEvent, completed: boolean) => void;
@@ -1919,58 +2079,62 @@ export function wireHud(api: {
     attackBtn.addEventListener("click", (e) => e.preventDefault());
   }
 
-  document.querySelectorAll<HTMLButtonElement>(".spell-btn[data-spell]").forEach((btn) => {
+  document.getElementById("btn-skills")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    hapticLight();
+    api.toggleSkills?.();
+  });
+  document.getElementById("xp-plate")?.addEventListener("click", () => {
+    document.getElementById("xp-plate")?.classList.toggle("show-read");
+  });
+
+  document.querySelectorAll<HTMLButtonElement>(".spell-btn").forEach((btn) => {
     wirePressed(btn);
-    const spellId = btn.getAttribute("data-spell") as SpellId | null;
-    if (spellId && SPELLS[spellId] && api.onSpellHoldStart) {
-      // Hold-to-confirm: Gale aims; Ward/Burst show telegraph; release casts; Esc/drag-off cancels.
-      btn.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        try {
-          btn.setPointerCapture(e.pointerId);
-        } catch {
-          /* ignore */
-        }
-        btn.classList.add("pressed", "aiming");
-        hapticLight();
-        api.onSpellHoldStart?.(spellId, e);
-      });
-      btn.addEventListener("pointermove", (e) => {
-        if (!btn.classList.contains("aiming")) return;
-        api.onSpellHoldMove?.(spellId, e);
-      });
-      const endHold = (e: PointerEvent, cast: boolean) => {
-        if (!btn.classList.contains("aiming") && !cast) return;
-        btn.classList.remove("pressed", "aiming");
-        try {
-          btn.releasePointerCapture(e.pointerId);
-        } catch {
-          /* ignore */
-        }
-        api.onSpellHoldEnd?.(spellId, e, cast);
-      };
-      btn.addEventListener("pointerup", (e) => {
-        e.preventDefault();
-        endHold(e, true);
-      });
-      btn.addEventListener("pointercancel", (e) => {
-        e.preventDefault();
-        endHold(e, false);
-      });
-      btn.addEventListener("pointerleave", (e) => {
-        api.onSpellHoldMove?.(spellId, e);
-      });
-      btn.addEventListener("click", (e) => e.preventDefault());
-      return;
-    }
-    btn.addEventListener("click", (e) => {
+    // Read data-spell at event time: loadout rewrites the attribute after this bind.
+    btn.addEventListener("pointerdown", (e) => {
+      const spellId = btn.getAttribute("data-spell");
+      if (!spellId) return;
       e.preventDefault();
-      const id = btn.getAttribute("data-spell") as SpellId | null;
-      if (!id || !SPELLS[id]) return;
+      e.stopPropagation();
+      try {
+        btn.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      btn.classList.add("pressed", "aiming");
       hapticLight();
-      api.castSpell?.(id);
+      api.onSpellHoldStart?.(spellId, e);
     });
+    btn.addEventListener("pointermove", (e) => {
+      if (!btn.classList.contains("aiming")) return;
+      const spellId = btn.getAttribute("data-spell");
+      if (spellId) api.onSpellHoldMove?.(spellId, e);
+    });
+    const endHold = (e: PointerEvent, cast: boolean) => {
+      const spellId = btn.getAttribute("data-spell");
+      if (!spellId) return;
+      if (!btn.classList.contains("aiming") && !cast) return;
+      btn.classList.remove("pressed", "aiming");
+      try {
+        btn.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      api.onSpellHoldEnd?.(spellId, e, cast);
+    };
+    btn.addEventListener("pointerup", (e) => {
+      e.preventDefault();
+      endHold(e, true);
+    });
+    btn.addEventListener("pointercancel", (e) => {
+      e.preventDefault();
+      endHold(e, false);
+    });
+    btn.addEventListener("pointerleave", (e) => {
+      const spellId = btn.getAttribute("data-spell");
+      if (spellId) api.onSpellHoldMove?.(spellId, e);
+    });
+    btn.addEventListener("click", (e) => e.preventDefault());
   });
 
   document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((btn) => {
