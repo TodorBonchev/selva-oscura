@@ -997,7 +997,7 @@ class CantoRoom {
         kbMul: v === target ? 1 : 0.6,
       });
     }
-    applyLifesteal(s, dealt, false);
+    applyLifesteal(s, dealt, false, this);
     // The combat broadcasts carry targetHp; the next tick's snapshot (<=80ms) syncs the
     // rest instead of an extra ~8KB snapshot to every player on every swing
     this.markDirty();

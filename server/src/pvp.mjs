@@ -410,13 +410,13 @@ function applyPvpDamage(room, attacker, target, raw, kind) {
     }
     sendHit(room, attacker, target, taken, soaked, kind);
     noteRecap(target, attacker, kind, taken);
-    applyLifesteal(attacker, taken, true);
+    applyLifesteal(attacker, taken, true, room);
     return taken;
   }
   target.hp = Math.max(0, target.hp - taken);
   sendHit(room, attacker, target, taken, soaked, kind);
   noteRecap(target, attacker, kind, taken);
-  applyLifesteal(attacker, taken, true);
+  applyLifesteal(attacker, taken, true, room);
   if (
     kind !== "thorns" &&
     (kind === "melee" ||

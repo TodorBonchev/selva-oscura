@@ -1394,6 +1394,11 @@ function castBastion(room, sess, def, rank) {
   const dr = def.dr + def.drPerRank * (rank - 1);
   sess.bastionUntil = Date.now() + def.duration * 1000;
   sess.bastionDr = dr;
+  // VFX only: a persistent row so late joiners / re-entrants still see the dome.
+  for (const fx of [...fxMap(room).values()]) {
+    if (fx.kind === "bastion" && fx.owner === sess.playerId) fxMap(room).delete(fx.id);
+  }
+  addFx(room, { kind: "bastion", x: sess.x, y: sess.y, r: 1.8, owner: sess.playerId, ttl: def.duration });
   broadcastFx(room, {
     spellId: def.id,
     casterId: sess.playerId,
@@ -1404,6 +1409,16 @@ function castBastion(room, sess, def, rank) {
   });
   room.toast(sess.ws, "info", `Bastion — ${Math.round(dr * 100)}% less harm`);
   room.markDirty();
+}
+
+function tickBastion(room, fx) {
+  const owner = room.sessions.get(fx.owner);
+  if (!owner || !(owner.hp > 0) || pvpIsDown(owner) || !(owner.bastionUntil > Date.now())) {
+    fx.ttl = 0;
+    return;
+  }
+  fx.x = owner.x;
+  fx.y = owner.y;
 }
 
 function tickHalo(room, fx, dt) {
@@ -1617,6 +1632,7 @@ export function tickSkills(room, dt) {
       else if (fx.kind === "glyph") tickGlyph(room, fx);
       else if (fx.kind === "shade") tickShade(room, fx, dt);
       else if (fx.kind === "vortex") tickVortex(room, fx, dt);
+      else if (fx.kind === "bastion") tickBastion(room, fx);
       if (fx.ttl <= 0) m.delete(id);
     } catch (err) {
       console.error("[skills] tick", fx.kind, err.message);
@@ -1626,10 +1642,22 @@ export function tickSkills(room, dt) {
   if (m.size) room.markDirty();
 }
 
-export function applyLifesteal(sess, dealt, pvp) {
+export function applyLifesteal(sess, dealt, pvp, room) {
   const pct = lifestealPct(sess.playerId, pvp);
   if (pct <= 0 || !(dealt > 0) || !(sess.hp > 0)) return;
+  const before = sess.hp;
   sess.hp = Math.min(sess.maxHp, sess.hp + Math.round(dealt * pct));
+  // VFX only: a throttled proc cue so everyone sees the heal wisps.
+  const healed = sess.hp - before;
+  const now = Date.now();
+  if (room && healed >= 1 && now - (sess._btFxAt || 0) > 650) {
+    sess._btFxAt = now;
+    try {
+      broadcastFx(room, { spellId: "bloodthirst", casterId: sess.playerId, x: sess.x, y: sess.y, amount: healed });
+    } catch {
+      /* closing */
+    }
+  }
 }
 
 export { PLAYER_MAX_MANA };
