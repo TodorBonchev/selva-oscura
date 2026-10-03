@@ -5555,19 +5555,7 @@ body.hud-compact #action-bar #btn-interact.interact-ready {
   box-shadow: inset 0 0 0 2px #000, inset 0 0 0 3px #e8c86a88, 0 0 16px #c9a227aa, 0 0 30px #c9a22744;
 }
 
-/* Menus: two small seals above the stick */
-body.hud-compact #action-bar #btn-inv,
-body.hud-compact #action-bar #btn-ah {
-  --s: var(--arc-menu);
-  right: auto;
-  left: calc(var(--safe-left) + var(--hv-gut) + var(--mx));
-  bottom: calc(var(--safe-bottom) + var(--stick-size) + 26px);
-  border-radius: 10px;
-}
-body.hud-compact #action-bar #btn-inv::before,
-body.hud-compact #action-bar #btn-ah::before { border-radius: 12px; background: none; }
-body.hud-compact #action-bar #btn-inv { --mx: 0px; }
-body.hud-compact #action-bar #btn-ah { --mx: calc(var(--arc-menu) + 10px); }
+/* Utility seals (skills / AH / bag / menu) live in #hud-util, top-right. */
 
 /* Sheets hide the thumbs while open (they have their own buttons) */
 body.hud-compact.has-modal #action-bar { visibility: hidden; }
@@ -6092,47 +6080,122 @@ body.hud-compact #virtual-joystick.vj-active .vj-base {
   opacity: 1;
 }
 
-/* ——— Phones: Inv / AH / fullscreen as a small top-right menu (not above the stick) ——— */
-body.hud-compact #action-bar #btn-inv,
-body.hud-compact #action-bar #btn-ah,
-body.hud-compact #action-bar #btn-skills,
-body.hud-compact #btn-fullscreen {
-  --s: 38px;
-  position: fixed;
-  left: auto;
-  bottom: auto;
-  top: calc(var(--hv-top) + 62px + 100px + 26px);
-  width: var(--s);
-  height: var(--s);
-  border-radius: 10px;
-}
-body.hud-compact #action-bar #btn-inv { right: calc(var(--hv-gut) + var(--safe-right)); }
-body.hud-compact #action-bar #btn-ah { right: calc(var(--hv-gut) + var(--safe-right) + 46px); }
-body.hud-compact #action-bar #btn-skills { right: calc(var(--hv-gut) + var(--safe-right) + 138px); }
-body.hud-compact #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 92px); }
-body.hud-landscape #action-bar #btn-inv,
-body.hud-landscape #action-bar #btn-ah,
-body.hud-landscape #action-bar #btn-skills,
-body.hud-landscape #btn-fullscreen {
-  --s: 34px;
-  top: calc(var(--hv-top) + 96px + 22px);
-}
-body.hud-landscape #action-bar #btn-ah { right: calc(var(--hv-gut) + var(--safe-right) + 42px); }
-body.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 84px); }
-body.hud-landscape #action-bar #btn-skills { right: calc(var(--hv-gut) + var(--safe-right) + 126px); }
-body.in-lust.hud-compact #action-bar #btn-skills,
-body.in-gluttony.hud-compact #action-bar #btn-skills,
-body.in-avarice.hud-compact #action-bar #btn-skills { right: calc(var(--hv-gut) + var(--safe-right) + 92px); }
 /* The Auction House lives in the Dark Wood: no AH seal inside the combat circles */
 body.in-lust #btn-ah,
 body.in-gluttony #btn-ah,
 body.in-avarice #btn-ah { display: none !important; }
-body.in-lust.hud-compact #btn-fullscreen,
-body.in-gluttony.hud-compact #btn-fullscreen,
-body.in-avarice.hud-compact #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 46px); }
-body.in-lust.hud-landscape #btn-fullscreen,
-body.in-gluttony.hud-landscape #btn-fullscreen,
-body.in-avarice.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(--safe-right) + 42px); }
+
+/* Top-right utility row: skills, AH, bag, menu (fullscreen joins on phones) */
+#hud-util {
+  position: fixed;
+  z-index: 26;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  top: calc(0.55rem + var(--safe-top) + 6px);
+  right: calc(0.55rem + var(--safe-right) + 180px);
+}
+@media (max-width: 1100px) {
+  body:not(.hud-compact) #hud-util {
+    top: calc(0.55rem + var(--safe-top) + 176px);
+    right: calc(0.55rem + var(--safe-right));
+  }
+  body:not(.hud-compact) .pvp-arena {
+    top: calc(0.55rem + var(--safe-top) + 176px);
+    right: calc(0.55rem + var(--safe-right) + 292px);
+    width: 7rem;
+  }
+}
+#hud-util > * { pointer-events: auto; }
+#hud-util .pvp-queue-chip {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  height: auto;
+  min-height: 28px;
+  border-radius: 4px;
+}
+#hud-util .action-btn {
+  --s: 40px;
+  flex: 0 0 auto;
+  width: var(--s);
+  min-width: var(--s);
+  max-width: var(--s);
+  height: var(--s);
+  min-height: var(--s);
+  padding: 0;
+  position: relative;
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
+}
+#hud-util .action-label,
+#hud-util .action-hint { display: none; }
+#hud-util .action-btn::before,
+#hud-util .action-btn::after { display: none; }
+#hud-util .action-icon {
+  display: block;
+  width: 1.55rem;
+  height: 1.55rem;
+  object-fit: contain;
+  image-rendering: auto;
+  pointer-events: none;
+  z-index: 1;
+}
+#hud-util #btn-inv .action-icon { filter: drop-shadow(0 0 3px #c9a22766); }
+#hud-util #btn-ah .action-icon { filter: drop-shadow(0 0 3px #6a8cff66); }
+body.hud-compact #action-bar #hud-util {
+  /* clear the minimap hint line (GUIDE · 14m) that sits under the radar */
+  top: calc(var(--hv-top) + 62px + 100px + 26px);
+  right: calc(var(--hv-gut) + var(--safe-right));
+  gap: 8px;
+}
+body.hud-compact #action-bar #hud-util .action-btn,
+body.hud-compact #hud-util #btn-fullscreen {
+  --s: 38px;
+  width: var(--s);
+  min-width: var(--s);
+  max-width: var(--s);
+  height: var(--s);
+  min-height: var(--s);
+  position: relative;
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
+  border-radius: 10px;
+}
+body.hud-compact #action-bar #hud-util .action-btn::before,
+body.hud-compact #action-bar #hud-util .action-btn::after {
+  display: none;
+}
+body.hud-landscape #action-bar #hud-util {
+  top: calc(var(--hv-top) + 96px + 22px);
+  right: calc(var(--hv-gut) + var(--safe-right));
+}
+body.hud-landscape #action-bar #hud-util .action-btn,
+body.hud-landscape #hud-util #btn-fullscreen {
+  --s: 34px;
+  width: var(--s);
+  min-width: var(--s);
+  max-width: var(--s);
+  height: var(--s);
+  min-height: var(--s);
+}
+#hud-util #btn-fullscreen {
+  position: relative;
+  z-index: 1;
+  top: auto;
+  right: auto;
+  left: auto;
+  bottom: auto;
+  width: var(--s, 40px);
+  height: var(--s, 40px);
+  border-radius: 10px;
+}
 
 /* Fullscreen re-enter seal (phones, only while windowed) */
 #btn-fullscreen {
@@ -6151,6 +6214,8 @@ body.in-avarice.hud-landscape #btn-fullscreen { right: calc(var(--hv-gut) + var(
 }
 #btn-fullscreen svg { width: 58%; height: 58%; }
 body.has-modal #btn-fullscreen { visibility: hidden; }
+body.has-modal #xp-plate,
+body.has-modal #dialogue { visibility: hidden; }
 
 /* ——— Avarice: the processions' cries and Plutus's lines (cantoMech/avarice.ts) ——— */
 body.in-avarice .ava-shout,
@@ -6248,7 +6313,7 @@ body.in-avarice.hud-compact .ava-plutus-line { font-size: 14px; }
   .btn-inv-filter { padding: 0.2rem 0.4rem; font-size: 0.6rem; }
 }
 
-/* ——— PvP: duels, the well, Classifica ——— */
+/* ——— PvP: duels, the well, Leaderboard ——— */
 .world-label .wl-pvp {
   font-size: 0.62rem;
   letter-spacing: 0.04em;
@@ -6279,61 +6344,122 @@ body.in-avarice.hud-compact .ava-plutus-line { font-size: 14px; }
 .pvp-root button,
 .pvp-invite,
 .pvp-score,
+.pvp-menu,
+.pvp-menu-catch,
+.pvp-queue-chip,
 #pvp-board { pointer-events: auto; }
 .pvp-roundend,
 .pvp-recap,
 .pvp-roundend-card,
 .pvp-recap-card { pointer-events: none; }
 
-.pvp-tools {
+.pvp-menu-catch {
   position: absolute;
-  top: calc(var(--safe-top) + 4.4rem);
-  left: calc(var(--safe-left) + 0.55rem);
+  inset: 0;
+  pointer-events: auto;
+  background: transparent;
+  z-index: 44;
+}
+.pvp-menu {
+  position: fixed;
+  z-index: 46;
+  min-width: 11.5rem;
+  max-width: min(18rem, calc(100vw - 16px));
+  max-height: min(70vh, calc(100dvh - 16px));
+  overflow: auto;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-width: 18rem;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.35rem;
+  background: #100e0cf4;
+  border: 1px solid var(--gold-dim);
+  box-shadow: 0 8px 24px #000c, inset 0 0 0 1px #000c;
+  pointer-events: auto;
 }
-body.hud-compact .pvp-tools {
-  top: calc(var(--hv-top) + 196px);
-  left: calc(var(--hv-gut) + var(--safe-left));
-  max-width: 10.5rem;
-  z-index: 6;
-}
-.pvp-tool {
+.pvp-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 40px;
+  padding: 0.28rem 0.55rem;
   font-family: var(--serif);
-  font-size: 0.78rem;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
   color: var(--bone);
   background: #12100ce6;
-  border: 1px solid var(--gold-dim);
-  padding: 0.28rem 0.55rem;
-  min-height: 32px;
-  letter-spacing: 0.04em;
+  border: 1px solid #5a4e34;
   cursor: pointer;
+  text-align: left;
 }
-.pvp-tool.is-muted { opacity: 0.55; }
+.pvp-menu-item:hover,
+.pvp-menu-item:focus-visible { border-color: var(--gold); color: #f0d78a; }
+.pvp-menu-hot {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.pvp-menu-item.is-muted { opacity: 0.55; }
 .pvp-tabella { display: none; }
-body.hud-compact.in-arena .pvp-tabella { display: inline-block; }
+body.in-arena .pvp-tabella { display: flex; }
 .pvp-queue { display: none; }
-body.in-arena .pvp-queue { display: inline-block; }
+body.in-arena .pvp-queue { display: flex; }
 .pvp-queue.is-queued { border-color: #e8c86a; color: #f0d78a; }
 .pvp-queue-hint {
   display: none;
-  flex-basis: 100%;
   font-family: var(--serif);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   color: #e8c86a;
   line-height: 1.2;
+  padding: 0.1rem 0.55rem 0.35rem;
   pointer-events: none;
-  text-shadow: 0 1px 0 #000;
 }
 .pvp-queue-hint.on { display: block; }
-body.hud-compact .pvp-queue {
-  white-space: normal;
-  max-width: 11rem;
-  text-align: left;
-  line-height: 1.2;
+body.in-arena .pvp-queue-hint.on { display: block; }
+.pvp-menu-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 1.5rem;
+  height: 1rem;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #c9a227;
+  color: #1a140c;
+  font-size: 0.58rem;
+  line-height: 1rem;
+  text-align: center;
+  z-index: 3;
+  pointer-events: none;
+}
+#btn-menu.is-queued { border-color: #e8c86a; }
+#btn-menu.is-open { border-color: var(--gold-2); }
+.pvp-queue-chip {
+  position: relative;
+  z-index: 1;
+  min-height: 28px;
+  padding: 0.15rem 0.5rem;
+  font-family: var(--serif);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: #f0d78a;
+  background: #12100cee;
+  border: 1px solid #c9a227;
+  pointer-events: auto;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+body.hud-landscape .pvp-menu {
+  max-height: calc(100dvh - 88px);
+}
+body.hud-landscape .pvp-menu-item {
+  min-height: 34px;
+  font-size: 0.8rem;
+  padding: 0.18rem 0.45rem;
 }
 
 /* Challenge chip sits above the hotbar, clear of the quest line and of nameplates.
@@ -6473,6 +6599,14 @@ body.hud-compact .pvp-arena {
   text-align: right;
   width: 6.2rem;
 }
+body.hud-landscape .pvp-arena {
+  top: calc(var(--hv-top) + 70px);
+  left: calc(var(--hv-gut) + var(--safe-left));
+  right: auto;
+  text-align: left;
+  width: 6.4rem;
+}
+body.hud-landscape .pvp-queue-chip { display: none !important; }
 body.hud-compact.in-arena #quest-track {
   max-width: calc(100vw - 220px - var(--safe-left));
 }
@@ -6577,22 +6711,8 @@ body.hud-landscape .pvp-feed {
   transform: translateX(-50%);
   width: min(24rem, calc(100% - 1.2rem));
 }
-/* Short landscape: the thumb arc and the stick eat the lower half. Keep feed and tools in the free band. */
+/* Short landscape: the thumb arc and the stick eat the lower half. Keep feed in the free band. */
 @media (max-height: 430px) {
-  body.hud-landscape .pvp-tools {
-    top: calc(var(--hv-top) + 56px);
-    bottom: auto;
-    left: auto;
-    right: calc(128px + var(--safe-right));
-    max-width: min(16rem, 46vw);
-    flex-wrap: nowrap;
-  }
-  body.hud-landscape .pvp-tool {
-    font-size: 0.66rem;
-    min-height: 28px;
-    padding: 0.12rem 0.32rem;
-  }
-  body.hud-landscape .pvp-queue-hint { font-size: 0.62rem; }
   body.hud-landscape .pvp-feed {
     top: calc(var(--hv-top) + 78px);
     left: calc(8px + var(--safe-left));
@@ -6997,7 +7117,8 @@ body.hud-compact .sk-detail {
   border-top: 1px solid #c9a22744;
   padding-left: 0;
   padding-top: 0.35rem;
-  max-height: 34vh;
+  padding-bottom: 0.5rem;
+  max-height: 38vh;
 }
 body.hud-compact .sk-node { width: calc(50% - 0.3rem); min-height: 48px; }
 body.hud-landscape #skills.sk-panel:not(.hidden) {
@@ -7007,8 +7128,80 @@ body.hud-landscape #skills.sk-panel:not(.hidden) {
 }
 body.hud-landscape .sk-detail { max-height: 9.5rem; }
 body.hud-compact #action-bar #btn-skills .skill-badge { top: -6px; right: -6px; }
+.sk-learn-why { color: #e07060; font-size: 0.75rem; margin: 0.25rem 0 0; }
+.sk-equip { margin-top: 0.45rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.sk-equip > span { font-size: 0.72rem; letter-spacing: 0.06em; color: #c9a227; }
+.sk-equip-row { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.sk-equip-slot {
+  min-height: 36px;
+  min-width: 3.4rem;
+  padding: 0.2rem 0.4rem;
+  background: #14110c;
+  color: #e6d7b0;
+  border: 1px solid #8a7440;
+}
+.sk-equip-slot.on { border-color: #f0e2b8; color: #f0e2b8; }
+.sk-unequip { min-height: 36px; }
+.sk-slot { position: relative; }
+.sk-slot-clear {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+  color: #e6d7b0;
+  background: #1a140cee;
+  border: 1px solid #8a7440;
+  border-radius: 2px;
+  cursor: pointer;
+}
+body.hud-landscape .sk-body {
+  grid-template-columns: minmax(0, 1fr) 16rem;
+  grid-template-rows: minmax(0, 1fr);
+}
+body.hud-landscape .sk-detail {
+  max-height: none;
+  border-left: 1px solid #c9a22744;
+  border-top: 0;
+  padding-left: 0.5rem;
+  padding-top: 0;
+  overflow: auto;
+}
 
-/* The skill tree is a full overlay on phones: keep the PvP tool pills out of it. */
-body:has(#skills.sk-panel:not(.hidden)) .pvp-tools {
+/* The skill tree is a full overlay on phones: keep the PvP menu out of it. */
+body:has(#skills.sk-panel:not(.hidden)) .pvp-menu,
+body:has(#skills.sk-panel:not(.hidden)) .pvp-menu-catch,
+body:has(#skills.sk-panel:not(.hidden)) .pvp-queue-chip {
   display: none;
+}
+
+/* Skill tree open on phones: toasts ride the top edge instead of the loadout row */
+body.hud-compact:has(.sk-panel:not(.hidden)) #toast-layer {
+  top: calc(0.25rem + var(--safe-top)) !important;
+  bottom: auto !important;
+}
+
+/* Narrow phones: loadout slots stack icon over name so the × and key never clip it */
+@media (max-width: 520px) {
+  .sk-slot {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.1rem;
+    padding: 0.3rem 0.2rem 0.2rem;
+    text-align: center;
+  }
+  .sk-slot img { width: 28px; height: 28px; }
+  .sk-slot > span {
+    max-width: 100%;
+    font-size: 0.72rem;
+    line-height: 1.1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sk-slot i { position: absolute; top: 2px; left: 4px; margin: 0; font-size: 0.7rem; }
 }

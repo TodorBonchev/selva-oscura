@@ -951,7 +951,7 @@ export const gluttonyMech: CantoMech = {
     else if (S.mawPhase >= 2 && fango) sub = "Cut down the Fango before it feeds the Maw";
     else if (nearBiter && clod) sub = S.compact ? "Grab mire (Use), throw it in a gaping maw" : "Grab mire (E), throw it in a gaping maw";
     if (!sub && nowMs < S.crownTipUntil) sub = "A ring of hail — out through the gap!";
-    if (!sub && nowMs < S.hailTipUntil) sub = "Grandine — step out of the pale circles";
+    if (!sub && nowMs < S.hailTipUntil) sub = "Hail — step out of the pale circles";
     if (!sub && nowMs < S.moundTipUntil) sub = "Bubbling mound: a buried shade — pass wide";
     if (!sub && nowMs < S.mireTipUntil) sub = "The mire drags at you — keep to the stones";
     if (sub) obj.sub = sub;

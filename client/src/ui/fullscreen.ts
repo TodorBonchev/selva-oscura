@@ -231,7 +231,9 @@ function installFullscreenButton(): void {
     e.stopPropagation();
     void requestGameFullscreen();
   });
-  document.body.appendChild(btn);
+  const util = document.getElementById("hud-util");
+  if (util) util.insertBefore(btn, util.firstChild);
+  else document.body.appendChild(btn);
   const sync = () => {
     btn.classList.toggle("hidden", !prefersMobileImmersive() || isGameFullscreen());
   };

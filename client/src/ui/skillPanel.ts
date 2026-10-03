@@ -217,9 +217,17 @@ class SkillPanel {
       slot.dataset.slot = String(i);
       const id = this.viewLoadout[i];
       const def = id ? SKILLS[id] : undefined;
-      slot.innerHTML = def
-        ? `<img alt="" draggable="false" src="${skillIcon(def.id)}" /><span>${skillLabel(def).title}</span><i>${i + 1}</i>`
-        : `<span class="sk-slot-empty">Empty</span><i>${i + 1}</i>`;
+      if (def) {
+        slot.innerHTML = `<img alt="" draggable="false" src="${skillIcon(def.id)}" /><span>${skillLabel(def).title}</span><i>${i + 1}</i><b class="sk-slot-clear" title="Unequip">×</b>`;
+        const clearBtn = slot.querySelector(".sk-slot-clear");
+        clearBtn?.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.clearSlot(i);
+        });
+      } else {
+        slot.innerHTML = `<span class="sk-slot-empty">Empty</span><i>${i + 1}</i>`;
+      }
       slot.addEventListener("dragover", (e) => {
         e.preventDefault();
         slot.classList.add("drop");
@@ -232,11 +240,12 @@ class SkillPanel {
         if (sid) this.assign(i, sid);
       });
       slot.addEventListener("click", () => {
-        if (this.selected) this.assign(i, this.selected);
+        if (id) this.select(id);
       });
       slot.addEventListener("contextmenu", (e) => {
+        // Long-press on phones fires contextmenu: never unequip by accident; × does that.
         e.preventDefault();
-        this.clearSlot(i);
+        if (id) this.select(id);
       });
       this.loadoutEl.appendChild(slot);
     }
@@ -289,7 +298,7 @@ class SkillPanel {
     else btn.classList.add("locked");
     if (def.id === this.selected) btn.classList.add("selected");
     const lab = skillLabel(def);
-    btn.innerHTML = `<img alt="" draggable="false" src="${skillIcon(def.id)}" /><b>${lab.title}</b><small>${lab.sub}</small><em>${rank}/${def.maxRank}</em>`;
+    btn.innerHTML = `<img alt="" draggable="false" src="${skillIcon(def.id)}" /><b>${lab.title}</b><small>${def.type === "active" ? "Active" : "Passive"}</small><em>${rank}/${def.maxRank}</em>`;
     if (def.type === "active" && rank > 0) btn.draggable = true;
     let longFired = false;
     let timer = 0;
@@ -326,7 +335,6 @@ class SkillPanel {
         return;
       }
       this.select(def.id);
-      if (canLearn(def, this.server).ok) this.learn(def.id);
     });
     return btn;
   }
@@ -342,10 +350,18 @@ class SkillPanel {
 
   private select(id: string) {
     this.selected = id;
+    const def = SKILLS[id];
+    if (def && def.branch !== this.branch) {
+      this.branch = def.branch;
+      this.paintTabs();
+      this.applyBranchVisibility();
+      requestAnimationFrame(() => this.drawWires());
+    }
     this.tree.querySelectorAll<HTMLElement>(".sk-node").forEach((n) => {
       n.classList.toggle("selected", n.dataset.id === id);
     });
     this.paintDetail();
+    if (isCompactUi()) this.detail.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   private learn(id: string) {
@@ -409,18 +425,44 @@ class SkillPanel {
       def.type === "active"
         ? `<div class="sk-meta">${mana} mana · ${trimNum(cd)}s${rank < def.maxRank ? ` → ${nextMana} mana · ${trimNum(nextCd)}s` : ""}</div>`
         : `<div class="sk-meta">Passive</div>`;
+    const why = !gate.ok ? skillErrorText(gate.error || "unknown", def.id, this.server.level) : "";
+    const learnLabel =
+      rank >= def.maxRank ? "Max rank" : rank > 0 ? `Learn rank ${rank + 1}` : "Learn";
+    const equippedAt = this.viewLoadout.findIndex((s) => s === def.id);
+    const canEquip = def.type === "active" && rank > 0;
+    const slots = [0, 1, 2, 3]
+      .map((i) => {
+        const on = this.viewLoadout[i] === def.id ? " on" : "";
+        return `<button type="button" class="sk-equip-slot${on}" data-slot="${i}" ${canEquip ? "" : "disabled"}>Slot ${i + 1}</button>`;
+      })
+      .join("");
     this.detail.innerHTML = `
       <img class="sk-detail-icon" alt="" src="${skillIcon(def.id)}" />
       <h3>${lab.title}</h3>
-      <div class="sk-sub">${lab.sub}</div>
       <div class="sk-meta">${branch.name} · ${branch.subtitle} · ${def.type === "active" ? "Active" : "Passive"} · ${rank}/${def.maxRank}</div>
       ${costLine}
       <p class="sk-now"><b>Now.</b> ${cur}</p>
       <p class="sk-next"><b>Next.</b> ${nxt}</p>
       ${reqs.length ? `<ul class="sk-reqs">${reqs.join("")}</ul>` : ""}
       ${note ? `<p class="sk-pvp">${note}</p>` : ""}
-      <button id="sk-learn" type="button" ${gate.ok ? "" : "disabled"}>${rank >= def.maxRank ? "Max rank" : "Learn (+1)"}</button>`;
+      <button id="sk-learn" type="button" ${gate.ok ? "" : "disabled"}>${learnLabel}</button>
+      ${why && !gate.ok ? `<p class="sk-learn-why" id="sk-learn-why">${why}</p>` : ""}
+      ${
+        canEquip
+          ? `<div class="sk-equip"><span>Equip to slot</span><div class="sk-equip-row">${slots}</div>${
+              equippedAt >= 0
+                ? `<button type="button" id="sk-unequip" class="sk-unequip">Unequip from slot ${equippedAt + 1}</button>`
+                : ""
+            }</div>`
+          : ""
+      }`;
     this.detail.querySelector("#sk-learn")?.addEventListener("click", () => this.learn(def.id));
+    this.detail.querySelectorAll<HTMLButtonElement>(".sk-equip-slot").forEach((b) => {
+      b.addEventListener("click", () => this.assign(Number(b.dataset.slot), def.id));
+    });
+    this.detail.querySelector("#sk-unequip")?.addEventListener("click", () => {
+      if (equippedAt >= 0) this.clearSlot(equippedAt);
+    });
   }
 
   private openConfirm() {

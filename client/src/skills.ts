@@ -8,10 +8,10 @@ export const LOADOUT_SIZE = 4;
 export const MAX_RANK = 5;
 
 export const BRANCHES = {
-  ira: { id: "ira", name: "Ira", subtitle: "Wrath" },
-  fede: { id: "fede", name: "Fede", subtitle: "Faith" },
-  ombra: { id: "ombra", name: "Ombra", subtitle: "Shade" },
-  fortezza: { id: "fortezza", name: "Fortezza", subtitle: "Fortitude" },
+  ira: { id: "ira", name: "Wrath", subtitle: "Melee" },
+  fede: { id: "fede", name: "Faith", subtitle: "Holy fire" },
+  ombra: { id: "ombra", name: "Shade", subtitle: "Wind" },
+  fortezza: { id: "fortezza", name: "Fortitude", subtitle: "Guard" },
 } as const;
 
 export type BranchId = keyof typeof BRANCHES;
@@ -47,7 +47,7 @@ export interface SkillDef {
 export const SKILLS: Record<string, SkillDef> = {
   furious_cleave: {
     id: "furious_cleave",
-    name: "Furious Cleave (Furia)",
+    name: "Furious Cleave",
     branch: "ira",
     type: "active",
     tier: 1,
@@ -61,18 +61,18 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   ferocia: {
     id: "ferocia",
-    name: "Ferocia",
+    name: "Ferocity",
     branch: "ira",
     type: "passive",
     tier: 1,
     maxRank: 5,
     prereqs: [],
-    short: "Ferocia",
+    short: "Ferocity",
     blurb: "+6% melee damage per rank.",
   },
   wrath_charge: {
     id: "wrath_charge",
-    name: "Wrath Charge (Ira)",
+    name: "Wrath Charge",
     branch: "ira",
     type: "active",
     tier: 2,
@@ -86,7 +86,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   war_cry: {
     id: "war_cry",
-    name: "War Cry (Grido)",
+    name: "War Cry",
     branch: "ira",
     type: "active",
     tier: 3,
@@ -100,18 +100,18 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   bloodthirst: {
     id: "bloodthirst",
-    name: "Bloodthirst (Sete)",
+    name: "Bloodthirst",
     branch: "ira",
     type: "passive",
     tier: 3,
     maxRank: 5,
     prereqs: [{ id: "ferocia", rank: 1 }],
-    short: "Sete",
+    short: "Thirst",
     blurb: "Melee blows return a share of life.",
   },
   earthsplitter: {
     id: "earthsplitter",
-    name: "Earthsplitter (Frattura)",
+    name: "Earthsplitter",
     branch: "ira",
     type: "active",
     tier: 5,
@@ -139,7 +139,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   lance_of_light: {
     id: "lance_of_light",
-    name: "Lance of Light (Lancia)",
+    name: "Lance of Light",
     branch: "fede",
     type: "active",
     tier: 1,
@@ -153,7 +153,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   grace: {
     id: "grace",
-    name: "Grace (Grazia)",
+    name: "Grace",
     branch: "fede",
     type: "active",
     tier: 2,
@@ -167,7 +167,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   pillar_of_flame: {
     id: "pillar_of_flame",
-    name: "Pillar of Flame (Colonna)",
+    name: "Pillar of Flame",
     branch: "fede",
     type: "active",
     tier: 3,
@@ -182,18 +182,18 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   fervore: {
     id: "fervore",
-    name: "Fervore",
+    name: "Fervor",
     branch: "fede",
     type: "passive",
     tier: 2,
     maxRank: 5,
     prereqs: [],
-    short: "Fervore",
+    short: "Fervor",
     blurb: "+7% spell damage per rank.",
   },
   halo: {
     id: "halo",
-    name: "Halo (Aureola)",
+    name: "Halo",
     branch: "fede",
     type: "active",
     tier: 5,
@@ -222,7 +222,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   shadow_step: {
     id: "shadow_step",
-    name: "Shadow Step (Passo)",
+    name: "Shadow Step",
     branch: "ombra",
     type: "active",
     tier: 2,
@@ -236,7 +236,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   snare_glyph: {
     id: "snare_glyph",
-    name: "Snare Glyph (Laccio)",
+    name: "Snare Glyph",
     branch: "ombra",
     type: "active",
     tier: 2,
@@ -251,7 +251,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   summon_shade: {
     id: "summon_shade",
-    name: "Summon Shade (Ombra)",
+    name: "Summon Shade",
     branch: "ombra",
     type: "active",
     tier: 3,
@@ -264,18 +264,18 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   silenzio: {
     id: "silenzio",
-    name: "Silenzio",
+    name: "Silence",
     branch: "ombra",
     type: "passive",
     tier: 1,
     maxRank: 5,
     prereqs: [],
-    short: "Silenzio",
+    short: "Silence",
     blurb: "+8% mana regen and −3% cooldowns per rank.",
   },
   tempest: {
     id: "tempest",
-    name: "Tempest (Tempesta)",
+    name: "Tempest",
     branch: "ombra",
     type: "active",
     tier: 5,
@@ -304,7 +304,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   stone_skin: {
     id: "stone_skin",
-    name: "Stone Skin (Pietra)",
+    name: "Stone Skin",
     branch: "fortezza",
     type: "passive",
     tier: 1,
@@ -326,7 +326,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   bastion: {
     id: "bastion",
-    name: "Bastion (Bastione)",
+    name: "Bastion",
     branch: "fortezza",
     type: "active",
     tier: 3,
@@ -339,7 +339,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   thorns: {
     id: "thorns",
-    name: "Thorns (Spine)",
+    name: "Thorns",
     branch: "fortezza",
     type: "passive",
     tier: 3,
@@ -350,7 +350,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   last_stand: {
     id: "last_stand",
-    name: "Last Stand (Estremo)",
+    name: "Last Stand",
     branch: "fortezza",
     type: "passive",
     tier: 4,
@@ -442,11 +442,9 @@ export function skillsByBranch(branch: BranchId): SkillDef[] {
     .sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
 }
 
-/** Italian title (parenthetical, else the name) and an English subtitle. */
+/** Display name and a short tag (hotbar / node). */
 export function skillLabel(def: SkillDef): { title: string; sub: string } {
-  const m = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(def.name);
-  if (m) return { title: m[2].trim(), sub: m[1].trim() };
-  return { title: def.name, sub: BRANCHES[def.branch].subtitle };
+  return { title: def.name, sub: def.short };
 }
 
 export function respecAsh(level: number): number {

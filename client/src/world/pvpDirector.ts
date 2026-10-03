@@ -177,7 +177,7 @@ export class PvpDirector {
         this.pending = null;
         this.hud.setPending(null);
         showToast(
-          msg.reason === "expired" ? "La sfida è scaduta" : `${msg.byName || "Qualcuno"} rifiuta il duello`,
+          msg.reason === "expired" ? "The challenge expired" : `${msg.byName || "Someone"} declines the duel`,
           "info"
         );
         return true;
@@ -302,7 +302,7 @@ export class PvpDirector {
         this.hud.hideRoundEnd();
       } else {
         const s = Math.max(0, Math.ceil((this.roundEndUntil - now) / 1000));
-        this.hud.setRoundNext(`Prossimo round tra ${s} s`);
+        this.hud.setRoundNext(`Next round in ${s} s`);
       }
     }
     if (this.queueDropAt && now - this.queueDropAt > 450) this.settleQueueDrop();
@@ -317,7 +317,7 @@ export class PvpDirector {
     this.hud.setKillCam(downed && !this.killCamSkip && now < this.killCamFrom + camMs);
     if (downed && this.respawnUntil) {
       const left = Math.max(0, this.respawnUntil - now);
-      this.hud.setRecapTimer(left > 0 ? `Rinascita ${Math.ceil(left / 1000)}` : "");
+      this.hud.setRecapTimer(left > 0 ? `Respawn ${Math.ceil(left / 1000)}` : "");
     }
     if (now - this.lastHud < 100) return;
     this.lastHud = now;
@@ -463,7 +463,7 @@ export class PvpDirector {
 
   private onInvite(msg: any) {
     this.inviteFrom = String(msg.fromId);
-    this.inviteName = String(msg.fromName || "Qualcuno");
+    this.inviteName = String(msg.fromName || "Someone");
     const sec = Number(msg.expiresIn) || 15;
     this.inviteUntil = performance.now() + sec * 1000;
     const title = msg.title ? String(msg.title) : "";
@@ -472,7 +472,7 @@ export class PvpDirector {
     const lv = Number(rival?.lv) || 0;
     const named = lv ? `Lv ${lv} ${this.inviteName}` : this.inviteName;
     const who = title ? `${named} (${rating}, ${title})` : `${named} (${rating})`;
-    this.hud.showInvite(`${who} ti sfida a duello`);
+    this.hud.showInvite(`${who} challenges you to a duel`);
     this.hud.setInviteFrac(1);
   }
 
@@ -491,7 +491,7 @@ export class PvpDirector {
       this.matchedAt = performance.now();
       this.queueDropAt = 0;
       this.queueLeaveArmed = false;
-      this.hud.flashAnnounce("Match trovato");
+      this.hud.flashAnnounce("Match found");
       this.announceUntil = performance.now() + 1400;
       this.sfx.match();
     }
@@ -510,11 +510,11 @@ export class PvpDirector {
     const you = this.youId();
     const mine = d.a === you || d.b === you;
     const draw = d.reason === "draw" || !d.winnerId;
-    let title = "Patta";
-    if (!draw && d.winnerId === you) title = "Vittoria";
-    else if (!draw && mine) title = "Sconfitta";
+    let title = "Draw";
+    if (!draw && d.winnerId === you) title = "Victory";
+    else if (!draw && mine) title = "Defeat";
     else if (!draw) {
-      const name = d.winnerId === d.a ? d.aName || "Vincitore" : d.bName || "Vincitore";
+      const name = d.winnerId === d.a ? d.aName || "Winner" : d.bName || "Winner";
       title = name;
     }
     const delta = d.ratingDelta && you && d.ratingDelta[you] != null ? fmtDelta(Number(d.ratingDelta[you])) : "";
@@ -522,11 +522,11 @@ export class PvpDirector {
     const sub = [why, delta ? `${delta} rating` : ""].filter(Boolean).join(" · ");
     this.hud.showResult(title, sub);
     this.resultUntil = performance.now() + 3400;
-    if (title === "Vittoria") this.sfx.victory();
-    else if (title === "Sconfitta") {
+    if (title === "Victory") this.sfx.victory();
+    else if (title === "Defeat") {
       if (performance.now() - this.defeatAt > 1800) this.sfx.defeat();
     }
-    if (title === "Vittoria" && d.reason === "down") this.noteKill();
+    if (title === "Victory" && d.reason === "down") this.noteKill();
     this.pending = null;
     this.hud.setPending(null);
   }
@@ -570,8 +570,8 @@ export class PvpDirector {
       html += `<div>${esc(String(r.name || ""))} · ${esc(howIt(String(r.how || "")))} · ${Number(r.dmg) || 0} × ${Number(r.count) || 0}</div>`;
     }
     if (msg.total) html += `<div class="pvp-recap-total">${Number(msg.total)}</div>`;
-    this.hud.showRecap(`Abbattuto da ${name}`, html || "<div>—</div>");
-    this.hud.setRecapTimer(wait > 0 ? `Rinascita ${Math.ceil(wait / 1000)}` : "");
+    this.hud.showRecap(`Downed by ${name}`, html || "<div>—</div>");
+    this.hud.setRecapTimer(wait > 0 ? `Respawn ${Math.ceil(wait / 1000)}` : "");
     this.defeatAt = now;
     this.sfx.defeat();
   }
@@ -610,12 +610,12 @@ export class PvpDirector {
     const board = Array.isArray(msg.board) ? msg.board : [];
     const you = this.youId();
     const purse = this.app.room?.you?.pvp;
-    let win = "Nessuna uccisione";
+    let win = "No kills";
     if (winners.length === 1) {
-      win = `Vincitore · ${esc(String(winners[0].name || ""))} · ${Number(winners[0].kills) || 0}`;
+      win = `Winner · ${esc(String(winners[0].name || ""))} · ${Number(winners[0].kills) || 0}`;
     } else if (winners.length > 1) {
       const names = winners.map((w: { name?: string }) => esc(String(w.name || ""))).join(", ");
-      win = `Pareggio · ${names}`;
+      win = `Draw · ${names}`;
     }
     const top = board.slice(0, 3);
     let rows = "";
@@ -627,7 +627,7 @@ export class PvpDirector {
       const rlv = Number(r.lv) ? `Lv ${Number(r.lv)} ` : "";
       rows += `<div class="pvp-score-row cols${mine}"><span>${i + 1}</span><span>${esc(rlv + String(r.name || ""))}</span><em>${Number(r.kills) || 0}</em><span>${deaths}</span><span>${Number(r.streak) || 0}</span></div>`;
     }
-    if (!rows) rows = `<div>Nessun sangue in questo round</div>`;
+    if (!rows) rows = `<div>No blood this round</div>`;
     const me = board.find((r: { id?: string }) => String(r.id || "") === you);
     const myK = me ? Number(me.kills) || 0 : Number(purse?.roundKills) || 0;
     const myD = this.roundDeaths.get(you) || 0;
@@ -635,13 +635,13 @@ export class PvpDirector {
     const rating = Number(purse?.rating) || 1200;
     const html =
       `<div class="pvp-roundend-kicker">Pozzo dei Giganti</div>` +
-      `<div class="pvp-roundend-title">Round ${n} chiuso</div>` +
+      `<div class="pvp-roundend-title">Round ${n} closed</div>` +
       `<div class="pvp-roundend-win">${win}</div>` +
-      `<div class="pvp-score-row cols head"><span>#</span><span>Nome</span><span>Ucc.</span><span>Morti</span><span>Serie</span></div>` +
+      `<div class="pvp-score-row cols head"><span>#</span><span>Name</span><span>Kills</span><span>Deaths</span><span>Streak</span></div>` +
       rows +
-      `<div class="pvp-roundend-you">Tu · ${myK} uccisioni · ${myD} morti · serie ${myS} · rating ${rating}</div>` +
-      `<div class="pvp-roundend-live">Round ${n + 1} è aperto</div>` +
-      `<div class="pvp-roundend-next">Prossimo round tra 8 s</div>`;
+      `<div class="pvp-roundend-you">You · ${myK} kills · ${myD} deaths · streak ${myS} · rating ${rating}</div>` +
+      `<div class="pvp-roundend-live">Round ${n + 1} is open</div>` +
+      `<div class="pvp-roundend-next">Next round in 8 s</div>`;
     this.hud.showRoundEnd(html);
     this.roundEndUntil = performance.now() + 8000;
     this.roundDeaths.clear();
@@ -683,12 +683,12 @@ export class PvpDirector {
       this.fightLineFor = d.id;
       this.fightLineUntil = now + 900;
       this.gongFor = d.id;
-      this.lastCount = "Combatti!";
-      this.hud.setCountdown("Combatti!");
+      this.lastCount = "Fight!";
+      this.hud.setCountdown("Fight!");
       this.sfx.gong();
       return;
     }
-    if (this.fightLineUntil && now > this.fightLineUntil && this.lastCount === "Combatti!") {
+    if (this.fightLineUntil && now > this.fightLineUntil && this.lastCount === "Fight!") {
       this.fightLineUntil = 0;
       this.lastCount = "";
       this.hud.setCountdown(null);
@@ -712,7 +712,7 @@ export class PvpDirector {
     if (Math.hypot(dx, dy) > (d.r || 9) + RING_SLACK) {
       if (this.outSince < 0) this.outSince = now;
       const left = OUT_MS - (now - this.outSince);
-      const text = left > 0 ? `Torna nel cerchio! ${Math.ceil(left / 1000)}` : "Torna nel cerchio!";
+      const text = left > 0 ? `Back into the ring! ${Math.ceil(left / 1000)}` : "Back into the ring!";
       this.hud.setRingWarn(text);
     } else if (this.outSince >= 0) {
       this.outSince = -1;
@@ -735,16 +735,16 @@ export class PvpDirector {
       this.hud.setPending(null);
     }
     if (this.pending) {
-      this.hud.setPending(`In attesa di ${this.pending.toName} · Annulla`);
+      this.hud.setPending(`Waiting for ${this.pending.toName} · Cancel`);
       this.hud.setChallenge(null);
     } else if (hub && !this.inviteFrom && !inDuel) {
       const id = this.nearestRival(CHALLENGE_CHIP);
       if (id) {
         const pl = room.players?.find((p: any) => String(p.id) === id);
-        const name = String(pl?.name || "pellegrino");
+        const name = String(pl?.name || "pilgrim");
         const lv = Number(pl?.lv) || 1;
         const hint = isCompactUi() ? "" : " (G)";
-        this.hud.setChallenge(`⚔ Sfida Lv ${lv} ${name}${hint}`);
+        this.hud.setChallenge(`⚔ Challenge Lv ${lv} ${name}${hint}`);
       } else this.hud.setChallenge(null);
     } else this.hud.setChallenge(null);
 
@@ -752,7 +752,7 @@ export class PvpDirector {
     if (mine && (mine.phase === "countdown" || mine.phase === "fight")) {
       const opp = mine.a === you ? mine.b : mine.a;
       const duel = mine as Duel;
-      const name = mine.a === you ? duel.bName || "Avversario" : duel.aName || "Avversario";
+      const name = mine.a === you ? duel.bName || "Opponent" : duel.aName || "Opponent";
       const pl = room?.players?.find((p: any) => String(p.id) === opp);
       const hp = this.hpOverride.has(opp) ? this.hpOverride.get(opp)! : Number(pl?.hp) || 0;
       const max = Number(pl?.maxHp) || hp || 1;
@@ -763,7 +763,7 @@ export class PvpDirector {
       const n = Number(room.arena.round.n) || 1;
       const left = Number(room.arena.round.endsAt) - Date.now();
       const streakN = Number(room.you?.pvp?.streak) || 0;
-      this.hud.setArena(true, `Round ${n}`, fmtClock(left), streakN > 0 ? `Serie ${streakN}` : "");
+      this.hud.setArena(true, `Round ${n}`, fmtClock(left), streakN > 0 ? `Streak ${streakN}` : "");
       this.hud.arenaClock.classList.toggle("hot", left > 0 && left <= 30000);
       if (n !== this.seenRound) {
         const first = this.seenRound === 0;
@@ -779,13 +779,13 @@ export class PvpDirector {
       }
       if (!this.roundEndUntil && !this.warned30 && left <= 30000 && left > 10000) {
         this.warned30 = true;
-        this.hud.flashAnnounce("Trenta secondi");
+        this.hud.flashAnnounce("Thirty seconds");
         this.announceUntil = now + 1400;
         this.sfx.tick();
       }
       if (!this.roundEndUntil && !this.warned10 && left > 0 && left <= 10000) {
         this.warned10 = true;
-        this.hud.flashAnnounce("Dieci secondi");
+        this.hud.flashAnnounce("Ten seconds");
         this.announceUntil = now + 1400;
         this.sfx.tick();
       }
@@ -805,8 +805,8 @@ export class PvpDirector {
       const mm = Math.floor(elapsed / 60000);
       const ss = Math.floor(elapsed / 1000) % 60;
       const clock = `${mm}:${ss < 10 ? "0" : ""}${ss}`;
-      this.hud.setQueue(`In coda ${clock} · Annulla`, true, `±${band} · ${this.queueSize} in attesa`);
-    } else this.hud.setQueue("Classificata 1v1", false, "");
+      this.hud.setQueue(`Queued ${clock} · Cancel`, true, `±${band} · ${this.queueSize} waiting`, clock);
+    } else this.hud.setQueue("Ranked 1v1", false, "", "");
 
     const hp = Number(room?.you?.hp) || 0;
     const maxHp = Number(room?.you?.maxHp) || 0;
@@ -883,12 +883,12 @@ export class PvpDirector {
     if (sub.textContent !== text) sub.textContent = text;
     el.classList.toggle("pvp-foe", hostile);
     el.classList.toggle("pvp-down", downed);
-    el.classList.toggle("title-gilt", title === "Gigante" || title === "Campione");
+    el.classList.toggle("title-gilt", title === "Giant" || title === "Champion");
   }
 
   private scoreHtml(you: string): string {
     const board = this.app.room?.arena?.board;
-    if (!Array.isArray(board) || !board.length) return `<div class="muted">Nessun sangue in questo round</div>`;
+    if (!Array.isArray(board) || !board.length) return `<div class="muted">No blood this round</div>`;
     let html = "";
     for (let i = 0; i < board.length; i++) {
       const r = board[i];
@@ -902,24 +902,24 @@ export class PvpDirector {
 
   private paintBoard(msg: any) {
     const top = Array.isArray(msg.top) ? msg.top : [];
-    let html = `<div class="pvp-lb-head"><span>#</span><span>Nome</span><span>Rating</span><span>V–S</span><span>Ucc.</span></div>`;
+    let html = `<div class="pvp-lb-head"><span>#</span><span>Name</span><span>Rating</span><span>W–L</span><span>Kills</span></div>`;
     for (let i = 0; i < top.length; i++) {
       const r = top[i];
       const title = r.title ? `<i>${esc(String(r.title))}</i>` : "";
       const blv = Number(r.lv) ? `Lv ${Number(r.lv)} ` : "";
       html += `<div class="pvp-lb-row"><span>${Number(r.rank) || i + 1}</span><span>${esc(blv + String(r.name || ""))}${title}</span><span>${Number(r.rating) || 0}</span><span>${Number(r.wins) || 0}-${Number(r.losses) || 0}</span><span>${Number(r.kills) || 0}</span></div>`;
     }
-    if (!top.length) html += `<div class="muted">La classifica è ancora vuota</div>`;
+    if (!top.length) html += `<div class="muted">The leaderboard is still empty</div>`;
     const you = msg.you;
     const purse = this.app.room?.you?.pvp;
     let youHtml = "";
     if (you) {
-      youHtml = `<div class="pvp-lb-you">Tu · #${Number(you.rank) || "—"} ${esc(String(you.name || ""))} · ${Number(you.rating) || 0} · ${Number(you.wins) || 0}-${Number(you.losses) || 0}</div>`;
+      youHtml = `<div class="pvp-lb-you">You · #${Number(you.rank) || "—"} ${esc(String(you.name || ""))} · ${Number(you.rating) || 0} · ${Number(you.wins) || 0}-${Number(you.losses) || 0}</div>`;
     }
     const peak = Number(purse?.peak ?? you?.rating ?? 0) || 0;
     const best = Number(purse?.bestStreak) || 0;
     const rounds = Number(purse?.roundsWon) || 0;
-    const stats = `<div class="pvp-lb-stats">Picco ${peak} · serie migliore ${best} · round vinti ${rounds}</div>`;
+    const stats = `<div class="pvp-lb-stats">Peak ${peak} · best streak ${best} · rounds won ${rounds}</div>`;
     this.hud.setBoard(html, youHtml, stats);
   }
 
@@ -953,12 +953,12 @@ export class PvpDirector {
     if (this.matchedAt && performance.now() - this.matchedAt < 2500) return;
     if (this.queueLeaveArmed) {
       this.queueLeaveArmed = false;
-      showToast("Hai lasciato la coda", "info");
+      showToast("You left the queue", "info");
       return;
     }
     const room = this.app.room;
     const arena = Boolean(room && (room.role === "arena" || room.cantoId === "inferno_31"));
-    showToast(arena ? "Coda chiusa" : "La coda è solo nel pozzo", "info");
+    showToast(arena ? "Queue closed" : "The queue is only in the well", "info");
   }
 
   private inRankedFight(): boolean {
@@ -1098,12 +1098,12 @@ export class PvpDirector {
 }
 
 function reasonLine(reason: string): string {
-  if (reason === "down") return "atterramento";
-  if (reason === "ring") return "fuori dal cerchio";
-  if (reason === "timeout") return "tempo scaduto";
-  if (reason === "draw") return "pareggio";
-  if (reason === "forfeit") return "resa";
-  if (reason === "disconnect") return "sconnessione";
-  if (reason === "afk") return "inerzia";
+  if (reason === "down") return "knockdown";
+  if (reason === "ring") return "out of the ring";
+  if (reason === "timeout") return "time expired";
+  if (reason === "draw") return "draw";
+  if (reason === "forfeit") return "forfeit";
+  if (reason === "disconnect") return "disconnect";
+  if (reason === "afk") return "idle";
   return reason;
 }

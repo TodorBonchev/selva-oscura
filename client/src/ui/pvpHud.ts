@@ -1,31 +1,31 @@
 /**
  * PvP DOM: duel chip and invite, arena clock, kill feed, scoreboard, recap,
  * leaderboard. Writes text only when it changes. Mount before wireHud so
- * [data-close] on the Classifica panel is bound.
+ * [data-close] on the Leaderboard panel is bound.
  */
 import { isCompactUi } from "./hud";
 
 const HOW_IT: Record<string, string> = {
-  melee: "fendente",
-  finisher: "colpo grave",
-  gale_bolt: "dardo",
-  infernal_burst: "vampata",
-  dash: "scatto",
-  furious_cleave: "fendente",
-  wrath_charge: "carica",
-  war_cry: "grido",
-  earthsplitter: "frattura",
-  lance_of_light: "lancia",
-  grace: "grazia",
-  pillar_of_flame: "colonna",
-  halo: "aureola",
-  shadow_step: "passo",
-  snare_glyph: "laccio",
-  summon_shade: "ombra",
-  tempest: "tempesta",
-  bastion: "bastione",
-  thorns: "spine",
-  last_stand: "estremo",
+  melee: "slash",
+  finisher: "heavy blow",
+  gale_bolt: "bolt",
+  infernal_burst: "burst",
+  dash: "dash",
+  furious_cleave: "cleave",
+  wrath_charge: "charge",
+  war_cry: "cry",
+  earthsplitter: "split",
+  lance_of_light: "lance",
+  grace: "grace",
+  pillar_of_flame: "pillar",
+  halo: "halo",
+  shadow_step: "step",
+  snare_glyph: "snare",
+  summon_shade: "shade",
+  tempest: "tempest",
+  bastion: "bastion",
+  thorns: "thorns",
+  last_stand: "last stand",
 };
 
 export const HOW_ICON: Record<string, string> = {
@@ -52,12 +52,12 @@ export const HOW_ICON: Record<string, string> = {
 };
 
 const REASON_IT: Record<string, string> = {
-  down: "atterramento",
-  ring: "fuori dal cerchio",
-  timeout: "tempo scaduto",
-  draw: "pareggio",
-  forfeit: "resa",
-  disconnect: "sconnessione",
+  down: "knockdown",
+  ring: "out of the ring",
+  timeout: "time expired",
+  draw: "draw",
+  forfeit: "forfeit",
+  disconnect: "disconnect",
 };
 
 export function howIt(how: string): string {
@@ -119,6 +119,11 @@ export class PvpHud {
   queueHint: HTMLElement;
   classifica: HTMLButtonElement;
   tabella: HTMLButtonElement;
+  menuBtn: HTMLButtonElement | null = null;
+  menu: HTMLElement;
+  menuCatch: HTMLElement;
+  queueChip: HTMLButtonElement;
+  queueBadge: HTMLElement | null = null;
   private roundNext: HTMLElement | null = null;
   private challengeText = "";
   private pendingText = "";
@@ -131,6 +136,7 @@ export class PvpHud {
   private oppWidth = "";
   recapOn = false;
   scorePinned = false;
+  private menuIsOpen = false;
 
   constructor(handlers: {
     onChallenge: () => void;
@@ -144,35 +150,78 @@ export class PvpHud {
   }) {
     this.root = el("div", "pvp-root", document.body);
 
-    const tools = el("div", "pvp-tools", this.root);
-    this.classifica = el("button", "pvp-tool", tools);
+    this.menuBtn = document.getElementById("btn-menu") as HTMLButtonElement | null;
+    this.queueBadge = document.getElementById("pvp-menu-badge");
+    this.menuCatch = el("div", "pvp-menu-catch hidden", this.root);
+    this.menu = el("div", "pvp-menu hidden", this.root);
+    this.menu.id = "pvp-menu";
+    this.menu.setAttribute("role", "menu");
+    this.menu.setAttribute("aria-label", "Game menu");
+
+    this.classifica = el("button", "pvp-menu-item", this.menu);
     this.classifica.type = "button";
-    this.classifica.textContent = "Classifica";
+    this.classifica.setAttribute("role", "menuitem");
+    this.classifica.innerHTML = `Leaderboard<span class="pvp-menu-hot">L</span>`;
     this.classifica.addEventListener("click", (e) => {
       e.preventDefault();
+      this.closeMenu();
       handlers.onBoard();
     });
-    this.tabella = el("button", "pvp-tool pvp-tabella", tools);
+    this.tabella = el("button", "pvp-menu-item pvp-tabella", this.menu);
     this.tabella.type = "button";
-    this.tabella.textContent = "Tabella";
+    this.tabella.setAttribute("role", "menuitem");
+    this.tabella.innerHTML = `Scoreboard<span class="pvp-menu-hot">Tab</span>`;
     this.tabella.addEventListener("click", (e) => {
       e.preventDefault();
+      this.closeMenu();
       handlers.onScore();
     });
-    this.queue = el("button", "pvp-tool pvp-queue", tools);
+    this.queue = el("button", "pvp-menu-item pvp-queue", this.menu);
     this.queue.type = "button";
-    this.queue.textContent = "Classificata 1v1";
+    this.queue.setAttribute("role", "menuitem");
+    this.queue.textContent = "Ranked 1v1";
     this.queue.addEventListener("click", (e) => {
       e.preventDefault();
+      this.closeMenu();
       handlers.onQueue();
     });
-    this.queueHint = el("div", "pvp-queue-hint", tools);
-    this.mute = el("button", "pvp-tool pvp-mute", tools);
+    this.queueHint = el("div", "pvp-queue-hint", this.menu);
+    this.mute = el("button", "pvp-menu-item pvp-mute", this.menu);
     this.mute.type = "button";
-    this.mute.textContent = "Suono";
+    this.mute.setAttribute("role", "menuitem");
+    this.mute.textContent = "Sound";
     this.mute.addEventListener("click", (e) => {
       e.preventDefault();
       handlers.onMute();
+    });
+
+    this.queueChip = el("button", "pvp-queue-chip hidden", this.root);
+    this.queueChip.type = "button";
+    this.queueChip.setAttribute("aria-label", "Queued — open menu to cancel");
+    this.queueChip.addEventListener("click", (e) => {
+      e.preventDefault();
+      this.openMenu();
+    });
+    const util = document.getElementById("hud-util");
+    if (util) util.insertBefore(this.queueChip, util.firstChild);
+
+    this.menuBtn?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleMenu();
+    });
+    this.menuCatch.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      this.closeMenu();
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "Escape" && this.menuIsOpen) {
+        e.preventDefault();
+        this.closeMenu();
+      }
+    });
+    window.addEventListener("resize", () => {
+      if (this.menuIsOpen) this.placeMenu();
     });
 
     this.challenge = el("button", "pvp-challenge hidden", this.root);
@@ -195,14 +244,14 @@ export class PvpHud {
     const row = el("div", "pvp-invite-row", this.invite);
     const yes = el("button", "pvp-yes", row);
     yes.type = "button";
-    yes.textContent = "Accetta (Y)";
+    yes.textContent = "Accept (Y)";
     yes.addEventListener("click", (e) => {
       e.preventDefault();
       handlers.onAccept();
     });
     const no = el("button", "pvp-no", row);
     no.type = "button";
-    no.textContent = "Rifiuta (N)";
+    no.textContent = "Decline (N)";
     no.addEventListener("click", (e) => {
       e.preventDefault();
       handlers.onDecline();
@@ -236,7 +285,7 @@ export class PvpHud {
 
     this.score = el("div", "pvp-score hidden", this.root);
     const scoreCard = el("div", "pvp-score-card", this.score);
-    el("div", "pvp-score-head", scoreCard).textContent = "Tabella del round";
+    el("div", "pvp-score-head", scoreCard).textContent = "Round scoreboard";
     this.scoreBody = el("div", "pvp-score-body", scoreCard);
 
     this.roundEnd = el("div", "pvp-roundend hidden", this.root);
@@ -255,14 +304,14 @@ export class PvpHud {
     const panels = document.getElementById("panels") || document.body;
     const board = el("aside", "panel modal hidden", panels);
     board.id = "pvp-board";
-    board.setAttribute("aria-label", "Classifica");
+    board.setAttribute("aria-label", "Leaderboard");
     const head = el("div", "panel-head", board);
     const h2 = el("h2", "", head);
-    h2.textContent = "Classifica";
+    h2.textContent = "Leaderboard";
     const close = el("button", "btn-close", head);
     close.type = "button";
     close.setAttribute("data-close", "pvp-board");
-    close.setAttribute("aria-label", "Chiudi classifica");
+    close.setAttribute("aria-label", "Close leaderboard");
     close.textContent = "✕";
     const scroll = el("div", "pvp-board-scroll", board);
     this.boardBody = el("div", "pvp-board-table", scroll);
@@ -270,17 +319,85 @@ export class PvpHud {
     this.boardStats = el("div", "pvp-board-stats", scroll);
     const titles = el("div", "pvp-titles", scroll);
     titles.innerHTML =
-      "<h3>Titoli</h3><p>Solo ornamento — nessuna statistica cambia.</p><ul>" +
-      "<li><b>Ferito</b> — primo sangue, dato o preso</li>" +
-      "<li><b>Duellante</b> — 5 vittorie in duello</li>" +
-      "<li><b>Furia</b> — serie migliore di 5</li>" +
-      "<li><b>Campione</b> — 3 round dell'arena vinti</li>" +
-      "<li><b>Gigante</b> — rating di picco 1500</li>" +
+      "<h3>Titles</h3><p>Cosmetic only — no stats change.</p><ul>" +
+      "<li><b>Wounded</b> — first blood given or taken</li>" +
+      "<li><b>Duelist</b> — 5 duel wins</li>" +
+      "<li><b>Fury</b> — best streak of 5</li>" +
+      "<li><b>Champion</b> — 3 arena rounds won</li>" +
+      "<li><b>Giant</b> — peak rating 1500</li>" +
       "</ul>";
   }
 
+  menuOpen(): boolean {
+    return this.menuIsOpen;
+  }
+
+  toggleMenu() {
+    if (this.menuIsOpen) this.closeMenu();
+    else this.openMenu();
+  }
+
+  openMenu() {
+    this.menuIsOpen = true;
+    this.menu.classList.remove("hidden");
+    this.menuCatch.classList.remove("hidden");
+    this.menuBtn?.setAttribute("aria-expanded", "true");
+    this.menuBtn?.classList.add("is-open");
+    this.placeMenu();
+  }
+
+  closeMenu(): boolean {
+    if (!this.menuIsOpen) return false;
+    this.menuIsOpen = false;
+    this.menu.classList.add("hidden");
+    this.menuCatch.classList.add("hidden");
+    this.menuBtn?.setAttribute("aria-expanded", "false");
+    this.menuBtn?.classList.remove("is-open");
+    return true;
+  }
+
+  private placeMenu() {
+    const btn = this.menuBtn;
+    const menu = this.menu;
+    if (!btn || menu.classList.contains("hidden")) return;
+    const r = btn.getBoundingClientRect();
+    const pad = 8;
+    const compact = isCompactUi();
+    const landscape = document.body.classList.contains("hud-landscape");
+    const mw = Math.min(landscape ? 240 : 280, window.innerWidth - pad * 2);
+    menu.style.width = `${mw}px`;
+    const mh = menu.offsetHeight || 200;
+    const reserve = compact ? (landscape ? 118 : 130) : 16;
+    const util = document.getElementById("hud-util")?.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - r.bottom - pad - reserve;
+    const spaceLeft = (util?.left ?? r.left) - pad;
+    let top: number;
+    let left: number;
+    if (landscape && spaceLeft >= Math.min(mw, 180)) {
+      left = Math.max(pad, (util?.left ?? r.left) - mw - 6);
+      top = Math.max(pad, Math.min(util?.top ?? r.top, window.innerHeight - mh - pad - reserve));
+    } else if (spaceBelow < mh && spaceLeft >= Math.min(mw, 180)) {
+      left = Math.max(pad, r.left - mw - 6);
+      top = Math.min(r.top, window.innerHeight - mh - pad - reserve);
+      top = Math.max(pad, top);
+    } else {
+      top = r.bottom + 6;
+      if (top + mh + pad + reserve > window.innerHeight) {
+        top = Math.max(pad, r.top - mh - 6);
+      }
+      left = r.right - mw;
+      if (left < pad) left = pad;
+      if (left + mw > window.innerWidth - pad) left = window.innerWidth - mw - pad;
+    }
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.right = "auto";
+  }
+
+
+
   setMuted(muted: boolean) {
-    this.mute.textContent = muted ? "Muto" : "Suono";
+    this.mute.textContent = muted ? "Muted" : "Sound";
     this.mute.classList.toggle("is-muted", muted);
   }
 
@@ -379,7 +496,7 @@ export class PvpHud {
     }
   }
 
-  setQueue(text: string, queued: boolean, hint = "") {
+  setQueue(text: string, queued: boolean, hint = "", clock = "") {
     if (text !== this.queueText) {
       this.queueText = text;
       this.queue.textContent = text;
@@ -387,6 +504,18 @@ export class PvpHud {
     this.queue.classList.toggle("is-queued", queued);
     this.queueHint.classList.toggle("on", Boolean(hint));
     if (hint && this.queueHint.textContent !== hint) this.queueHint.textContent = hint;
+    this.menuBtn?.classList.toggle("is-queued", queued);
+    if (this.queueBadge) {
+      const badge = clock || "";
+      this.queueBadge.classList.toggle("hidden", !queued);
+      if (queued && this.queueBadge.textContent !== badge) this.queueBadge.textContent = badge;
+    }
+    this.queueChip.classList.toggle("hidden", !queued);
+    if (queued) {
+      const chip = clock ? `Queued ${clock}` : "Queued";
+      if (this.queueChip.textContent !== chip) this.queueChip.textContent = chip;
+    }
+    if (this.menuIsOpen) this.placeMenu();
   }
 
   setFeed(rows: readonly FeedRow[], now: number) {

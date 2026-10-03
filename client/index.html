@@ -153,22 +153,30 @@
     <div id="xp-float" aria-hidden="true"></div>
   </div>
   <nav id="action-bar" aria-label="Game actions">
-    <button type="button" id="btn-inv" class="action-btn" title="Inventory">
-      <img class="action-icon" src="/assets/ui/bag.svg" alt="" draggable="false" />
-      <span class="action-label">Inv</span>
-      <span class="action-hint" aria-hidden="true">I</span>
-    </button>
-    <button type="button" id="btn-ah" class="action-btn" title="Auction House">
-      <img class="action-icon" src="/assets/ui/scales.svg" alt="" draggable="false" />
-      <span class="action-label">AH</span>
-      <span class="action-hint" aria-hidden="true">H</span>
-    </button>
-    <button type="button" id="btn-skills" class="action-btn" title="Skills (K)">
-      <img class="action-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 6 L37.5 23.5 H56 L41 34.5 L46.5 52 L32 41.5 L17.5 52 L23 34.5 L8 23.5 H26.5 Z' fill='none' stroke='%23e6d7b0' stroke-width='2.4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%23c9a227'/%3E%3C/svg%3E" alt="" draggable="false" />
-      <span class="action-label">Skills</span>
-      <span class="action-hint" aria-hidden="true">K</span>
-      <span id="skill-badge" class="skill-badge hidden"></span>
-    </button>
+    <div id="hud-util" aria-label="Utility">
+      <button type="button" id="btn-skills" class="action-btn" title="Skills (K)">
+        <img class="action-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 6 L37.5 23.5 H56 L41 34.5 L46.5 52 L32 41.5 L17.5 52 L23 34.5 L8 23.5 H26.5 Z' fill='none' stroke='%23e6d7b0' stroke-width='2.4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%23c9a227'/%3E%3C/svg%3E" alt="" draggable="false" />
+        <span class="action-label">Skills</span>
+        <span class="action-hint" aria-hidden="true">K</span>
+        <span id="skill-badge" class="skill-badge hidden"></span>
+      </button>
+      <button type="button" id="btn-ah" class="action-btn" title="Auction House">
+        <img class="action-icon" src="/assets/ui/scales.svg" alt="" draggable="false" />
+        <span class="action-label">AH</span>
+        <span class="action-hint" aria-hidden="true">H</span>
+      </button>
+      <button type="button" id="btn-inv" class="action-btn" title="Inventory">
+        <img class="action-icon" src="/assets/ui/bag.svg" alt="" draggable="false" />
+        <span class="action-label">Inv</span>
+        <span class="action-hint" aria-hidden="true">I</span>
+      </button>
+      <button type="button" id="btn-menu" class="action-btn" title="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="pvp-menu">
+        <img class="action-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M14 18 H50 M14 32 H50 M14 46 H50' fill='none' stroke='%23e6d7b0' stroke-width='3.2' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='18' r='2.4' fill='%23c9a227'/%3E%3Ccircle cx='14' cy='32' r='2.4' fill='%23c9a227'/%3E%3Ccircle cx='14' cy='46' r='2.4' fill='%23c9a227'/%3E%3C/svg%3E" alt="" draggable="false" />
+        <span class="action-label">Menu</span>
+        <span class="action-hint" aria-hidden="true">M</span>
+        <span id="pvp-menu-badge" class="pvp-menu-badge hidden"></span>
+      </button>
+    </div>
     <div id="spell-bar" class="spell-bar" role="group" aria-label="Spells">
       <button type="button" class="action-btn spell-btn" data-spell="gale_bolt" data-slot="0" id="btn-spell-slot-0" title="Gale Bolt (1)">
         <img class="spell-icon" src="/assets/spells/spell_gale_bolt.png" alt="" draggable="false" />

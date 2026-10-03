@@ -777,7 +777,7 @@ export class WorldApp {
     this.scene.add(this.ash.points);
     this.radar = new Radar();
     this.guidance = new Guidance(this);
-    // Before wireHud: the Classifica panel's [data-close] is bound once at wire time.
+    // Before wireHud: the Leaderboard panel's [data-close] is bound once at wire time.
     this.pvp = new PvpDirector(this);
     this.skillVfx = new SkillVfx(this.scene, {
       standY: (x, y, h) => this.standY(x, y, h),
@@ -826,7 +826,10 @@ export class WorldApp {
         togglePanel("ah");
         this.socket.ahBrowse();
       },
-      toggleSkills: () => toggleSkills(),
+      toggleSkills: () => {
+        this.pvp?.hud.closeMenu();
+        toggleSkills();
+      },
       interactNearest: () => this.interactNearest(),
       attackNearest: () => this.attackNearest(),
       onAttackHoldStart: () => this.startAttackHold("button"),
@@ -1207,11 +1210,13 @@ export class WorldApp {
       }
       if (e.code === "KeyK") {
         e.preventDefault();
+        this.pvp?.hud.closeMenu();
         toggleSkills();
       }
       if (e.code === "Escape") {
         this.cancelSpellHold();
         this.cancelPortalHold();
+        if (this.pvp?.hud.closeMenu()) return;
         if (isPanelOpen("skills")) setPanelOpen("skills", false);
       }
       if (e.code === "KeyQ") this.sip();
@@ -1227,6 +1232,7 @@ export class WorldApp {
       }
       if (e.code === "KeyG") this.pvp?.onKeyG();
       if (e.code === "KeyL") this.pvp?.toggleBoard();
+      if (e.code === "KeyM") this.pvp?.hud.toggleMenu();
       if (e.code === "KeyY") this.pvp?.accept();
       if (e.code === "KeyN") this.pvp?.decline();
       if (e.code === "Tab") {
@@ -5780,7 +5786,9 @@ export class WorldApp {
       if (labelEl.textContent !== cap) labelEl.textContent = cap;
     }
 
-    if (this.lastInteractHintId !== String(best.id)) {
+    // World hints wait while a panel (skills, bag, AH…) covers the scene
+    const panelOpen = !!document.querySelector(".panel.modal:not(.hidden)");
+    if (!panelOpen && this.lastInteractHintId !== String(best.id)) {
       this.lastInteractHintId = String(best.id);
       if (best.kind === "poi") {
         const id = String(best.id);
