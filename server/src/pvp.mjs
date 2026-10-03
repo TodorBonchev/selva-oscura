@@ -149,12 +149,12 @@ function nameOf(id) {
 
 export function computeTitle(s) {
   if (!s) return null;
-  if ((s.peak || 0) >= 1500) return "Gigante";
-  if ((s.roundsWon || 0) >= 3) return "Campione";
-  if ((s.bestStreak || 0) >= 5) return "Furia";
-  if ((s.wins || 0) >= 5) return "Duellante";
+  if ((s.peak || 0) >= 1500) return "Giant";
+  if ((s.roundsWon || 0) >= 3) return "Champion";
+  if ((s.bestStreak || 0) >= 5) return "Fury";
+  if ((s.wins || 0) >= 5) return "Duelist";
   if ((s.wins || 0) + (s.losses || 0) + (s.draws || 0) + (s.kills || 0) + (s.deaths || 0) > 0) {
-    return "Ferito";
+    return "Wounded";
   }
   return null;
 }
@@ -517,12 +517,12 @@ function creditAllowed(room, killer, victim) {
 }
 
 function streakAnnounce(streak, firstBlood, shutdown) {
-  if (firstBlood) return "Prima ferita!";
-  if (streak === 2) return "Doppio!";
-  if (streak === 3) return "Furia!";
+  if (firstBlood) return "First Blood!";
+  if (streak === 2) return "Double Kill!";
+  if (streak === 3) return "Fury!";
   if (streak === 5) return "Pape Satàn aleppe!";
-  if (streak === 8) return "Gigante!";
-  if (shutdown) return "Spezzata!";
+  if (streak === 8) return "Giant!";
+  if (shutdown) return "Shut down!";
   return undefined;
 }
 
@@ -1125,7 +1125,7 @@ function tickDuels(room) {
       if (distC > d.r + DUEL_RING_SLACK) {
         if (!d.outSince[id]) {
           d.outSince[id] = now;
-          // (the client paints "Torna nel cerchio!" with the grace left from duel_state)
+          // (the client paints "Back into the ring!" with the grace left from duel_state)
         } else if (now - d.outSince[id] >= DUEL_OUT_MS) {
           const winner = id === d.a ? d.b : d.a;
           endDuel(room, d, { winnerId: winner, reason: "ring" });

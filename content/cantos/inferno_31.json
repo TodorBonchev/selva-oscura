@@ -39,15 +39,15 @@
         "kind": "craft",
         "x": 18,
         "y": 48,
-        "label": "Catene",
-        "hint": "Ephialtes e Anteo — le catene del pozzo"
+        "label": "Chains",
+        "hint": "Ephialtes and Antaeus — the chains of the well"
       },
       {
         "id": "horn_etch",
         "kind": "craft",
         "x": 78,
         "y": 70,
-        "label": "Corno",
+        "label": "Horn",
         "hint": "Nembrot: Raphèl maì amècche zabì almi"
       }
     ]

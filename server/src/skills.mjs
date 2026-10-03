@@ -19,10 +19,10 @@ import {
 } from "./progression.mjs";
 
 export const BRANCHES = {
-  ira: { id: "ira", name: "Ira", subtitle: "Wrath" },
-  fede: { id: "fede", name: "Fede", subtitle: "Faith" },
-  ombra: { id: "ombra", name: "Ombra", subtitle: "Shade" },
-  fortezza: { id: "fortezza", name: "Fortezza", subtitle: "Fortitude" },
+  ira: { id: "ira", name: "Wrath", subtitle: "Melee" },
+  fede: { id: "fede", name: "Faith", subtitle: "Holy fire" },
+  ombra: { id: "ombra", name: "Shade", subtitle: "Wind" },
+  fortezza: { id: "fortezza", name: "Fortitude", subtitle: "Guard" },
 };
 
 /** Character level required to put a point in a skill of this tier. Ult overrides. */
@@ -57,7 +57,7 @@ const RANK_CD = -0.03;
 export const SKILLS = {
   furious_cleave: {
     id: "furious_cleave",
-    name: "Furious Cleave (Furia)",
+    name: "Furious Cleave",
     branch: "ira",
     type: "active",
     tier: 1,
@@ -73,7 +73,7 @@ export const SKILLS = {
   },
   ferocia: {
     id: "ferocia",
-    name: "Ferocia",
+    name: "Ferocity",
     branch: "ira",
     type: "passive",
     tier: 1,
@@ -83,7 +83,7 @@ export const SKILLS = {
   },
   wrath_charge: {
     id: "wrath_charge",
-    name: "Wrath Charge (Ira)",
+    name: "Wrath Charge",
     branch: "ira",
     type: "active",
     tier: 2,
@@ -98,7 +98,7 @@ export const SKILLS = {
   },
   war_cry: {
     id: "war_cry",
-    name: "War Cry (Grido)",
+    name: "War Cry",
     branch: "ira",
     type: "active",
     tier: 3,
@@ -115,7 +115,7 @@ export const SKILLS = {
   },
   bloodthirst: {
     id: "bloodthirst",
-    name: "Bloodthirst (Sete)",
+    name: "Bloodthirst",
     branch: "ira",
     type: "passive",
     tier: 3,
@@ -126,7 +126,7 @@ export const SKILLS = {
   },
   earthsplitter: {
     id: "earthsplitter",
-    name: "Earthsplitter (Frattura)",
+    name: "Earthsplitter",
     branch: "ira",
     type: "active",
     tier: 5,
@@ -159,7 +159,7 @@ export const SKILLS = {
   },
   lance_of_light: {
     id: "lance_of_light",
-    name: "Lance of Light (Lancia)",
+    name: "Lance of Light",
     branch: "fede",
     type: "active",
     tier: 1,
@@ -176,7 +176,7 @@ export const SKILLS = {
   },
   grace: {
     id: "grace",
-    name: "Grace (Grazia)",
+    name: "Grace",
     branch: "fede",
     type: "active",
     tier: 2,
@@ -192,7 +192,7 @@ export const SKILLS = {
   },
   pillar_of_flame: {
     id: "pillar_of_flame",
-    name: "Pillar of Flame (Colonna)",
+    name: "Pillar of Flame",
     branch: "fede",
     type: "active",
     tier: 3,
@@ -213,7 +213,7 @@ export const SKILLS = {
   },
   fervore: {
     id: "fervore",
-    name: "Fervore",
+    name: "Fervor",
     branch: "fede",
     type: "passive",
     tier: 2,
@@ -223,7 +223,7 @@ export const SKILLS = {
   },
   halo: {
     id: "halo",
-    name: "Halo (Aureola)",
+    name: "Halo",
     branch: "fede",
     type: "active",
     tier: 5,
@@ -256,7 +256,7 @@ export const SKILLS = {
   },
   shadow_step: {
     id: "shadow_step",
-    name: "Shadow Step (Passo)",
+    name: "Shadow Step",
     branch: "ombra",
     type: "active",
     tier: 2,
@@ -270,7 +270,7 @@ export const SKILLS = {
   },
   snare_glyph: {
     id: "snare_glyph",
-    name: "Snare Glyph (Laccio)",
+    name: "Snare Glyph",
     branch: "ombra",
     type: "active",
     tier: 2,
@@ -289,7 +289,7 @@ export const SKILLS = {
   },
   summon_shade: {
     id: "summon_shade",
-    name: "Summon Shade (Ombra)",
+    name: "Summon Shade",
     branch: "ombra",
     type: "active",
     tier: 3,
@@ -307,7 +307,7 @@ export const SKILLS = {
   },
   silenzio: {
     id: "silenzio",
-    name: "Silenzio",
+    name: "Silence",
     branch: "ombra",
     type: "passive",
     tier: 1,
@@ -318,7 +318,7 @@ export const SKILLS = {
   },
   tempest: {
     id: "tempest",
-    name: "Tempest (Tempesta)",
+    name: "Tempest",
     branch: "ombra",
     type: "active",
     tier: 5,
@@ -350,7 +350,7 @@ export const SKILLS = {
   },
   stone_skin: {
     id: "stone_skin",
-    name: "Stone Skin (Pietra)",
+    name: "Stone Skin",
     branch: "fortezza",
     type: "passive",
     tier: 1,
@@ -370,7 +370,7 @@ export const SKILLS = {
   },
   bastion: {
     id: "bastion",
-    name: "Bastion (Bastione)",
+    name: "Bastion",
     branch: "fortezza",
     type: "active",
     tier: 3,
@@ -385,7 +385,7 @@ export const SKILLS = {
   },
   thorns: {
     id: "thorns",
-    name: "Thorns (Spine)",
+    name: "Thorns",
     branch: "fortezza",
     type: "passive",
     tier: 3,
@@ -396,7 +396,7 @@ export const SKILLS = {
   },
   last_stand: {
     id: "last_stand",
-    name: "Last Stand (Estremo)",
+    name: "Last Stand",
     branch: "fortezza",
     type: "passive",
     tier: 4,

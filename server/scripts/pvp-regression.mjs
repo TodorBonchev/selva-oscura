@@ -511,7 +511,7 @@ async function run() {
     check(ends - Date.now() >= 14000, "(6) arena round window", `${Math.round((ends - Date.now()) / 1000)}s left`);
 
     // Stand and swing. Moving during the windup makes the cone miss and the
-    // second kill slips into the next round (another "Prima ferita!").
+    // second kill slips into the next round (another "First Blood!").
     async function swingUntil(pred, ms) {
       const from = A.msgs.length;
       const t = Date.now() + ms;
@@ -547,7 +547,7 @@ async function run() {
       kill1 = A.msgs.slice(fromKill).find((m) => m.type === "pvp_kill" && m.victimId === B.id);
     }
     const down1 = B.msgs.slice(fromDown).find((m) => m.type === "pvp_down");
-    check(!!kill1 && kill1.streak === 1 && kill1.firstBlood === true && kill1.announce === "Prima ferita!", "(6) first blood kill feed", kill1 ? `${kill1.announce} streak ${kill1.streak}` : "none");
+    check(!!kill1 && kill1.streak === 1 && kill1.firstBlood === true && kill1.announce === "First Blood!", "(6) first blood kill feed", kill1 ? `${kill1.announce} streak ${kill1.streak}` : "none");
     check(!!down1 && down1.killerId === A.id && down1.respawnIn === 3000 && (down1.total || 0) > 0 && down1.recap?.length > 0, "(6) pvp_down recap", down1 ? `total ${down1.total} in ${down1.respawnIn}` : "none");
 
     // Hit during the respawn invulnerability window.
@@ -583,7 +583,7 @@ async function run() {
       .filter((m) => m.type === "pvp_kill" && m.victimId === B.id)
       .map((k) => `${k.streak}:${k.announce || "-"}:fb${!!k.firstBlood}`)
       .join(" | ");
-    check(!!kill2 && kill2.streak === 2 && kill2.announce === "Doppio!" && !kill2.firstBlood, "(6) streak announce on 2 kills", kill2 ? `${kill2.announce} streak ${kill2.streak} fb ${kill2.firstBlood} [${feed}]` : `none [${feed}]`);
+    check(!!kill2 && kill2.streak === 2 && kill2.announce === "Double Kill!" && !kill2.firstBlood, "(6) streak announce on 2 kills", kill2 ? `${kill2.announce} streak ${kill2.streak} fb ${kill2.firstBlood} [${feed}]` : `none [${feed}]`);
 
     const kill3 = await swingUntil((m) => m.type === "pvp_kill" && m.victimId === B.id && m.streak === 3, 16000);
     check(!!kill3 && kill3.streak === 3, "(6) third credited kill", kill3 ? `streak ${kill3.streak}` : "none");
