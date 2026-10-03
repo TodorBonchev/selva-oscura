@@ -66,7 +66,6 @@ import {
   manaCostAtRank,
   skillAnim,
   skillLabel,
-  skillSfxKind,
 } from "../skills";
 import { skillIcon } from "../ui/skillIcons";
 import { mountSkillPanel, skillErrorText, skillPanel, toggleSkills, type ProgView } from "../ui/skillPanel";
@@ -796,6 +795,9 @@ export class WorldApp {
         if (pl) return { x: Number(pl.x) || 0, y: Number(pl.y) || 0 };
         return null;
       },
+      onImpact: (x, y, strength, casterId, spellId, color) =>
+        this.onSkillImpact(x, y, strength, casterId, spellId, color),
+      canto: () => this.room?.cantoId ?? "",
     });
     mountSkillPanel({
       learn: (id) => this.socket.skillLearn(id),
@@ -4062,6 +4064,14 @@ export class WorldApp {
       else hapticCombat("hurt");
       const soaked = Number(msg.soaked) || 0;
       if (soaked > 0 && msg.wardActive) flashWardSoak();
+      else if (soaked > 0 && !msg.wardActive) {
+        const ranks =
+          this.prog?.ranks ??
+          (this.room?.you?.prog as { ranks?: Record<string, number> } | undefined)?.ranks;
+        if (ranks && Math.floor(Number(ranks.stone_skin) || 0) >= 1) {
+          this.skillVfx?.stoneChip(this.renderYou.x, this.renderYou.y);
+        }
+      }
       if (msg.targetHp != null && msg.targetHp <= 0) this.triggerDeathRevive();
       return;
     }
@@ -4147,6 +4157,19 @@ export class WorldApp {
           from.y = Number(msg.fy);
         } else from = this.attackerPos(attacker, pos);
         this.combat.hitMob(rec, from.x, from.y, Boolean(msg.heavy), now);
+        if (spell && SKILLS[spell]) {
+          const st = rec.group.userData.mob as { flashMesh?: THREE.Mesh | null } | undefined;
+          if (st?.flashMesh) {
+            this.combat.flashes.flash(st.flashMesh, 0xfff6ee, now, 0.95, 140);
+            const shell = st.flashMesh.children;
+            for (let i = 0; i < shell.length; i++) {
+              if (shell[i].name === "hitFlashShell") {
+                shell[i].scale.setScalar(1.08);
+                break;
+              }
+            }
+          }
+        }
       }
     }
     if ((predicted || cleaved) && comboBoost > 0) {
@@ -4163,9 +4186,21 @@ export class WorldApp {
             : weHit
               ? "melee"
               : "other";
+    if (spell && spell !== "thorns" && SKILLS[spell]) this.skillVfx?.hitSpark(pos.x, pos.y, spell);
     const gy = this.standY(pos.x, pos.y);
     const h = rec ? Number((rec.group.userData.mob as { height?: number } | undefined)?.height) || 2 : 2;
-    this.combat?.number(pos.x, gy + Math.min(5.6, h + 0.3), pos.y, msg.damage, weHit || style === "other" ? style : "other", tid, now);
+    this.combat?.number(
+      pos.x,
+      gy + Math.min(5.6, h + 0.3),
+      pos.y,
+      msg.damage,
+      weHit || style === "other" ? style : "other",
+      tid,
+      now,
+      undefined,
+      "",
+      style === "spell" ? 1.22 : 1
+    );
     if (weHit) {
       if (msg.targetHp != null && Number(msg.targetHp) <= 0) hapticCombat("kill");
       // (a finisher already buzzed on the blade's frame)
@@ -4270,16 +4305,60 @@ export class WorldApp {
     setPlanar(this.hitLight.position, pos.x, pos.y, this.standY(pos.x, pos.y, 1.2));
   }
 
+  /**
+   * Skill impact feel. Only the caster, or anyone within 6 m of the blow,
+   * gets shake, punch, light and the impact voice.
+   */
+  onSkillImpact(x: number, y: number, strength: number, casterId: string, spellId: string, color: number) {
+    const youId = String(this.room?.you?.id ?? this.socket.playerId ?? "");
+    const mine = Boolean(casterId) && casterId === youId;
+    const dx = x - this.renderYou.x;
+    const dy = y - this.renderYou.y;
+    if (!mine && dx * dx + dy * dy > 36) return;
+    let cx = this.renderYou.x;
+    let cy = this.renderYou.y;
+    if (!mine && casterId) {
+      const n = this.nodes.get(`pl:${casterId}`);
+      if (n) {
+        cx = n.group.position.x;
+        cy = n.group.position.z;
+      } else {
+        const pl = this.room?.players?.find((p: { id?: string; x?: number; y?: number }) => String(p.id) === casterId);
+        if (pl) {
+          cx = Number(pl.x) || cx;
+          cy = Number(pl.y) || cy;
+        }
+      }
+    }
+    const s = Math.max(0, Math.min(1, strength));
+    const base = Math.min(0.45, 0.12 + 0.33 * s);
+    this.kickShake(mine ? base : base * 0.5, x - cx, y - cy);
+    this.camPunch = Math.max(this.camPunch, Math.min(0.8, (mine ? 0.55 : 0.28) * (0.45 + s)));
+    const ava = this.room?.cantoId === "inferno_07";
+    const heavy = s >= 0.6;
+    const lit = heavy ? 8 + s * 6 : 4 + s * 5;
+    this.hitLight.color.setHex(color);
+    this.hitLight.intensity = ava ? lit * 0.65 : lit;
+    setPlanar(this.hitLight.position, x, y, this.standY(x, y, 1.2));
+    if (mine && s > 0.6) {
+      const ms = 40 + Math.round(20 * Math.min(1, (s - 0.6) / 0.4));
+      const until = performance.now() + ms;
+      if (until > this.hitStopUntil) this.hitStopUntil = until;
+    }
+    this.pvp?.sfx.skillVoice(spellId, "impact", s);
+  }
+
   onSpellFx(msg: any) {
     const id = String(msg.spellId || "");
     if (id === "mana_deny") {
       flashManaDeny(String(msg.spellId || ""));
       return;
     }
+    const passive = id === "bloodthirst" || id === "last_stand" || id === "thorns";
     const caster = msg.casterId != null ? this.nodes.get(`pl:${msg.casterId}`) : undefined;
     const youId = String(this.room?.you?.id ?? this.socket.playerId ?? "");
     const mine = String(msg.casterId ?? "") === youId;
-    if (caster) {
+    if (caster && !passive) {
       const kind = skillAnim(id);
       if (kind === "swing") humanoidSwing(caster.group, this.animT, id === "earthsplitter" ? 2 : 1, 220);
       else if (kind === "dash") humanoidDash(caster.group, this.animT, 180);
@@ -4289,8 +4368,11 @@ export class WorldApp {
     const sy = Number(msg.y) || this.renderYou.y;
     const near = mine || Math.hypot(sx - this.renderYou.x, sy - this.renderYou.y) < 30;
     const pillarMark = id === "pillar_of_flame" && !(Array.isArray(msg.hits) && msg.hits.length) && Number(msg.duration) >= 0.5;
-    if (near && id !== "gale_bolt" && id !== "whirl_ward" && id !== "infernal_burst" && !pillarMark) {
-      this.pvp?.sfx.skill(skillSfxKind(id));
+    if (near && id !== "gale_bolt" && id !== "whirl_ward" && id !== "infernal_burst") {
+      if (id === "bloodthirst" || id === "last_stand") this.pvp?.sfx.skillVoice(id, "cast", 0.5);
+      else if (id !== "thorns" && (pillarMark || id !== "pillar_of_flame")) {
+        this.pvp?.sfx.skillVoice(id, "cast", mine ? 1 : 0.6);
+      }
     }
     if (this.skillVfx?.onSpell(msg, this.animT)) return;
     if (id === "gale_bolt") {
@@ -5073,6 +5155,7 @@ export class WorldApp {
     this.pendingCast = { spellId, aimX: faceX, aimY: faceY, packX, packY, until: this.animT + wind };
     this.heroMotor?.cast(spellId, wind);
     this.skillVfx?.setAim(false);
+    this.skillVfx?.windup(spellId, this.renderYou.x, this.renderYou.y, this.renderYou.x + (packX ?? 0), this.renderYou.y + (packY ?? 0));
     if (spellId === "gale_bolt") {
       const mesh = makeTelegraph(0xffd078);
       setPlanar(mesh.position, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y, 0.1));

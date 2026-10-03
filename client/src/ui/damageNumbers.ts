@@ -64,7 +64,7 @@ export class DamageNumbers {
   /**
    * A number at world (x,y,z). key groups numbers that should stack (the target id).
    */
-  spawn(x: number, y: number, z: number, text: string, style: DmgStyle, nowMs: number, key = "", mark = "") {
+  spawn(x: number, y: number, z: number, text: string, style: DmgStyle, nowMs: number, key = "", mark = "", popMul = 1) {
     let it = this.items[this.next]!;
     // prefer a free slot; otherwise the oldest (round-robin)
     for (let k = 0; k < POOL; k++) {
@@ -102,7 +102,8 @@ export class DamageNumbers {
     it.dur = DUR[style];
     it.jitter = (Math.random() - 0.5) * (style === "self" ? 18 : 30);
     it.stack = stack * STACK_PX;
-    it.pop = style === "heavy" ? 1.9 : style === "self" || style === "spell" ? 1.45 : style === "other" ? 1.1 : 1.35;
+    const base = style === "heavy" ? 1.9 : style === "self" || style === "spell" ? 1.45 : style === "other" ? 1.1 : 1.35;
+    it.pop = base * (popMul > 0 ? popMul : 1);
     it.rise = style === "heavy" ? 58 : style === "other" ? 30 : 46;
     it.el.className = mark ? `dmg dmg-${style} ${mark}` : `dmg dmg-${style}`;
     it.el.textContent = text;
