@@ -998,8 +998,12 @@ export class PvpDirector {
     const mark = flair?.f ? String(flair.f) : "";
     el.classList.toggle("flair-laurel", mark === "laurel");
     el.classList.toggle("flair-ember", mark === "ember");
-    const text = title ? `${title} · ${rating}` : String(rating);
+    // The rating only means something where pilgrims may fight (hub duels, the arena):
+    // in the PvE circles a plate carries the worn title alone
+    const pveCircle = /^inferno_0[5-8]$/.test(String(this.app.room?.cantoId || ""));
+    const text = pveCircle ? title : title ? `${title} · ${rating}` : String(rating);
     if (sub.textContent !== text) sub.textContent = text;
+    sub.hidden = !text;
     el.classList.toggle("pvp-foe", hostile);
     el.classList.toggle("pvp-down", downed);
     el.classList.toggle("title-gilt", title === "Giant" || title === "Champion" || title === "Weekly Victor");

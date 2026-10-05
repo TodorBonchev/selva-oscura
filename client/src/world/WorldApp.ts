@@ -2976,6 +2976,7 @@ export class WorldApp {
     this.mech.exit?.(this);
     this.mech = mechFor(cantoId);
     this.mech.enter?.(this);
+    document.body.classList.toggle("pve-circle", /^inferno_0[5-8]$/.test(String(cantoId || "")));
   }
 
   /** Immediate wipe of entity meshes/labels (canto travel). */

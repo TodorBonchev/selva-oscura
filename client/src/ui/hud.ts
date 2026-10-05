@@ -231,7 +231,11 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
 
   if (pending) {
     const p = Number(you.pendingAsh) || 0;
-    pending.textContent = p > 0 ? `+${formatAsh(p)} Ash (${ashToStelleDisplay(p)} Stelle) pending` : "";
+    const full = p > 0 ? `+${formatAsh(p)} Ash (${ashToStelleDisplay(p)} Stelle) pending` : "";
+    // Phones: the long form ran off the right edge beside the purse — the figure is enough
+    const txt = p > 0 && isCompactUi() ? `+${formatAsh(p)} pending` : full;
+    if (pending.textContent !== txt) pending.textContent = txt;
+    if (pending.title !== full) pending.title = full;
     pending.classList.toggle("hidden", p <= 0);
     // Stella pending pulse: credit ticks (Crush FirstClear etc.) read on the ash ledger
     if (p > lastPendingAsh && p > 0) {

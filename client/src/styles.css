@@ -5295,7 +5295,7 @@ body.hud-compact .ash-sigil { font-size: 0.72rem; }
 body.hud-compact #ash b { font-size: 0.86rem; }
 body.hud-compact #ash i { font-size: 0.55rem; letter-spacing: 0.12em; }
 body.hud-compact #ash em { display: none; }
-body.hud-compact #pending { font-size: 0.6rem; }
+body.hud-compact #pending { font-size: 0.6rem; max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* HP / MP: thin etched bars */
 body.hud-compact #hp-plate.plate,
@@ -7257,6 +7257,8 @@ body.hud-compact:has(.sk-panel:not(.hidden)) #toast-layer {
 }
 .tut-card.tut-pop { animation: tutPop 0.32s ease-out; }
 .tut-card.tut-aside { visibility: hidden; }
+/* Phones in the PvE circles: your own plate steps back so it never prints over the foe you fight */
+body.hud-compact.pve-circle .you-label { opacity: 0.5; }
 @keyframes tutPop {
   from { transform: translateX(-50%) scale(0.94); opacity: 0.4; }
   to { transform: translateX(-50%) scale(1); opacity: 1; }
