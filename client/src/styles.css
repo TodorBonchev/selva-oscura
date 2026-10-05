@@ -7253,6 +7253,7 @@ body.hud-compact:has(.sk-panel:not(.hidden)) #toast-layer {
   pointer-events: auto;
 }
 .tut-card.tut-pop { animation: tutPop 0.32s ease-out; }
+.tut-card.tut-aside { visibility: hidden; }
 @keyframes tutPop {
   from { transform: translateX(-50%) scale(0.94); opacity: 0.4; }
   to { transform: translateX(-50%) scale(1); opacity: 1; }

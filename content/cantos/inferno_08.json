@@ -36,7 +36,7 @@
         "x": 26,
         "y": 64,
         "label": "Styx Shrine",
-        "hint": "restores life and breath on the south bank of the Styx"
+        "hint": "Styx Shrine — restores life and breath — E to kneel"
       },
       {
         "id": "ferry_shrine",
@@ -44,7 +44,7 @@
         "x": 104,
         "y": 54,
         "label": "Ferry Shrine",
-        "hint": "restores life and breath short of Phlegyas' ferry"
+        "hint": "Short of Phlegyas' ferry — restores life and breath"
       },
       {
         "id": "sunken_cache",
@@ -52,7 +52,7 @@
         "x": 40,
         "y": 74,
         "label": "Sunken Cache",
-        "hint": "One sunken drop per visit — in the mud south of the road"
+        "hint": "One sunken drop per visit — E to claim"
       },
       {
         "id": "phlegyas_lantern",
@@ -60,7 +60,7 @@
         "x": 122,
         "y": 58,
         "label": "Phlegyas' Lantern",
-        "hint": "Rings to still nearby wrathful"
+        "hint": "E to ring — stills nearby wrathful and cools their fury"
       },
       {
         "id": "wrath_portal_home",

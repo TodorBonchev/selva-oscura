@@ -26,6 +26,8 @@ registerTeleWeight("argenti_lunge", "boss");
 
 const WRATH_RED = 0xc02818;
 const FURY_HOT = 0xff5a30;
+/** Fury building toward an enrage (2–3 stacks): a dull ember, not yet the crimson. */
+const FURY_EMBER = 0xd2782a;
 
 let crimsonMat: THREE.MeshBasicMaterial | null = null;
 function wrathMats() {
@@ -280,12 +282,25 @@ class WrathView {
       if (!rec || !rec.group.userData.wrath) continue;
       const aura = rec.group.getObjectByName("furyAura") as THREE.Mesh | undefined;
       if (!aura) continue;
-      const on = Boolean(e.enraged) && (e.hp == null || e.hp > 0);
-      aura.visible = on;
+      const alive = e.hp == null || e.hp > 0;
+      const on = Boolean(e.enraged) && alive;
+      // Fury building (2–3 of 4 stacks): a dimmer ember ring that quickens — stun or still it now
+      const fury = alive && !on ? Number(e.fury) || 0 : 0;
+      const building = fury >= 2;
+      aura.visible = on || building;
+      const mat = aura.material as THREE.MeshBasicMaterial;
       if (on) {
         const p = 0.5 + 0.5 * Math.sin(t * 0.012);
-        (aura.material as THREE.MeshBasicMaterial).opacity = 0.45 + 0.4 * p;
+        mat.color.setHex(FURY_HOT);
+        mat.opacity = 0.45 + 0.4 * p;
         aura.rotation.y = t * 0.002;
+        aura.scale.setScalar(aura.userData.base ?? (aura.userData.base = aura.scale.x));
+      } else if (building) {
+        const p = 0.5 + 0.5 * Math.sin(t * (fury >= 3 ? 0.02 : 0.009));
+        mat.color.setHex(FURY_EMBER);
+        mat.opacity = (fury >= 3 ? 0.3 : 0.16) + (fury >= 3 ? 0.3 : 0.14) * p;
+        const base = aura.userData.base ?? (aura.userData.base = aura.scale.x);
+        aura.scale.setScalar(base * (fury >= 3 ? 0.9 : 0.78));
       }
     }
   }
@@ -305,10 +320,13 @@ class WrathView {
     app.scene.add(ring);
     app.impacts.push({ mesh: ring, start: app.animT, dur: 520, from: 1, to: msg.boss ? 7 : 4 });
     const you = app.renderYou;
-    if (Math.hypot(x - you.x, y - you.y) < 16) app.kickShake(msg.boss ? 0.35 : 0.12);
+    if (Math.hypot(x - you.x, y - you.y) < 16) {
+      app.kickShake(msg.boss ? 0.35 : 0.12);
+      app.pvp?.sfx.enrage(Boolean(msg.boss));
+    }
     if (!this.toldFury && !msg.boss) {
       this.toldFury = true;
-      showToast("The wrathful enrage when struck again and again — stun, root or still them to cool their fury.", "info");
+      showToast("The wrathful enrage when struck again and again — an ember ring warns first. Stun, root or still them to cool their fury.", "info");
     }
   }
 }

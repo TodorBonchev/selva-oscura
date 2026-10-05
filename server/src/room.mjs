@@ -704,6 +704,8 @@ class CantoRoom {
         // Avarice/Lust/Glut bell still — client gold measure tint
         stunLeft: e.stunLeft > 0.05 ? Math.round(e.stunLeft * 5) / 5 : undefined,
         enraged: e.enraged ? 1 : undefined,
+        // Wrath: fury stacks building toward an enrage (1–3; the 4th enrages)
+        fury: !e.enraged && e.fury > 0 ? e.fury : undefined,
         rootLeft: e.rootLeft > 0.05 ? Math.round(e.rootLeft * 5) / 5 : undefined,
         weakenLeft: e.weakenLeft > 0.05 ? Math.round(e.weakenLeft * 5) / 5 : undefined,
         slowLeft: e.slowLeft > 0.05 ? Math.round(e.slowLeft * 5) / 5 : undefined,

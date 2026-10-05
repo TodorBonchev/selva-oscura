@@ -112,6 +112,48 @@ export class Sfx {
     this.tone(740, 0.12, "sine", 0.22);
   }
 
+  /** PvE melee: the blade meeting a foe (finisher: a heavier thump under the cut). */
+  slash(fin = false) {
+    if (this.gated("slash", 55)) return;
+    this.noise(0.05, fin ? 0.2 : 0.14, "bandpass", 2600, 900, 1.1);
+    this.note(150, 72, 0.07, "triangle", fin ? 0.3 : 0.2);
+    if (fin) this.note(70, 44, 0.14, "sine", 0.28, 0.01);
+  }
+  /** PvE: a foe struck you (a dull, short knock; throttled under swarm hits). */
+  hurt(heavy = false) {
+    if (this.gated("hurt", heavy ? 90 : 140)) return;
+    this.note(heavy ? 120 : 190, heavy ? 52 : 110, heavy ? 0.16 : 0.08, "triangle", heavy ? 0.3 : 0.18);
+    this.noise(0.05, heavy ? 0.16 : 0.08, "lowpass", 900, 180, 0.7);
+  }
+  /** PvE: your killing blow (lighter than the PvP kill fanfare). */
+  fell(boss = false) {
+    if (this.gated("fell", 70)) return;
+    this.note(boss ? 70 : 110, boss ? 36 : 60, boss ? 0.32 : 0.14, "sine", boss ? 0.32 : 0.22);
+    this.noise(boss ? 0.22 : 0.08, boss ? 0.16 : 0.08, "lowpass", 1200, 120, 0.6);
+    if (boss) window.setTimeout(() => this.tone(220, 0.3, "triangle", 0.16), 90);
+  }
+  /** A heavy windup aimed at you (boss slams, eruptions): a low rising warning. */
+  warn(boss = false) {
+    if (this.gated("warn", 380)) return;
+    this.note(boss ? 82 : 120, boss ? 150 : 210, boss ? 0.32 : 0.2, "sawtooth", boss ? 0.13 : 0.09);
+  }
+  /** Wrath: a wrathful shade enrages nearby (a growl). */
+  enrage(boss = false) {
+    if (this.gated("enrage", 250)) return;
+    this.note(boss ? 92 : 130, boss ? 52 : 78, boss ? 0.42 : 0.26, "sawtooth", boss ? 0.2 : 0.14);
+    this.noise(boss ? 0.36 : 0.22, boss ? 0.12 : 0.08, "bandpass", 420, 220, 1.6);
+  }
+
+  private gateAt = new Map<string, number>();
+  /** True (skip) when the same cue played under `ms` ago. */
+  private gated(key: string, ms: number): boolean {
+    const now = performance.now();
+    const prev = this.gateAt.get(key);
+    if (prev !== undefined && now - prev < ms) return true;
+    this.gateAt.set(key, now);
+    return false;
+  }
+
   /** Level-up: a short rising bone-gold chime. */
   levelUp() {
     this.tone(523, 0.12, "sine", 0.26);

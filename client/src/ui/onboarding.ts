@@ -184,10 +184,14 @@ export class Onboarding {
         this.xpAsked = true;
         this.step = 3; // already slashed & cast last time — resume at the tree
       }
+    }
+    if (!this.active) return;
+    if (!this.root) {
+      // Let the arrival title card finish first — on phones the two stack in the same band
+      if (document.getElementById("canto-card")?.classList.contains("cc-show")) return;
       this.mount();
       this.render();
     }
-    if (!this.active) return;
     const canto = this.ctx.canto();
     if (canto && canto !== "inferno_01") {
       // walked through the gate (or travelled) — onboarding served its purpose
@@ -203,7 +207,10 @@ export class Onboarding {
       this.last = { x: pos.x, y: pos.y };
       if (!this.start) this.start = { ...pos };
     }
-    this.root?.classList.toggle("tut-over", this.treeOpen());
+    const treeOpen = this.treeOpen();
+    this.root?.classList.toggle("tut-over", treeOpen);
+    // Another sheet (bag, challenges, party…) over the world: step aside until it closes
+    this.root?.classList.toggle("tut-aside", !treeOpen && document.body.classList.contains("has-modal"));
     const id = STEPS[this.step].id;
     this.glow(this.glowFor(id));
     if (id === "move" && this.walked >= 4) this.advance();

@@ -329,7 +329,7 @@ export class LabelDeclutter {
 
   /**
    * Any other labelled node (POI, gate, loot, NPC): hidden while its label would sit on
-   * the HUD or under the title card. Its box is measured once per text / class change.
+   * the HUD or under the title card, or would be cut by the screen's side edge. Its box is measured once per text / class change.
    */
   private placeOther(host: DeclutterHost, rec: PlateRec, vw: number, vh: number, plates: Item[]) {
     const el = rec.hpEl;
@@ -356,6 +356,8 @@ export class LabelDeclutter {
       const x0 = (_v.x * 0.5 + 0.5) * vw - w * L.center.x;
       const y0 = (-_v.y * 0.5 + 0.5) * vh - h * L.center.y;
       cull = this.overHud(x0, y0, x0 + w, y0 + h);
+      // …or cut by the screen edge (a phone showed "TE 8m" for "AVARICE GATE 8m"): wait until it reads whole
+      if (!cull && (x0 < -w * 0.12 || x0 + w > vw + w * 0.12)) cull = true;
       // …or under a foe's plate shown there (a name can wait; a foe's life cannot)
       for (let i = 0; i < plates.length && !cull; i++) {
         const o = plates[i]!;

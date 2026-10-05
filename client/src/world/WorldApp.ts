@@ -3921,6 +3921,7 @@ export class WorldApp {
           const mine = this.lastHitFoe?.id === rid;
           const near = Math.hypot(pos.x - this.renderYou.x, pos.y - this.renderYou.y) < 16;
           const k = mine ? 1 : near ? 0.4 : 0;
+          if (mine) this.pvp?.sfx.fell(heavy);
           if (k > 0) {
             this.kickShake((heavy ? 0.55 : 0.24) * k, pos.x - this.renderYou.x, pos.y - this.renderYou.y);
             this.camPunch = Math.max(this.camPunch, (heavy ? 0.85 : 0.42) * k);
@@ -3956,6 +3957,16 @@ export class WorldApp {
     this.combat?.onTelegraph(msg, now);
     const kind = String(msg.kind || "");
     const dur = Math.max(0.1, (Number(msg.duration) || 500) / 1000);
+    {
+      // A heavy windup that will land on (or right by) you: a low rising warning
+      const wgt = kind === "boss_slam" ? "boss" : kind === "champ_slam" || kind === "champ_cleave" ? "champ" : teleWeight(kind);
+      const youId = String(this.room?.you?.id ?? this.socket.playerId ?? "");
+      if (wgt && String(msg.attackerId ?? "") !== youId) {
+        const r = Number(msg.radius) || 3;
+        const d = Math.hypot((Number(msg.x) || 0) - this.renderYou.x, (Number(msg.y) || 0) - this.renderYou.y);
+        if (d < r + (wgt === "boss" ? 3 : 1.5)) this.pvp?.sfx.warn(wgt === "boss");
+      }
+    }
     if (kind === "boss_slam") {
       const phase = Number(this.room?.entities?.find((e: any) => String(e.id) === String(msg.attackerId))?.phase) || 1;
       this.flashDodge(dur);
@@ -4093,6 +4104,7 @@ export class WorldApp {
       this.combat?.number(this.renderYou.x, heroY + 2.2, this.renderYou.y, msg.damage, "self", "you", now);
       if (heavy) flashSlamSting();
       else hapticCombat("hurt");
+      this.pvp?.sfx.hurt(heavy);
       const soaked = Number(msg.soaked) || 0;
       if (soaked > 0 && msg.wardActive) flashWardSoak();
       else if (soaked > 0 && !msg.wardActive) {
@@ -4951,6 +4963,7 @@ export class WorldApp {
     this.hitFlashAmt = Math.max(this.hitFlashAmt, fin ? 0.14 : 0.08);
     this.hitStopUntil = now + HIT_STOP_MS + (fin ? 34 : 0);
     if (fin) hapticCombat("heavy");
+    this.pvp?.sfx.slash(fin || live.kind === "boss");
   }
 
   /** heroMotor: live render position of a foe (null once gone or dead). */

@@ -21,7 +21,7 @@
  * Wire: telegraph kind styx_eruption (attackerId "mech:wrath" for the marsh,
  * the boss id for his line); { type: "wrath_fx", fx: "enrage",
  * id, x, y, boss? } when an enrage starts. Snapshot entities carry
- * enraged: 1 while it holds.
+ * enraged: 1 while it holds, and fury: 1–3 while it builds (client warns from 2).
  */
 const FURY_ARCH = new Set(["wrath_shade", "fury_champion"]);
 const BOSS_ID = "argenti_fury";
@@ -124,6 +124,7 @@ function gainFury(room, e) {
   if ((e.stunLeft || 0) > 0 || (e.rootLeft || 0) > 0) return;
   e.fury = Math.min(FURY_CAP, (e.fury || 0) + 1);
   if (e.fury >= FURY_CAP) beginEnrage(room, e, ENRAGE_S);
+  else room.markDirty();
 }
 
 function tickFury(room, dt) {
@@ -144,6 +145,7 @@ function tickFury(room, dt) {
         const steps = Math.floor(e.furyAcc / FURY_DECAY);
         e.furyAcc -= steps * FURY_DECAY;
         e.fury = Math.max(0, e.fury - steps);
+        room.markDirty();
         if (e.fury <= 0) {
           e.fury = 0;
           e.furyAcc = 0;
