@@ -193,6 +193,11 @@ function tickStyx(room, dt) {
     if (s._styxCd > 0) continue;
     s._styxCd = STYX_EVERY;
     erupt(room, s.x, s.y, "mech:wrath");
+    // The marsh's eruptions were never explained: once per pilgrim, on the first one
+    if (!s._styxTold) {
+      s._styxTold = true;
+      room.toast(s.ws, "info", "«Fitti nel limo» — the Styx boils under whoever lingers by it. Keep moving along the bank.");
+    }
   }
 }
 

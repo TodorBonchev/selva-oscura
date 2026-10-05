@@ -2537,6 +2537,13 @@ export class WorldApp {
       if (e.kind === "boss") {
         rec.group.userData.windupLeft = Number(e.windupLeft) || 0;
         const ph = Number(e.phase) || 1;
+        // Lust / Gluttony phase 2 got only a toast (Avarice and Wrath have their own beats):
+        // a ring in the canto's colour and a camera punch on the 1 → 2 edge, never on first
+        // sight (joining mid-fight) — the snapshot's phase is the only signal both share
+        const prevPh = rec.group.userData.bossPhase as number | undefined;
+        if (prevPh === 1 && ph >= 2 && (this.room?.cantoId === "inferno_05" || this.room?.cantoId === "inferno_06")) {
+          this.bossPhaseBeat(e, this.room.cantoId === "inferno_05" ? 0xd8283c : 0xb8c070);
+        }
         rec.group.userData.bossPhase = ph;
         if (this.room?.cantoId === "inferno_07" && e.id === "hoard_crush") {
           if (ph >= 2 && !this.crushEnrageShown) {
@@ -3015,6 +3022,29 @@ export class WorldApp {
     rec.label.element.remove();
     // Free the node's own buffers/materials (shared kit + cached parts are marked shared)
     disposeNode3D(rec.group);
+  }
+
+  /** A boss's phase-2 edge (Lust, Gluttony): two rings out from its feet, sparks, a punch. */
+  private bossPhaseBeat(e: any, hex: number) {
+    const x = Number(e.x) || 0;
+    const y = Number(e.y) || 0;
+    for (let i = 0; i < 2; i++) {
+      const ring = acquireFxRing(0.4, 0.62, isCompactUi() ? 24 : 36, i ? 0xfff0dc : hex, 0.85);
+      setPlanar(ring.position, x, y, this.surfaceY(x, y, 0.1));
+      this.scene.add(ring);
+      this.impacts.push({ mesh: ring, start: this.animT + i * 140, dur: 760, from: 1, to: i ? 6 : 9 });
+    }
+    if (this.sparks.length < (isCompactUi() ? 2 : 4)) {
+      const b = spawnSparks(x, y, this.surfaceY(x, y, 1.4), hex, this.animT);
+      b.dur = 640;
+      this.scene.add(b.points);
+      this.sparks.push(b);
+    }
+    if (Math.hypot(x - this.renderYou.x, y - this.renderYou.y) < 24) {
+      this.kickShake(0.36);
+      this.camPunch = Math.max(this.camPunch, 0.5);
+      this.pvp?.sfx.enrage(true);
+    }
   }
 
   /** Sparse bone-gold coin motes on pack death — budgeted, SFX-less. */
