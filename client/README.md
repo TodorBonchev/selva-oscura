@@ -74,7 +74,7 @@ cd client && npm install && npm run build
 # outputs static assets to client/dist
 ```
 
-`vercel.json` sets `outputDirectory: dist`. Set `VITE_GAME_SERVER_URL` in the Vercel project if the Railway URL changes.
+`vercel.json` sets `outputDirectory: dist`. The production Vercel project is **`selva-oscura`** (Root Directory `client`); the similarly named `client` project is a stray link — see [../docs/DEPLOY.md](../docs/DEPLOY.md). Set `VITE_GAME_SERVER_URL` on `selva-oscura` if the Railway URL changes.
 
 ## 3D world
 

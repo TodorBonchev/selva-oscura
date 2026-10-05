@@ -20,7 +20,7 @@ Dark Wood hub → Lust (Inferno V) packs + champion + boss `minos_gate` → serv
 
 | | |
 |---|---|
-| **Client (Vercel)** | Builds from `client/` → `dist` |
+| **Client (Vercel)** | Project `selva-oscura` builds from `client/` → `dist` (the `client` Vercel project is a stray duplicate — see [docs/DEPLOY.md](docs/DEPLOY.md)) |
 | **Game server (Railway)** | `https://game-server-production-b9f9.up.railway.app` |
 
 Local client against local server:

@@ -7285,7 +7285,8 @@ body.hud-compact:has(.sk-panel:not(.hidden)) #toast-layer {
 .tut-dots i.on { background: rgba(214, 178, 108, 0.75); }
 .tut-dots i.cur { background: #f4d58d; box-shadow: 0 0 6px rgba(244, 213, 141, 0.7); }
 @media (max-width: 640px), (pointer: coarse) and (max-height: 900px) {
-  .tut-card { bottom: auto; top: 92px; font-size: 13px; padding: 8px 12px; }
+  /* below the top HUD row (objective line, minimap, ★ Skills) so the pointed-at button stays visible */
+  .tut-card { bottom: auto; top: min(242px, 30vh); font-size: 13px; padding: 8px 12px; }
   .tut-skip { min-height: 36px; padding: 4px 14px; }
   .tut-title { font-size: 15px; }
 }
