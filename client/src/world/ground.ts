@@ -21,6 +21,7 @@ import { buildGiantsWell } from "./giantsWell";
 import type { Tier } from "./quality";
 import { makeLightShaft } from "./fx";
 import { CAUSEWAY_HALF, CAUSEWAY_PADS, CAUSEWAY_PTS, mireDepth } from "./gluttonyMire";
+import { WRATH_DAIS, WRATH_HUNT, styxDepth } from "./wrathStyx";
 
 export type GroundRig = {
   group: THREE.Group;
@@ -105,6 +106,7 @@ const AVARICE_HUNT: [number, number][] = [
 export function huntPathFor(cantoId: string): [number, number][] {
   if (cantoId === "inferno_07") return AVARICE_HUNT;
   if (cantoId === "inferno_06") return GLUTTONY_HUNT;
+  if (cantoId === "inferno_08") return WRATH_HUNT;
   return LUST_HUNT;
 }
 
@@ -112,6 +114,7 @@ export function huntPathFor(cantoId: string): [number, number][] {
 function bossDaisFor(cantoId: string): { x: number; z: number } {
   if (cantoId === "inferno_07") return { x: 138, z: 48 };
   if (cantoId === "inferno_06") return { x: 138, z: 48 };
+  if (cantoId === "inferno_08") return WRATH_DAIS;
   return { x: 140, z: 60 };
 }
 
@@ -169,6 +172,12 @@ export function terrainHeight(
   } else if (isAva) {
     // Hard scorched flats between weight lanes
     n *= 0.7;
+  }
+  // Wrath: the Styx sags into a shallow channel (the water sheet sits just over it);
+  // its banks stay soft and low
+  if (cantoId === "inferno_08") {
+    const sd = styxDepth(wx, wz);
+    if (sd < 2.5) n = n * 0.2 - (sd < 0 ? 0.12 : 0.12 * (1 - sd / 2.5));
   }
   // Avarice: the processions' tracks are beaten flat (the weights roll level)
   if (isAva) {
@@ -233,6 +242,8 @@ export function buildGround(
     ? mats.groundHub
     : cantoId === "inferno_07"
       ? mats.groundAvarice
+      : cantoId === "inferno_08"
+      ? mats.groundWrath
       : cantoId === "inferno_06"
         ? mats.groundGlut
         : mats.groundLust;
@@ -262,6 +273,8 @@ export function buildGround(
         ? 0x1a1810
         : cantoId === "inferno_07"
           ? 0x14120a
+          : cantoId === "inferno_08"
+          ? 0x10100c
           : cantoId === "inferno_06"
             ? 0x18160c
             : 0x201008,
@@ -395,6 +408,7 @@ export function buildGround(
     const hunt = huntPathFor(cantoId);
     const isGlut = cantoId === "inferno_06";
     const isAva = cantoId === "inferno_07";
+    const isWrath = cantoId === "inferno_08";
     const isWeightLane = isGlut || isAva;
     const arenas: { x: number; z: number; r: number }[] = isWeightLane
       ? isAva
@@ -410,6 +424,14 @@ export function buildGround(
             { x: 138, z: 48, r: 9 },
           ]
         : [{ x: 138, z: 48, r: 9 }]
+      : isWrath
+      ? [
+          // Wrath: muddy landings where the wrathful brawl, and Argenti's landing
+          { x: 34, z: 62, r: 5 },
+          { x: 76, z: 60, r: 6 },
+          { x: 98, z: 54, r: 5 },
+          { x: 138, z: 58, r: 9 },
+        ]
       : [
           // Lust: pack arenas between the windbreak rock islands (canto JSON)
           { x: 34, z: 56, r: 5 },
@@ -461,6 +483,26 @@ export function buildGround(
           colors[i * 3 + 1] = k * 0.32 * sink * corner;
           colors[i * 3 + 2] = k * 0.18 * sink * corner;
         }
+      } else if (isWrath) {
+        // Grey-brown silt; a pale bone road; the Styx itself near-black (its glossy
+        // sheet is laid over it by the canto mechanic)
+        const sd = styxDepth(wx, wz);
+        const onPath = pathD < 3.8;
+        const sink = pathD > 12 ? 0.55 : pathD > 6 ? 0.75 : 1;
+        if (sd < 0) {
+          colors[i * 3] = k * 0.22;
+          colors[i * 3 + 1] = k * 0.2;
+          colors[i * 3 + 2] = k * 0.15;
+        } else if (onPath) {
+          colors[i * 3] = k * 1.08;
+          colors[i * 3 + 1] = k * 0.92;
+          colors[i * 3 + 2] = k * 0.7;
+        } else {
+          const bank = sd < 3 ? 0.55 + (sd / 3) * 0.45 : 1;
+          colors[i * 3] = k * 0.62 * sink * bank;
+          colors[i * 3 + 1] = k * 0.5 * sink * bank;
+          colors[i * 3 + 2] = k * 0.38 * sink * bank;
+        }
       } else {
         colors[i * 3] = k * 1.05;
         colors[i * 3 + 1] = k * 0.72;
@@ -479,6 +521,7 @@ export function buildGround(
       const x = 8 + hash(i, 7) * (w - 16);
       const z = 8 + hash(i, 8) * (h - 16);
       if (blocked(x, z, 3.2) || distToPoly(x, z, hunt) < 4.5) continue;
+      if (isWrath && styxDepth(x, z) < 2) continue;
       if (arenas.some((a) => Math.hypot(x - a.x, z - a.z) < a.r + 1.5)) continue;
       const ob = makeRuinObelisk(mats);
       ob.position.set(x, heightAt(x, z), z);
@@ -534,6 +577,7 @@ export function buildGround(
         mat.opacity = 0.32;
         if (isGlut && mat.color) mat.color.set(0x6a5a30);
         if (isAva && mat.color) mat.color.set(0x8a7040);
+        if (isWrath && mat.color) mat.color.set(0x8a3a24);
         group.add(rib);
       }
       const crack = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.62, 0.05, 0.22), mats.ember);

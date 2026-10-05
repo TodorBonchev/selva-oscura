@@ -39,18 +39,20 @@ export const CATCHUP_XP = {
   inferno_07: 16400,
 };
 
-const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart"]);
+const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart", "rage_heart"]);
 
 const CANTO_TIER_N = {
   inferno_05: 1,
   inferno_06: 2,
   inferno_07: 3,
+  inferno_08: 4,
 };
 
 const REC_UPPER = {
   inferno_05: 12,
   inferno_06: 22,
   inferno_07: 50,
+  inferno_08: 50,
 };
 
 const FIRST_CLEAR_XP = 800;

@@ -355,13 +355,19 @@ export class Guidance {
     }
     if (cantoId === "inferno_07") {
       return clears.includes("inferno_07")
-        ? "The Dark Wood road stands open past the dais"
+        ? "The Wrath gate and the Dark Wood road stand open past the dais"
         : "Cross between the weights' clashes, then break Plutus";
+    }
+    if (cantoId === "inferno_08") {
+      return clears.includes("inferno_08")
+        ? "The Dark Wood road stands open past Argenti's landing"
+        : "Ford the Styx, break the Rage Heart, then Filippo Argenti";
     }
     if (cantoId === "inferno_31") return "The pit is open — strike, or queue a ranked duel";
     if (cantoId === "inferno_01") {
       if (!you?.spokeToGuide) return "Speak with the Guide, then take the gold gate to Lust";
-      if (clears.includes("inferno_07")) return "Avarice is clear — writ, stash, or hunt the circles again";
+      if (clears.includes("inferno_08")) return "Wrath is clear — writ, stash, or hunt the circles again";
+      if (clears.includes("inferno_07")) return "Avarice is clear — the Styx waits beyond Plutus's dais";
       if (clears.includes("inferno_06")) return "Gluttony is clear — bank your drops, then on to Avarice";
       if (clears.includes("inferno_05")) return "Lust is clear — bank your drops, then on to Gluttony";
       return "No foes here — the gold gate leads to Lust";

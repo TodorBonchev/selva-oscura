@@ -25,9 +25,9 @@ export const ATTACKS = {
   boss: { shape: "circle", windup: 1.4, radius: 3.2, trigger: 2.6, recover: 1.35, kind: "boss_slam" },
 };
 
-const WISPS = new Set(["gale_wisp", "mud_wisp", "coin_wisp"]);
+const WISPS = new Set(["gale_wisp", "mud_wisp", "coin_wisp", "sullen_wisp"]);
 const WARDENS = new Set(["gale_warden", "mire_warden", "ledger_warden"]);
-const SHADES = new Set(["whirl_shade", "mire_shade", "weight_shade"]);
+const SHADES = new Set(["whirl_shade", "mire_shade", "weight_shade", "wrath_shade"]);
 
 export function isWisp(e) {
   return WISPS.has(e?.archetype);
@@ -35,7 +35,10 @@ export function isWisp(e) {
 
 /** Champion-class (slam windup, poise) — not the heart pillars, which never attack. */
 export function isChampionClass(e) {
-  return e?.kind === "mob" && (Boolean(e.champion) || e.archetype === "weight_champion");
+  return (
+    e?.kind === "mob" &&
+    (Boolean(e.champion) || e.archetype === "weight_champion" || e.archetype === "fury_champion")
+  );
 }
 
 /** Which attack a mob uses (a canto mechanic may set e.attackProfile to override). */
@@ -51,7 +54,7 @@ export function attackFor(e) {
 }
 
 /** Locomotion per family: top speed, accel (u/s²), turn rate (rad/s), surround radius. */
-export function moveFor(e) {
+function moveBase(e) {
   const a = e.archetype || "";
   if (e.kind === "boss") return { speed: 2.2, accel: 3.2, turn: 2.2, slot: 2.3 };
   if (WISPS.has(a)) return { speed: 5.4, accel: 16, turn: 8, slot: 2.7 };
@@ -61,10 +64,24 @@ export function moveFor(e) {
   return { speed: weight ? 2.65 : 3.0, accel: 9, turn: 5.5, slot: 1.75 };
 }
 
+/**
+ * Wrath enrage sets e.enraged. Shades and champions move 25% faster while it
+ * holds; a boss enrage is damage only (wrath.mjs).
+ */
+export function moveFor(e) {
+  const loco = moveBase(e);
+  if (e?.enraged && e.kind !== "boss") return { ...loco, speed: loco.speed * 1.25 };
+  return loco;
+}
+
 /** Body radius for player collision and mob spacing. */
 export function bodyRadius(e, cantoId) {
   const a = e.archetype || "";
   if (e.kind === "boss") return 1.8;
+  if (a === "sullen_wisp") return 0.48;
+  if (a === "wrath_shade") return 0.74;
+  if (a === "fury_champion") return 1.05;
+  if (a === "rage_heart") return 0.95;
   if (cantoId === "inferno_07") {
     // (Avarice weights are bulkier — the radii the weight collision always used)
     if (a === "coin_wisp") return 0.85;

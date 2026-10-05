@@ -1,0 +1,205 @@
+{
+  "id": "inferno_08",
+  "canticle": "inferno",
+  "number": 8,
+  "title": "Wrath",
+  "subtitle_it": "Fitti nel limo",
+  "role": "combat",
+  "circle": 5,
+  "geo": {
+    "bounds": {
+      "width": 160,
+      "height": 120
+    },
+    "spawn": {
+      "x": 18,
+      "y": 60
+    },
+    "exits": [
+      {
+        "to_canto": "inferno_07",
+        "x": 10,
+        "y": 60,
+        "label": "Return to Avarice ←"
+      },
+      {
+        "to_canto": "inferno_01",
+        "x": 14,
+        "y": 52,
+        "label": "Dark Wood road"
+      }
+    ],
+    "pois": [
+      {
+        "id": "styx_shrine",
+        "kind": "shrine",
+        "x": 26,
+        "y": 64,
+        "label": "Styx Shrine",
+        "hint": "restores life and breath on the south bank of the Styx"
+      },
+      {
+        "id": "ferry_shrine",
+        "kind": "shrine",
+        "x": 104,
+        "y": 54,
+        "label": "Ferry Shrine",
+        "hint": "restores life and breath short of Phlegyas' ferry"
+      },
+      {
+        "id": "sunken_cache",
+        "kind": "cache",
+        "x": 40,
+        "y": 74,
+        "label": "Sunken Cache",
+        "hint": "One sunken drop per visit — in the mud south of the road"
+      },
+      {
+        "id": "phlegyas_lantern",
+        "kind": "bell",
+        "x": 122,
+        "y": 58,
+        "label": "Phlegyas' Lantern",
+        "hint": "Rings to still nearby wrathful"
+      },
+      {
+        "id": "wrath_portal_home",
+        "kind": "portal",
+        "x": 151,
+        "y": 54,
+        "label": "Dark Wood road",
+        "to_canto": "inferno_01",
+        "require_clear": "inferno_08",
+        "hint": "Once Filippo Argenti sinks, the road home opens past the ferry"
+      }
+    ],
+    "styx": {
+      "points": [[0, 44], [26, 46], [46, 54], [58, 70], [76, 84], [96, 76], [108, 60], [118, 44], [136, 34], [160, 36]],
+      "width": 9
+    }
+  },
+  "packs": [
+    {
+      "id": "wrath_ford",
+      "name": "Ford Brawl",
+      "archetype": "wrath_shade",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 40, "y": 62 },
+      "notes": "First wrathful past the Styx Shrine — they fight in the mud on the south bank"
+    },
+    {
+      "id": "wrath_sullen_a",
+      "name": "Sullen Ford",
+      "archetype": "sullen_wisp",
+      "count": 4,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 54, "y": 64 },
+      "notes": "«Fitti nel limo» — small, fast bubbles under the surface"
+    },
+    {
+      "id": "wrath_mud_brawl",
+      "name": "Mud Brawl",
+      "archetype": "wrath_shade",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 70, "y": 64 },
+      "notes": "South of the road, short of the Rage Heart"
+    },
+    {
+      "id": "wrath_rage_heart",
+      "name": "Rage Heart",
+      "archetype": "rage_heart",
+      "count": 1,
+      "elite": true,
+      "champion": true,
+      "drop_table": "avarice_pack_weights",
+      "anchor": { "x": 84, "y": 62 },
+      "notes": "Wards nearby shades until broken — the heart of the brawl"
+    },
+    {
+      "id": "wrath_warded",
+      "name": "Warded Brawl",
+      "archetype": "wrath_shade",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 96, "y": 66 },
+      "notes": "Inside the Rage Heart's ward — break the heart, then the brawl"
+    },
+    {
+      "id": "wrath_fury_pair",
+      "name": "Fury Champions",
+      "archetype": "fury_champion",
+      "count": 2,
+      "elite": true,
+      "champion": true,
+      "drop_table": "avarice_pack_weights",
+      "anchor": { "x": 112, "y": 64 },
+      "notes": "Elite pair on the road before Phlegyas' Lantern"
+    },
+    {
+      "id": "wrath_sullen_b",
+      "name": "Ferry Gurgle",
+      "archetype": "sullen_wisp",
+      "count": 4,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 124, "y": 70 },
+      "notes": "Sullen under the ferry approach — quick, easy to step past, swarm if ignored"
+    },
+    {
+      "id": "wrath_approach",
+      "name": "Argenti's Approach",
+      "archetype": "wrath_shade",
+      "count": 3,
+      "elite": false,
+      "champion": false,
+      "drop_table": "inferno_pack_common",
+      "anchor": { "x": 132, "y": 68 },
+      "notes": "Last brawl before Filippo Argenti, south of the dais"
+    }
+  ],
+  "bosses": [
+    {
+      "id": "argenti_fury",
+      "name": "Filippo Argenti",
+      "drop_table": "avarice_pack_weights",
+      "anchor": { "x": 138, "y": 58 },
+      "first_clear_emit": true,
+      "notes": "«Via costà con li altri cani!»"
+    }
+  ],
+  "first_clear": {
+    "enabled": true,
+    "event": "FirstClear",
+    "requires": "argenti_fury",
+    "notes": "Filippo Argenti sunk — Wrath yields the ferry; the Dark Wood road opens past the dais"
+  },
+  "daily_quests": [
+    {
+      "id": "wrath_daily_lantern",
+      "objective": "Ring Phlegyas' Lantern to still the wrathful in the mud",
+      "emit_event": "DailyQuest",
+      "notes": "Contrapasso of wrath: still the fighters in the Styx; shares UTC daily cap with Dark Wood writ"
+    }
+  ],
+  "style_kit": {
+    "palette": "inferno_red_black",
+    "kit_id": "circle_05_wrath",
+    "notes": "Circle kit 5 of 12; the Styx marsh, wrathful in the mud and the sullen beneath; Doré bone-gold"
+  },
+  "loot_density": "raw_d2",
+  "legal": {
+    "text_source": "italian_original",
+    "notes": "Names and short Italian tags only; original encounter design; no assets from other Dante games"
+  }
+}

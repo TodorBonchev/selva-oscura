@@ -33,7 +33,7 @@ export type Objective = {
   target: ObjectiveTarget | null;
 };
 
-const HEART_ARCH = new Set(["storm_heart", "mire_heart", "hoard_heart"]);
+const HEART_ARCH = new Set(["storm_heart", "mire_heart", "hoard_heart", "rage_heart"]);
 /** Named mid-lane elites that stand before each boss. */
 const MID_ELITE = /^(bufera|cerbero|counterweight)$/i;
 
@@ -50,6 +50,7 @@ function bossShort(canto: string, boss: any): string {
   if (canto === "inferno_05") return "Judge";
   if (canto === "inferno_06") return "Triple Maw";
   if (canto === "inferno_07") return "Hoard Crush";
+  if (canto === "inferno_08") return "Filippo Argenti";
   return String(boss?.name || "Boss");
 }
 
@@ -57,24 +58,28 @@ function bossLine(canto: string): string {
   if (canto === "inferno_05") return "Slay the Judge of the Gate";
   if (canto === "inferno_06") return "Slay the Triple Maw";
   if (canto === "inferno_07") return "Break Hoard Crush";
+  if (canto === "inferno_08") return "Defeat Filippo Argenti";
   return "Slay the boss";
 }
 
 function heartLine(canto: string): string {
   if (canto === "inferno_06") return "Break the Mire Heart — it wards nearby shades";
   if (canto === "inferno_07") return "Break the Hoard Heart — it wards nearby weights";
+  if (canto === "inferno_08") return "Break the Rage Heart — it wards nearby wrathful";
   return "Break the Storm Heart — it wards nearby shades";
 }
 
 function shrineName(canto: string): string {
   if (canto === "inferno_06") return "Mire Shrine";
   if (canto === "inferno_07") return "Ledger Shrine";
+  if (canto === "inferno_08") return "Styx Shrine";
   return "Wind Shrine";
 }
 
 function bellName(canto: string): string {
   if (canto === "inferno_06") return "Mire Bell";
   if (canto === "inferno_07") return "Ledger Bell";
+  if (canto === "inferno_08") return "Phlegyas' Lantern";
   return "Gale Bell";
 }
 
@@ -97,7 +102,7 @@ export function computeObjective(room: any, you: Vec2, todayUtc: string): Object
     return { text: "The well is open", sub: "", target: null };
   }
 
-  if (canto === "inferno_05" || canto === "inferno_06" || canto === "inferno_07") {
+  if (canto === "inferno_05" || canto === "inferno_06" || canto === "inferno_07" || canto === "inferno_08") {
     let boss: any = null;
     let heart: any = null;
     let elite: any = null;
@@ -129,7 +134,7 @@ export function computeObjective(room: any, you: Vec2, todayUtc: string): Object
         text = heartLine(canto);
         target = entTarget(heart, String(heart.name || "Heart"), "foe");
       } else if (elite && !passed(elite, you) && Math.hypot(elite.x - you.x, elite.y - you.y) < Math.hypot(boss.x - you.x, boss.y - you.y)) {
-        text = `Defeat ${elite.name} — then ${canto === "inferno_07" ? "" : "the "}${bossShort(canto, boss)}`;
+        text = `Defeat ${elite.name} — then ${canto === "inferno_07" || canto === "inferno_08" ? "" : "the "}${bossShort(canto, boss)}`;
         target = entTarget(elite, String(elite.name), "foe");
       } else {
         text = bossLine(canto);
@@ -188,8 +193,10 @@ export function computeObjective(room: any, you: Vec2, todayUtc: string): Object
     text = "Claim today's writ at the board";
     target = entTarget(board, "Writ board", "poi");
   } else if (fwdHub) {
-    text = clears.includes("inferno_07")
+    text = clears.includes("inferno_08")
       ? "Hunt again — the Lust gate leads down"
+      : clears.includes("inferno_07")
+      ? "Onward to Wrath — the Styx lies past Avarice"
       : clears.includes("inferno_06")
         ? "Onward to Avarice — through Lust and Gluttony"
         : clears.includes("inferno_05")

@@ -28,6 +28,14 @@
         "x": 14,
         "y": 44,
         "label": "Dark Wood stash road"
+      },
+      {
+        "to_canto": "inferno_08",
+        "x": 150,
+        "y": 66,
+        "label": "Toward Wrath →",
+        "require_clear": "inferno_07",
+        "hint": "Plutus broken — the marsh of the Styx lies beyond"
       }
     ],
     "pois": [

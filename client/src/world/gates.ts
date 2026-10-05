@@ -22,6 +22,7 @@ export function cantoName(id: string | undefined): string {
   if (id === "inferno_05") return "Lust";
   if (id === "inferno_06") return "Gluttony";
   if (id === "inferno_07") return "Avarice";
+  if (id === "inferno_08") return "Wrath";
   if (id === "inferno_01") return "Dark Wood";
   if (id === "inferno_31") return "Pozzo dei Giganti";
   return "the road";
@@ -67,6 +68,7 @@ export function lockReason(e: any): string {
   if (need === "inferno_05") return "Slay Minos";
   if (need === "inferno_06") return "Slay the Triple Maw";
   if (need === "inferno_07") return "Break Plutus";
+  if (need === "inferno_08") return "Defeat Filippo Argenti";
   return "Sealed";
 }
 
@@ -95,9 +97,14 @@ export function visibleGates(entities: any[]): any[] {
 }
 
 export function forwardGate(entities: any[], cantoId: string | undefined): any | null {
+  // A clear may open two roads (Avarice: Dark Wood home + the Styx onward): the road
+  // deeper into the Inferno wins over the road home.
+  let home: any = null;
   for (const e of entities) {
     if (!isGate(e) || isTwinExitOf(e, entities)) continue;
-    if (gateIsForward(e, cantoId)) return e;
+    if (!gateIsForward(e, cantoId)) continue;
+    if (e.toCanto !== "inferno_01") return e;
+    home = home || e;
   }
-  return null;
+  return home;
 }

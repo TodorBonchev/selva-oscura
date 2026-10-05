@@ -1596,6 +1596,7 @@ export class WorldApp {
         this.room.bounds,
         this.room.cantoId === "inferno_05" ||
           this.room.cantoId === "inferno_06" ||
+          this.room.cantoId === "inferno_08" ||
           this.room.cantoId === "inferno_31" ||
           ava,
         this.renderYou.x,
@@ -1917,7 +1918,8 @@ export class WorldApp {
     const inCombatRoom =
       this.room?.cantoId === "inferno_05" ||
       this.room?.cantoId === "inferno_06" ||
-      this.room?.cantoId === "inferno_07";
+      this.room?.cantoId === "inferno_07" ||
+      this.room?.cantoId === "inferno_08";
     const inGlut = this.room?.cantoId === "inferno_06";
     const inAva = this.room?.cantoId === "inferno_07";
     const fighting = this.inCombat();
@@ -2476,7 +2478,7 @@ export class WorldApp {
     let heart: any = null;
     for (const h of this.room.entities) {
       const a = h.archetype;
-      if ((a === "storm_heart" || a === "mire_heart" || a === "hoard_heart") && (h.hp == null || h.hp > 0)) {
+      if ((a === "storm_heart" || a === "mire_heart" || a === "hoard_heart" || a === "rage_heart") && (h.hp == null || h.hp > 0)) {
         heart = h;
         break;
       }
@@ -2583,6 +2585,7 @@ export class WorldApp {
           a !== "storm_heart" &&
           a !== "mire_heart" &&
           a !== "hoard_heart" &&
+          a !== "rage_heart" &&
           Math.hypot(heart.x - e.x, heart.y - e.y) <= 14;
         ward.visible = Boolean(near);
       }
@@ -2713,7 +2716,10 @@ export class WorldApp {
 
   spawnNode(id: string, kind: KindKey, e: any): NodeRec {
     const isHeartArch =
-      e.archetype === "storm_heart" || e.archetype === "mire_heart" || e.archetype === "hoard_heart";
+      e.archetype === "storm_heart" ||
+      e.archetype === "mire_heart" ||
+      e.archetype === "hoard_heart" ||
+      e.archetype === "rage_heart";
     const arch = String(e.archetype || "");
     const isMire = arch.startsWith("mire_") || arch === "mud_wisp";
     const isAvaArch =
@@ -3042,7 +3048,8 @@ export class WorldApp {
     const combatCompact =
       (this.room?.cantoId === "inferno_05" ||
         this.room?.cantoId === "inferno_06" ||
-        this.room?.cantoId === "inferno_07") &&
+        this.room?.cantoId === "inferno_07" ||
+        this.room?.cantoId === "inferno_08") &&
       isCompactUi();
     const midboss = rec.hpEl.classList.contains("midboss");
     const inAva = this.room?.cantoId === "inferno_07";
@@ -3105,7 +3112,7 @@ export class WorldApp {
     const range =
       canto === "inferno_07"
         ? MAGNET_RANGE + 1.4 + (crushPull ? 2.2 : 0)
-        : canto === "inferno_05" || canto === "inferno_06"
+        : canto === "inferno_05" || canto === "inferno_06" || canto === "inferno_08"
           ? MAGNET_RANGE + 0.7
           : MAGNET_RANGE;
     if (d > range || d < 0.01) return this.entityRenderPos(e);
@@ -3118,7 +3125,7 @@ export class WorldApp {
         ? crushPull
           ? 0.92
           : 0.72
-        : canto === "inferno_05" || canto === "inferno_06"
+        : canto === "inferno_05" || canto === "inferno_06" || canto === "inferno_08"
           ? 0.64
           : 0.55);
     return { x: e.x + (you.x - e.x) * pull, y: e.y + (you.y - e.y) * pull };
@@ -3492,7 +3499,7 @@ export class WorldApp {
           if (cantoChanged && prevCanto && prevCanto !== msg.room.cantoId) {
             this.skillVfx?.clear();
             if (prevCanto === "inferno_07") this.disposeAvaEphemerals();
-            else if (prevCanto === "inferno_05" || prevCanto === "inferno_06") {
+            else if (prevCanto === "inferno_05" || prevCanto === "inferno_06" || prevCanto === "inferno_08") {
               this.disposeCombatEphemerals();
             }
           }
@@ -3587,6 +3594,12 @@ export class WorldApp {
                   showToast("Bank champion drops at the Dark Wood stash when you return", "info");
                 }
               }
+              if (c === "inferno_08") {
+                const argenti = this.room?.entities?.find((e: any) => e.kind === "boss");
+                if (argenti) this.spawnAvaFirstClearBurst(argenti);
+                else this.camPunch = Math.max(this.camPunch, 1.5);
+                showToast("Filippo Argenti is torn by his own — the road home opens past his landing", "info");
+              }
               if (c === "inferno_07") {
                 document.body.classList.add("ava-first-clear");
                 document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
@@ -3626,7 +3639,7 @@ export class WorldApp {
           this.mireHeartSeenAlive = false;
           this.poiHintsShown.clear();
         }
-        if ((msg.room.cantoId === "inferno_07" || msg.room.cantoId === "inferno_31") && (first || cantoChanged)) {
+        if ((msg.room.cantoId === "inferno_07" || msg.room.cantoId === "inferno_08" || msg.room.cantoId === "inferno_31") && (first || cantoChanged)) {
           const epi = String(msg.room.subtitleIt || msg.room.subtitle_it || "").trim();
           if (epi) {
             const el = document.getElementById("canto-title");
@@ -4653,6 +4666,7 @@ export class WorldApp {
         near.e.archetype === "hoard_heart" ||
         near.e.archetype === "storm_heart" ||
         near.e.archetype === "mire_heart" ||
+        near.e.archetype === "rage_heart" ||
         /^counterweight$/i.test(String(near.e.name || ""));
       this.plateTargetId = String(near.e.id);
       setTargetPlate(near.e.name || "Foe", hp / max, {

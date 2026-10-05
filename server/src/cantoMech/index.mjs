@@ -1,5 +1,5 @@
 /**
- * Canto mechanics — one module per combat canto (lust / gluttony / avarice), each the
+ * Canto mechanics — one module per combat canto (lust / gluttony / avarice / wrath), each the
  * home of that canto's signature environmental mechanic and boss pattern.
  *
  * getMech(cantoId) returns the canto's hook object ({} when it has none). Every hook
@@ -64,11 +64,13 @@
 import lust from "./lust.mjs";
 import gluttony from "./gluttony.mjs";
 import avarice from "./avarice.mjs";
+import wrath from "./wrath.mjs";
 
 const MECHS = {
   inferno_05: lust,
   inferno_06: gluttony,
   inferno_07: avarice,
+  inferno_08: wrath,
 };
 
 const NONE = Object.freeze({});

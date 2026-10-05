@@ -166,6 +166,11 @@ const MOB_HP = {
   ledger_warden: 140,
   hoard_heart: 110,
   weight_champion: 96,
+  // Wrath / Styx archetypes (circle 5)
+  wrath_shade: 60,
+  sullen_wisp: 28,
+  fury_champion: 104,
+  rage_heart: 120,
   boss: 200,
 };
 
@@ -183,6 +188,9 @@ const MOB_DMG = {
   coin_wisp: 6,
   ledger_warden: 13,
   weight_champion: 13,
+  wrath_shade: 8,
+  sullen_wisp: 6,
+  fury_champion: 14,
   boss: 20,
 };
 
@@ -191,6 +199,7 @@ const CANTO_TIER = {
   inferno_05: { hp: 1.0, dmg: 1.0 },
   inferno_06: { hp: 1.1, dmg: 1.15 },
   inferno_07: { hp: 1.15, dmg: 1.15 },
+  inferno_08: { hp: 1.25, dmg: 1.25 },
 };
 function tierOf(cantoId) {
   return CANTO_TIER[cantoId] || { hp: 1, dmg: 1 };
@@ -208,6 +217,9 @@ const MEMBER_NAME = {
   mire_champion: "Mire Champion",
   mire_shade: "Mire Shade",
   mud_wisp: "Filth Wisp",
+  wrath_shade: "Wrath Shade",
+  sullen_wisp: "Sullen Wisp",
+  fury_champion: "Fury Champion",
 };
 function memberName(pack) {
   if ((pack.count || 1) > 1 && MEMBER_NAME[pack.archetype]) {
@@ -221,6 +233,7 @@ const BOSS_HP = {
   minos_gate: 520,
   triple_maw: 680,
   hoard_crush: 1825,
+  argenti_fury: 2099,
 };
 
 /**
@@ -233,7 +246,7 @@ function mitigate(dmg, armor) {
   return { taken, soaked: Math.max(0, dmg - taken) };
 }
 
-const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart"]);
+const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart", "rage_heart"]);
 
 /** Avarice measure: gale (wind) soft vs weights; infernal burst (pressure) bites harder. */
 function weightMatchupMult(spellId, ent) {
@@ -688,6 +701,7 @@ class CantoRoom {
         item: e.item,
         // Avarice/Lust/Glut bell still — client gold measure tint
         stunLeft: e.stunLeft > 0.05 ? Math.round(e.stunLeft * 5) / 5 : undefined,
+        enraged: e.enraged ? 1 : undefined,
         rootLeft: e.rootLeft > 0.05 ? Math.round(e.rootLeft * 5) / 5 : undefined,
         weakenLeft: e.weakenLeft > 0.05 ? Math.round(e.weakenLeft * 5) / 5 : undefined,
         slowLeft: e.slowLeft > 0.05 ? Math.round(e.slowLeft * 5) / 5 : undefined,
@@ -1317,7 +1331,9 @@ class CantoRoom {
           ? "The Hoard Heart bursts — the Counterweight stirs; Plutus waits past the east clash."
           : entity.archetype === "mire_heart"
             ? "The Mire Heart bursts — Cerbero stirs."
-            : "The Storm Heart shatters."
+            : entity.archetype === "rage_heart"
+              ? "The Rage Heart bursts — the wrathful falter in the mud."
+              : "The Storm Heart shatters."
       );
     }
 
@@ -1341,13 +1357,15 @@ class CantoRoom {
           /* death beat owned by emit toast + client cam */
         } else {
           const line =
-            this.cantoId === "inferno_07"
-              ? entity.archetype === "coin_wisp"
-                ? "contrapeso — the coins still; measure holds."
-                : "contrapeso — the weights settle; rebalance and press on."
-              : this.cantoId === "inferno_06"
-                ? "The sludge settles. Press on."
-                : "The gust breaks. Press on.";
+            this.cantoId === "inferno_08"
+              ? "The mud stills. Press on."
+              : this.cantoId === "inferno_07"
+                ? entity.archetype === "coin_wisp"
+                  ? "contrapeso — the coins still; measure holds."
+                  : "contrapeso — the weights settle; rebalance and press on."
+                : this.cantoId === "inferno_06"
+                  ? "The sludge settles. Press on."
+                  : "The gust breaks. Press on.";
           this.toast(killer.ws, "info", line);
         }
       }
@@ -1430,7 +1448,9 @@ class CantoRoom {
                 ? "Triple Maw broken — the Avarice gate past the Maw opens."
                 : this.cantoId === "inferno_07"
                   ? "Plutus is broken — the Dark Wood road opens past the dais."
-                  : null;
+                  : this.cantoId === "inferno_08"
+                    ? "Filippo Argenti sinks — the Dark Wood road opens past the ferry."
+                    : null;
           if (gateLine) this.toast(sess.ws, "emit", gateLine);
         } else if (r2.reason === "already_cleared" && pid === killerId) {
           this.toast(sess.ws, "info", "First clear already claimed for this canto.");
@@ -1628,7 +1648,9 @@ class CantoRoom {
             ? "Lust is not yet cleared — slay Minos, then the Gluttony gate opens."
             : e.requireClear === "inferno_06"
               ? "Clear Triple Maw first — then Avarice opens."
-              : `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
+              : e.requireClear === "inferno_07"
+                ? "Break Plutus first — then the Styx opens."
+                : `The way to ${cantoTitle(e.toCanto)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
         this.toast(s.ws, "warn", tip);
         return;
       }
@@ -1646,13 +1668,16 @@ class CantoRoom {
           const clears = ledger.firstClears instanceof Set ? [...ledger.firstClears] : [];
           let guideLine =
             "Guide: Take the gold gate into Lust. Break the Storm Heart, then Minos — Gluttony (piova etterna) opens past his dais; after the Maw, Avarice (peso e contrapeso — weight and counterweight). Return for the writ, stash, and Auction House.";
-          if (clears.includes("inferno_07") && clears.includes("inferno_05")) {
+          if (clears.includes("inferno_08")) {
+            guideLine =
+              "Guide: Filippo Argenti sank in the Styx — the wrathful still brawl in the mud. Claim the writ, bank your drops at the stash, or hunt Lust, Gluttony, Avarice, or Wrath again.";
+          } else if (clears.includes("inferno_07") && clears.includes("inferno_05")) {
             // Both Lust + Ava clear: distinguish east Lust rematch vs weighed road again
             guideLine =
               "Guide: Measure holds — east Lust for Minos again, or back through Gluttony into Avarice. Claim the writ, bank weighed drops at the stash, then choose your road.";
           } else if (clears.includes("inferno_07")) {
             guideLine =
-              "Guide: Plutus is broken — the weights roll on without him. Claim the daily writ, bank weighed drops at the stash, or hunt Lust / Gluttony / Avarice again.";
+              "Guide: Plutus is broken — past his dais the Styx waits (Wrath). Ford it, break the Rage Heart, and face Filippo Argenti. Claim the daily writ and bank weighed drops at the stash.";
           } else if (clears.includes("inferno_06")) {
             guideLine =
               "Guide: Triple Maw is broken — Avarice (peso e contrapeso) waits past the Maw. Cross between the weights' clashes, tip the Counterweight, break Plutus with the Ledger Bell. Return for the writ, stash, and Auction House.";
@@ -1667,8 +1692,8 @@ class CantoRoom {
           s.ws,
           "info",
           ledger.stash.length
-            ? `Stash holds ${ledger.stash.length} item${ledger.stash.length === 1 ? "" : "s"} — bank Lust, Gluttony, and Avarice drops here.`
-            : "Stash is empty — bank champion drops here after Lust, Gluttony, or Avarice."
+            ? `Stash holds ${ledger.stash.length} item${ledger.stash.length === 1 ? "" : "s"} — bank your circle drops here.`
+            : "Stash is empty — bank champion drops here after any circle of the Inferno."
         );
         this.send(s.ws, { type: "stash_open" });
         // After banking Ava loot (Crush clear + bag/stash weighed): nudge Guide counsel once per session
@@ -1697,7 +1722,9 @@ class CantoRoom {
               ? "Lust is not yet cleared — slay Minos, then the Gluttony gate opens."
               : e.requireClear === "inferno_06"
                 ? "Clear Triple Maw first — then Avarice opens."
-                : `The way to ${cantoTitle(dest)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
+                : e.requireClear === "inferno_07"
+                  ? "Break Plutus first — then the Styx opens."
+                  : `The way to ${cantoTitle(dest)} is sealed until you clear ${cantoTitle(e.requireClear)}.`;
           this.toast(s.ws, "warn", tip);
           return;
         }
@@ -1710,11 +1737,13 @@ class CantoRoom {
           this.toast(
             s.ws,
             "info",
-            this.cantoId === "inferno_07"
-              ? "misura spesa — the Ledger Cache is empty; return next visit."
-              : this.cantoId === "inferno_06"
-                ? "The filth cache is empty."
-                : "The wind cache is empty."
+            this.cantoId === "inferno_08"
+              ? "The Sunken Cache is empty."
+              : this.cantoId === "inferno_07"
+                ? "misura spesa — the Ledger Cache is empty; return next visit."
+                : this.cantoId === "inferno_06"
+                  ? "The filth cache is empty."
+                  : "The wind cache is empty."
           );
           return;
         }
@@ -1724,7 +1753,9 @@ class CantoRoom {
           return;
         }
         const cacheTable =
-          this.cantoId === "inferno_07" ? "avarice_pack_weights" : "inferno_pack_common";
+          this.cantoId === "inferno_07" || this.cantoId === "inferno_08"
+            ? "avarice_pack_weights"
+            : "inferno_pack_common";
         const drops = rollDrops(cacheTable, { champion: true, boss: false });
         const item = drops[0];
         if (!item) {
@@ -1734,14 +1765,18 @@ class CantoRoom {
         s.lootedCache = true;
         void grantInventoryItem(playerId, item).then(() => {
           const prefix =
-            this.cantoId === "inferno_07"
-              ? "misura — Ledger Cache"
-              : this.cantoId === "inferno_06"
-                ? "Filth Cache"
-                : "Cache";
+            this.cantoId === "inferno_08"
+              ? "Sunken Cache"
+              : this.cantoId === "inferno_07"
+                ? "misura — Ledger Cache"
+                : this.cantoId === "inferno_06"
+                  ? "Filth Cache"
+                  : "Cache";
           this.toast(s.ws, "loot", `${prefix}: ${rarityWord(item.rarity)}${item.name}`);
           if (this.cantoId === "inferno_07") {
             this.toast(s.ws, "info", "contrapeso — the cache yields its weight");
+          } else if (this.cantoId === "inferno_08") {
+            this.toast(s.ws, "info", "The marsh yields what the Styx kept.");
           }
           this.pushSnapshot(playerId);
         });
@@ -1821,7 +1856,9 @@ class CantoRoom {
           ? "Mire writ"
           : qid === "ava_daily_ledger"
             ? "Ledger writ"
-            : "Writ";
+            : qid === "wrath_daily_lantern"
+              ? "Lantern writ"
+              : "Writ";
       this.toast(
         s.ws,
         "emit",
@@ -2481,7 +2518,9 @@ export class World {
               ? "Lust is not yet cleared — slay Minos, then the Gluttony gate opens."
               : need === "inferno_06"
                 ? "Clear Triple Maw first — then Avarice opens."
-                : `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`;
+                : need === "inferno_07"
+                  ? "Break Plutus first — then the Styx opens."
+                  : `The way to ${cantoTitle(toCanto)} is sealed until you clear ${cantoTitle(need)}.`;
           from.toast(ws, "warn", tip);
           return { ok: false, reason: "require_clear", need };
         }
@@ -2494,8 +2533,10 @@ export class World {
     room.pushSnapshot(playerId);
     // (no "Entered X." toast: the client shows a canto title card on arrival)
     if (room.canto.role === "hub" || room.cantoId === "inferno_01") {
-      const hubLine = hasCleared(playerId, "inferno_07")
+      const hubLine = hasCleared(playerId, "inferno_08")
         ? "Dark Wood rest — writ, stash, or hunt the circles again."
+        : hasCleared(playerId, "inferno_07")
+        ? "Dark Wood rest — bank loot, then the Styx past Plutus's dais (Wrath)."
         : hasCleared(playerId, "inferno_06")
           ? "Dark Wood rest — bank loot, then Avarice past the Maw (or Lust again)."
           : hasCleared(playerId, "inferno_05")

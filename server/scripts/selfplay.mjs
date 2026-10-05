@@ -4,7 +4,7 @@
  * WebSocket protocol and reports whether every canto is reachable and
  * completable, plus a few balance numbers per canto.
  *
- *   Dark Wood (Guide, pyre, stash, AH, writ) → Lust → Gluttony → Avarice → Dark Wood
+ *   Dark Wood (Guide, pyre, stash, AH, writ) → Lust → Gluttony → Avarice → Wrath → Dark Wood
  *
  * Usage (server must be running):
  *   node scripts/selfplay.mjs [--url ws://127.0.0.1:8080/ws] [--name Bot] [--runs 1] [--quiet] [--skills]
@@ -513,6 +513,8 @@ class Bot {
     await this.clearCanto("inferno_06", "triple_maw", 240000, "inferno_07");
     await this.takeRoad("inferno_07");
     await this.clearCanto("inferno_07", "hoard_crush");
+    await this.takeRoad("inferno_08");
+    await this.clearCanto("inferno_08", "argenti_fury");
     await this.takeRoad("inferno_01");
 
     this.cur = "inferno_01";
@@ -567,7 +569,7 @@ for (let r = 0; r < RUNS; r++) {
 }
 
 console.log("\n=== self-play summary ===");
-for (const c of ["inferno_05", "inferno_06", "inferno_07"]) {
+for (const c of ["inferno_05", "inferno_06", "inferno_07", "inferno_08"]) {
   const rows = all.map((a) => a.stats[c]).filter(Boolean);
   if (!rows.length) continue;
   const avg = (k) => (rows.reduce((s, r) => s + (r[k] || 0), 0) / rows.length).toFixed(1);

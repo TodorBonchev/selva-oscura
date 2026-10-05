@@ -13,6 +13,7 @@ export type MatKit = {
   groundLust: THREE.MeshStandardMaterial;
   groundGlut: THREE.MeshStandardMaterial;
   groundAvarice: THREE.MeshStandardMaterial;
+  groundWrath: THREE.MeshStandardMaterial;
   mire: THREE.MeshBasicMaterial;
   bone: THREE.MeshStandardMaterial;
   ember: THREE.MeshStandardMaterial;
@@ -288,6 +289,17 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     emissiveIntensity: 0.28,
     vertexColors: true,
   });
+  // Wrath: the same lust_ground albedo, retinted to the Styx's grey-brown silt (wetter
+  // and darker than Gluttony's olive mire; vertex colours lay the bone road and the river)
+  const groundWrath = new THREE.MeshStandardMaterial({
+    map: lustMap,
+    color: 0x8a7a64,
+    roughness: 0.66,
+    metalness: 0.16,
+    emissive: 0x24120a,
+    emissiveIntensity: 0.2,
+    vertexColors: true,
+  });
   const mire = new THREE.MeshBasicMaterial({
     color: 0x8a9a44,
     transparent: true,
@@ -326,6 +338,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
   breakAlbedoTiling(groundLust, 0.062);
   breakAlbedoTiling(groundGlut, 0.048);
   breakAlbedoTiling(groundAvarice, 0.055);
+  breakAlbedoTiling(groundWrath, 0.052);
   const bone = new THREE.MeshStandardMaterial({
     color: 0xf4ead4,
     roughness: 0.45,
@@ -347,11 +360,11 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     depthWrite: false,
   });
 
-  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, groundGlut, groundAvarice, leather, armor, canopyA, canopyB, moss]) {
+  for (const m of [cloth, bronze, gold, bark, stone, bone, groundHub, groundLust, groundGlut, groundAvarice, groundWrath, leather, armor, canopyA, canopyB, moss]) {
     engrave(m, hatch);
   }
   // Kit materials are shared by every builder: node disposal must keep them
-  for (const m of [cloth, bronze, gold, bark, stone, gale, gem, groundHub, groundLust, groundGlut, groundAvarice, mire, bone, ember, shadowCatch, leather, armor, canopyA, canopyB, moss]) {
+  for (const m of [cloth, bronze, gold, bark, stone, gale, gem, groundHub, groundLust, groundGlut, groundAvarice, groundWrath, mire, bone, ember, shadowCatch, leather, armor, canopyA, canopyB, moss]) {
     markShared(m);
   }
 
@@ -367,6 +380,7 @@ export async function loadMatKit(renderer: THREE.WebGLRenderer): Promise<MatKit>
     groundLust,
     groundGlut,
     groundAvarice,
+    groundWrath,
     mire,
     bone,
     ember,

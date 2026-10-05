@@ -43,6 +43,7 @@ import type { Objective } from "../objective";
 import { lustMech } from "./lust";
 import { gluttonyMech } from "./gluttony";
 import { avariceMech } from "./avarice";
+import { wrathMech } from "./wrath";
 
 export type MoveFeelOut = { speedMul: number; accelMul: number; driftX: number; driftY: number };
 
@@ -67,6 +68,7 @@ const MECHS: Record<string, CantoMech> = {
   inferno_05: lustMech,
   inferno_06: gluttonyMech,
   inferno_07: avariceMech,
+  inferno_08: wrathMech,
 };
 
 export function mechFor(cantoId: string | null | undefined): CantoMech {

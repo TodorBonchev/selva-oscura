@@ -5,7 +5,7 @@
  */
 type Foe = { kind?: string; archetype?: string; champion?: boolean };
 
-const WISPS = new Set(["gale_wisp", "mud_wisp", "coin_wisp"]);
+const WISPS = new Set(["gale_wisp", "mud_wisp", "coin_wisp", "sullen_wisp"]);
 const WARDENS = new Set(["gale_warden", "mire_warden", "ledger_warden"]);
 
 export function bodyRadius(e: Foe, cantoId: string | undefined): number {
