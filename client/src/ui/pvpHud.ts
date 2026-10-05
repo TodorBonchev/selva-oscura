@@ -221,7 +221,7 @@ export class PvpHud {
     this.mute = el("button", "pvp-menu-item pvp-mute", this.menu);
     this.mute.type = "button";
     this.mute.setAttribute("role", "menuitem");
-    this.mute.textContent = "Sound";
+    this.mute.textContent = "Sound: on";
     this.mute.addEventListener("click", (e) => {
       e.preventDefault();
       handlers.onMute();
@@ -429,7 +429,7 @@ export class PvpHud {
 
 
   setMuted(muted: boolean) {
-    this.mute.textContent = muted ? "Muted" : "Sound";
+    this.mute.textContent = muted ? "Sound: off" : "Sound: on";
     this.mute.classList.toggle("is-muted", muted);
   }
 

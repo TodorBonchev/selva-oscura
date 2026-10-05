@@ -6402,6 +6402,8 @@ body.in-avarice.hud-compact .ava-plutus-line { font-size: 14px; }
   text-transform: uppercase;
 }
 .pvp-menu-item.is-muted { opacity: 0.55; }
+/* Phones have no keyboard: drop the shortcut keys from the menu */
+body.hud-compact .pvp-menu-hot { display: none; }
 .pvp-tabella { display: none; }
 body.in-arena .pvp-tabella { display: flex; }
 .pvp-queue { display: none; }
