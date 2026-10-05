@@ -144,6 +144,21 @@ export class Sfx {
     this.noise(boss ? 0.36 : 0.22, boss ? 0.12 : 0.08, "bandpass", 420, 220, 1.6);
   }
 
+  /** Loot into the bag: a soft coin tick; magic+ a brighter second note, uniques a third. */
+  pickup(tier: 0 | 1 | 2 | 3 = 0) {
+    if (this.gated("pickup", 70)) return;
+    this.note(880, 1180, 0.05, "triangle", 0.12);
+    if (tier >= 1) this.note(1320, 1560, 0.08, "sine", 0.1, 0.05);
+    if (tier >= 2) this.note(1760, 1980, 0.12, "sine", 0.09, 0.11);
+    if (tier >= 3) this.note(660, 990, 0.3, "triangle", 0.1, 0.16);
+  }
+  /** Kneeling at a shrine / pyre: a low warm swell. */
+  mend() {
+    if (this.gated("mend", 400)) return;
+    this.note(196, 262, 0.34, "sine", 0.16);
+    this.note(294, 392, 0.4, "sine", 0.1, 0.08);
+  }
+
   private gateAt = new Map<string, number>();
   /** True (skip) when the same cue played under `ms` ago. */
   private gated(key: string, ms: number): boolean {

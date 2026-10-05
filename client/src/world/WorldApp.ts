@@ -3741,6 +3741,14 @@ export class WorldApp {
           if (--eb.left <= 0) this.finishEquipBest();
         } else showToast(text, msg.level);
         if (/out of range|nothing to strike|no foe in range|lashes empty air/i.test(text)) resetCombo();
+        if (msg.level === "loot" && /^Picked up /i.test(text)) {
+          const tier = /^Picked up (Canto Unique|Unique|Set) /i.test(text) ? 3 : /^Picked up Rare /i.test(text) ? 2 : /^Picked up Magic /i.test(text) ? 1 : 0;
+          this.pvp?.sfx.pickup(tier);
+        } else if (/restores life and breath\.|Life and breath restored|knits your wounds/i.test(text)) {
+          this.pvp?.sfx.mend();
+        }
+        // A boss's gate line (Lust falls — … opens.): a low gong under the reveal
+        if (msg.level === "emit" && /(falls|broken|sinks) — the .*(opens?|open past)/i.test(text)) this.pvp?.sfx.gong();
         if (/slain|you fall under the weight|wake at the ledger gate/i.test(text)) this.triggerDeathRevive();
         if (
           this.room?.cantoId === "inferno_07" &&
