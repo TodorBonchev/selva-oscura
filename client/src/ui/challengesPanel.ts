@@ -52,6 +52,7 @@ export class ChallengesPanel {
   private body: HTMLElement;
   private last: Payload | null = null;
   private gotAt = 0;
+  private loadTimer = 0;
 
   constructor(private send: (msg: object) => void) {
     const panels = document.getElementById("panels") || document.body;
@@ -82,7 +83,32 @@ export class ChallengesPanel {
   toggle() {
     const opening = this.root.classList.contains("hidden");
     togglePanel("chal-panel");
-    if (opening) this.send({ type: "challenges_get" });
+    if (opening) this.request();
+    else window.clearTimeout(this.loadTimer);
+  }
+
+  private request() {
+    this.last = null;
+    this.body.textContent = "Loading…";
+    this.send({ type: "challenges_get" });
+    window.clearTimeout(this.loadTimer);
+    this.loadTimer = window.setTimeout(() => {
+      if (!this.isOpen()) return;
+      // Still waiting on the board — offer a retry instead of hanging on Loading…
+      if (this.body.textContent !== "Loading…") return;
+      this.body.textContent = "";
+      const note = el("p", "chal-note", this.body);
+      note.textContent = "Couldn’t reach the challenge board. Check your connection and try again.";
+      const btn = el("button", "chal-cos-item owned", this.body);
+      btn.type = "button";
+      btn.style.marginTop = "0.5rem";
+      btn.textContent = "Retry";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.last = null;
+        this.request();
+      });
+    }, 6000);
   }
 
   isOpen(): boolean {
@@ -92,6 +118,7 @@ export class ChallengesPanel {
   paint(msg: Payload) {
     this.last = msg;
     this.gotAt = performance.now();
+    window.clearTimeout(this.loadTimer);
     const b = this.body;
     b.textContent = "";
     // — daily —

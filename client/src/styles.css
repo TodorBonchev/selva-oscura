@@ -7327,6 +7327,13 @@ body.hud-compact.pve-circle .you-label { opacity: 0.5; }
   .party-frame { top: 104px; left: 4px; }
   .party-mem { width: 118px; }
 }
+/* Portrait phones: the target plate stacks under the objective (top = max(hv-top+100,
+   qt-bottom+6), ~32px tall) and covered the frame mid-fight — the frame stacks under it */
+body.hud-compact:not(.hud-landscape) .party-frame {
+  left: calc(var(--hv-gut) + var(--safe-left));
+  top: max(calc(var(--hv-top) + 140px), calc(var(--qt-bottom, 0px) + 46px));
+}
+body.hud-compact:not(.hud-landscape) .party-mem { width: 112px; padding: 2px 6px; }
 
 /* ---- Arena spectator bar (pvpDirector.paintSpectate) ---- */
 .spec-bar { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 45; display: flex; align-items: center; gap: 8px; background: rgba(18, 10, 8, 0.9); border: 1px solid rgba(196, 64, 48, 0.6); border-radius: 10px; padding: 6px 10px; color: #f0dcc0; box-shadow: 0 4px 18px rgba(0,0,0,0.55); pointer-events: auto; max-width: 94vw; }

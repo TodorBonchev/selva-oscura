@@ -147,6 +147,7 @@ class WrathView {
   bubbles: Bubble[] = [];
   nextBubble = 0;
   toldFury = false;
+  toldLantern = false;
 
   constructor(private app: WorldApp) {}
 
@@ -374,6 +375,29 @@ class WrathView {
     }
   }
 
+
+  /** Fury wiped (CC, decay after enrage, or Phlegyas' Lantern): a brief bone-gold still. */
+  onCool(msg: any) {
+    const app = this.app;
+    const x = Number(msg.x) || 0;
+    const y = Number(msg.y) || 0;
+    const lantern = Boolean(msg.lantern);
+    if (app.sparks.length < (isCompactUi() ? 2 : 4)) {
+      const b = spawnSparks(x, y, app.surfaceY(x, y, 0.9), lantern ? 0xe8cf98 : 0xf0dcb0, app.animT);
+      b.dur = lantern ? 560 : 420;
+      app.scene.add(b.points);
+      app.sparks.push(b);
+    }
+    const ring = acquireFxRing(0.28, 0.5, 24, lantern ? 0xe8cf98 : 0xc8b890, 0.75);
+    ring.position.set(x, app.surfaceY(x, y, 0.08), y);
+    app.scene.add(ring);
+    app.impacts.push({ mesh: ring, start: app.animT, dur: 480, from: 1, to: lantern ? 4.2 : 3.2 });
+    if (lantern && !this.toldLantern) {
+      this.toldLantern = true;
+      showToast("Phlegyas' Lantern stills their fury — the ember and the rage both fade in its light.", "info");
+    }
+  }
+
   onEnrage(msg: any) {
     const app = this.app;
     const x = Number(msg.x) || 0;
@@ -418,6 +442,7 @@ export const wrathMech: CantoMech = {
   onMessage(_app, msg) {
     if (msg?.type === "wrath_fx") {
       if (msg.fx === "enrage") view?.onEnrage(msg);
+      else if (msg.fx === "cool") view?.onCool(msg);
       else if (msg.fx === "tear") view?.onTear(msg);
       return true;
     }

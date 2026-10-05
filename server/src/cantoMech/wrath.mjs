@@ -20,9 +20,11 @@
  *
  * Wire: telegraph kind styx_eruption (attackerId "mech:wrath" for the marsh,
  * the boss id for his line); { type: "wrath_fx", fx: "enrage",
- * id, x, y, boss? } when an enrage starts; { type: "wrath_fx", fx: "tear", id, x, y }
- * when Argenti tears at himself (phase 2, the adds rise). Snapshot entities carry
- * enraged: 1 while it holds, and fury: 1–3 while it builds (client warns from 2).
+ * id, x, y, boss? } when an enrage starts; { type: "wrath_fx", fx: "cool",
+ * id, x, y, lantern? } when an enrage (or building fury ≥2) is wiped; { type: "wrath_fx",
+ * fx: "tear", id, x, y } when Argenti tears at himself (phase 2, the adds rise).
+ * Snapshot entities carry enraged: 1 while it holds, and fury: 1–3 while it builds
+ * (client warns from 2).
  */
 const FURY_ARCH = new Set(["wrath_shade", "fury_champion"]);
 const BOSS_ID = "argenti_fury";
@@ -97,13 +99,28 @@ function erupt(room, x, y, attackerId) {
   });
 }
 
-function clearFury(room, e) {
-  const was = Boolean(e.enraged);
+function clearFury(room, e, opts = {}) {
+  const wasEnraged = Boolean(e.enraged);
+  const hadFury = (e.fury || 0) > 0 || wasEnraged;
+  const wasBuilding = !wasEnraged && (e.fury || 0) >= 2;
   e.fury = 0;
   e.furyAcc = 0;
   e.enraged = false;
   e.enrageLeft = 0;
-  if (was) room.markDirty();
+  if (!hadFury) return;
+  // Building stacks (ember ring) and enrage both need a dirty — without it the
+  // ember stuck on clients until the next unrelated write.
+  if (wasEnraged || wasBuilding) {
+    room.broadcast({
+      type: "wrath_fx",
+      fx: "cool",
+      id: e.id,
+      lantern: opts.lantern ? 1 : undefined,
+      x: +e.x.toFixed(2),
+      y: +e.y.toFixed(2),
+    });
+  }
+  room.markDirty();
 }
 
 function beginEnrage(room, e, seconds) {
@@ -332,7 +349,7 @@ export default {
       if (String(mob.archetype || "").endsWith("_heart")) continue;
       if (Math.hypot(sess.x - mob.x, sess.y - mob.y) > R) continue;
       answered++;
-      if (mob.fury || mob.enraged) clearFury(room, mob);
+      if (mob.fury || mob.enraged) clearFury(room, mob, { lantern: true });
     }
     if (answered > 0) room.tryDaily(sess.playerId, "wrath_daily_lantern", { quiet: true });
     return false;
