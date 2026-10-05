@@ -168,6 +168,7 @@ import { CombatView, isMobKind } from "./combatView";
 import { teleWeight, type TelegraphLand, type TelegraphMsg } from "./telegraphs";
 import { PlayerForces } from "./forces";
 import { mechFor, type CantoMech, type MoveFeelOut } from "./cantoMech";
+import { Onboarding } from "../ui/onboarding";
 import { bodyRadius } from "./mobBodies";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 
@@ -341,6 +342,7 @@ export class WorldApp {
   radar: Radar | null = null;
   /** Objective model + gates + compass/minimap/beacon (world/guidance.ts). */
   guidance: Guidance | null = null;
+  onboarding: Onboarding | null = null;
   /** Duels, the giants' well, and pilgrim nameplates (world/pvpDirector.ts). */
   pvp!: PvpDirector;
   frameN = 0;
@@ -776,6 +778,19 @@ export class WorldApp {
     this.scene.add(this.ash.points);
     this.radar = new Radar();
     this.guidance = new Guidance(this);
+    this.onboarding = new Onboarding({
+      canto: () => this.room?.cantoId ?? null,
+      pos: () => (this.room ? this.renderYou : null),
+      prog: () => this.room?.you?.prog ?? null,
+      lustGate: () => {
+        const g = this.room?.entities?.find(
+          (e: any) => (e?.kind === "exit" || e?.poiKind === "portal") && e?.toCanto === "inferno_05"
+        );
+        return g ? { x: Number(g.x), y: Number(g.y) } : null;
+      },
+      send: (m) => this.socket.send(m),
+      toast: (t) => showToast(t),
+    });
     // Before wireHud: the Leaderboard panel's [data-close] is bound once at wire time.
     this.pvp = new PvpDirector(this);
     this.skillVfx = new SkillVfx(this.scene, {
@@ -1968,6 +1983,7 @@ export class WorldApp {
     this.paintChrome();
     // Objective line + compass + minimap + beacon (self-throttled)
     this.guidance?.tick();
+    this.onboarding?.tick(performance.now());
   }
 
   /** Stand still: slowly face the nearest shade so idle does not look frozen. */
@@ -4815,6 +4831,7 @@ export class WorldApp {
       this.stopAttackHold();
       return;
     }
+    this.onboarding?.note("attack");
     // A canto mechanic may spend the press on its own action (Gluttony: a thrown clod)
     if (this.mech.onAttackPress?.(this)) return;
     if (this.lockedId) {
@@ -5099,6 +5116,7 @@ export class WorldApp {
     if (!def || def.type !== "active") return;
     const rank = Math.floor(Number(this.prog?.ranks?.[spellId]) || 0);
     if (rank < 1) return;
+    this.onboarding?.note("cast");
     const manaCost = manaCostAtRank(def, rank);
     const mana = Number(this.room.you?.mana) || 0;
     if (mana < manaCost) {

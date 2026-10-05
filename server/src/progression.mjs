@@ -129,6 +129,8 @@ function blankProgress(id) {
     backfilled: false,
     respecs: 0,
     catchupV: 0,
+    // First-run onboarding: 0 new, 1 starter XP granted, 2 done/skipped (migration 008)
+    tutorialV: 0,
   };
 }
 
@@ -147,6 +149,7 @@ function sanitizeRow(row, id) {
   p.backfilled = Boolean(row.backfilled);
   p.respecs = Math.max(0, Math.floor(Number(row.respecs) || 0));
   p.catchupV = Math.max(0, Math.floor(Number(row.catchup_v) || 0));
+  p.tutorialV = row.tutorial_v == null ? 2 : Math.max(0, Math.floor(Number(row.tutorial_v) || 0));
   return p;
 }
 
@@ -159,6 +162,8 @@ export function getProgress(playerId) {
   if (led?.firstClears instanceof Set && led.firstClears.size) {
     backfillInto(p, led);
   }
+  // Someone who already walked the Inferno is no newcomer: skip onboarding
+  if (led && (led.visitedInferno || led.firstClears?.size)) p.tutorialV = 2;
   mem.set(playerId, p);
   persistProgress(playerId, true);
   return p;
@@ -270,6 +275,7 @@ export function progSnapshot(playerId, sess) {
     points: unspentPoints(p.level, p.ranks),
     ranks,
     loadout: Array.isArray(p.loadout) ? p.loadout.slice(0, LOADOUT_SIZE) : DEFAULT_LOADOUT.slice(),
+    tut: Math.min(2, p.tutorialV | 0),
   };
   if (Object.keys(cds).length) out.cds = cds;
   return out;
@@ -357,6 +363,40 @@ export function grantKillXp(room, killerId, entity) {
       const s = room.sessions.get(id);
       if (!s || !(s.hp > 0)) continue;
       grantXp(room, id, amount, "kill");
+    }
+  });
+}
+
+export const TUTORIAL_XP = 100;
+
+/**
+ * Onboarding messages. {step:"xp"}: one-time starter grant (level 2 → a skill point
+ * to learn in the tutorial). {step:"done"|"skip"}: never show again. Idempotent.
+ */
+export function handleTutorial(room, sess, step) {
+  return safe("tutorial", () => {
+    if (!room || !sess?.playerId) return;
+    const p = getProgress(sess.playerId);
+    const v = p.tutorialV | 0;
+    if (step === "xp") {
+      if (v !== 0) return;
+      p.tutorialV = 1;
+      if (p.xp < totalXpForLevel(2)) {
+        grantXp(room, sess.playerId, Math.max(TUTORIAL_XP, totalXpForLevel(2) - p.xp), "tutorial", { skipPenalty: true });
+      }
+      persistProgress(sess.playerId, true);
+      room.pushSnapshot?.(sess.playerId);
+      return;
+    }
+    if (step === "done" || step === "skip") {
+      if (v >= 2) return;
+      // Skipping before the grant still leaves the newcomer their first point
+      if (v === 0 && p.xp < totalXpForLevel(2)) {
+        grantXp(room, sess.playerId, Math.max(TUTORIAL_XP, totalXpForLevel(2) - p.xp), "tutorial", { skipPenalty: true });
+      }
+      p.tutorialV = 2;
+      persistProgress(sess.playerId, true);
+      room.pushSnapshot?.(sess.playerId);
     }
   });
 }
@@ -585,8 +625,8 @@ async function writeOne(playerId) {
   if (!s) return;
   await query(
     `INSERT INTO player_progress (
-       player_id, level, xp, ranks, loadout, backfilled, respecs, catchup_v, updated_at
-     ) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8, NOW())
+       player_id, level, xp, ranks, loadout, backfilled, respecs, catchup_v, tutorial_v, updated_at
+     ) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9, NOW())
      ON CONFLICT (player_id) DO UPDATE SET
        level = EXCLUDED.level,
        xp = EXCLUDED.xp,
@@ -595,6 +635,7 @@ async function writeOne(playerId) {
        backfilled = EXCLUDED.backfilled,
        respecs = EXCLUDED.respecs,
        catchup_v = GREATEST(player_progress.catchup_v, EXCLUDED.catchup_v),
+       tutorial_v = GREATEST(player_progress.tutorial_v, EXCLUDED.tutorial_v),
        updated_at = NOW()
      -- Never let a blank/stale in-memory row (e.g. after a failed hydrate) roll back progress.
      WHERE EXCLUDED.xp >= player_progress.xp`,
@@ -607,6 +648,7 @@ async function writeOne(playerId) {
       !!s.backfilled,
       s.respecs | 0,
       s.catchupV | 0,
+      s.tutorialV | 0,
     ]
   );
 }
@@ -668,7 +710,7 @@ export async function hydrateProgression() {
   }
   try {
     const r = await query(
-      `SELECT player_id, level, xp, ranks, loadout, backfilled, respecs, catchup_v FROM player_progress`
+      `SELECT player_id, level, xp, ranks, loadout, backfilled, respecs, catchup_v, tutorial_v FROM player_progress`
     );
     for (const row of r.rows) {
       const id = String(row.player_id);

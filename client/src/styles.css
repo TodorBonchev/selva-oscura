@@ -7233,3 +7233,60 @@ body.hud-compact:has(.sk-panel:not(.hidden)) #toast-layer {
 /* worn nameplate flair (challenges): a mark before the name */
 .flair-laurel .wl-name::before { content: "❦ "; color: #e8c86a; text-shadow: 0 0 6px rgba(232, 200, 106, 0.6); }
 .flair-ember .wl-name::before { content: "✦ "; color: #ff8a4a; text-shadow: 0 0 6px rgba(255, 110, 50, 0.6); }
+
+/* ---- First-run onboarding card (ui/onboarding.ts) ---- */
+.tut-card {
+  position: fixed;
+  left: 50%;
+  bottom: 26%;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: min(360px, 88vw);
+  padding: 10px 14px 10px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(28, 20, 12, 0.93), rgba(14, 10, 6, 0.93));
+  border: 1px solid rgba(214, 178, 108, 0.55);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55), inset 0 0 18px rgba(214, 178, 108, 0.08);
+  color: #efe2c4;
+  font-size: 14px;
+  line-height: 1.35;
+  pointer-events: auto;
+}
+.tut-card.tut-pop { animation: tutPop 0.32s ease-out; }
+@keyframes tutPop {
+  from { transform: translateX(-50%) scale(0.94); opacity: 0.4; }
+  to { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+.tut-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.tut-kicker { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #c9a45e; }
+.tut-count { font-size: 11px; color: #a8916a; }
+.tut-skip {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid rgba(214, 178, 108, 0.4);
+  color: #cbb48a;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 3px 10px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.tut-title { font-family: "Cinzel", Georgia, serif; font-size: 17px; color: #f4d58d; }
+.tut-text { margin-top: 2px; }
+.tut-dots { display: flex; gap: 5px; margin-top: 8px; }
+/* the HUD control the current onboarding step points at */
+.tut-glow { animation: tutGlow 1.2s ease-in-out infinite; position: relative; z-index: 2; }
+@keyframes tutGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 213, 141, 0.0), 0 0 6px rgba(244, 213, 141, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(244, 213, 141, 0.45), 0 0 18px rgba(244, 213, 141, 0.8); }
+}
+@media (prefers-reduced-motion: reduce) { .tut-glow { animation: none; box-shadow: 0 0 0 3px rgba(244, 213, 141, 0.6); } }
+.tut-dots i { flex: 1; height: 3px; border-radius: 2px; background: rgba(214, 178, 108, 0.18); }
+.tut-dots i.on { background: rgba(214, 178, 108, 0.75); }
+.tut-dots i.cur { background: #f4d58d; box-shadow: 0 0 6px rgba(244, 213, 141, 0.7); }
+@media (max-width: 640px), (pointer: coarse) and (max-height: 900px) {
+  .tut-card { bottom: auto; top: 92px; font-size: 13px; padding: 8px 12px; }
+  .tut-skip { min-height: 36px; padding: 4px 14px; }
+  .tut-title { font-size: 15px; }
+}
+.tut-card.tut-over { top: auto; bottom: 8px; width: min(420px, 92vw); }

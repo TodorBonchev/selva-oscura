@@ -50,6 +50,7 @@ import {
 } from "./src/progression.mjs";
 import { noteClientRtt, noteServerRtt } from "./src/telegraph.mjs";
 import { handleChallengesGet, handleFlairSet, hydrateChallenges } from "./src/challenges.mjs";
+import { handleTutorial } from "./src/progression.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
 import { getEmitLog, vault, resolvePlayerForSession } from "./src/ledger.mjs";
@@ -486,6 +487,13 @@ async function handleMessage(ws, meta, msg) {
       } catch (err) {
         console.error("[pvp] leaderboard", err.message);
       }
+      break;
+    }
+    case "tutorial": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      handleTutorial(room, sess, String(msg.step || ""));
       break;
     }
     case "challenges_get": {
