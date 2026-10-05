@@ -44,7 +44,8 @@ const STEPS: Step[] = [
   {
     id: "learn",
     title: "Learn & equip",
-    text: () => "Tap any unlocked skill to read it, press Learn, then Equip it into slot 4 (passives work on their own).",
+    text: () =>
+      `${touch() ? "Tap" : "Click"} any unlocked skill to read it, press Learn, then Equip it into slot 4 (passives work on their own).`,
   },
   {
     id: "gate",

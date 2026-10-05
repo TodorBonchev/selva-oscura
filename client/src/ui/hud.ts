@@ -1963,7 +1963,7 @@ export function wireHud(api: {
     if (meltBtn.dataset.armed !== "1") {
       meltBtn.dataset.armed = "1";
       meltBtn.classList.add("armed");
-      meltBtn.textContent = "Tap again to melt";
+      meltBtn.textContent = "Press again to melt";
       if (meltArmTimer != null) window.clearTimeout(meltArmTimer);
       meltArmTimer = window.setTimeout(() => {
         meltBtn.dataset.armed = "0";

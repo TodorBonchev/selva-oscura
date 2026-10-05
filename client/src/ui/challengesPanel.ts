@@ -112,7 +112,7 @@ export class ChallengesPanel {
     el("p", "chal-task", ws).textContent = `Defeat ${w.boss} in ${CANTO_NAME[w.canto] || "the Inferno"} — the first three earn a podium.`;
     el("p", "chal-meta", ws).textContent = w.done
       ? `Done ✓ — you finished #${w.rank} of ${w.finishers} · resets in ${dur(w.resetsInMs)}`
-      : `${w.finishers} finished so far · resets in ${dur(w.resetsInMs)} (Monday, UTC)`;
+      : `${w.finishers ? `${w.finishers} finished so far` : "No one has finished yet — the podium is open"} · resets in ${dur(w.resetsInMs)} (Monday, UTC)`;
     if (w.top.length) {
       const ol = el("ol", "chal-race", ws);
       for (const r of w.top) {
@@ -123,7 +123,7 @@ export class ChallengesPanel {
     // — cosmetics —
     const cs = el("section", "chal-sec", b);
     el("h3", "", cs).textContent = "Titles & nameplate flair";
-    el("p", "chal-note", cs).textContent = "Cosmetic only — no stats change. Tap an unlocked one to wear it.";
+    el("p", "chal-note", cs).textContent = "Cosmetic only — no stats change. Choose an unlocked one to wear it.";
     const grid = el("div", "chal-cos", cs);
     for (const c of msg.cosmetics) {
       const wearing = (c.kind === "title" ? msg.wearing.title : msg.wearing.flair) === c.id;
@@ -132,7 +132,7 @@ export class ChallengesPanel {
       btn.disabled = !c.owned;
       const name = el("b", "", btn);
       name.textContent = `${c.kind === "flair" ? "◆ " : ""}${c.label}`;
-      el("span", "", btn).textContent = wearing ? "Wearing — tap to remove" : c.owned ? "Tap to wear" : c.desc;
+      el("span", "", btn).textContent = wearing ? "Wearing — choose again to remove" : c.owned ? "Choose to wear" : c.desc;
       if (c.owned) {
         btn.addEventListener("click", (e) => {
           e.preventDefault();
@@ -140,6 +140,10 @@ export class ChallengesPanel {
         });
       }
     }
-    el("p", "chal-meta", cs).textContent = `Lifetime: ${msg.totals.dailies} daily · ${msg.totals.weeklies} weekly`;
+    const tot = msg.totals;
+    el("p", "chal-meta", cs).textContent =
+      tot.dailies || tot.weeklies
+        ? `Lifetime: ${tot.dailies} daily · ${tot.weeklies} weekly`
+        : "Finish a daily challenge or a weekly race to unlock your first title.";
   }
 }
