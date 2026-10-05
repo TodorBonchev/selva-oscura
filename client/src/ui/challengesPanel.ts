@@ -99,9 +99,8 @@ export class ChallengesPanel {
       this.body.textContent = "";
       const note = el("p", "chal-note", this.body);
       note.textContent = "Couldn’t reach the challenge board. Check your connection and try again.";
-      const btn = el("button", "chal-cos-item owned", this.body);
+      const btn = el("button", "chal-retry", this.body);
       btn.type = "button";
-      btn.style.marginTop = "0.5rem";
       btn.textContent = "Retry";
       btn.addEventListener("click", (e) => {
         e.preventDefault();

@@ -4836,10 +4836,15 @@ export class WorldApp {
   flashDodge(sec = 1.4) {
     const el = document.getElementById("dodge-callout");
     if (!el) return;
-    if (this.room?.cantoId === "inferno_07") {
+    const canto = this.room?.cantoId;
+    if (canto === "inferno_07") {
       el.textContent = "Dash out of Plutus's slam";
       el.classList.add("avarice-dodge");
       el.classList.remove("wrath-dodge");
+    } else if (canto === "inferno_08") {
+      el.textContent = "Dash Argenti's slam";
+      el.classList.add("wrath-dodge");
+      el.classList.remove("avarice-dodge");
     } else {
       el.textContent = "Dash the slam";
       el.classList.remove("avarice-dodge", "wrath-dodge");

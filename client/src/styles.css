@@ -7240,6 +7240,8 @@ body.hud-compact:has(.sk-panel:not(.hidden)) #toast-layer {
 #chal-panel .chal-cos-item.owned { border-color: rgba(201, 162, 39, 0.6); }
 #chal-panel .chal-cos-item.owned b { color: #f0d890; }
 #chal-panel .chal-cos-item.worn { background: rgba(70, 48, 14, 0.85); border-color: #e8c86a; box-shadow: 0 0 0 1px rgba(232, 200, 106, 0.35) inset; }
+#chal-panel .chal-retry { margin-top: 0.55rem; min-height: 40px; padding: 0.45rem 1rem; border-radius: 8px; border: 1px solid #e8c86a; background: rgba(70, 48, 14, 0.9); color: #f0d890; font-size: 0.92rem; cursor: pointer; }
+#chal-panel .chal-retry:active { filter: brightness(1.1); }
 /* worn nameplate flair (challenges): a mark before the name */
 .flair-laurel .wl-name::before { content: "❦ "; color: #e8c86a; text-shadow: 0 0 6px rgba(232, 200, 106, 0.6); }
 .flair-ember .wl-name::before { content: "✦ "; color: #ff8a4a; text-shadow: 0 0 6px rgba(255, 110, 50, 0.6); }
