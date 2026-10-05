@@ -88,9 +88,61 @@ function makeArgenti(app: WorldApp): THREE.Group {
 type Glint = { m: THREE.Mesh; seg: number; u: number; speed: number; side: number };
 type Bubble = { m: THREE.Mesh | null; t0: number; x: number; y: number };
 
+/**
+ * A ribbon following the Styx centreline between lateral offsets `a` and `b` (world
+ * units, signed across the flow) at height `y`; uv.x runs along the river / `uvLen`.
+ */
+function styxStrip(step: number, a: number, b: number, y: number, uvLen: number): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  let along = 0;
+  let row = 0;
+  for (let i = 0; i < STYX_PTS.length - 1; i++) {
+    const [ax, ay] = STYX_PTS[i];
+    const [bx, by] = STYX_PTS[i + 1];
+    const len = Math.hypot(bx - ax, by - ay);
+    const n = Math.max(1, Math.ceil(len / step));
+    for (let k = i === 0 ? 0 : 1; k <= n; k++) {
+      const t = k / n;
+      const x = ax + (bx - ax) * t;
+      const z = ay + (by - ay) * t;
+      // averaged normal at joints keeps the strip from pinching
+      let dx = bx - ax;
+      let dz = by - ay;
+      if (k === n && i + 1 < STYX_PTS.length - 1) {
+        dx += STYX_PTS[i + 2][0] - bx;
+        dz += STYX_PTS[i + 2][1] - by;
+      }
+      const l = Math.hypot(dx, dz) || 1;
+      const nx = -dz / l;
+      const nz = dx / l;
+      pos.push(x + nx * b, y, z + nz * b, x + nx * a, y, z + nz * a);
+      uv.push(along / uvLen, 0, along / uvLen, 1);
+      if (row > 0) {
+        const q = (row - 1) * 2;
+        idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
+      }
+      row++;
+      along += len / n;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  // flat ribbon: normals straight up (winding may point them down)
+  const nrm = new Float32Array((pos.length / 3) * 3);
+  for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
+  geo.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
+  return geo;
+}
+
 class WrathView {
   water: THREE.Mesh | null = null;
   waterMat: THREE.MeshStandardMaterial | null = null;
+  bankMat: THREE.MeshBasicMaterial | null = null;
+  banks: THREE.Mesh[] = [];
   glints: Glint[] = [];
   bubbles: Bubble[] = [];
   nextBubble = 0;
@@ -103,57 +155,18 @@ class WrathView {
     const compact = isCompactUi();
     // — the water sheet: a strip along the centreline, just over the sagged channel —
     const step = compact ? 3 : 2;
-    const pos: number[] = [];
-    const uv: number[] = [];
-    const idx: number[] = [];
-    let along = 0;
-    let row = 0;
     const half = STYX_HALF + 0.4;
-    for (let i = 0; i < STYX_PTS.length - 1; i++) {
-      const [ax, ay] = STYX_PTS[i];
-      const [bx, by] = STYX_PTS[i + 1];
-      const len = Math.hypot(bx - ax, by - ay);
-      const n = Math.max(1, Math.ceil(len / step));
-      for (let k = i === 0 ? 0 : 1; k <= n; k++) {
-        const t = k / n;
-        const x = ax + (bx - ax) * t;
-        const y = ay + (by - ay) * t;
-        // averaged normal at joints keeps the strip from pinching
-        let dx = bx - ax;
-        let dy = by - ay;
-        if (k === n && i + 1 < STYX_PTS.length - 1) {
-          dx += STYX_PTS[i + 2][0] - bx;
-          dy += STYX_PTS[i + 2][1] - by;
-        }
-        const l = Math.hypot(dx, dy) || 1;
-        const nx = -dy / l;
-        const ny = dx / l;
-        pos.push(x + nx * half, -0.035, y + ny * half, x - nx * half, -0.035, y - ny * half);
-        uv.push(along / 12, 0, along / 12, 1);
-        if (row > 0) {
-          const a = (row - 1) * 2;
-          idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-        }
-        row++;
-        along += len / n;
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    // (normals may point down depending on winding: force up)
-    const nrm = geo.attributes.normal as THREE.BufferAttribute;
-    for (let i = 0; i < nrm.count; i++) nrm.setXYZ(i, 0, 1, 0);
+    // (lifted just over the rest height: the floor's ~4.6 u triangles bridge the sagged
+    // channel, and a sheet under them vanished — feet now wade a hand's depth in it)
+    const geo = styxStrip(step, -half, half, 0.05, 12);
     this.waterMat = new THREE.MeshStandardMaterial({
-      color: 0x16140e,
-      roughness: 0.12,
-      metalness: 0.7,
-      emissive: 0x1a0c06,
+      color: 0x0b0a08,
+      roughness: 0.22,
+      metalness: 0.45,
+      emissive: 0x140906,
       emissiveIntensity: 0.35,
       transparent: true,
-      opacity: 0.86,
+      opacity: 0.93,
       depthWrite: false,
     });
     this.water = new THREE.Mesh(geo, this.waterMat);
@@ -161,6 +174,24 @@ class WrathView {
     this.water.renderOrder = 1;
     this.water.receiveShadow = false;
     app.scene.add(this.water);
+    // — the banks: a pale silt-foam lip on each side, so the river's edge (and the
+    //   eruption band past it) reads at a glance on a phone —
+    this.bankMat = new THREE.MeshBasicMaterial({
+      color: 0xb09a72,
+      transparent: true,
+      opacity: 0.26,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    for (const sgn of [-1, 1]) {
+      const a = sgn * (STYX_HALF - 0.15);
+      const b = sgn * (STYX_HALF + 0.45);
+      const m = new THREE.Mesh(styxStrip(step, Math.min(a, b), Math.max(a, b), 0.062, 6), this.bankMat);
+      m.name = "styxBank";
+      m.renderOrder = 2;
+      app.scene.add(m);
+      this.banks.push(m);
+    }
 
     // — bone-gold glints drifting downstream —
     const nG = compact ? 10 : 22;
@@ -196,6 +227,13 @@ class WrathView {
       this.waterMat?.dispose();
       this.water = null;
     }
+    for (const b of this.banks) {
+      app.scene.remove(b);
+      b.geometry.dispose();
+    }
+    this.banks.length = 0;
+    this.bankMat?.dispose();
+    this.bankMat = null;
     if (this.glints.length) {
       const g0 = this.glints[0].m;
       for (const g of this.glints) app.scene.remove(g.m);
@@ -217,6 +255,7 @@ class WrathView {
     const app = this.app;
     const t = app.animT;
     if (this.waterMat) this.waterMat.emissiveIntensity = 0.3 + 0.08 * Math.sin(t * 0.0013);
+    if (this.bankMat) this.bankMat.opacity = 0.19 + 0.05 * Math.sin(t * 0.0021);
     // glints
     for (const g of this.glints) {
       const [ax, ay] = STYX_PTS[g.seg];
@@ -231,7 +270,7 @@ class WrathView {
       const ny = (bx - ax) / len;
       const x = ax + (bx - ax) * g.u + nx * g.side;
       const y = ay + (by - ay) * g.u + ny * g.side;
-      g.m.position.set(x, 0.0, y);
+      g.m.position.set(x, 0.07, y);
       g.m.rotation.y = Math.atan2(-(by - ay), bx - ax);
       const tw = 0.5 + 0.5 * Math.sin(t * 0.004 + g.side * 3 + g.seg);
       g.m.scale.set(0.6 + tw * 0.8, 1, 1);
@@ -252,7 +291,7 @@ class WrathView {
           const y = ay + (by - ay) * u + (Math.random() * 2 - 1) * (STYX_HALF - 1);
           if (tries < 5 && Math.hypot(x - you.x, y - you.y) > 18) continue;
           slot.m = acquireFxRing(0.12, 0.2, 16, 0xcab48a, 0.55);
-          slot.m.position.set(x, 0.0, y);
+          slot.m.position.set(x, 0.07, y);
           slot.t0 = t;
           slot.x = x;
           slot.y = y;

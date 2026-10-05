@@ -6842,8 +6842,9 @@ body.pvp-killcam #game-root canvas { filter: saturate(0.28) brightness(0.78); }
   position: fixed;
   z-index: 26;
   left: 50%;
-  /* Clear the desktop hotbar (icons + labels run ~7rem). Compact rules pull it to the screen edge. */
-  bottom: calc(11.25rem + var(--safe-bottom));
+  /* Desktop: a thin rule on the hotbar's top edge (the bar runs ~5rem with labels), not
+     floating over the hero's feet. Compact rules pull it to the screen edge. */
+  bottom: calc(5.2rem + var(--safe-bottom));
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -6909,6 +6910,8 @@ body.pvp-killcam #game-root canvas { filter: saturate(0.28) brightness(0.78); }
   20% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -18px); }
 }
+/* Desktop: the target plate stacks just above the XP rule */
+body:not(.hud-compact) #target-plate { bottom: calc(6.1rem + var(--safe-bottom)); }
 body.hud-compact #xp-plate {
   left: calc(8px + var(--safe-left));
   right: calc(200px + var(--safe-right));
