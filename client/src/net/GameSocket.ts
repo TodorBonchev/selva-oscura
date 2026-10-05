@@ -9,6 +9,21 @@ function toWsUrl(httpBase: string): string {
   return u.toString();
 }
 
+/** Random per-browser id (localStorage). The server only keeps a salted hash, for soft PvP anti-alt. */
+function deviceId(): string {
+  try {
+    let id = localStorage.getItem("selva_device");
+    if (!id || id.length < 8) {
+      const c = (globalThis as any).crypto;
+      id = c?.randomUUID ? String(c.randomUUID()) : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem("selva_device", id);
+    }
+    return id;
+  } catch {
+    return "";
+  }
+}
+
 /** Pings unanswered this long (ms) → the link is dead: reconnect (GameSocket.recycle). */
 const PONG_DEAD_MS = 9000;
 
@@ -48,7 +63,7 @@ export class GameSocket {
     ws.onopen = () => {
       const wasConnected = this.everConnected;
       this.everConnected = true;
-      this.send({ type: "hello", name: this.name, protocol: 1 });
+      this.send({ type: "hello", name: this.name, protocol: 1, device: deviceId() });
       this.startPings();
       if (wasConnected) {
         for (const h of this.handlers) h({ type: "net", state: "reconnected" });

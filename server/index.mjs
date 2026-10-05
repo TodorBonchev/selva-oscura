@@ -53,6 +53,7 @@ import { handleChallengesGet, handleFlairSet, hydrateChallenges } from "./src/ch
 import { partyHandle, partyInit, partyTick } from "./src/party.mjs";
 import { handleTutorial, getLevel } from "./src/progression.mjs";
 import { pvpSpectate } from "./src/pvp.mjs";
+import { deviceKey, linkFor } from "./src/link.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
 import { getEmitLog, vault, resolvePlayerForSession, players } from "./src/ledger.mjs";
@@ -139,8 +140,10 @@ function send(ws, msg) {
 const HEARTBEAT_MS = 2000;
 const HEARTBEAT_DEAD_MS = 20000;
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
   const playerId = crypto.randomUUID();
+  // Soft anti-alt: salted hashes of the client IP / device id (src/link.mjs)
+  ws._link = linkFor(req);
   sockets.set(ws, { playerId, name: null, chain: Promise.resolve() });
   ws._hb = { sentAt: 0, seenAt: Date.now() };
   ws.on("pong", () => {
@@ -227,6 +230,7 @@ async function handleMessage(ws, meta, msg) {
   switch (msg.type) {
     case "hello": {
       meta.name = (msg.name || `Wanderer-${playerId.slice(0, 4)}`).slice(0, 24);
+      if (ws._link) ws._link.dev = deviceKey(msg.device) || ws._link.dev || null;
       const { player, restored } = await resolvePlayerForSession(
         playerId,
         meta.name

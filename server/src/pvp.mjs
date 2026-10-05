@@ -540,7 +540,8 @@ function onArenaKill(room, victim, killer, how, prevStreak) {
   k.roundKills = (k.roundKills || 0) + 1;
   if (k.streak > (k.bestStreak || 0)) k.bestStreak = k.streak;
   v.deaths += 1;
-  challengesOnArenaKill(room, killer.playerId, k.streak);
+  // (a kill on a pilgrim sharing your connection or device never counts toward the daily)
+  if (!linkedPair(room, killer.playerId, victim.playerId)) challengesOnArenaKill(room, killer.playerId, k.streak);
   refreshTitle(k);
   refreshTitle(v);
   const firstBlood = round && !round.firstBlood;
@@ -679,6 +680,35 @@ function takePairMult(a, b) {
   return mult;
 }
 
+/**
+ * Soft anti-alt. The server hashes each socket's IP and the client's device id
+ * (index.mjs ws._link). Rated duels between linked pilgrims earn diminishing rating:
+ * same device ×0.25 → ×0.1 → 0, same IP only (households, campus, carrier NAT)
+ * ×0.5 → ×0.25 → 0, within 24 h. Never a ban; unlinked fights are untouched.
+ */
+const LINK_TABLE = { dev: [0.25, 0.1, 0], ip: [0.5, 0.25, 0] };
+const linkHist = new Map();
+
+export function linkedPair(room, a, b) {
+  const la = room?.sessions?.get(a)?.ws?._link;
+  const lb = room?.sessions?.get(b)?.ws?._link;
+  if (!la || !lb) return null;
+  if (la.dev && la.dev === lb.dev) return "dev";
+  if (la.ip && la.ip === lb.ip) return "ip";
+  return null;
+}
+
+function takeLinkMult(a, b, kind) {
+  const key = pairKey(a, b);
+  const now = Date.now();
+  const prev = (linkHist.get(key) || []).filter((t) => now - t < PAIR_WINDOW_MS);
+  const table = LINK_TABLE[kind] || LINK_TABLE.ip;
+  const mult = table[Math.min(prev.length, table.length - 1)];
+  prev.push(now);
+  linkHist.set(key, prev);
+  return mult;
+}
+
 /** Arena spectator mode: unseen, cannot strike or be struck, out of rounds and queue. */
 export function pvpSpectate(room, sess, on) {
   safe("spectate", () => {
@@ -714,7 +744,29 @@ export function pvpSpectate(room, sess, on) {
 function applyRating(room, duel, winnerId, reason) {
   const a = ensureStats(duel.a);
   const b = ensureStats(duel.b);
-  const mult = takePairMult(duel.a, duel.b);
+  let mult = takePairMult(duel.a, duel.b);
+  const link = linkedPair(room, duel.a, duel.b);
+  if (link) {
+    const lm = takeLinkMult(duel.a, duel.b, link);
+    if (lm < mult) {
+      mult = lm;
+      duel.linked = link;
+      const line =
+        lm > 0
+          ? "Rating change reduced: these pilgrims share a connection or device."
+          : "Rating unchanged: these pilgrims share a connection or device.";
+      for (const id of [duel.a, duel.b]) {
+        const sx = room.sessions.get(id);
+        if (sx) {
+          try {
+            room.toast(sx.ws, "info", line);
+          } catch {
+            /* gone */
+          }
+        }
+      }
+    }
+  }
   const K = duel.ranked ? K_RANKED : K_HUB;
   let scoreA;
   let scoreB;

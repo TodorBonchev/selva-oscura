@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Parties, shared XP, arena spectator.
+ * Parties, shared XP, arena spectator, soft anti-alt.
  * (Onboarding: scripts/onboarding-regression.mjs; challenges: scripts/challenges-regression.mjs.)
  * Memory mode only (spawns its own server on PORT_TEST, default 8098).
  *
@@ -31,6 +31,7 @@ const check = (ok, label, extra = "") => {
 const party = await import("../src/party.mjs");
 const prog = await import("../src/progression.mjs");
 const pvp = await import("../src/pvp.mjs");
+const link = await import("../src/link.mjs");
 
 function fakeWs() {
   return { readyState: 1, out: [], send(d) { this.out.push(JSON.parse(d)); } };
@@ -91,7 +92,7 @@ function addSess(room, id, x, y, extra = {}) {
   party.partyHandle("pA", { type: "party_kick", targetId: "pC" });
   check(party.partyIdOf("pA") === null, "party: kick last mate disbands");
 
-  // Spectator
+  // Spectator / anti-alt
   const arena = fakeRoom("inferno_31", "arena");
   const X = addSess(arena, "pX", 30, 30);
   const Y = addSess(arena, "pY", 31, 30);
@@ -103,6 +104,22 @@ function addSess(room, id, x, y, extra = {}) {
   await sleep(700);
   pvp.pvpSpectate(arena, X, false);
   check(!X.spectating, "spectate: off");
+  X.ws._link = { ip: "aaa", dev: "d1" };
+  Y.ws._link = { ip: "aaa", dev: "d2" };
+  check(pvp.linkedPair(arena, "pX", "pY") === "ip", "anti-alt: same IP → ip link");
+  Y.ws._link = { ip: "bbb", dev: "d1" };
+  check(pvp.linkedPair(arena, "pX", "pY") === "dev", "anti-alt: same device → dev link");
+  Y.ws._link = { ip: "bbb", dev: "d2" };
+  check(pvp.linkedPair(arena, "pX", "pY") === null, "anti-alt: unrelated → none");
+  const req = (headers, addr = "10.0.0.9") => ({ headers, socket: { remoteAddress: addr } });
+  check(link.clientIp(req({ "x-real-ip": "203.0.113.7", "x-forwarded-for": "1.1.1.1, 203.0.113.7" })) === "203.0.113.7", "anti-alt: X-Real-IP wins");
+  check(link.clientIp(req({ "x-forwarded-for": "6.6.6.6, 198.51.100.4" })) === "198.51.100.4", "anti-alt: right-most XFF hop (left is spoofable)");
+  check(link.clientIp(req({})) === "10.0.0.9", "anti-alt: socket address fallback");
+  check(link.linkFor(req({}, "127.0.0.1")).ip === null && link.linkFor(req({}, "::1")).ip === null, "anti-alt: loopback never links");
+  const lk = link.linkFor(req({ "x-real-ip": "203.0.113.7" }));
+  check(/^[0-9a-f]{16}$/.test(lk.ip) && !String(lk.ip).includes("203"), "anti-alt: only a salted hash is kept");
+  check(link.deviceKey("short") === null && link.deviceKey("x".repeat(65)) === null, "anti-alt: device id length-checked");
+  check(link.deviceKey("device-aaaa-1111") === link.deviceKey("device-aaaa-1111"), "anti-alt: device key stable");
 
 }
 
