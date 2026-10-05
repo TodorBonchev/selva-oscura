@@ -839,6 +839,12 @@ function spend(room, sess, def, rank) {
 }
 
 function reject(room, sess, text) {
+  // Same deny twice in a row (loadout spam, hold-to-cast) used to stack toasts;
+  // keep the first of each distinct line for ~1.6 s.
+  const now = Date.now();
+  const last = sess._skillDeny || {};
+  if (last.text === text && now - (last.at || 0) < 1600) return;
+  sess._skillDeny = { text, at: now };
   room.toast(sess.ws, "warn", text);
 }
 
