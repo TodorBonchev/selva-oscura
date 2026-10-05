@@ -344,6 +344,36 @@ class WrathView {
     }
   }
 
+  /** Argenti tears at himself (phase 2): a wide crimson burst where three shades rise. */
+  onTear(msg: any) {
+    const app = this.app;
+    const x = Number(msg.x) || 0;
+    const y = Number(msg.y) || 0;
+    for (let i = 0; i < 2; i++) {
+      const ring = acquireFxRing(0.4, 0.62, 36, i ? FURY_HOT : WRATH_RED, 0.9);
+      ring.position.set(x, app.surfaceY(x, y, 0.1), y);
+      app.scene.add(ring);
+      app.impacts.push({ mesh: ring, start: app.animT + i * 140, dur: 760, from: 1, to: i ? 6 : 9 });
+    }
+    if (app.sparks.length < 6) {
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + 0.4;
+        const sx = x + Math.cos(a) * 3.4;
+        const sy = y + Math.sin(a) * 3.4;
+        const b = spawnSparks(sx, sy, app.surfaceY(sx, sy, 0.6), WRATH_RED, app.animT);
+        b.dur = 640;
+        app.scene.add(b.points);
+        app.sparks.push(b);
+      }
+    }
+    const you = app.renderYou;
+    if (Math.hypot(x - you.x, y - you.y) < 22) {
+      app.kickShake(0.42);
+      app.camPunch = Math.max(app.camPunch, 0.5);
+      app.pvp?.sfx.enrage(true);
+    }
+  }
+
   onEnrage(msg: any) {
     const app = this.app;
     const x = Number(msg.x) || 0;
@@ -388,6 +418,7 @@ export const wrathMech: CantoMech = {
   onMessage(_app, msg) {
     if (msg?.type === "wrath_fx") {
       if (msg.fx === "enrage") view?.onEnrage(msg);
+      else if (msg.fx === "tear") view?.onTear(msg);
       return true;
     }
     return false;

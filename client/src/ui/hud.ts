@@ -233,7 +233,7 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
     const p = Number(you.pendingAsh) || 0;
     const full = p > 0 ? `+${formatAsh(p)} Ash (${ashToStelleDisplay(p)} Stelle) pending` : "";
     // Phones: the long form ran off the right edge beside the purse — the figure is enough
-    const txt = p > 0 && isCompactUi() ? `+${formatAsh(p)} pending` : full;
+    const txt = p > 0 && isCompactUi() ? `+${formatAsh(p)}` : full;
     if (pending.textContent !== txt) pending.textContent = txt;
     if (pending.title !== full) pending.title = full;
     pending.classList.toggle("hidden", p <= 0);

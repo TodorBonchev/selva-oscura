@@ -12,7 +12,7 @@
  *     telegraph (kind styx_eruption, 1.1 s, radius 2.2) opens at their feet.
  *  3. Filippo Argenti (argenti_fury). Default boss AI still runs (bossTick
  *     returns false). Every ~7 s he throws a line of three styx eruptions
- *     toward the nearest pilgrim. At ≤50% hp, once, he tears at himself and
+ *     toward the nearest pilgrim, rippling outward 0.16 s apart. At ≤50% hp, once, he tears at himself and
  *     three summoned wrath_shades rise around him. At ≤25% he enrages for good
  *     (+30% damage). onBossReset / init clear the fight.
  *  4. Phlegyas' Lantern. The default bell still stands; the ring also wipes
@@ -20,7 +20,8 @@
  *
  * Wire: telegraph kind styx_eruption (attackerId "mech:wrath" for the marsh,
  * the boss id for his line); { type: "wrath_fx", fx: "enrage",
- * id, x, y, boss? } when an enrage starts. Snapshot entities carry
+ * id, x, y, boss? } when an enrage starts; { type: "wrath_fx", fx: "tear", id, x, y }
+ * when Argenti tears at himself (phase 2, the adds rise). Snapshot entities carry
  * enraged: 1 while it holds, and fury: 1–3 while it builds (client warns from 2).
  */
 const FURY_ARCH = new Set(["wrath_shade", "fury_champion"]);
@@ -41,6 +42,8 @@ const STYX_EVERY = 6;
 const BOSS_LINE_EVERY = 7;
 const BOSS_LINE_FIRST = 4;
 const BOSS_LINE_REACH = 16;
+/** Seconds between the bursts of Argenti's thrown line (it ripples away from him). */
+const LINE_STAGGER = 0.16;
 const ADD_HP_BASE = 60;
 
 let addSeq = 0;
@@ -241,6 +244,7 @@ function phaseChecks(room, boss) {
     boss._tore = true;
     boss.phase = 2;
     spawnAdds(room, boss);
+    room.broadcast({ type: "wrath_fx", fx: "tear", id: boss.id, x: +boss.x.toFixed(2), y: +boss.y.toFixed(2) });
     for (const s of room.sessions.values()) {
       room.toast(s.ws, "warn", "Filippo Argenti tears at himself!");
     }
@@ -260,8 +264,20 @@ function lineOfEruptions(room, boss, target) {
   const uy = dy / len;
   const step = 4.6;
   const start = Math.min(3.2, Math.max(2.2, len * 0.35));
+  // The line rolls outward from his feet (one burst every LINE_STAGGER s) so it reads
+  // as a thrown wave to sidestep, not three circles that pop at once.
+  const bx = boss.x;
+  const by = boss.y;
   for (let i = 0; i < 3; i++) {
-    erupt(room, boss.x + ux * (start + i * step), boss.y + uy * (start + i * step), boss.id);
+    const x = bx + ux * (start + i * step);
+    const y = by + uy * (start + i * step);
+    if (i === 0) erupt(room, x, y, boss.id);
+    else {
+      room.schedule(i * LINE_STAGGER, () => {
+        if (boss._dead || !(boss.hp > 0) || boss.resetting) return;
+        erupt(room, x, y, boss.id);
+      });
+    }
   }
 }
 
