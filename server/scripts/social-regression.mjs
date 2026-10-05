@@ -92,6 +92,38 @@ function addSess(room, id, x, y, extra = {}) {
   party.partyHandle("pA", { type: "party_kick", targetId: "pC" });
   check(party.partyIdOf("pA") === null, "party: kick last mate disbands");
 
+  // Decline / expire free the inviter's pending lock (party_invite_result).
+  party._partyReset();
+  {
+    const r2 = fakeRoom("inferno_05");
+    const where2 = new Map();
+    party.partyInit({ getRoom: (id) => where2.get(id) || null, nameOf: (id) => `N-${id}`, levelOf: () => 1 });
+    const A2 = addSess(r2, "pA", 10, 10);
+    const B2 = addSess(r2, "pB", 12, 10);
+    where2.set("pA", r2);
+    where2.set("pB", r2);
+    party.partyHandle("pA", { type: "party_invite", targetId: "pB" });
+    check(A2.ws.out.some((m) => m.type === "party_invite_result" && m.status === "pending" && m.targetId === "pB"), "party: pending ack on invite");
+    A2.ws.out.length = 0;
+    party.partyHandle("pB", { type: "party_respond", fromId: "pA", accept: false });
+    check(A2.ws.out.some((m) => m.type === "party_invite_result" && m.status === "declined" && m.targetId === "pB"), "party: decline clears pending");
+    check(A2.ws.out.some((m) => m.type === "toast" && /declined/i.test(m.text)), "party: decline toasts inviter");
+  }
+  party._partyReset();
+  {
+    const r3 = fakeRoom("inferno_05");
+    const where3 = new Map();
+    party.partyInit({ getRoom: (id) => where3.get(id) || null, nameOf: (id) => `N-${id}`, levelOf: () => 1 });
+    const A3 = addSess(r3, "pA", 10, 10);
+    addSess(r3, "pB", 12, 10);
+    where3.set("pA", r3);
+    where3.set("pB", r3);
+    party.partyHandle("pA", { type: "party_invite", targetId: "pB" });
+    A3.ws.out.length = 0;
+    party.partyTick(Date.now() + 31_000);
+    check(A3.ws.out.some((m) => m.type === "party_invite_result" && m.status === "expired" && m.targetId === "pB"), "party: expire clears pending");
+  }
+
   // Spectator / anti-alt
   const arena = fakeRoom("inferno_31", "arena");
   const X = addSess(arena, "pX", 30, 30);

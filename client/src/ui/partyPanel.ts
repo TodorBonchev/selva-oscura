@@ -92,6 +92,19 @@ export class PartyPanel {
       this.showInvite(String(msg.fromId), String(msg.fromName || "A pilgrim"));
       return true;
     }
+    if (msg?.type === "party_invite_result") {
+      const tid = String(msg.targetId || "");
+      const status = String(msg.status || "");
+      if (!tid) return true;
+      if (status === "pending") {
+        // Server confirmed the invite — keep the button locked for the invite window.
+        this.invited.set(tid, performance.now() + 30_000);
+      } else {
+        this.invited.delete(tid);
+      }
+      if (this.isOpen()) this.paint(true);
+      return true;
+    }
     return false;
   }
 
@@ -209,7 +222,7 @@ export class PartyPanel {
         if (!pending) {
           inv.addEventListener("click", () => {
             this.ctx.send({ type: "party_invite", targetId: n.id });
-            // (the server's invite lives ~30 s; a refusal toasts and the button frees then)
+            // Optimistic lock until party_invite_result (declined / expired / failed / accepted).
             this.invited.set(n.id, performance.now() + 30_000);
             this.paint(true);
           });

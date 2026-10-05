@@ -243,6 +243,7 @@ export class PvpDirector {
         return true;
       case "party":
       case "party_invite":
+      case "party_invite_result":
         return this.party.onMessage(msg);
       default:
         return false;

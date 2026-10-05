@@ -5,7 +5,9 @@
  *
  * Client → server: party_invite {targetId}, party_respond {fromId, accept},
  *                  party_leave, party_kick {targetId}
- * Server → client: party_invite {fromId, fromName}, party {party|null}, toast via room
+ * Server → client: party_invite {fromId, fromName}, party {party|null},
+ *                  party_invite_result {targetId, status}, toast via room
+ *   status: pending | declined | expired | failed | accepted
  */
 
 export const PARTY_MAX = 3;
@@ -131,23 +133,46 @@ function removeMember(pid, why) {
   push(p);
 }
 
+function clearInvite(fromId, targetId, status) {
+  sendTo(fromId, { type: "party_invite_result", targetId, status });
+}
+
 function invite(fromId, targetId) {
   if (!targetId || targetId === fromId) return;
   const now = Date.now();
-  if (now - (lastInvite.get(fromId) || 0) < INVITE_CD_MS) return;
+  if (now - (lastInvite.get(fromId) || 0) < INVITE_CD_MS) {
+    toast(fromId, "warn", "Wait a moment before inviting again.");
+    clearInvite(fromId, targetId, "failed");
+    return;
+  }
   lastInvite.set(fromId, now);
   const target = sessOf(targetId);
-  if (!target) return toast(fromId, "warn", "That pilgrim is not online.");
+  if (!target) {
+    toast(fromId, "warn", "That pilgrim is not online.");
+    clearInvite(fromId, targetId, "failed");
+    return;
+  }
   const mine = parties.get(partyOf.get(fromId));
-  if (mine && mine.leader !== fromId) return toast(fromId, "warn", "Only the party leader can invite.");
-  if (mine && mine.members.length >= PARTY_MAX) return toast(fromId, "warn", `Party is full (${PARTY_MAX}).`);
+  if (mine && mine.leader !== fromId) {
+    toast(fromId, "warn", "Only the party leader can invite.");
+    clearInvite(fromId, targetId, "failed");
+    return;
+  }
+  if (mine && mine.members.length >= PARTY_MAX) {
+    toast(fromId, "warn", `Party is full (${PARTY_MAX}).`);
+    clearInvite(fromId, targetId, "failed");
+    return;
+  }
   if (partyOf.get(targetId)) {
-    return toast(fromId, "warn", mine && mine.members.includes(targetId) ? "Already in your party." : `${nameOf(targetId)} is already in a party.`);
+    toast(fromId, "warn", mine && mine.members.includes(targetId) ? "Already in your party." : `${nameOf(targetId)} is already in a party.`);
+    clearInvite(fromId, targetId, "failed");
+    return;
   }
   let box = invites.get(targetId);
   if (!box) invites.set(targetId, (box = new Map()));
   box.set(fromId, { partyId: mine?.id || null, at: now });
   sendTo(targetId, { type: "party_invite", fromId, fromName: nameOf(fromId) });
+  sendTo(fromId, { type: "party_invite_result", targetId, status: "pending" });
   toast(fromId, "info", `Party invite sent to ${nameOf(targetId)}.`);
 }
 
@@ -161,6 +186,7 @@ function respond(targetId, fromId, accept) {
   }
   if (!accept) {
     toast(fromId, "info", `${nameOf(targetId)} declined the party invite.`);
+    clearInvite(fromId, targetId, "declined");
     return;
   }
   if (partyOf.get(targetId)) return toast(targetId, "warn", "Leave your current party first.");
@@ -176,6 +202,7 @@ function respond(targetId, fromId, accept) {
   p.members.push(targetId);
   partyOf.set(targetId, p.id);
   invites.delete(targetId);
+  clearInvite(fromId, targetId, "accepted");
   for (const id of p.members) toast(id, "info", `${nameOf(targetId)} joined the party. Kills nearby share XP.`);
   push(p);
 }
@@ -209,7 +236,12 @@ export function partyHandle(pid, msg) {
 /** Every ~2 s: refresh member HP/canto, expire invites, drop long-gone members. */
 export function partyTick(now = Date.now()) {
   for (const [tid, box] of invites) {
-    for (const [fid, inv] of box) if (now - inv.at > INVITE_MS) box.delete(fid);
+    for (const [fid, inv] of [...box]) {
+      if (now - inv.at > INVITE_MS) {
+        box.delete(fid);
+        clearInvite(fid, tid, "expired");
+      }
+    }
     if (!box.size) invites.delete(tid);
   }
   for (const p of [...parties.values()]) {
