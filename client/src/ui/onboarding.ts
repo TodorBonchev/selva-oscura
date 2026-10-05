@@ -151,7 +151,9 @@ export class Onboarding {
 
   private glowFor(stepId: string): string {
     if (stepId === "tree") return "btn-skills";
-    if (stepId === "slash" && touch()) return "btn-attack";
+    if (!touch()) return "";
+    if (stepId === "slash") return "btn-attack";
+    if (stepId === "cast") return "btn-spell-slot-0";
     return "";
   }
 

@@ -6085,11 +6085,12 @@ body.hud-compact #virtual-joystick.vj-active .vj-base {
   opacity: 1;
 }
 
-/* The Auction House lives in the Dark Wood: no AH seal inside the combat circles */
+/* The Auction House lives in the Dark Wood: no AH seal inside combat circles or the arena */
 body.in-lust #btn-ah,
 body.in-gluttony #btn-ah,
 body.in-avarice #btn-ah,
-body.in-wrath #btn-ah { display: none !important; }
+body.in-wrath #btn-ah,
+body.in-arena #btn-ah { display: none !important; }
 
 /* Top-right utility row: skills, AH, bag, menu (fullscreen joins on phones) */
 #hud-util {
@@ -7305,6 +7306,20 @@ body.hud-compact.pve-circle .you-label { opacity: 0.5; }
   .tut-card { bottom: auto; top: min(242px, 30vh); font-size: 13px; padding: 8px 12px; }
   .tut-skip { min-height: 36px; padding: 4px 14px; }
   .tut-title { font-size: 15px; }
+}
+/* Landscape phones: short height — keep the card clear of vitals (top) and the stick/arc (bottom) */
+body.hud-landscape .tut-card {
+  top: auto;
+  bottom: max(18%, calc(var(--safe-bottom) + 88px));
+  width: min(300px, 56vw);
+  left: 50%;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+body.hud-landscape .tut-title { font-size: 14px; }
+body.hud-landscape .tut-card.tut-over {
+  bottom: 8px;
+  width: min(360px, 70vw);
 }
 
 /* ---- Party (ui/partyPanel.ts) ---- */
