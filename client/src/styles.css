@@ -4469,6 +4469,11 @@ body.hud-compact:not(.hud-landscape) #dodge-callout {
   border-color: #a0782888;
   text-shadow: 0 0 8px #d4a84066;
 }
+#dodge-callout.wrath-dodge {
+  color: #f0dcb0;
+  border-color: #7a4a2288;
+  text-shadow: 0 0 8px #7a4a2266;
+}
 
 
 #quest-track {

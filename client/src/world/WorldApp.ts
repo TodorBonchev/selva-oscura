@@ -4034,6 +4034,13 @@ export class WorldApp {
         document.body.classList.add("champ-windup");
         window.setTimeout(() => document.body.classList.remove("champ-windup"), Math.max(280, dur * 1000));
       }
+    } else if (kind === "styx_eruption") {
+      // Marsh boil underfoot (or Argenti's thrown line): tip the pilgrim to step off
+      const r = Number(msg.radius) || 2.2;
+      const d = Math.hypot((Number(msg.x) || 0) - this.renderYou.x, (Number(msg.y) || 0) - this.renderYou.y);
+      if (d < r + 1.2) this.flashStyxDodge(dur);
+      this.camPunch = Math.max(this.camPunch, 0.1);
+      this.camShake = Math.max(this.camShake, 0.05);
     } else {
       // A canto mechanic's heavy kind (registerTeleWeight): the windup punch (its dodge
       // callout is the mechanic's own)
@@ -4832,10 +4839,22 @@ export class WorldApp {
     if (this.room?.cantoId === "inferno_07") {
       el.textContent = "Dash out of Plutus's slam";
       el.classList.add("avarice-dodge");
+      el.classList.remove("wrath-dodge");
     } else {
       el.textContent = "Dash the slam";
-      el.classList.remove("avarice-dodge");
+      el.classList.remove("avarice-dodge", "wrath-dodge");
     }
+    el.classList.remove("hidden");
+    window.setTimeout(() => el.classList.add("hidden"), Math.max(400, sec * 1000));
+  }
+
+  /** Styx boil underfoot (marsh or Argenti's line): step off, not "Dash the slam". */
+  flashStyxDodge(sec = 1.1) {
+    const el = document.getElementById("dodge-callout");
+    if (!el) return;
+    el.textContent = "Step off the boil";
+    el.classList.add("wrath-dodge");
+    el.classList.remove("avarice-dodge", "lust-judge", "sentence");
     el.classList.remove("hidden");
     window.setTimeout(() => el.classList.add("hidden"), Math.max(400, sec * 1000));
   }
