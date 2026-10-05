@@ -239,7 +239,10 @@ async function walkTo(c, x, y, timeout = 12000) {
   }
 }
 
-function nearestMob(c) {
+/** Wind-carried wisps dart through Lust's storm — skip them when a steady target is wanted. */
+const DARTING = new Set(["gale_wisp", "whirl_shade"]);
+
+function nearestMob(c, steady = false) {
   const you = c.snap?.room?.you;
   const ents = c.snap?.room?.entities || [];
   let best = null;
@@ -247,6 +250,7 @@ function nearestMob(c) {
   for (const e of ents) {
     if (e.kind !== "mob" && e.kind !== "boss") continue;
     if (!(e.hp > 0)) continue;
+    if (steady && DARTING.has(e.archetype)) continue;
     const d = Math.hypot(e.x - you.x, e.y - you.y);
     if (d < bestD) {
       bestD = d;
@@ -256,10 +260,10 @@ function nearestMob(c) {
   return best;
 }
 
-async function walkToMob(c) {
+async function walkToMob(c, steady = false) {
   const t0 = Date.now();
   while (Date.now() - t0 < 15000) {
-    const m = nearestMob(c);
+    const m = nearestMob(c, steady) || nearestMob(c);
     if (!m) {
       await sleep(100);
       continue;
@@ -268,7 +272,7 @@ async function walkToMob(c) {
     if (Math.hypot(m.x - you.x, m.y - you.y) <= 2.0) return m;
     await stepToward(c, m.x, m.y);
   }
-  return nearestMob(c);
+  return nearestMob(c, steady) || nearestMob(c);
 }
 
 function prog(c) {
@@ -511,7 +515,7 @@ async function run() {
         check(false, `${id} not learned, skip cast`);
         continue;
       }
-      const mob = await walkToMob(A);
+      const mob = await walkToMob(A, true);
       if (!mob) {
         check(false, `no mob for ${id}`);
         continue;
@@ -519,7 +523,8 @@ async function run() {
       await loadout(A, [id, "gale_bolt", "whirl_ward", "infernal_burst"]);
       await sleep(80);
       const from = A.msgs.length;
-      const hp0 = nearestMob(A)?.hp;
+      const hp0 = nearestMob(A, true)?.hp ?? nearestMob(A)?.hp;
+      let castAt = Date.now();
       A.send({
         type: "cast",
         spellId: id,
@@ -552,17 +557,29 @@ async function run() {
             const hp1 = nearestMob(A)?.hp;
             return hit || fxHit || (hp1 != null && hp0 != null && hp1 < hp0);
           };
-          if (!landed()) {
-            const m2 = nearestMob(A);
+          // A miss (the target stepped out) earns up to two re-casts once the skill recharges.
+          for (let retry = 0; retry < 2 && !landed(); retry++) {
+            const m2 = (await walkToMob(A, true)) || nearestMob(A);
+            const readyIn = castAt + Math.min(15, SKILLS[id]?.cooldown || 4) * 1000 + 200 - Date.now();
+            if (readyIn > 0) await sleep(readyIn);
+            castAt = Date.now();
             A.send({
               type: "cast",
               spellId: id,
               aimX: (m2?.x || 1) - A.snap.room.you.x,
               aimY: (m2?.y || 0) - A.snap.room.you.y,
             });
-            await sleep(id === "pillar_of_flame" ? 1400 : 700);
+            await sleep(id === "pillar_of_flame" ? 1400 : 900);
           }
-          check(landed(), `${id} damages a mob`);
+          const why = () => {
+            const fx = A.msgs.slice(from).filter((m) => m.type === "spell_fx" && m.spellId === id).map((m) => `fx hits=${Array.isArray(m.hits) ? m.hits.length : "-"}`);
+            const errs = A.msgs.slice(from).filter((m) => m.type === "error" || m.type === "cast_fail" || m.type === "toast").map((m) => `${m.type}:${m.code || m.error || m.text || ""}`.slice(0, 60));
+            const you = A.snap.room.you;
+            const nm = nearestMob(A);
+            return [...fx, ...errs, `you ${you.x.toFixed(1)},${you.y.toFixed(1)} hp ${you.hp} mana ${you.mana}`, nm ? `mob ${nm.archetype} ${nm.x.toFixed(1)},${nm.y.toFixed(1)} hp ${nm.hp}` : "no mob"].join(" | ");
+          };
+          const ok = landed();
+          check(ok, `${id} damages a mob`, ok ? "" : why());
         }
       } catch (err) {
         check(false, `${id} executes`, err.message);

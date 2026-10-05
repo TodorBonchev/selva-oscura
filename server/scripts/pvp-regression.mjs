@@ -587,7 +587,12 @@ async function run() {
 
     const kill3 = await swingUntil((m) => m.type === "pvp_kill" && m.victimId === B.id && m.streak === 3, 16000);
     check(!!kill3 && kill3.streak === 3, "(6) third credited kill", kill3 ? `streak ${kill3.streak}` : "none");
-    const killsAfter3 = A.snap.room.you.pvp?.kills;
+    // Snapshot can lag a tick behind the kill feed — wait briefly for kills to settle.
+    let killsAfter3 = A.snap.room.you.pvp?.kills;
+    for (let i = 0; i < 25 && killsAfter3 !== k0 + 3; i++) {
+      await sleep(80);
+      killsAfter3 = A.snap.room.you.pvp?.kills;
+    }
     check(killsAfter3 === k0 + 3, "(6) killer kills == 3", String(killsAfter3));
 
     const from4 = A.msgs.length;
