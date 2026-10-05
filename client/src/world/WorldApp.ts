@@ -3369,10 +3369,12 @@ export class WorldApp {
     const lust = this.room.cantoId === "inferno_05";
     const glut = this.room.cantoId === "inferno_06";
     const ava = this.room.cantoId === "inferno_07";
+    const wrath = this.room.cantoId === "inferno_08";
     const arena = this.room.cantoId === "inferno_31" || this.room.role === "arena";
     document.body.classList.toggle("in-lust", lust);
     document.body.classList.toggle("in-gluttony", glut);
     document.body.classList.toggle("in-avarice", ava);
+    document.body.classList.toggle("in-wrath", wrath);
     document.body.classList.toggle("in-arena", arena);
     if (this.selfRing) {
       // pale bone where the ground is red (Lust) or gold (Avarice): the ring must not
@@ -3386,13 +3388,14 @@ export class WorldApp {
       if (ava) this.ash.setColor(0xd4a840, isCompactUi() ? 0.32 : 0.4);
       else if (glut) this.ash.setColor(0xb8c070, isCompactUi() ? 0.4 : 0.5);
       else if (lust) this.ash.setColor(0xffb090, isCompactUi() ? 0.45 : 0.55);
+      else if (wrath) this.ash.setColor(0xc8a078, isCompactUi() ? 0.36 : 0.46);
       else if (arena) this.ash.setColor(0xc4b4a4, isCompactUi() ? 0.38 : 0.48);
       else this.ash.setColor(0xe8d4b0, 0.55);
     }
     this.setSky(
-      lust ? 0x12060a : glut ? 0x0a0c08 : ava ? 0x0a0804 : arena ? 0x07060a : 0x0e0c09,
-      lust ? 0x6e2616 : glut ? 0x3a4022 : ava ? 0x5e4618 : arena ? 0x3a221c : 0x4e4230,
-      lust ? 0x2a0e08 : glut ? 0x14120a : ava ? 0x100c06 : arena ? 0x0c0908 : 0x1c1812
+      lust ? 0x12060a : glut ? 0x0a0c08 : ava ? 0x0a0804 : wrath ? 0x100806 : arena ? 0x07060a : 0x0e0c09,
+      lust ? 0x6e2616 : glut ? 0x3a4022 : ava ? 0x5e4618 : wrath ? 0x5a2a18 : arena ? 0x3a221c : 0x4e4230,
+      lust ? 0x2a0e08 : glut ? 0x14120a : ava ? 0x100c06 : wrath ? 0x180c08 : arena ? 0x0c0908 : 0x1c1812
     );
     if (lust) {
       this.fogTargetColor.setHex(0x3a140e);
@@ -3450,6 +3453,26 @@ export class WorldApp {
       this.rim.intensity = compact ? 1.25 : 1.6;
       this.heroLight.intensity = compact ? 2.2 : 3.0;
       this.heroLight.distance = compact ? 6.5 : 8;
+    } else if (wrath) {
+      // Silt and bone — warmer low fill so the Styx and fury rings read, denser mud fog
+      const compact = isCompactUi();
+      this.mawPressureOn = false;
+      this.crushPressureOn = false;
+      document.body.classList.remove("maw-pressure");
+      document.body.classList.remove("crush-pressure", "crush-phase2", "crush-enrage");
+      this.crushEnrageShown = false;
+      this.fogTargetColor.setHex(0x1a100c);
+      this.fogTargetDensity = compact ? 0.015 : 0.0135;
+      this.clearTargetColor.setHex(0x100806);
+      this.hemi.color.set(0xd4b090);
+      this.hemi.groundColor.set(0x180c08);
+      this.hemi.intensity = compact ? 1.0 : 1.12;
+      this.sun.color.set(0xe09060);
+      this.sun.intensity = compact ? 1.45 : 1.7;
+      this.rim.color.set(0xc05030);
+      this.rim.intensity = compact ? 1.35 : 1.55;
+      this.heroLight.intensity = compact ? 2.8 : 3.4;
+      this.heroLight.distance = compact ? 7.5 : 9;
     } else if (arena) {
       // Ash over a closed pit. A touch more fill so pilgrims read on the bone stage.
       const phone = isCompactUi();

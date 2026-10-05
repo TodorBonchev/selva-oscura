@@ -6088,7 +6088,8 @@ body.hud-compact #virtual-joystick.vj-active .vj-base {
 /* The Auction House lives in the Dark Wood: no AH seal inside the combat circles */
 body.in-lust #btn-ah,
 body.in-gluttony #btn-ah,
-body.in-avarice #btn-ah { display: none !important; }
+body.in-avarice #btn-ah,
+body.in-wrath #btn-ah { display: none !important; }
 
 /* Top-right utility row: skills, AH, bag, menu (fullscreen joins on phones) */
 #hud-util {
