@@ -16,7 +16,8 @@
     "test:levels": "node scripts/progression-regression.mjs",
     "test:social": "node scripts/social-regression.mjs",
     "test:challenges": "node scripts/challenges-regression.mjs",
-    "test:onboarding": "node scripts/onboarding-regression.mjs"
+    "test:onboarding": "node scripts/onboarding-regression.mjs",
+    "test:builds": "node scripts/build-edges-regression.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",

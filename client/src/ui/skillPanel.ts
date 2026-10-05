@@ -146,6 +146,7 @@ class SkillPanel {
       b.className = "sk-tab";
       b.dataset.branch = id;
       b.textContent = BRANCHES[id].name;
+      b.title = BRANCHES[id].edge;
       b.addEventListener("click", () => {
         this.branch = id;
         this.paintTabs();
@@ -260,6 +261,7 @@ class SkillPanel {
       const meta = BRANCHES[branch];
       const head = document.createElement("header");
       head.innerHTML = `<b>${meta.name}</b><span>${meta.subtitle}</span>`;
+      head.title = meta.edge;
       col.appendChild(head);
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.classList.add("sk-wires");

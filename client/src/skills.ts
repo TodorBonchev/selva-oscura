@@ -8,10 +8,30 @@ export const LOADOUT_SIZE = 4;
 export const MAX_RANK = 5;
 
 export const BRANCHES = {
-  ira: { id: "ira", name: "Wrath", subtitle: "Melee" },
-  fede: { id: "fede", name: "Faith", subtitle: "Holy fire" },
-  ombra: { id: "ombra", name: "Shade", subtitle: "Wind" },
-  fortezza: { id: "fortezza", name: "Fortitude", subtitle: "Guard" },
+  ira: {
+    id: "ira",
+    name: "Wrath",
+    subtitle: "Melee",
+    edge: "PvE edge: Wrath strikes deal +25% to elites and bosses under 30% life, +20% to enraged foes in Wrath.",
+  },
+  fede: {
+    id: "fede",
+    name: "Faith",
+    subtitle: "Holy fire",
+    edge: "PvE edge: Faith fire deals +20% to Gluttony filth and +25% to ward hearts; Grace or Halo eases Styx eruptions by 30%.",
+  },
+  ombra: {
+    id: "ombra",
+    name: "Shade",
+    subtitle: "Wind",
+    edge: "PvE edge: Snare Glyph, Tempest or Gale Bolt landing on a champion or boss mid-slam breaks the windup (once per 6 s each).",
+  },
+  fortezza: {
+    id: "fortezza",
+    name: "Fortitude",
+    subtitle: "Guard",
+    edge: "PvE edge: with Whirl Ward or Bastion up, telegraphed boss and champion blows deal 25% less.",
+  },
 } as const;
 
 export type BranchId = keyof typeof BRANCHES;

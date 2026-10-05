@@ -81,6 +81,7 @@ import {
   warCryMult,
   weakenMult,
 } from "./skills.mjs";
+import { ombraBreakDecision, scaleIncoming, scaleOutgoing } from "./buildEdges.mjs";
 
 /** Arena pits clamp to the wall; every other canto keeps the torus wrap. */
 function placeBody(room, x, y) {
@@ -918,10 +919,35 @@ class CantoRoom {
     // a boss walking home off its leash is not to be whittled on the way (no heal there)
     const evade = v.kind === "boss" && v.resetting && hit > 0;
     if (evade) hit = 0;
+    // Build edges (Ira execute, Fede filth/hearts). World hazards pass `source` and skip this.
+    if (hit > 0 && !extra.source) {
+      try {
+        hit = scaleOutgoing(hit, extra.spellId, v, this.cantoId);
+      } catch (err) {
+        console.error("[builds] outgoing", err.message);
+      }
+    }
     v.hp = Math.max(0, v.hp - hit);
     noteHit(v, playerId);
     let kb = 0;
     if (v.hp > 0 && !evade && !HEART_ARCHETYPES.has(v.archetype)) {
+      // Ombra: a control landing can snap one slam windup, then waits 6 s on that foe.
+      if (!extra.source && v.teleId) {
+        try {
+          const tele = this.tele.get(v.teleId);
+          const br = ombraBreakDecision(v, {
+            spellId: extra.spellId,
+            now: Date.now(),
+            teleKind: tele && tele.kind,
+          });
+          if (br.cancel) {
+            v._ombraBreakAt = br.at;
+            interruptAttack(this, v, v.kind === "boss" ? 0.55 : 0.45, "interrupt");
+          }
+        } catch (err) {
+          console.error("[builds] ombra", err.message);
+        }
+      }
       kb = knockbackFor(v, extra.heavy) * (extra.kbMul ?? 1);
       if (extra.from && kb > 0) pushMob(v, v.x - extra.from.x, v.y - extra.from.y, kb);
       if (v.kind === "mob") {
@@ -2046,6 +2072,21 @@ class CantoRoom {
     let { taken, soaked } = mitigate(raw, armor);
     const dr = bastionDr(target, false);
     if (dr > 0) taken = Math.max(1, Math.round(taken * (1 - dr)));
+    // Fede fire resist and Fortezza soak, both after armor (and after Bastion's own DR).
+    try {
+      const eased = scaleIncoming(taken, {
+        sess: target,
+        attacker,
+        teleKind: extra.teleKind,
+        now: Date.now(),
+      });
+      if (eased < taken) {
+        soaked += taken - eased;
+        taken = eased;
+      }
+    } catch (err) {
+      console.error("[builds] incoming", err.message);
+    }
     if (target.hp - taken <= 0 && tryLastStand(target, false)) {
       this.broadcast({
         type: "spell_fx",
