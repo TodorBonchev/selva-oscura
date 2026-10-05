@@ -365,6 +365,7 @@ export class PvpDirector {
     const arena = room?.role === "arena" || room?.cantoId === "inferno_31";
     const spec = Boolean(room?.you?.pvp?.spec);
     this.hud.setSpectate(Boolean(arena), spec);
+    document.body.classList.toggle("in-spectate", spec);
     if (!spec) {
       if (this.specBar) {
         this.specBar.remove();

@@ -3376,6 +3376,7 @@ export class WorldApp {
     document.body.classList.toggle("in-avarice", ava);
     document.body.classList.toggle("in-wrath", wrath);
     document.body.classList.toggle("in-arena", arena);
+    if (!arena) document.body.classList.remove("in-spectate");
     if (this.selfRing) {
       // pale bone where the ground is red (Lust) or gold (Avarice): the ring must not
       // melt into the floor; gold elsewhere
