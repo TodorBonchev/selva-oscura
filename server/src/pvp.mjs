@@ -753,8 +753,12 @@ function applyRating(room, duel, winnerId, reason) {
       duel.linked = link;
       const line =
         lm > 0
-          ? "Rating change reduced: these pilgrims share a connection or device."
-          : "Rating unchanged: these pilgrims share a connection or device.";
+          ? link === "dev"
+            ? "Rating change reduced — same device as your rival (soft anti-alt)."
+            : "Rating change reduced — same network as your rival (household / campus)."
+          : link === "dev"
+            ? "Rating unchanged — same device as your rival (soft anti-alt)."
+            : "Rating unchanged — same network as your rival (household / campus).";
       for (const id of [duel.a, duel.b]) {
         const sx = room.sessions.get(id);
         if (sx) {

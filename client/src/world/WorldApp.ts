@@ -3597,6 +3597,10 @@ export class WorldApp {
           if (cantoChanged) this.camPunch = 1.2;
           this.camLead.x = 0;
           this.camLead.z = 0;
+          // AH / bag / skills stay open across a gate otherwise — and AH has no seal in combat
+          for (const id of ["ah", "inventory", "skills", "chal-panel", "party-panel"]) {
+            if (isPanelOpen(id)) setPanelOpen(id, false);
+          }
           // Arrival title card replaces the old "Entered X." / intro toast pile-up
           flushStaleToasts();
           showCantoCard(
