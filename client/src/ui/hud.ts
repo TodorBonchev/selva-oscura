@@ -233,7 +233,7 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
     const p = Number(you.pendingAsh) || 0;
     const full = p > 0 ? `+${formatAsh(p)} Ash (${ashToStelleDisplay(p)} Stelle) pending` : "";
     // Phones: the long form ran off the right edge beside the purse — the figure is enough
-    const txt = p > 0 && isCompactUi() ? `+${formatAsh(p)}` : full;
+    const txt = p > 0 && isCompactUi() ? `+${shortAsh(p)}` : full;
     if (pending.textContent !== txt) pending.textContent = txt;
     if (pending.title !== full) pending.title = full;
     pending.classList.toggle("hidden", p <= 0);
@@ -259,6 +259,14 @@ export function updateStats(you: any, title: string, subtitleIt?: string | null)
 
 function formatAsh(n: number): string {
   return (Number(n) || 0).toLocaleString("en-US");
+}
+
+/** Phone chips: 12,400 stays exact; 1,019,996 reads "1.02M" (full figure in the title). */
+function shortAsh(n: number): string {
+  const v = Number(n) || 0;
+  if (v < 100_000) return formatAsh(v);
+  if (v < 1_000_000) return `${Math.floor(v / 1000)}k`;
+  return `${(Math.floor(v / 10_000) / 100).toFixed(2).replace(/\.?0+$/, "")}M`;
 }
 
 /** Short glyph for an item slot — first letters of the name. */

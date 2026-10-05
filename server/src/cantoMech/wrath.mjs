@@ -246,13 +246,16 @@ function phaseChecks(room, boss) {
     spawnAdds(room, boss);
     room.broadcast({ type: "wrath_fx", fx: "tear", id: boss.id, x: +boss.x.toFixed(2), y: +boss.y.toFixed(2) });
     for (const s of room.sessions.values()) {
-      room.toast(s.ws, "warn", "Filippo Argenti tears at himself!");
+      room.toast(s.ws, "warn", "Filippo Argenti tears at himself — three shades rise from the mud!");
     }
   }
   if (!boss._berserk && boss.hp <= boss.maxHp * 0.25) {
     boss._berserk = true;
     boss.phase = Math.max(boss.phase || 1, 2);
     beginEnrage(room, boss, 1e9);
+    for (const s of room.sessions.values()) {
+      room.toast(s.ws, "warn", "Argenti's fury boils over — he hits harder until he sinks.");
+    }
   }
 }
 
