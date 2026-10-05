@@ -52,6 +52,7 @@ import {
   pvpYou,
 } from "./pvp.mjs";
 import {
+  applyCatchup,
   applyPlayerStats,
   firstClearXp,
   flushXpGains,
@@ -554,6 +555,9 @@ class CantoRoom {
       cantoId: this.cantoId,
     };
     this.sessions.set(playerId, sess);
+    // Veteran catch-up levels inside grantXp → onLevelUp, which refills stats.
+    // hello / travel push the snapshot after join returns, so it sees the new level.
+    applyCatchup(this, sess);
     try {
       pvpOnJoin(this, sess);
     } catch (err) {

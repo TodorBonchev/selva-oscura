@@ -29,6 +29,16 @@ export const ARMOR_PER_LEVEL = 0.25;
 export const RESPEC_ASH_PER_LEVEL = 200;
 export const PARTY_XP_RANGE = 30;
 
+/** Bump to re-run the one-time veteran grant. Stamped on the progress row. */
+export const CATCHUP_VERSION = 1;
+export const CATCHUP_CUTOFF_MS = Date.parse(process.env.CATCHUP_CUTOFF || "2026-10-03T02:05:00+03:00");
+/** Full clear on top of the 800×tier first-clear grant: 4800 + 33200 = 38000 (~level 16). */
+export const CATCHUP_XP = {
+  inferno_05: 6400,
+  inferno_06: 10400,
+  inferno_07: 16400,
+};
+
 const HEART_ARCHETYPES = new Set(["storm_heart", "mire_heart", "hoard_heart"]);
 
 const CANTO_TIER_N = {
@@ -56,6 +66,9 @@ const tails = new Map();
 /** @type {Map<string, ReturnType<typeof setTimeout>>} */
 const xpTimers = new Map();
 const dirty = new Set();
+/** playerId -> Set of canto ids cleared before CATCHUP_CUTOFF_MS. Filled in DB hydrate only. */
+const preLaunchClears = new Map();
+let catchupReady = false;
 
 function safe(label, fn) {
   try {
@@ -113,6 +126,7 @@ function blankProgress(id) {
     loadout: DEFAULT_LOADOUT.slice(),
     backfilled: false,
     respecs: 0,
+    catchupV: 0,
   };
 }
 
@@ -130,6 +144,7 @@ function sanitizeRow(row, id) {
   p.loadout = sanitizeLoadout(row.loadout, p.ranks);
   p.backfilled = Boolean(row.backfilled);
   p.respecs = Math.max(0, Math.floor(Number(row.respecs) || 0));
+  p.catchupV = Math.max(0, Math.floor(Number(row.catchup_v) || 0));
   return p;
 }
 
@@ -203,6 +218,7 @@ export function overLevelMult(level, cantoId) {
 }
 
 function isPveReason(reason) {
+  // "catchup" is a one-time grant and must not take the over-level PvE cut.
   return reason === "kill" || reason === "first_clear" || reason === "boss";
 }
 
@@ -345,6 +361,39 @@ export function grantKillXp(room, killerId, entity) {
 
 export function firstClearXp(cantoId) {
   return FIRST_CLEAR_XP * cantoTier(cantoId);
+}
+
+/**
+ * One-time veteran XP for canto clears that predate progression.
+ * No-op in memory mode and once catchupV is stamped. Ranks are left alone.
+ */
+export function applyCatchup(room, sess) {
+  return safe("catchup", () => {
+    if (!catchupReady || !sess?.playerId) return;
+    const id = sess.playerId;
+    const p = getProgress(id);
+    if ((p.catchupV | 0) >= CATCHUP_VERSION) return;
+    let xp = 0;
+    const clears = preLaunchClears.get(String(id));
+    if (clears) {
+      for (const c of clears) xp += CATCHUP_XP[c] || 0;
+    }
+    // Stamp before the grant so a retry cannot pay twice.
+    p.catchupV = CATCHUP_VERSION;
+    try {
+      if (xp > 0) {
+        const from = p.level;
+        grantXp(room, id, xp, "catchup", { skipPenalty: true });
+        room.toast(
+          sess.ws,
+          "loot",
+          `Catch-up: +${xp} XP for past clears (level ${from} → ${p.level}, +${p.level - from} skill points).`
+        );
+      }
+    } finally {
+      persistProgress(id, true);
+    }
+  });
 }
 
 export function pvpXpAllowed(attackerId, victimId) {
@@ -534,8 +583,8 @@ async function writeOne(playerId) {
   if (!s) return;
   await query(
     `INSERT INTO player_progress (
-       player_id, level, xp, ranks, loadout, backfilled, respecs, updated_at
-     ) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7, NOW())
+       player_id, level, xp, ranks, loadout, backfilled, respecs, catchup_v, updated_at
+     ) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8, NOW())
      ON CONFLICT (player_id) DO UPDATE SET
        level = EXCLUDED.level,
        xp = EXCLUDED.xp,
@@ -543,6 +592,7 @@ async function writeOne(playerId) {
        loadout = EXCLUDED.loadout,
        backfilled = EXCLUDED.backfilled,
        respecs = EXCLUDED.respecs,
+       catchup_v = GREATEST(player_progress.catchup_v, EXCLUDED.catchup_v),
        updated_at = NOW()
      -- Never let a blank/stale in-memory row (e.g. after a failed hydrate) roll back progress.
      WHERE EXCLUDED.xp >= player_progress.xp`,
@@ -554,6 +604,7 @@ async function writeOne(playerId) {
       JSON.stringify(s.loadout || []),
       !!s.backfilled,
       s.respecs | 0,
+      s.catchupV | 0,
     ]
   );
 }
@@ -615,7 +666,7 @@ export async function hydrateProgression() {
   }
   try {
     const r = await query(
-      `SELECT player_id, level, xp, ranks, loadout, backfilled, respecs FROM player_progress`
+      `SELECT player_id, level, xp, ranks, loadout, backfilled, respecs, catchup_v FROM player_progress`
     );
     for (const row of r.rows) {
       const id = String(row.player_id);
@@ -627,6 +678,27 @@ export async function hydrateProgression() {
     // writes (the upsert guard also refuses to lower stored xp).
     console.error("[prog] hydrate failed — backfill skipped", err.message);
     return;
+  }
+  try {
+    const clears = await query(
+      `SELECT player_id, canto_id FROM first_clears WHERE cleared_at < to_timestamp($1/1000.0)`,
+      [CATCHUP_CUTOFF_MS]
+    );
+    preLaunchClears.clear();
+    for (const row of clears.rows) {
+      const id = String(row.player_id);
+      let set = preLaunchClears.get(id);
+      if (!set) {
+        set = new Set();
+        preLaunchClears.set(id, set);
+      }
+      set.add(String(row.canto_id));
+    }
+    catchupReady = true;
+    console.log(`[prog] catch-up v${CATCHUP_VERSION} ready (${preLaunchClears.size} veterans)`);
+  } catch (err) {
+    catchupReady = false;
+    console.error("[prog] catch-up load failed", err.message);
   }
   try {
     for (const [id, led] of players) {

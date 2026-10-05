@@ -6,7 +6,7 @@
  *   DATABASE_URL=postgresql://selva:selva_local@127.0.0.1:5433/selva node scripts/progression-regression.mjs
  *
  * Refuses DATABASE_URL hosts that look like Neon / Railway / Supabase.
- * Memory mode (no DATABASE_URL) skips restart persistence and SQL backfill.
+ * Memory mode (no DATABASE_URL) skips restart persistence, SQL backfill, and catch-up.
  */
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
@@ -18,6 +18,7 @@ import { itemStatBonus } from "../src/loot.mjs";
 import { pvpDamage } from "../src/pvp.mjs";
 import {
   firstClearXp,
+  levelFromTotalXp,
   LEVEL_CAP,
   totalXpForLevel,
   xpToNext,
@@ -681,6 +682,7 @@ async function run() {
     check(prog(P).loadout[0] === "furious_cleave", "persist loadout", JSON.stringify(prog(P).loadout));
     P.ws.close();
 
+    const wantXp = firstClearXp("inferno_05") + firstClearXp("inferno_06") + firstClearXp("inferno_07");
     const bfId = crypto.randomUUID();
     const bfName = `LvBF${tag}`;
     await client.query(
@@ -689,24 +691,91 @@ async function run() {
       [bfId, bfName]
     );
     await client.query(
-      `INSERT INTO first_clears (player_id, canto_id) VALUES ($1,'inferno_05'),($1,'inferno_06'),($1,'inferno_07')`,
+      `INSERT INTO first_clears (player_id, canto_id, cleared_at) VALUES
+         ($1,'inferno_05', NOW()),($1,'inferno_06', NOW()),($1,'inferno_07', NOW())`,
       [bfId]
     );
     const has = await client.query(`SELECT 1 FROM player_progress WHERE player_id = $1`, [bfId]);
     check(has.rowCount === 0, "backfill subject has no progress row");
+
+    const cuId = crypto.randomUUID();
+    const cuName = `LvCU${tag}`;
+    const cuLevel = levelFromTotalXp(wantXp).level;
+    const cuRanks = { gale_bolt: 1, whirl_ward: 1, infernal_burst: 1, ferocia: 1 };
+    const cuLoadout = ["gale_bolt", "whirl_ward", "infernal_burst", null];
+    await client.query(
+      `INSERT INTO players (id, name, display_name, ash, pending_ash)
+       VALUES ($1,$2,$2,25000,0)`,
+      [cuId, cuName]
+    );
+    await client.query(
+      `INSERT INTO first_clears (player_id, canto_id, cleared_at) VALUES
+         ($1,'inferno_05',$2::timestamptz),($1,'inferno_06',$2::timestamptz),($1,'inferno_07',$2::timestamptz)`,
+      [cuId, "2026-10-01T00:00:00Z"]
+    );
+    await client.query(
+      `INSERT INTO player_progress (player_id, level, xp, ranks, loadout, backfilled, respecs, catchup_v)
+       VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,TRUE,0,0)`,
+      [cuId, cuLevel, wantXp, JSON.stringify(cuRanks), JSON.stringify(cuLoadout)]
+    );
+
     await stopServer();
     await startServer();
     const BF = await connect(bfName);
     await sleep(400);
-    const wantXp = firstClearXp("inferno_05") + firstClearXp("inferno_06") + firstClearXp("inferno_07");
-    check(prog(BF).xp === wantXp, "backfill XP is 800×tier per clear", `${prog(BF).xp} want ${wantXp}`);
+    check(prog(BF).xp === wantXp, "backfill XP is 800×tier per clear (no catch-up for NOW())", `${prog(BF).xp} want ${wantXp}`);
     check(prog(BF).level >= 6 && prog(BF).level <= 9, "backfill lands around 6–9", String(prog(BF).level));
     check(prog(BF).ranks.gale_bolt === 1, "backfill keeps free ranks");
+    check(
+      !BF.msgs.some((m) => m.type === "toast" && String(m.text || "").startsWith("Catch-up:")),
+      "backfill subject gets no catch-up toast"
+    );
     BF.ws.close();
+
+    const catchupSum = 6400 + 10400 + 16400;
+    const CU = await connect(cuName);
+    await sleep(400);
+    check(prog(CU).xp === wantXp + catchupSum, "catch-up XP is 4800+33200", `${prog(CU).xp} want ${wantXp + catchupSum}`);
+    check(prog(CU).level >= 15 && prog(CU).level <= 18, "catch-up lands around 16", String(prog(CU).level));
+    check(prog(CU).ranks.ferocia === 1 && prog(CU).ranks.gale_bolt === 1, "catch-up preserves ranks");
+    check(
+      prog(CU).points === unspentPoints(prog(CU).level, prog(CU).ranks),
+      "catch-up points are level-based unspent",
+      `${prog(CU).points} lv ${prog(CU).level}`
+    );
+    const cuToast = CU.msgs.find((m) => m.type === "toast" && String(m.text || "").startsWith("Catch-up:"));
+    check(!!cuToast, "catch-up toast", cuToast?.text || "");
+    const xp1 = prog(CU).xp;
+    const lv1 = prog(CU).level;
+    CU.ws.close();
+    await sleep(200);
+    let CU2 = await connect(cuName);
+    await sleep(300);
+    check(prog(CU2).xp === xp1, "catch-up reconnect is idempotent", `${prog(CU2).xp} vs ${xp1}`);
+    check(
+      !CU2.msgs.some((m) => m.type === "toast" && String(m.text || "").startsWith("Catch-up:")),
+      "catch-up toast does not repeat on reconnect"
+    );
+    CU2.ws.close();
+    await sleep(200);
+    await stopServer();
+    await startServer();
+    CU2 = await connect(cuName);
+    await sleep(400);
+    check(prog(CU2).xp === xp1, "catch-up restart is idempotent", `${prog(CU2).xp} vs ${xp1}`);
+    check(prog(CU2).level === lv1, "catch-up level stable after restart", `${prog(CU2).level} vs ${lv1}`);
+    check(prog(CU2).ranks.ferocia === 1, "catch-up ranks stable after restart");
+    check(
+      prog(CU2).points === unspentPoints(prog(CU2).level, prog(CU2).ranks),
+      "catch-up points stable after restart",
+      `${prog(CU2).points} lv ${prog(CU2).level}`
+    );
+    CU2.ws.close();
     await client.end();
   } else {
     console.log("SKIP persistence — no DATABASE_URL");
     console.log("SKIP backfill — no DATABASE_URL");
+    console.log("SKIP catch-up — no DATABASE_URL");
   }
 }
 
