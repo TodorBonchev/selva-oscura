@@ -715,6 +715,8 @@ class CantoRoom {
     }
     const playerSnaps = [];
     for (const [pid, s] of this.sessions) {
+      // Arena spectators are unseen by everyone else
+      if (s.spectating && pid !== forPlayerId) continue;
       const led = players.get(pid);
       const full = snapshotPlayer(led, {
         x: Math.round(s.x * 100) / 100,

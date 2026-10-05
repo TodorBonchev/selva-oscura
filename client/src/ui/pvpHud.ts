@@ -126,6 +126,8 @@ export class PvpHud {
   queueBadge: HTMLElement | null = null;
   private roundNext: HTMLElement | null = null;
   private challengeText = "";
+  private spectate!: HTMLButtonElement;
+  private spectateKey = "";
   private pendingText = "";
   private countText = "";
   private clockText = "";
@@ -148,6 +150,8 @@ export class PvpHud {
     onScore: () => void;
     onMute: () => void;
     onChallenges?: () => void;
+    onParty?: () => void;
+    onSpectate?: () => void;
   }) {
     this.root = el("div", "pvp-root", document.body);
 
@@ -185,6 +189,24 @@ export class PvpHud {
       e.preventDefault();
       this.closeMenu();
       handlers.onChallenges?.();
+    });
+    const party = el("button", "pvp-menu-item", this.menu);
+    party.type = "button";
+    party.setAttribute("role", "menuitem");
+    party.innerHTML = `Party<span class="pvp-menu-hot">P</span>`;
+    party.addEventListener("click", (e) => {
+      e.preventDefault();
+      this.closeMenu();
+      handlers.onParty?.();
+    });
+    this.spectate = el("button", "pvp-menu-item hidden", this.menu);
+    this.spectate.type = "button";
+    this.spectate.setAttribute("role", "menuitem");
+    this.spectate.textContent = "Spectate arena";
+    this.spectate.addEventListener("click", (e) => {
+      e.preventDefault();
+      this.closeMenu();
+      handlers.onSpectate?.();
     });
     this.queue = el("button", "pvp-menu-item pvp-queue", this.menu);
     this.queue.type = "button";
@@ -409,6 +431,15 @@ export class PvpHud {
   setMuted(muted: boolean) {
     this.mute.textContent = muted ? "Muted" : "Sound";
     this.mute.classList.toggle("is-muted", muted);
+  }
+
+  /** Arena only: "Spectate arena" / "Stop spectating" in the menu. */
+  setSpectate(show: boolean, active: boolean) {
+    const key = `${show}|${active}`;
+    if (key === this.spectateKey) return;
+    this.spectateKey = key;
+    this.spectate.classList.toggle("hidden", !show);
+    this.spectate.textContent = active ? "Stop spectating" : "Spectate arena";
   }
 
   setChallenge(text: string | null) {

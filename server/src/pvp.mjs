@@ -279,6 +279,7 @@ function invulnerable(sess) {
  */
 function pvpGate(room, attacker, target) {
   if (!room || !attacker || !target) return "no";
+  if (attacker.spectating || target.spectating) return "no";
   if (attacker === target || attacker.playerId === target.playerId) return "no";
   if (pvpIsDown(attacker) || pvpIsDown(target)) return "no";
   if (!(attacker.hp > 0) || !(target.hp > 0)) return "no";
@@ -678,6 +679,38 @@ function takePairMult(a, b) {
   return mult;
 }
 
+/** Arena spectator mode: unseen, cannot strike or be struck, out of rounds and queue. */
+export function pvpSpectate(room, sess, on) {
+  safe("spectate", () => {
+    if (!room || !sess) return;
+    if (tooSoon(sess, "spec")) return;
+    markRate(sess, "spec", 600);
+    if (room.canto?.role !== "arena") {
+      sess.spectating = false;
+      return;
+    }
+    if (on) {
+      if (sess.spectating) return;
+      if (duelOf(room, sess.playerId)) {
+        room.toast(sess.ws, "warn", "Finish your duel first.");
+        return;
+      }
+      if (pvpIsDown(sess)) return;
+      pvpState(room).queue.delete(sess.playerId);
+      sess.spectating = true;
+      room.toast(sess.ws, "info", "Spectating: you are unseen and cannot strike or be struck.");
+    } else {
+      if (!sess.spectating) return;
+      sess.spectating = false;
+      sess.pvpInvulnUntil = Date.now() + INVULN_MS;
+      sess.pvpLastInput = Date.now();
+      room.toast(sess.ws, "info", "You step back into the pit.");
+    }
+    room.markDirty?.();
+    room.pushSnapshot?.(sess.playerId);
+  });
+}
+
 function applyRating(room, duel, winnerId, reason) {
   const a = ensureStats(duel.a);
   const b = ensureStats(duel.b);
@@ -1030,7 +1063,8 @@ function ensureRound(room) {
 
 function boardRows(room) {
   const rows = [];
-  for (const [id] of room.sessions) {
+  for (const [id, sess] of room.sessions) {
+    if (sess?.spectating) continue;
     const s = ensureStats(id);
     rows.push({
       id,
@@ -1229,6 +1263,7 @@ function tickArena(room) {
   for (const [id, s] of room.sessions) {
     if (pvpIsDown(s)) continue;
     if (duelOf(room, id)) continue;
+    if (s.spectating) continue;
     const last = s.pvpLastInput || 0;
     if (last && now - last >= AFK_ARENA_MS) afk.push(id);
   }
@@ -1458,7 +1493,7 @@ export function handlePvpQueue(room, sess, join) {
     }
     const st = pvpState(room);
     if (join) {
-      if (duelOf(room, sess.playerId) || pvpIsDown(sess) || !(sess.hp > 0)) {
+      if (sess.spectating || duelOf(room, sess.playerId) || pvpIsDown(sess) || !(sess.hp > 0)) {
         room.send(sess.ws, { type: "pvp_queue", queued: false, size: st.queue.size });
         return;
       }
@@ -1557,6 +1592,7 @@ export function pvpYou(room, sess) {
   };
   if (s.title) out.title = s.title;
   if (queued) out.queued = true;
+  if (sess.spectating) out.spec = true;
   // The client keeps the recap / kill cam up and blocks input while downed
   if (pvpIsDown(sess)) out.downed = true;
   if ((sess.pvpInvulnUntil || 0) > Date.now()) out.invuln = true;

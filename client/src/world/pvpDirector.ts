@@ -7,6 +7,8 @@ import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { showToast, togglePanel, updateStats, isCompactUi } from "../ui/hud";
 import { PvpHud, howIt, type FeedRow } from "../ui/pvpHud";
 import { ChallengesPanel } from "../ui/challengesPanel";
+import { PartyPanel } from "../ui/partyPanel";
+import { cantoName } from "./gates";
 import { Sfx } from "../ui/sfx";
 import { PvpFx } from "./pvpFx";
 import { canTargetPlayer, activeDuel, type DuelLite, type TargetPlayer } from "./pvpRules";
@@ -56,6 +58,10 @@ function fmtDelta(n: number): string {
 export class PvpDirector {
   readonly hud: PvpHud;
   readonly challenges: ChallengesPanel;
+  readonly party: PartyPanel;
+  private specTarget: string | null = null;
+  private specBar: HTMLElement | null = null;
+  private specName = "";
   readonly sfx: Sfx;
   readonly fx: PvpFx;
   duels: Duel[] = EMPTY as unknown as Duel[];
@@ -111,6 +117,30 @@ export class PvpDirector {
     this.sfx = new Sfx();
     this.fx = new PvpFx(app.scene);
     this.challenges = new ChallengesPanel((m) => this.app.socket.send(m));
+    this.party = new PartyPanel({
+      send: (m) => this.app.socket.send(m),
+      youId: () => this.youId(),
+      cantoName: (id) => cantoName(id ?? undefined),
+      nearby: () => {
+        const room = this.app.room;
+        const you = this.app.renderYou;
+        const me = this.youId();
+        const out: { id: string; name: string; lv?: number; dist: number }[] = [];
+        for (const p of room?.players || []) {
+          if (String(p.id) === me) continue;
+          const pos = this.app.interp.pos(`pl:${p.id}`, p);
+          let dx = pos.x - you.x;
+          let dy = pos.y - you.y;
+          const b = room?.bounds;
+          if (b && this.app.mapWraps()) {
+            dx = wrapDelta(dx, b.width);
+            dy = wrapDelta(dy, b.height);
+          }
+          out.push({ id: String(p.id), name: String(p.name || "Pilgrim"), lv: Number(p.lv) || undefined, dist: Math.hypot(dx, dy) });
+        }
+        return out.sort((a, b) => a.dist - b.dist);
+      },
+    });
     this.hud = new PvpHud({
       onChallenge: () => this.challengeNearest(),
       onCancel: () => this.cancelPending(),
@@ -123,6 +153,8 @@ export class PvpDirector {
       },
       onMute: () => this.hud.setMuted(this.sfx.toggleMuted()),
       onChallenges: () => this.challenges.toggle(),
+      onParty: () => this.party.toggle(),
+      onSpectate: () => this.toggleSpectate(),
     });
     this.hud.setMuted(this.sfx.muted);
     window.addEventListener("pointerdown", () => this.skipKillCam(), true);
@@ -209,6 +241,9 @@ export class PvpDirector {
       case "challenges":
         this.challenges.paint(msg);
         return true;
+      case "party":
+      case "party_invite":
+        return this.party.onMessage(msg);
       default:
         return false;
     }
@@ -288,8 +323,79 @@ export class PvpDirector {
   /** Ground height for rings (one closure, not one per frame). */
   private readonly ringY = (x: number, y: number) => this.app.standY(x, y, 0);
 
+  /** Arena spectator: toggle with the server (it hides you and blocks hits). */
+  toggleSpectate() {
+    const on = !this.app.room?.you?.pvp?.spec;
+    this.app.socket.send({ type: "arena_spectate", on });
+  }
+
+  /** Fighters you can watch (spectators are already hidden by the server). */
+  private specPool(): any[] {
+    const me = this.youId();
+    return (this.app.room?.players || []).filter((p: any) => String(p.id) !== me && !(p.hp != null && p.hp <= 0 && !p.pvp?.downed));
+  }
+
+  private nextSpecTarget(step = 1) {
+    const pool = this.specPool();
+    if (!pool.length) {
+      this.specTarget = null;
+      return;
+    }
+    const i = pool.findIndex((p: any) => String(p.id) === this.specTarget);
+    const n = pool[(i < 0 ? 0 : i + step + pool.length) % pool.length];
+    this.specTarget = String(n.id);
+  }
+
+  /** Camera focus while spectating, else null (WorldApp follows you). */
+  spectateFocus(): { x: number; y: number } | null {
+    const room = this.app.room;
+    if (!room?.you?.pvp?.spec) return null;
+    let pl = room.players?.find((p: any) => String(p.id) === this.specTarget);
+    if (!pl) {
+      this.nextSpecTarget();
+      pl = room.players?.find((p: any) => String(p.id) === this.specTarget);
+    }
+    if (!pl) return null;
+    return this.app.interp.pos(`pl:${pl.id}`, pl);
+  }
+
+  private paintSpectate() {
+    const room = this.app.room;
+    const arena = room?.role === "arena" || room?.cantoId === "inferno_31";
+    const spec = Boolean(room?.you?.pvp?.spec);
+    this.hud.setSpectate(Boolean(arena), spec);
+    if (!spec) {
+      if (this.specBar) {
+        this.specBar.remove();
+        this.specBar = null;
+        this.specName = "";
+      }
+      return;
+    }
+    if (!this.specBar) {
+      const bar = document.createElement("div");
+      bar.className = "spec-bar";
+      bar.innerHTML = `<button type="button" class="spec-prev" aria-label="Previous fighter">◂</button>
+        <span class="spec-label">Spectating</span>
+        <button type="button" class="spec-next" aria-label="Next fighter">▸</button>
+        <button type="button" class="spec-leave">Fight</button>`;
+      bar.querySelector(".spec-prev")!.addEventListener("click", () => this.nextSpecTarget(-1));
+      bar.querySelector(".spec-next")!.addEventListener("click", () => this.nextSpecTarget(1));
+      bar.querySelector(".spec-leave")!.addEventListener("click", () => this.toggleSpectate());
+      document.body.appendChild(bar);
+      this.specBar = bar;
+    }
+    const pl = room?.players?.find((p: any) => String(p.id) === this.specTarget);
+    const label = pl ? `Spectating ${pl.name || "a fighter"}${pl.lv ? ` · Lv ${pl.lv}` : ""}` : "Spectating: the pit is empty";
+    if (label !== this.specName) {
+      this.specName = label;
+      this.specBar.querySelector(".spec-label")!.textContent = label;
+    }
+  }
+
   frame(rawDt: number, now: number) {
     const dt = rawDt > 0 && rawDt < 0.25 ? rawDt : 0.016;
+    this.party.tick(now);
     this.fx.tick(now, dt);
     this.fx.syncRings(this.liveRings(), this.ringY);
     this.pulseShimmer();
@@ -329,6 +435,7 @@ export class PvpDirector {
     if (now - this.lastHud < 100) return;
     this.lastHud = now;
     this.paintHud(now);
+    this.paintSpectate();
   }
 
   /**

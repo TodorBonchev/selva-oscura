@@ -5,6 +5,7 @@
 import { computeGearStats, debitAsh, persistAshNow, players } from "./ledger.mjs";
 import { dbEnabled, query } from "./db.mjs";
 import { PLAYER_MAX_MANA, MANA_REGEN_PER_SEC } from "./spells.mjs";
+import { partyMatesNear, PARTY_XP_BONUS } from "./party.mjs";
 import {
   DEFAULT_LOADOUT,
   FREE_SKILLS,
@@ -359,10 +360,18 @@ export function grantKillXp(room, killerId, entity) {
       const dy = s.y - entity.y;
       if (Math.hypot(dx, dy) <= PARTY_XP_RANGE) recipients.add(pid);
     }
+    // Parties: mates further out in the same canto still share, and a party that
+    // shares a kill earns +10% per extra member present.
+    for (const id of [...recipients]) {
+      for (const mate of partyMatesNear(room, id, entity.x, entity.y)) recipients.add(mate);
+    }
     for (const id of recipients) {
       const s = room.sessions.get(id);
       if (!s || !(s.hp > 0)) continue;
-      grantXp(room, id, amount, "kill");
+      let n = amount;
+      const mates = partyMatesNear(room, id, entity.x, entity.y).filter((m) => recipients.has(m)).length;
+      if (mates > 0) n = Math.round(amount * (1 + PARTY_XP_BONUS * Math.min(2, mates)));
+      grantXp(room, id, n, "kill");
     }
   });
 }

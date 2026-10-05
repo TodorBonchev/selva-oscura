@@ -1526,7 +1526,7 @@ export class WorldApp {
     let ix = fwd.x * fx + right.x * sx;
     let iy = fwd.z * fx + right.z * sx;
     this.predicting = false;
-    if (this.room.you?.pvp?.downed) {
+    if (this.room.you?.pvp?.downed || this.room.you?.pvp?.spec) {
       this.velX = 0;
       this.velY = 0;
       this.moveTarget = null;
@@ -1845,7 +1845,9 @@ export class WorldApp {
     }
 
     this.pvp?.catchRespawnCamera();
-    setPlanar(this.camTarget, this.renderYou.x, this.renderYou.y, this.standY(this.renderYou.x, this.renderYou.y));
+    const specAt = this.pvp?.spectateFocus() ?? null;
+    const focus = specAt ?? this.renderYou;
+    setPlanar(this.camTarget, focus.x, focus.y, this.standY(focus.x, focus.y));
     // Look-ahead along the walk so the road in front gets the screen
     tickCamLead(this.camLead, this.velX, this.velY, dt, compact);
     this.camTarget.x += this.camLead.x;
@@ -4831,6 +4833,7 @@ export class WorldApp {
       this.stopAttackHold();
       return;
     }
+    if (this.room.you?.pvp?.spec) return;
     this.onboarding?.note("attack");
     // A canto mechanic may spend the press on its own action (Gluttony: a thrown clod)
     if (this.mech.onAttackPress?.(this)) return;

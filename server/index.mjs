@@ -50,10 +50,12 @@ import {
 } from "./src/progression.mjs";
 import { noteClientRtt, noteServerRtt } from "./src/telegraph.mjs";
 import { handleChallengesGet, handleFlairSet, hydrateChallenges } from "./src/challenges.mjs";
-import { handleTutorial } from "./src/progression.mjs";
+import { partyHandle, partyInit, partyTick } from "./src/party.mjs";
+import { handleTutorial, getLevel } from "./src/progression.mjs";
+import { pvpSpectate } from "./src/pvp.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
-import { getEmitLog, vault, resolvePlayerForSession } from "./src/ledger.mjs";
+import { getEmitLog, vault, resolvePlayerForSession, players } from "./src/ledger.mjs";
 import { initDb, runMigrations, dbEnabled, closeDb } from "./src/db.mjs";
 import { hydrateFromDb } from "./src/ledger.mjs";
 
@@ -286,6 +288,7 @@ async function handleMessage(ws, meta, msg) {
     case "attack": {
       const room = world.getRoom(playerId);
       if (!room) return;
+      if (room.sessions.get(playerId)?.spectating) return;
       // combo: the client's swing in its 3-hit chain (2 = overhead finisher)
       room.handleAttack(playerId, String(msg.targetId), Number(msg.combo) || 0);
       break;
@@ -293,6 +296,7 @@ async function handleMessage(ws, meta, msg) {
     case "cast": {
       const room = world.getRoom(playerId);
       if (!room) return;
+      if (room.sessions.get(playerId)?.spectating) return;
       room.handleCast(
         playerId,
         String(msg.spellId || ""),
@@ -489,11 +493,26 @@ async function handleMessage(ws, meta, msg) {
       }
       break;
     }
+    case "party_invite":
+    case "party_respond":
+    case "party_leave":
+    case "party_kick":
+    case "party_get": {
+      partyHandle(playerId, msg);
+      break;
+    }
     case "tutorial": {
       const room = world.getRoom(playerId);
       const sess = room?.sessions.get(playerId);
       if (!room || !sess) return;
       handleTutorial(room, sess, String(msg.step || ""));
+      break;
+    }
+    case "arena_spectate": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      pvpSpectate(room, sess, Boolean(msg.on));
       break;
     }
     case "challenges_get": {
@@ -593,6 +612,18 @@ async function boot() {
     console.error("[prog] hydrate failed", err.message);
   }
   await hydrateChallenges();
+  partyInit({
+    getRoom: (id) => world.getRoom(id),
+    nameOf: (id) => players.get(id)?.name || null,
+    levelOf: (id) => getLevel(id),
+  });
+  setInterval(() => {
+    try {
+      partyTick();
+    } catch (err) {
+      console.error("[party] tick", err.message);
+    }
+  }, 2000);
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`selva-oscura slice1 listening on ${PORT}`);
