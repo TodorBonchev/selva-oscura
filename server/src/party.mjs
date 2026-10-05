@@ -240,6 +240,7 @@ export function partyTick(now = Date.now()) {
       if (now - inv.at > INVITE_MS) {
         box.delete(fid);
         clearInvite(fid, tid, "expired");
+        toast(fid, "info", `Party invite to ${nameOf(tid)} expired.`);
       }
     }
     if (!box.size) invites.delete(tid);
