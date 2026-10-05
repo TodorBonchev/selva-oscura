@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { showToast, togglePanel, updateStats, isCompactUi } from "../ui/hud";
 import { PvpHud, howIt, type FeedRow } from "../ui/pvpHud";
+import { ChallengesPanel } from "../ui/challengesPanel";
 import { Sfx } from "../ui/sfx";
 import { PvpFx } from "./pvpFx";
 import { canTargetPlayer, activeDuel, type DuelLite, type TargetPlayer } from "./pvpRules";
@@ -54,6 +55,7 @@ function fmtDelta(n: number): string {
 
 export class PvpDirector {
   readonly hud: PvpHud;
+  readonly challenges: ChallengesPanel;
   readonly sfx: Sfx;
   readonly fx: PvpFx;
   duels: Duel[] = EMPTY as unknown as Duel[];
@@ -108,6 +110,7 @@ export class PvpDirector {
     this.app = app;
     this.sfx = new Sfx();
     this.fx = new PvpFx(app.scene);
+    this.challenges = new ChallengesPanel((m) => this.app.socket.send(m));
     this.hud = new PvpHud({
       onChallenge: () => this.challengeNearest(),
       onCancel: () => this.cancelPending(),
@@ -119,6 +122,7 @@ export class PvpDirector {
         this.hud.scorePinned = !this.hud.scorePinned;
       },
       onMute: () => this.hud.setMuted(this.sfx.toggleMuted()),
+      onChallenges: () => this.challenges.toggle(),
     });
     this.hud.setMuted(this.sfx.muted);
     window.addEventListener("pointerdown", () => this.skipKillCam(), true);
@@ -201,6 +205,9 @@ export class PvpDirector {
         return true;
       case "pvp_leaderboard":
         this.paintBoard(msg);
+        return true;
+      case "challenges":
+        this.challenges.paint(msg);
         return true;
       default:
         return false;
@@ -398,7 +405,7 @@ export class PvpDirector {
   }
 
   paintRemote(el: HTMLElement, pl: any) {
-    this.paintPlate(el, pl?.pvp, this.canTarget(pl), Boolean(pl?.pvp?.downed) || (pl?.hp != null && pl.hp <= 0));
+    this.paintPlate(el, pl?.pvp, this.canTarget(pl), Boolean(pl?.pvp?.downed) || (pl?.hp != null && pl.hp <= 0), pl?.flair);
   }
 
   challengeNearest(): boolean {
@@ -863,7 +870,7 @@ export class PvpDirector {
     }
   }
 
-  private paintPlate(el: HTMLElement, pvp: any, hostile: boolean, downed: boolean) {
+  private paintPlate(el: HTMLElement, pvp: any, hostile: boolean, downed: boolean, flair?: any) {
     let sub: HTMLElement | undefined = this.subs.get(el);
     if (!sub) {
       const found = el.querySelector(".wl-pvp");
@@ -877,13 +884,18 @@ export class PvpDirector {
       }
       this.subs.set(el, sub);
     }
-    const title = pvp?.title ? String(pvp.title) : "";
+    // A worn challenge title (cosmetic, challenges panel) replaces the computed PvP title
+    const worn = flair?.t ? String(flair.t) : "";
+    const title = worn || (pvp?.title ? String(pvp.title) : "");
     const rating = pvp && pvp.rating != null ? Number(pvp.rating) : 1200;
+    const mark = flair?.f ? String(flair.f) : "";
+    el.classList.toggle("flair-laurel", mark === "laurel");
+    el.classList.toggle("flair-ember", mark === "ember");
     const text = title ? `${title} · ${rating}` : String(rating);
     if (sub.textContent !== text) sub.textContent = text;
     el.classList.toggle("pvp-foe", hostile);
     el.classList.toggle("pvp-down", downed);
-    el.classList.toggle("title-gilt", title === "Giant" || title === "Champion");
+    el.classList.toggle("title-gilt", title === "Giant" || title === "Champion" || title === "Weekly Victor");
   }
 
   private scoreHtml(you: string): string {

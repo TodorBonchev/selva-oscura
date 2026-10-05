@@ -147,6 +147,7 @@ export class PvpHud {
     onBoard: () => void;
     onScore: () => void;
     onMute: () => void;
+    onChallenges?: () => void;
   }) {
     this.root = el("div", "pvp-root", document.body);
 
@@ -175,6 +176,15 @@ export class PvpHud {
       e.preventDefault();
       this.closeMenu();
       handlers.onScore();
+    });
+    const chal = el("button", "pvp-menu-item", this.menu);
+    chal.type = "button";
+    chal.setAttribute("role", "menuitem");
+    chal.innerHTML = `Challenges<span class="pvp-menu-hot">J</span>`;
+    chal.addEventListener("click", (e) => {
+      e.preventDefault();
+      this.closeMenu();
+      handlers.onChallenges?.();
     });
     this.queue = el("button", "pvp-menu-item pvp-queue", this.menu);
     this.queue.type = "button";

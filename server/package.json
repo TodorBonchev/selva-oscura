@@ -13,7 +13,8 @@
     "migrate": "node scripts/migrate.mjs",
     "test:pg": "node scripts/pg-ah-regression.mjs",
     "test:pvp": "node scripts/pvp-regression.mjs",
-    "test:levels": "node scripts/progression-regression.mjs"
+    "test:levels": "node scripts/progression-regression.mjs",
+    "test:challenges": "node scripts/challenges-regression.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",

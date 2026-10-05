@@ -4,6 +4,7 @@
  * Throws are logged; none of this may kill the room tick.
  */
 import crypto from "node:crypto";
+import { challengesOnArenaKill, challengesOnDuelWin, challengesOnRoundWin } from "./challenges.mjs";
 import { players } from "./ledger.mjs";
 import { dbEnabled, query } from "./db.mjs";
 import { PLAYER_MAX_MANA } from "./spells.mjs";
@@ -538,6 +539,7 @@ function onArenaKill(room, victim, killer, how, prevStreak) {
   k.roundKills = (k.roundKills || 0) + 1;
   if (k.streak > (k.bestStreak || 0)) k.bestStreak = k.streak;
   v.deaths += 1;
+  challengesOnArenaKill(room, killer.playerId, k.streak);
   refreshTitle(k);
   refreshTitle(v);
   const firstBlood = round && !round.firstBlood;
@@ -701,6 +703,8 @@ function applyRating(room, duel, winnerId, reason) {
   }
   let dA = 0;
   let dB = 0;
+  // (a rival met too often today stops counting toward the daily too)
+  if (winnerId && reason !== "draw" && mult > 0) challengesOnDuelWin(room, winnerId);
   if (mult <= 0) {
     duel.pairZeroed = true;
     const line = "Rating unchanged: you have met this rival too often today.";
@@ -1063,6 +1067,7 @@ function finishRound(room) {
     s.roundsWon += 1;
     refreshTitle(s);
     persistPvp(w.id);
+    challengesOnRoundWin(room, w.id);
   }
   try {
     room.broadcast({ type: "pvp_round", phase: "end", n: round.n, winners, board });

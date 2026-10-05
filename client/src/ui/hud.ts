@@ -1088,7 +1088,7 @@ function actionBarTipCopy(btn: HTMLElement): { key: string; name: string; meta: 
     };
   }
   if (btn.id === "btn-skills") return { key: "K", name: "Skills", meta: "", blurb: "Skill tree and the four active slots." };
-  if (btn.id === "btn-menu") return { key: "", name: "Menu", meta: "", blurb: "Leaderboard, scoreboard, ranked queue, and sound." };
+  if (btn.id === "btn-menu") return { key: "", name: "Menu", meta: "", blurb: "Leaderboard, scoreboard, challenges, ranked queue, and sound." };
   const id = btn.id;
   const hint = btn.querySelector(".action-hint")?.textContent?.trim() || "";
   const label = btn.querySelector(".action-label")?.textContent?.trim() || "";

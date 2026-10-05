@@ -34,6 +34,7 @@ import {
   walkTo,
 } from "./mobAi.mjs";
 import { getMech } from "./cantoMech/index.mjs";
+import { challengesOnBossKill, challengesOnMobKill, flairOf } from "./challenges.mjs";
 import { wrapCoord, wrapDelta } from "./wrap.mjs";
 import {
   pvpAimTarget,
@@ -725,6 +726,8 @@ class CantoRoom {
         cantoId: this.cantoId,
       });
       full.lv = getLevel(pid);
+      const fl = flairOf(pid);
+      if (fl) full.flair = fl;
       // Remotes: slim equipped for look only; strip inventory/ash/private fields.
       // Local "you" snapshot below stays full.
       if (pid === forPlayerId) {
@@ -732,6 +735,7 @@ class CantoRoom {
       } else {
         const slim = slimRemotePlayerSnap(full);
         slim.lv = full.lv;
+        if (full.flair) slim.flair = full.flair;
         const aff = affOf(s);
         if (aff) slim.aff = aff;
         try {
@@ -1275,6 +1279,7 @@ class CantoRoom {
     // A windup dies with its owner — every telegraph it owns (a boss's rings and lines
     // are not all on entity.teleId), so none lands after the killing blow
     this.tele.cancelBy(entity.id, "death");
+    challengesOnMobKill(this, killerId, entity);
     const killer = this.sessions.get(killerId);
     const ledger = players.get(killerId);
     const dropTable = entity.dropTable || "inferno_pack_common";
@@ -1426,6 +1431,7 @@ class CantoRoom {
       // last-hit-only first clear would leave helpers stuck at a sealed gate).
       const credited = new Set([killerId, ...(entity.hitBy || [])]);
       console.log(`[boss] ${entity.id} slain in ${this.cantoId} (credited ${credited.size})`);
+      challengesOnBossKill(this, entity, [...credited].filter((id) => this.sessions.has(id)));
       for (const pid of credited) {
         const sess = this.sessions.get(pid);
         if (!sess) continue;

@@ -49,6 +49,7 @@ import {
   hydrateProgression,
 } from "./src/progression.mjs";
 import { noteClientRtt, noteServerRtt } from "./src/telegraph.mjs";
+import { handleChallengesGet, handleFlairSet, hydrateChallenges } from "./src/challenges.mjs";
 import { PROTOCOL_VERSION } from "./vendor/constants.mjs";
 import * as ah from "./src/ah.mjs";
 import { getEmitLog, vault, resolvePlayerForSession } from "./src/ledger.mjs";
@@ -487,6 +488,20 @@ async function handleMessage(ws, meta, msg) {
       }
       break;
     }
+    case "challenges_get": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      handleChallengesGet(room, sess);
+      break;
+    }
+    case "flair_set": {
+      const room = world.getRoom(playerId);
+      const sess = room?.sessions.get(playerId);
+      if (!room || !sess) return;
+      handleFlairSet(room, sess, String(msg.kind || "title"), msg.id ?? null);
+      break;
+    }
     case "skill_learn": {
       const room = world.getRoom(playerId);
       const sess = room?.sessions.get(playerId);
@@ -569,6 +584,7 @@ async function boot() {
   } catch (err) {
     console.error("[prog] hydrate failed", err.message);
   }
+  await hydrateChallenges();
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`selva-oscura slice1 listening on ${PORT}`);
