@@ -56,6 +56,9 @@ const KEEP_OUT = [
   "#canto-card",
   "#dialogue",
   "#canto-compass .compass-arrow",
+  "#tut-card:not(.tut-aside)",
+  ".party-frame:not(.hidden)",
+  ".party-invite",
 ].join(",");
 const KEEP_PAD = 4;
 /**

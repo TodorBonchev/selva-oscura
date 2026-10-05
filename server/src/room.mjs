@@ -1483,7 +1483,7 @@ class CantoRoom {
               : this.cantoId === "inferno_06"
                 ? "Triple Maw broken — the Avarice gate past the Maw opens."
                 : this.cantoId === "inferno_07"
-                  ? "Plutus is broken — the Dark Wood road opens past the dais."
+                  ? "Plutus is broken — the Wrath gate and the Dark Wood road open past the dais."
                   : this.cantoId === "inferno_08"
                     ? "Filippo Argenti sinks — the Dark Wood road opens past the ferry."
                     : null;
@@ -1707,11 +1707,9 @@ class CantoRoom {
           if (clears.includes("inferno_08")) {
             guideLine =
               "Guide: Filippo Argenti sank in the Styx — the wrathful still brawl in the mud. Claim the writ, bank your drops at the stash, or hunt Lust, Gluttony, Avarice, or Wrath again.";
-          } else if (clears.includes("inferno_07") && clears.includes("inferno_05")) {
-            // Both Lust + Ava clear: distinguish east Lust rematch vs weighed road again
-            guideLine =
-              "Guide: Measure holds — east Lust for Minos again, or back through Gluttony into Avarice. Claim the writ, bank weighed drops at the stash, then choose your road.";
           } else if (clears.includes("inferno_07")) {
+            // (Avarice always follows Lust: the old "Lust + Avarice" rematch line here hid
+            // this one, so a fresh Avarice clear never heard of the Styx)
             guideLine =
               "Guide: Plutus is broken — past his dais the Styx waits (Wrath). Ford it, break the Rage Heart, and face Filippo Argenti. Claim the daily writ and bank weighed drops at the stash.";
           } else if (clears.includes("inferno_06")) {

@@ -3635,7 +3635,7 @@ export class WorldApp {
                 if (!this.avaClearStashTipShown) {
                   this.avaClearStashTipShown = true;
                   showToast(
-                    "Bank weighed drops at the Dark Wood stash — then speak with the Guide",
+                    "The Styx waits past Plutus's dais — take the Wrath gate, or bank weighed drops at the Dark Wood stash first",
                     "info"
                   );
                 }
