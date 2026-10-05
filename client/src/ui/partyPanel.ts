@@ -35,6 +35,8 @@ export class PartyPanel {
   /** Last painted state: the 1 Hz refresh only rebuilds when it changed (a rebuilt
    * button under a finger would swallow the tap). */
   private paintKey = "";
+  /** Invites sent from this panel (target id → expiry ms): the button reads "Invited". */
+  private invited = new Map<string, number>();
 
   constructor(private ctx: PartyCtx) {
     const panels = document.getElementById("panels") || document.body;
@@ -157,7 +159,9 @@ export class PartyPanel {
       .map((n) => `${n.id}:${n.lv ?? ""}:${Math.round(n.dist / 4)}`)
       .join(",");
     const partyKey = p ? `${p.leader}|${p.members.map((m) => `${m.id}:${m.online ? 1 : 0}:${m.canto}:${m.level ?? ""}`).join(",")}` : "-";
-    const key = `${you}#${partyKey}#${nearKey}`;
+    const now = performance.now();
+    for (const [id, until] of this.invited) if (until <= now || p?.members.some((m) => m.id === id)) this.invited.delete(id);
+    const key = `${you}#${partyKey}#${nearKey}#${[...this.invited.keys()].join(",")}`;
     if (!force && key === this.paintKey) return;
     this.paintKey = key;
     b.textContent = "";
@@ -190,15 +194,26 @@ export class PartyPanel {
     el("h3", "", near).textContent = "Pilgrims nearby";
     const list = this.ctx.nearby().filter((n) => n.dist <= INVITE_RANGE && !p?.members.some((m) => m.id === n.id));
     if (!list.length) el("p", "party-note", near).textContent = "No one close by. Walk up to a pilgrim to invite them.";
+    else if (p && p.leader !== you) el("p", "party-note", near).textContent = "Only the party leader (♛) can invite.";
+    else if (p && p.members.length >= p.max) el("p", "party-note", near).textContent = `Your party is full (${p.max}/${p.max}).`;
     for (const n of list.slice(0, 8)) {
       const row = el("div", "party-row", near);
       el("span", "party-row-n", row).textContent = `${n.name}${n.lv ? ` · Lv ${n.lv}` : ""}`;
-      el("span", "party-row-c", row).textContent = `${Math.round(n.dist)} m`;
+      el("span", "party-row-c", row).textContent = n.dist < 1 ? "beside you" : `${Math.round(n.dist)} m`;
       if (canInvite) {
-        const inv = el("button", "party-btn party-yes", row);
+        const pending = this.invited.has(n.id);
+        const inv = el("button", `party-btn${pending ? "" : " party-yes"}`, row);
         inv.type = "button";
-        inv.textContent = "Invite";
-        inv.addEventListener("click", () => this.ctx.send({ type: "party_invite", targetId: n.id }));
+        inv.textContent = pending ? "Invited" : "Invite";
+        inv.disabled = pending;
+        if (!pending) {
+          inv.addEventListener("click", () => {
+            this.ctx.send({ type: "party_invite", targetId: n.id });
+            // (the server's invite lives ~30 s; a refusal toasts and the button frees then)
+            this.invited.set(n.id, performance.now() + 30_000);
+            this.paint(true);
+          });
+        }
       }
     }
   }

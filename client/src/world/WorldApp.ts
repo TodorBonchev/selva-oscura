@@ -4053,8 +4053,10 @@ export class WorldApp {
     if (!slam) return;
     const ava = this.room?.cantoId === "inferno_07";
     const glut = this.room?.cantoId === "inferno_06";
-    const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : 0xffe08a;
-    const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : 0xff5533;
+    // Styx eruptions: muddy bronze (palette matches the telegraph), not the generic fire red
+    const styx = l.kind === "styx_eruption";
+    const shockHex = ava ? 0xf2dea0 : glut ? 0xd8e8a0 : styx ? 0xf0dcb0 : 0xffe08a;
+    const coreHex = ava ? 0xd4a840 : glut ? 0xb8c070 : styx ? 0x7a4a22 : 0xff5533;
     const boss = l.kind === "boss_slam" || weight === "boss";
     // (on the drawn surface: a boss slam lands on its dais, not inside it)
     const lift = 0.09;

@@ -7310,6 +7310,7 @@ body.hud-compact.pve-circle .you-label { opacity: 0.5; }
 .party-note { font-size: 0.8rem; color: #bda77f; margin: 0.2rem 0; }
 .party-btn { background: rgba(60, 44, 24, 0.9); border: 1px solid rgba(214, 178, 108, 0.5); color: #f0dfb8; border-radius: 6px; padding: 4px 10px; min-height: 30px; font-size: 0.8rem; cursor: pointer; }
 .party-btn.party-yes { background: rgba(120, 88, 30, 0.95); border-color: #e2b85e; }
+.party-btn:disabled { opacity: 0.6; cursor: default; }
 .party-leave { margin-top: 0.5rem; }
 .party-frame { position: fixed; left: 8px; top: 120px; z-index: 30; display: flex; flex-direction: column; gap: 4px; pointer-events: auto; cursor: pointer; }
 .party-mem { background: rgba(16, 11, 6, 0.82); border: 1px solid rgba(214, 178, 108, 0.35); border-radius: 6px; padding: 3px 7px; width: 150px; font-size: 11px; color: #ead9b4; }
