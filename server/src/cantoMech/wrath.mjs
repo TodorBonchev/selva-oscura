@@ -11,7 +11,8 @@
  *     While a pilgrim stands within 4 u of that band, every ~6 s a circle
  *     telegraph (kind styx_eruption, 1.1 s, radius 2.2) opens at their feet.
  *  3. Filippo Argenti (argenti_fury). Default boss AI still runs (bossTick
- *     returns false). Every ~7 s he throws a line of three styx eruptions
+ *     returns false) with attackProfile argenti_lunge (crimson slam tele).
+ *     Every ~7 s he throws a line of three styx eruptions
  *     toward the nearest pilgrim, rippling outward 0.16 s apart. At ≤50% hp, once, he tears at himself and
  *     three summoned wrath_shades rise around him. At ≤25% he enrages for good
  *     (+30% damage). onBossReset / init clear the fight.
@@ -314,6 +315,8 @@ function resetBoss(boss) {
   boss._berserk = false;
   boss._eruptCd = BOSS_LINE_FIRST;
   boss.phase = undefined;
+  // Distinct crimson slam (client palette argenti_lunge) vs generic boss_slam gold
+  boss.attackProfile = "argenti_lunge";
 }
 
 export default {

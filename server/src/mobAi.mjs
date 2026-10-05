@@ -23,6 +23,8 @@ export const ATTACKS = {
   wardenSlam: { shape: "circle", windup: 0.7, radius: 2.75, trigger: 2.45, recover: 1.1, kind: "champ_slam" },
   // Bosses: the classic dais slam (Crush phase 2 overrides radius/windup in room.mjs)
   boss: { shape: "circle", windup: 1.4, radius: 3.2, trigger: 2.6, recover: 1.35, kind: "boss_slam" },
+  // Filippo Argenti (Wrath): same slam geometry, crimson tele kind for the client palette
+  argenti_lunge: { shape: "circle", windup: 1.4, radius: 3.2, trigger: 2.6, recover: 1.35, kind: "argenti_lunge" },
 };
 
 const WISPS = new Set(["gale_wisp", "mud_wisp", "coin_wisp", "sullen_wisp"]);

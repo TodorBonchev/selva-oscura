@@ -484,7 +484,7 @@ class CantoRoom {
 
   spawnBoss(boss) {
     const id = boss.id;
-    this.entities.set(id, {
+    const e = {
       id,
       kind: "boss",
       name: boss.name,
@@ -495,7 +495,10 @@ class CantoRoom {
       dropTable: boss.drop_table,
       firstClearEmit: boss.first_clear_emit !== false,
       atkCd: 0,
-    });
+    };
+    // Wrath: Filippo Argenti's slam uses the crimson argenti_lunge tele (mobAi ATTACKS)
+    if (id === "argenti_fury") e.attackProfile = "argenti_lunge";
+    this.entities.set(id, e);
   }
 
   /**

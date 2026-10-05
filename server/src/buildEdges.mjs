@@ -37,9 +37,9 @@ const HEARTS = new Set(["storm_heart", "mire_heart", "hoard_heart", "rage_heart"
 export const FEDE_FIRE_KINDS = Object.freeze(["styx_eruption"]);
 
 /** Boss windups Ombra may cancel. Phase patterns (coils, bites, rolls) are not these. */
-const SIMPLE_SLAM = new Set(["boss_slam", "slam"]);
+const SIMPLE_SLAM = new Set(["boss_slam", "argenti_lunge", "slam"]);
 /** Champion telegraphed windups (slam, and Lust's cleave, which is that champ's slam). */
-const CHAMP_WINDUP = new Set(["champ_slam", "champ_cleave", "boss_slam", "slam"]);
+const CHAMP_WINDUP = new Set(["champ_slam", "champ_cleave", "boss_slam", "argenti_lunge", "slam"]);
 
 export const IRA_EXECUTE_HP = 0.3;
 export const IRA_EXECUTE_BONUS = 0.25;
@@ -136,7 +136,7 @@ function fireHazard(teleKind) {
 function heavyTelegraph(attacker, teleKind) {
   const kind = String(teleKind || "");
   if (!kind) return false;
-  if (kind === "boss_slam" || kind === "crush") return true;
+  if (kind === "boss_slam" || kind === "argenti_lunge" || kind === "crush") return true;
   if (attacker && attacker.kind === "boss") return true;
   return isChampionClass(attacker);
 }

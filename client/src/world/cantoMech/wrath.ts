@@ -20,6 +20,7 @@ import { STYX_HALF, STYX_PTS } from "../wrathStyx";
 
 // Styx eruptions: silt-black floor, a muddy bronze fill, a bone rim (no gold: gold = go)
 registerTelePalette("styx_eruption", { base: 0x0a0806, hot: 0x7a4a22, rim: 0xf0dcb0 });
+// Argenti's slam (server attackProfile argenti_lunge) — crimson vs generic boss_slam gold
 registerTelePalette("argenti_lunge", { base: 0x1a0404, hot: 0xb02018, rim: 0xffd0b8 });
 registerTeleWeight("styx_eruption", "champ");
 registerTeleWeight("argenti_lunge", "boss");
