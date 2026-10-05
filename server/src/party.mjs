@@ -145,7 +145,6 @@ function invite(fromId, targetId) {
     clearInvite(fromId, targetId, "failed");
     return;
   }
-  lastInvite.set(fromId, now);
   const target = sessOf(targetId);
   if (!target) {
     toast(fromId, "warn", "That pilgrim is not online.");
@@ -171,6 +170,7 @@ function invite(fromId, targetId) {
   let box = invites.get(targetId);
   if (!box) invites.set(targetId, (box = new Map()));
   box.set(fromId, { partyId: mine?.id || null, at: now });
+  lastInvite.set(fromId, now);
   sendTo(targetId, { type: "party_invite", fromId, fromName: nameOf(fromId) });
   sendTo(fromId, { type: "party_invite_result", targetId, status: "pending" });
   toast(fromId, "info", `Party invite sent to ${nameOf(targetId)}.`);
