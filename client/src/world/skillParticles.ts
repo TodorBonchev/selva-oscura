@@ -472,7 +472,7 @@ export class SkillParticles {
   }
 }
 
-export type DecalKind = "scorch" | "crack" | "rune";
+export type DecalKind = "scorch" | "crack" | "crackLit" | "rune";
 
 const TEX = new Map<DecalKind, THREE.CanvasTexture>();
 
@@ -533,6 +533,48 @@ function decalTexture(kind: DecalKind): THREE.CanvasTexture {
       g.lineWidth = 2.2;
       g.stroke();
     }
+  } else if (kind === "crackLit") {
+    // Earthsplitter seam: soft dark bed, a black outline, a molten core and a white
+    // centre line — contrast on any floor (normal blending, untinted)
+    const wash = g.createRadialGradient(cx, cy, 2, cx, cy, S * 0.48);
+    wash.addColorStop(0, "rgba(10,6,4,0.55)");
+    wash.addColorStop(0.65, "rgba(10,6,4,0.18)");
+    wash.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = wash;
+    g.fillRect(0, 0, S, S);
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    const arms = [
+      [1, 0.02],
+      [0.2, 0.42],
+      [-0.15, 0.62],
+      [-0.95, 0.06],
+      [-0.05, -0.72],
+      [0.28, -0.38],
+      [0.72, 0.4],
+    ];
+    const pass = (style: string, width: number) => {
+      for (let a = 0; a < arms.length; a++) {
+        const dx = arms[a][0];
+        const dy = arms[a][1];
+        const main = a === 0 || a === 3;
+        g.beginPath();
+        g.moveTo(cx, cy);
+        const steps = 4;
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          const jx = (i & 1) === 0 ? 7 : -6;
+          const jy = (i & 1) === 0 ? -5 : 6;
+          g.lineTo(cx + dx * t * S * (main ? 0.48 : 0.34) + jx, cy + dy * t * S * (main ? 0.48 : 0.34) + jy);
+        }
+        g.strokeStyle = style;
+        g.lineWidth = main ? width : width * 0.65;
+        g.stroke();
+      }
+    };
+    pass("rgba(0,0,0,0.85)", 9);
+    pass("rgba(255,150,50,0.95)", 5);
+    pass("rgba(255,238,190,1)", 2.2);
   } else {
     const glow = g.createRadialGradient(cx, cy, 4, cx, cy, S * 0.42);
     glow.addColorStop(0, "rgba(255,236,190,0.35)");

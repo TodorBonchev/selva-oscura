@@ -328,7 +328,7 @@ export class SkillVfx {
       0
     );
     if (opts?.decal) {
-      this.decals.spawn(opts.decal, x, y, Math.max(0.7, (opts.radius ?? 0.9 + s) * 0.85), colorHex, 3200, opts.yaw ?? 0);
+      this.decals.spawn(opts.decal, x, y, Math.max(0.7, (opts.radius ?? 0.9 + s) * 0.85), opts.decal === "crackLit" ? 0xffffff : colorHex, 3200, opts.yaw ?? 0);
     }
     this.onImpact?.(x, y, s, opts?.casterId || "", opts?.spellId || "", colorHex);
   }
@@ -893,8 +893,10 @@ export class SkillVfx {
   private haloBurst(x: number, y: number, radius: number, now: number) {
     const r = Math.max(1.2, radius);
     this.ring(x, y, r * 0.35, r, now, 720, GOLD, 0.82, true);
+    this.ring(x, y, r * 0.15, r * 0.6, now, 520, WHITE_FIRE, 0.5, true);
     this.particles.ringBurst(x, y, 20, 4.2, GOLD, this.standY(x, y, 0.35), 780, 0, 1.7);
-    this.particles.rise(x, y, r * 0.55, 12, WHITE_FIRE, this.standY(x, y, 0.4), 1200, 1.45, 0);
+    // (pale-gold motes, not pure white: a dozen white additive dots read as flat blobs)
+    this.particles.rise(x, y, r * 0.55, 10, 0xffe2a0, this.standY(x, y, 0.4), 1200, 1.45, 0);
   }
 
   private infernal(x: number, y: number, radius: number, owner: string) {
@@ -903,6 +905,12 @@ export class SkillVfx {
     this.particles.burst(x, y, this.standY(x, y, 0.25), 12, 2.2, WHITE_FIRE, 640, 0.16, 0.04, 2.4, -2.2, 0);
     this.decals.spawn("scorch", x, y, Math.max(1.5, radius * 0.9), FLAME, 3400, 0);
     this.impact(x, y, 0.75, FLAME, { casterId: owner, spellId: "infernal_burst", radius: Math.max(1.8, radius) });
+  }
+
+  /** Dark red / black floors where dark debris disappears (Lust, Wrath, the Pit). */
+  private darkFloor(): boolean {
+    const c = this.canto();
+    return c === "inferno_05" || c === "inferno_08" || c === "inferno_31";
   }
 
   /** Lust storm washes dark smoke out; Avarice gold needs a darker puff to read. */
@@ -1361,16 +1369,18 @@ export class SkillVfx {
       const t = s.prog / steps;
       const px = s.x + dx * t;
       const py = s.y + dy * t;
-      this.decals.spawn("crack", px, py, 0.85, EMBER, 3200, yaw);
-      this.particles.burst(px, py, this.standY(px, py, 0.22), 6, 2.3, EMBER, 640, 0.18, 0.04, 2.6, -4, 0);
-      this.particles.burst(px, py, this.standY(px, py, 0.12), 5, 1.5, 0x5c564e, 720, 0.3, 0.08, 1.2, -3.2, 1, 1.6);
+      // (lit seam: a dark outline and a molten white-gold core read on Lust's red floor
+      // and the Styx silt alike; the old ember-tinted crack vanished on dark red)
+      this.decals.spawn("crackLit", px, py, 0.95, 0xffffff, 3200, yaw);
+      this.particles.burst(px, py, this.standY(px, py, 0.22), 6, 2.3, 0xffd890, 640, 0.18, 0.04, 2.6, -4, 0);
+      this.particles.burst(px, py, this.standY(px, py, 0.12), 5, 1.5, this.darkFloor() ? 0xc8b8a0 : 0x5c564e, 720, 0.3, 0.08, 1.2, -3.2, 1, 1.6);
     }
     if (travel >= 1 && s.mode === 0) {
       s.mode = 1;
       this.impact(s.x1, s.y1, 0.85, EMBER, {
         casterId: s.owner,
         spellId: "earthsplitter",
-        decal: "crack",
+        decal: "crackLit",
         radius: 1.7,
         yaw,
       });
@@ -1615,17 +1625,39 @@ export class SkillVfx {
         }
       }
     } else if (rec.kind === "halo") {
-      rec.mesh.scale.setScalar(Math.max(1, rec.r));
-      rec.mesh.rotation.y = now * 0.0022;
-      const show = this.tierOf() === "low" ? 2 : 4;
-      let oi = 0;
+      const sc = Math.max(1, rec.r);
+      rec.mesh.scale.setScalar(sc);
+      rec.mesh.rotation.y = 0;
+      const inv = 1 / sc;
+      const tier = this.tierOf();
+      const show = tier === "low" ? 2 : tier === "mid" ? 4 : 6;
+      const breathe = 0.82 + 0.18 * Math.sin(now * 0.0035);
       const ch = rec.mesh.children;
       for (let i = 0; i < ch.length; i++) {
-        const c = ch[i];
-        if (c.name !== "orb") continue;
-        c.visible = oi < show;
-        if (c.visible) c.position.y = 0.32 + Math.sin(now * 0.004 + oi * 1.7) * 0.07;
-        oi++;
+        const c = ch[i] as THREE.Mesh;
+        const n = c.name;
+        if (n === "haloRing") {
+          (c.material as THREE.MeshBasicMaterial).opacity = 0.62 * breathe;
+        } else if (n === "haloGlow") {
+          (c.material as THREE.MeshBasicMaterial).opacity = 0.08 + 0.04 * breathe;
+        } else if (n === "haloCrown") {
+          // the crown hovers at a fixed world height and size over the caster
+          c.position.y = (1.15 + Math.sin(now * 0.0021) * 0.06) * inv;
+          c.scale.setScalar(inv * 1.2);
+          (c.material as THREE.MeshBasicMaterial).opacity = 0.42 * breathe;
+        } else if (n === "orb" || n === "orbTrail") {
+          const k = Number(c.userData.haloI) || 0;
+          c.visible = k < show;
+          if (!c.visible) continue;
+          const dir = k & 1 ? -1 : 1;
+          const lag = n === "orbTrail" ? 0.32 : 0;
+          const a = now * 0.0021 * dir + (k / 6) * Math.PI * 2 - lag * dir;
+          const rad = k & 1 ? 0.62 : 0.86;
+          const hy = (k & 1 ? 0.85 : 0.38) + Math.sin(now * 0.004 + k * 1.7) * 0.08;
+          c.position.set(Math.cos(a) * rad, hy * inv, Math.sin(a) * rad);
+          const base = Number(c.userData.baseScale) || 0.05;
+          c.scale.setScalar(base * inv);
+        }
       }
     } else if (rec.kind === "shade") {
       rec.mesh.rotation.y = now * 0.0008;
@@ -1861,17 +1893,32 @@ export class SkillVfx {
     return g;
   }
 
+  /**
+   * Halo (Faith): a warm gold ground ring with a faint inner glow, a thin crown ring
+   * that hovers at chest height, and gold/white sparks orbiting at two heights with a
+   * dimmer spark trailing each. Sizes are kept in world units however wide the halo
+   * is (placePersist undoes the group's radius scale for the sparks).
+   */
   private makeHalo(): THREE.Group {
     const g = new THREE.Group();
-    const ring = acquireFxRing(0.9, 1, 32, 0xf0e0a0, 0.55, true);
-    ring.position.y = 0.15;
-    g.add(ring);
-    for (let i = 0; i < 4; i++) {
-      const m = acquireFxMote(0.09, 6, GOLD, 0.9);
-      m.name = "orb";
-      const a = (i / 4) * Math.PI * 2;
-      m.position.set(Math.cos(a) * 0.78, 0.32, Math.sin(a) * 0.78);
-      g.add(m);
+    const ring = acquireFxRing(0.95, 1, 48, 0xf4d27a, 0.6, true);
+    ring.position.y = 0.12;
+    ring.name = "haloRing";
+    const inner = acquireFxRing(0.18, 0.88, 32, 0xb8862a, 0.16, true);
+    inner.position.y = 0.1;
+    inner.name = "haloGlow";
+    const crown = acquireFxRing(0.5, 0.56, 32, 0xfff0c8, 0.5, true);
+    crown.position.y = 1.15;
+    crown.name = "haloCrown";
+    g.add(ring, inner, crown);
+    for (let i = 0; i < 6; i++) {
+      const lead = acquireFxMote(0.085, 6, i & 1 ? 0xfff0c8 : 0xffc860, 0.8);
+      lead.name = "orb";
+      lead.userData.haloI = i;
+      const trail = acquireFxMote(0.05, 6, 0xd8a040, 0.4);
+      trail.name = "orbTrail";
+      trail.userData.haloI = i;
+      g.add(lead, trail);
     }
     return g;
   }
